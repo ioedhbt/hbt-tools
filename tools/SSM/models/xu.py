@@ -81,9 +81,51 @@ class XuModel(AbstractSSMModel):
         # Forward simulation not implemented for this diagnostic model
         return None
 
+    # @classmethod
+    # def render_step_formulas(cls):
+    #     st.markdown("**Dvorak & Bolognesi (2003) — CBC via three methods + C_π**")
+    #     c1, c2, c3, c4 = st.columns(4)
+    #     with c1:
+    #         st.markdown("**Eq. 12** (Z, Im only)")
+    #         st.latex(r"\tilde{C}_{BC}=\frac{1}{\omega\,\mathrm{Im}(Z_{22}-Z_{21})}")
+    #     with c2:
+    #         st.markdown("**Eq. 13** (Z, recommended)")
+    #         st.latex(r"C_{BC}=\mathrm{Im}\!\left\{\frac{1}{\omega(Z_{22}-Z_{21})}\right\}")
+    #     with c3:
+    #         st.markdown("**Eq. 14** (Y-param)")
+    #         st.latex(r"C_{BC}=\frac{\mathrm{Im}(Y_{12})}{\omega}")
+    #     with c4:
+    #         st.markdown("**Eq. 28** (C_π)")
+    #         st.latex(r"C_\pi=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}")
+
     @classmethod
-    def render_step_formulas(cls):
-        st.markdown("**Dvorak & Bolognesi (2003) — CBC via three methods + C_π**")
+    def render_results_table(cls, params):
+        rows = [
+            ("Cbc (Eq.12, Z Im)", f"{params['Cbc_Z1']*1e15:.4f}", "fF"),
+            ("Cbc (Eq.13, Z rec)", f"{params['Cbc_Z2']*1e15:.4f}", "fF"),
+            ("Cbc (Eq.14, Y)",    f"{params['Cbc_Y']*1e15:.4f}",  "fF"),
+            ("Cpi (Eq.28)",       f"{params['Cpi']*1e15:.4f}",    "fF"),
+        ]
+        st.dataframe(pd.DataFrame(rows, columns=["Parameter", "Value", "Unit"]),
+                     use_container_width=True, hide_index=True)
+
+    # @classmethod
+    # def render_formula_trace(cls):
+    #     with st.expander("📐 Full formula trace — Dvorak & Bolognesi (2003)", expanded=False):
+    #         st.markdown("**Input:** Y_ex1 (fully de-embedded DUT admittance)")
+    #         st.latex(r"[Eq.12]\;\tilde{C}_{BC}=\frac{1}{\omega\,\mathrm{Im}(Z_{22}-Z_{21})}")
+    #         st.latex(r"[Eq.13]\;C_{BC}=\mathrm{Im}\!\left\{\frac{1}{\omega(Z_{22}-Z_{21})}\right\}"
+    #                  r"\quad\text{(recommended)}")
+    #         st.latex(r"[Eq.14]\;C_{BC}=\frac{\mathrm{Im}(Y_{12})}{\omega}")
+    #         st.latex(r"[Eq.28]\;C_\pi=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}")
+    #         st.markdown("No forward simulation implemented — diagnostic / comparison model only.")
+
+    @classmethod
+    def render_override_and_smith(cls, fname, S_raw, freq, z0,
+                                  para_eff, extract_result, **kwargs):
+        params, arrays = extract_result
+        f_ghz = freq * 1e-9
+        n_low = kwargs.get("n_low", max(3, len(freq) // 10))
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown("**Eq. 12** (Z, Im only)")
@@ -97,35 +139,6 @@ class XuModel(AbstractSSMModel):
         with c4:
             st.markdown("**Eq. 28** (C_π)")
             st.latex(r"C_\pi=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}")
-
-    @classmethod
-    def render_results_table(cls, params):
-        rows = [
-            ("Cbc (Eq.12, Z Im)", f"{params['Cbc_Z1']*1e15:.4f}", "fF"),
-            ("Cbc (Eq.13, Z rec)", f"{params['Cbc_Z2']*1e15:.4f}", "fF"),
-            ("Cbc (Eq.14, Y)",    f"{params['Cbc_Y']*1e15:.4f}",  "fF"),
-            ("Cpi (Eq.28)",       f"{params['Cpi']*1e15:.4f}",    "fF"),
-        ]
-        st.dataframe(pd.DataFrame(rows, columns=["Parameter", "Value", "Unit"]),
-                     use_container_width=True, hide_index=True)
-
-    @classmethod
-    def render_formula_trace(cls):
-        with st.expander("📐 Full formula trace — Dvorak & Bolognesi (2003)", expanded=False):
-            st.markdown("**Input:** Y_ex1 (fully de-embedded DUT admittance)")
-            st.latex(r"[Eq.12]\;\tilde{C}_{BC}=\frac{1}{\omega\,\mathrm{Im}(Z_{22}-Z_{21})}")
-            st.latex(r"[Eq.13]\;C_{BC}=\mathrm{Im}\!\left\{\frac{1}{\omega(Z_{22}-Z_{21})}\right\}"
-                     r"\quad\text{(recommended)}")
-            st.latex(r"[Eq.14]\;C_{BC}=\frac{\mathrm{Im}(Y_{12})}{\omega}")
-            st.latex(r"[Eq.28]\;C_\pi=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}")
-            st.markdown("No forward simulation implemented — diagnostic / comparison model only.")
-
-    @classmethod
-    def render_override_and_smith(cls, fname, S_raw, freq, z0,
-                                  para_eff, extract_result, **kwargs):
-        params, arrays = extract_result
-        f_ghz = freq * 1e-9
-        n_low = kwargs.get("n_low", max(3, len(freq) // 10))
 
         fig, axes = plt.subplots(1, 4, figsize=(14, 3.5))
         plot_specs = [

@@ -230,11 +230,20 @@ class Degachi(AbstractSSMModel):
                 ("tau_a", "tau", "τ",   1e12, "ps"),
             ],
             "depends_on": ["Rbi"],
+            "formulas": [
+                ("markdown", "**From residual core admittance after removing Z_bi:**"),
+                ("latex", r"g_m=Y_{21}^{\mathrm{core}}-Y_{12}^{\mathrm{core}},\;G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega"),
+            ],
+
         },
         {
             "label":      "Ccx  (from high-freq Im(Y₁₂)/ω — extracted last)",
             "params":     [("Ccx_arr", "Ccx", "Ccx", 1e15, "fF")],
             "depends_on": ["Gm0", "tau"],
+            "formulas": [
+                ("markdown", "**From high-frequency Im(Y₁₂)/ω:**"),
+                ("latex", r"C_{cx}=-\frac{\mathrm{Im}(Y_{12})}{\omega}\bigg|_{\mathrm{high\,freq}}"),
+            ],
         },
     ]
 
@@ -247,22 +256,22 @@ class Degachi(AbstractSSMModel):
     def simulate(cls, params, freq, z0=50.0):
         return _simulate(params, freq, z0)
 
-    @classmethod
-    def render_step_formulas(cls):
-        """Formulas shown immediately before extraction in the UI."""
-        st.markdown("**Degachi (2008) — [Eqs. 3–26], input: Y_ex1 directly**")
-        st.latex(r"Z_1=\frac{1}{Y_{11}+Y_{12}},\;"
-                 r"Z_3=\frac{Y_{21}+Y_{11}}{(Y_{11}+Y_{12})(Y_{22}+Y_{12})}")
-        st.latex(r"F_{bi}=\omega/\mathrm{Im}(Z_1/Z_3)=A_0+\omega^2 B_0"
-                 r"\;\Rightarrow\;T_{bi}=\sqrt{B_0/A_0}")
-        st.latex(r"\mathrm{Re}[Z_1/Z_3(1+j\omega T_{bi})]=R_{bi}/R_{bc},\;"
-                 r"\mathrm{Im}[\cdot]/\omega=R_{bi}C_{bc}")
-        st.latex(r"F_1=\omega/\mathrm{Im}[Z_1(1+j\omega T_{bi})]=A+\omega^2 B"
-                 r"\;\Rightarrow\;T_{be}=\sqrt{B/A}")
-        st.latex(r"\begin{bmatrix}R_{be}\\R_{bi}\end{bmatrix}="
-                 r"\begin{bmatrix}1+R_{bi}/R_{bc}&1\\"
-                 r"T_{bi}+R_{bi}C_{bc}&T_{be}\end{bmatrix}^{-1}"
-                 r"\begin{bmatrix}R\\RT\end{bmatrix}")
+    # @classmethod
+    # def render_step_formulas(cls):
+    #     """Formulas shown immediately before extraction in the UI."""
+    #     st.markdown("**Degachi (2008) — [Eqs. 3–26], input: Y_ex1 directly**")
+    #     st.latex(r"Z_1=\frac{1}{Y_{11}+Y_{12}},\;"
+    #              r"Z_3=\frac{Y_{21}+Y_{11}}{(Y_{11}+Y_{12})(Y_{22}+Y_{12})}")
+    #     st.latex(r"F_{bi}=\omega/\mathrm{Im}(Z_1/Z_3)=A_0+\omega^2 B_0"
+    #              r"\;\Rightarrow\;T_{bi}=\sqrt{B_0/A_0}")
+    #     st.latex(r"\mathrm{Re}[Z_1/Z_3(1+j\omega T_{bi})]=R_{bi}/R_{bc},\;"
+    #              r"\mathrm{Im}[\cdot]/\omega=R_{bi}C_{bc}")
+    #     st.latex(r"F_1=\omega/\mathrm{Im}[Z_1(1+j\omega T_{bi})]=A+\omega^2 B"
+    #              r"\;\Rightarrow\;T_{be}=\sqrt{B/A}")
+    #     st.latex(r"\begin{bmatrix}R_{be}\\R_{bi}\end{bmatrix}="
+    #              r"\begin{bmatrix}1+R_{bi}/R_{bc}&1\\"
+    #              r"T_{bi}+R_{bi}C_{bc}&T_{be}\end{bmatrix}^{-1}"
+    #              r"\begin{bmatrix}R\\RT\end{bmatrix}")
 
     @classmethod
     def render_results_table(cls, params):
@@ -284,32 +293,32 @@ class Degachi(AbstractSSMModel):
         st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
                      use_container_width=True, hide_index=True)
 
-    @classmethod
-    def render_formula_trace(cls):
-        with st.expander("📐 Full formula trace — Degachi (2008) augmented π", expanded=False):
-            st.markdown("**Dependency chain:**  "
-                        "Y_ex1 → Z1,Z3,Z4 → Tbi → Tbe → R,RT → Rbe,Rbi → all others")
-            st.latex(r"[Eq.3]\;Z_1=\frac{1}{Y_{11}+Y_{12}},\;"
-                     r"[Eq.4]\;Z_3=\frac{Y_{21}+Y_{11}}{(Y_{11}+Y_{12})(Y_{22}+Y_{12})},\;"
-                     r"[Eq.5]\;Z_4=-\frac{1}{Y_{12}}")
-            st.latex(r"[Eq.8]\;F_{bi}=\omega/\mathrm{Im}(Z_1/Z_3)=A_0+\omega^2 B_0"
-                     r"\;\Rightarrow\;[Eq.12]\;T_{bi}=\sqrt{B_0/A_0}")
-            st.latex(r"[Eq.13]\;\mathrm{Re}[Z_1/Z_3(1+j\omega T_{bi})]=R_{bi}/R_{bc}")
-            st.latex(r"[Eq.14]\;\mathrm{Im}[\cdot]/\omega=R_{bi}C_{bc}")
-            st.latex(r"[Eq.19]\;F_1=\omega/\mathrm{Im}[Z_1(1+j\omega T_{bi})]"
-                     r"=A+\omega^2 B\;\Rightarrow\;T_{be}=\sqrt{B/A}")
-            st.latex(r"[Eqs.23–24]\;R=\mathrm{Re}(F_2),\;RT=\mathrm{Im}(F_2)/\omega")
-            st.latex(r"[Eq.25]\;\begin{bmatrix}R_{be}\\R_{bi}\end{bmatrix}="
-                     r"\begin{bmatrix}1+R_{bi}/R_{bc}&1\\T_{bi}+R_{bi}C_{bc}&T_{be}\end{bmatrix}^{-1}"
-                     r"\begin{bmatrix}R\\RT\end{bmatrix}")
-            st.markdown("**Forward simulation** *(5 layers, inside → outside)*")
-            st.latex(r"1.\;Z_{bi}=R_{bi}/(1+j\omega R_{bi}C_{bi}),\;"
-                     r"Z_{be},Z_{bc}\text{ similarly}")
-            st.latex(r"2.\;[Y_{core}]=[[Y_{be}+Y_{bc},-Y_{bc}],[g_m-Y_{bc},Y_{bc}]]")
-            st.latex(r"3.\;[Z_{core}]=[Y_{core}]^{-1}+[[Z_{bi},0],[0,0]]")
-            st.latex(r"4.\;[Y_{int}]=[Z_{core}]^{-1}+(1/Z_{cx})[[1,-1],[-1,1]]")
-            st.latex(r"5.\;[Y_{tot}]=([Y_{int}]^{-1}+[Z_{ser}])^{-1},\;"
-                     r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
+    # @classmethod
+    # def render_formula_trace(cls):
+    #     with st.expander("📐 Full formula trace — Degachi (2008) augmented π", expanded=False):
+    #         st.markdown("**Dependency chain:**  "
+    #                     "Y_ex1 → Z1,Z3,Z4 → Tbi → Tbe → R,RT → Rbe,Rbi → all others")
+    #         st.latex(r"[Eq.3]\;Z_1=\frac{1}{Y_{11}+Y_{12}},\;"
+    #                  r"[Eq.4]\;Z_3=\frac{Y_{21}+Y_{11}}{(Y_{11}+Y_{12})(Y_{22}+Y_{12})},\;"
+    #                  r"[Eq.5]\;Z_4=-\frac{1}{Y_{12}}")
+    #         st.latex(r"[Eq.8]\;F_{bi}=\omega/\mathrm{Im}(Z_1/Z_3)=A_0+\omega^2 B_0"
+    #                  r"\;\Rightarrow\;[Eq.12]\;T_{bi}=\sqrt{B_0/A_0}")
+    #         st.latex(r"[Eq.13]\;\mathrm{Re}[Z_1/Z_3(1+j\omega T_{bi})]=R_{bi}/R_{bc}")
+    #         st.latex(r"[Eq.14]\;\mathrm{Im}[\cdot]/\omega=R_{bi}C_{bc}")
+    #         st.latex(r"[Eq.19]\;F_1=\omega/\mathrm{Im}[Z_1(1+j\omega T_{bi})]"
+    #                  r"=A+\omega^2 B\;\Rightarrow\;T_{be}=\sqrt{B/A}")
+    #         st.latex(r"[Eqs.23–24]\;R=\mathrm{Re}(F_2),\;RT=\mathrm{Im}(F_2)/\omega")
+    #         st.latex(r"[Eq.25]\;\begin{bmatrix}R_{be}\\R_{bi}\end{bmatrix}="
+    #                  r"\begin{bmatrix}1+R_{bi}/R_{bc}&1\\T_{bi}+R_{bi}C_{bc}&T_{be}\end{bmatrix}^{-1}"
+    #                  r"\begin{bmatrix}R\\RT\end{bmatrix}")
+    #         st.markdown("**Forward simulation** *(5 layers, inside → outside)*")
+    #         st.latex(r"1.\;Z_{bi}=R_{bi}/(1+j\omega R_{bi}C_{bi}),\;"
+    #                  r"Z_{be},Z_{bc}\text{ similarly}")
+    #         st.latex(r"2.\;[Y_{core}]=[[Y_{be}+Y_{bc},-Y_{bc}],[g_m-Y_{bc},Y_{bc}]]")
+    #         st.latex(r"3.\;[Z_{core}]=[Y_{core}]^{-1}+[[Z_{bi},0],[0,0]]")
+    #         st.latex(r"4.\;[Y_{int}]=[Z_{core}]^{-1}+(1/Z_{cx})[[1,-1],[-1,1]]")
+    #         st.latex(r"5.\;[Y_{tot}]=([Y_{int}]^{-1}+[Z_{ser}])^{-1},\;"
+    #                  r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
 
     @classmethod
     def render_diagnostic_plots(cls, params, arrays, freq, fname):

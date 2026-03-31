@@ -125,9 +125,15 @@ def extended_smith_grid(max_r=1.0):
 
 def params_hash(p: dict) -> str:
     try:
+        items = {}
+        for k, v in p.items():
+            try:
+                items[k] = round(float(v), 15)
+            except (ValueError, TypeError):
+                items[k] = str(v)
         return hashlib.md5(
-            json.dumps({k: round(float(v), 15) for k, v in p.items()},
-                       sort_keys=True).encode()
+            json.dumps(items, sort_keys=True).encode()
         ).hexdigest()
-    except:
+    except Exception:
         return ""
+

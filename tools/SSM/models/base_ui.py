@@ -111,7 +111,8 @@ def sync_pad_from_preov(fname: str, topo_key: str, para_eff: dict):
             st.session_state[f"sim_{topo_key}_{key}_{fname}"] = float(para_eff.get(key, 0.0)) * scale
         st.session_state[sync_key] = preov_hash
 
-def render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups):
+def render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups,
+                                     reextract_fn=None):
     """
     For each parameter group, render:
       - A labelled section heading with dependency info
@@ -127,6 +128,8 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
     step_v  = max(round((f_max_v - f_min_v) / 100, 3), 0.001)
 
     params_out = dict(params)
+    live_arrays = dict(arrays)   # updated mid-loop after re-extraction
+    live_params = dict(params)   # updated mid-loop; used for change detection
     prev_range = (f_min_v, f_max_v)
 
     with st.expander("📊 Extracted Parameters vs Frequency — Interactive", expanded=False):
@@ -148,6 +151,14 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     st.session_state[slider_key] = prev_range
                     st.rerun()
 
+            # Render per-group formulas before the slider
+            for formula_type, formula_content in group.get("formulas", []):
+                if formula_type == "markdown":
+                    st.markdown(formula_content)
+                elif formula_type == "latex":
+                    st.latex(formula_content)
+
+
             # Initialize slider
             if slider_key not in st.session_state:
                 st.session_state[slider_key] = (f_min_v, f_max_v)
@@ -166,25 +177,34 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
 
             valid_specs = [
                 s for s in g_params
-                if s[0] in arrays and isinstance(arrays[s[0]], np.ndarray)
+                if s[0] in live_arrays and isinstance(live_arrays[s[0]], np.ndarray)
             ]
+
 
             for row_start in range(0, len(valid_specs), 2):
                 row  = valid_specs[row_start:row_start + 2]
                 cols = st.columns(2)
                 for col_w, (arr_key, param_key, label, scale, unit) in zip(cols, row):
-                    raw_masked = arrays[arr_key][mask]
+                    raw_masked = live_arrays[arr_key][mask]
                     arr_plot   = (np.abs(raw_masked) if np.iscomplexobj(raw_masked)
                                   else np.real(raw_masked)) * scale
 
                     # Recompute median from current slider range
                     arr_num = np.abs(raw_masked) if np.iscomplexobj(raw_masked) else np.real(raw_masked)
                     fin     = arr_num[np.isfinite(arr_num)]
-                    auto_SI   = float(np.median(fin)) if len(fin) > 0 else float(params.get(param_key, 0.0))
+                    auto_SI   = float(np.median(fin)) if len(fin) > 0 else float(live_params.get(param_key, 0.0))
                     auto_disp = auto_SI * scale
 
                     # Pre-read session state so plot can use it before number_input renders
-                    inp_key   = f"pfp_inp_{model_short}_{param_key}_{fname}_{rng_tag}"
+                    # Hash of all upstream groups' current values — changes when any
+                    # upstream param is overridden, forcing downstream inputs to reset.
+                    _upstream_vals = tuple(
+                        round(params_out.get(spec[1], 0.0) * 1e15)
+                        for gi in range(g_idx)
+                        for spec in param_groups[gi]["params"]
+                    )
+                    upstream_tag = str(hash(_upstream_vals) % (10 ** 9))
+                    inp_key   = f"pfp_inp_{model_short}_{param_key}_{fname}_{rng_tag}_{upstream_tag}"
                     user_disp = float(st.session_state.get(inp_key, auto_disp))
                     user_SI   = user_disp / scale
 
@@ -219,6 +239,30 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                         key=inp_key)
 
                     params_out[param_key] = actual_val / scale
+                    
+            # ── Re-extract downstream groups if any param in this group changed ──
+            if reextract_fn is not None and g_idx < len(param_groups) - 1:
+                _grp_param_keys = {spec[1] for spec in g_params}
+                _grp_arr_keys   = {spec[0] for spec in g_params}
+                _any_changed = any(
+                    abs(params_out.get(pk, 0.0) - live_params.get(pk, 0.0))
+                    > 1e-9 * (abs(live_params.get(pk, 0.0)) + 1e-30)
+                    for pk in _grp_param_keys
+                    if pk in params_out
+                )
+                if _any_changed:
+                    try:
+                        _new_p, _new_a = reextract_fn(params_out, g_idx, live_arrays)
+                        # Update live state for downstream groups only
+                        for _k, _v in _new_p.items():
+                            if _k not in _grp_param_keys:
+                                live_params[_k] = _v
+                                params_out[_k]  = _v
+                        for _k, _v in _new_a.items():
+                            if _k not in _grp_arr_keys:
+                                live_arrays[_k] = _v
+                    except Exception:
+                        pass  # silently ignore re-extraction failures
 
             prev_range = (f_lo, f_hi)
             if g_idx < len(param_groups) - 1:

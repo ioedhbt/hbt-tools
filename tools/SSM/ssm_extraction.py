@@ -25,7 +25,7 @@ from .ssm_deembedding  import step1a_open, step1b_short, peel_parasitics
 from .ssm_s2p          import (parse_s2p_bytes, interpolate_s2f,
                                 write_s2p, simulate_open, simulate_short)
 from .ssm_plots        import (render_open_plots, render_short_plots,
-                                render_sparams_comparison, render_ft_fmax_overlay,
+                                render_deemb_preview, render_ft_fmax_overlay,
                                 render_rz12_section)
 from .ssm_override     import render_unified_pre_override, make_topology_fig
 from .models           import REGISTRY, DEFAULT_SELECTION   # model registry
@@ -266,7 +266,6 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     # S-parameter comparison
     # ══════════════════════════════════════════════════════════════════════════
     st.markdown("---")
-    render_sparams_comparison(S_raw, freq, z0, para_step1, fname)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Unified pre-extraction override
@@ -278,6 +277,11 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         para_eff[f"{cap}_extra"] = para_caps_ov.get(f"{cap}_extra", 0.0)
     for ck in ["Cpar_Lb","Cpar_Lc","Cpar_Le"]:
         para_eff[ck] = para_short_ov.get(ck, 0.0)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # De-embedded DUT preview (Smith chart + Bode + S2P downloads)
+    # ══════════════════════════════════════════════════════════════════════════
+    render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Model selection
@@ -323,8 +327,17 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         # Interactive parameter-vs-frequency plots — slider updates medians, inputs allow override
         # Runs BEFORE the table so the table reflects the current overridden values
         if hasattr(ModelClass, "PARAM_GROUPS"):
+            _reextract_fn = None
+            if hasattr(ModelClass, "reextract"):
+                def _make_fn(_cls, _Y, _f, _n):
+                    def _fn(curr_params, changed_group_idx, curr_arrays):
+                        return _cls.reextract(_Y, _f, _n,
+                                              curr_params, changed_group_idx, curr_arrays)
+                    return _fn
+                _reextract_fn = _make_fn(ModelClass, Y_ex1, freq, n_low)
             params = render_interactive_param_groups(
-                params, arrays, freq, fname, short, ModelClass.PARAM_GROUPS)
+                params, arrays, freq, fname, short, ModelClass.PARAM_GROUPS,
+                reextract_fn=_reextract_fn)
 
         # Results table — shows values after interactive slider/override
         ModelClass.render_results_table(params)

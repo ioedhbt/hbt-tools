@@ -146,10 +146,10 @@ def _step3_T(Y_ex2, freq, Cbcx, n_low):
     tauB_arr = np.sqrt(np.maximum(U_arr - 1.0, 0.0)) / omega
     tauB     = safe_median(tauB_arr[n_low:])
 
-    # [Eq. 31] τC
+    # [Eq. 31 corrected] τC from phase of α
+    # arg(α) = −ω·τC − arctan(ω·τB)  →  τC = [−arg(α) − arctan(ω·τB)] / ω
     with np.errstate(divide="ignore", invalid="ignore"):
-        V_arr    = 2.0*omega*tauB / (U_arr + 1e-30)
-        tauC_arr = -np.arctan(V_arr / np.sqrt(np.maximum(1.0 - V_arr**2, 1e-30))) / (2.0*omega)
+        tauC_arr = (-np.angle(alpha_arr) - np.arctan(omega * tauB_arr)) / (omega + 1e-40)
     tauC = safe_median(tauC_arr[n_low:])
 
     params = dict(Rbi=Rbi, Rbe=Rbe, Cbe=Cbe, Rbc=Rbc, Cbc=Cbc,
@@ -341,11 +341,20 @@ class ChengT(AbstractSSMModel):
             "label":      "Step 2 — Cbex  (from Im(Y₁₁+Y₁₂)/ω, low-freq range)",
             "params":     [("Cbex_arr", "Cbex", "Cbex", 1e15, "fF")],
             "depends_on": [],
+            "formulas": [
+                ("markdown", "**[Eq. 13]:**"),
+                ("latex", r"C_{bex}^T=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}\big|_{\omega\to0}"),
+            ],
         },
         {
             "label":      "Step 2 — Cbcx  (from Y_ex2 after peeling Cbex)",
             "params":     [("Cbcx_arr", "Cbcx", "Cbcx", 1e15, "fF")],
             "depends_on": ["Cbex"],
+            "formulas": [
+                ("markdown", "**[Eq. 22]:**"),
+                ("latex", r"C_{bcx}=-\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)-\mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega[\mathrm{Re}(Y_{ms})\mathrm{Re}(Y_{tot})+\mathrm{Im}(Y_{tot})\mathrm{Im}(Y_{ms})]}"),
+            ],
+
         },
         {
             "label":      "Step 3 — Intrinsic  (Rbi, Rbe, Cbe, Rbc, Cbc, α₀ — all from Z_in)",
@@ -358,16 +367,33 @@ class ChengT(AbstractSSMModel):
                 ("alpha", "alpha0", "α",    1.0,  ""),
             ],
             "depends_on": ["Cbex", "Cbcx"],
+            "formulas": [
+                ("markdown", "**[Eq. 16]:**"),
+                ("latex", r"Z_{be}=Z_{12},\;Z_{bc}=Z_{22}-Z_{21},\;Z_{bi}=Z_{11}-Z_{12}"),
+                ("markdown", "**[Eq. 29]:**"),
+                ("latex", r"\alpha=\frac{Z_{12}-Z_{21}}{Z_{22}-Z_{21}},\;\alpha_0=|\alpha|_{\omega\to0}"),
+            ],
+
         },
         {
             "label":      "τB  (depends on α₀)",
             "params":     [("tauB", "tauB", "τB", 1e12, "ps")],
             "depends_on": ["alpha0"],
+            "formulas": [
+                ("markdown", "**[Eq. 30]:**"),
+                ("latex", r"\tau_B=\frac{\sqrt{U-1}}{\omega},\quad U=\left(\frac{\alpha_0}{|\alpha|}\right)^2"),
+            ],
+
         },
         {
             "label":      "τC  (depends on τB)",
             "params":     [("tauC", "tauC", "τC", 1e12, "ps")],
             "depends_on": ["tauB"],
+            "formulas": [
+                ("markdown", "**[Eq. 31]:**"),
+                ("latex", r"\tau_C=-\frac{\arctan\bigl[V(1-V^2)^{-1/2}\bigr]}{2\omega},\quad V=\frac{2\omega\tau_B}{U}"),
+            ],
+
         },
     ]
 
@@ -402,21 +428,80 @@ class ChengT(AbstractSSMModel):
         return _sim_wrap(_Y_int, params, freq, z0)
 
     @classmethod
-    def render_step_formulas(cls):
-        """Show Step 2 and Step 3 formulas (called before extract() in the UI)."""
-        with st.expander("Formulas"):
-            c1,c2=st.columns(2)
-            with c1:
-                st.markdown("**T-topology — Step 2 [Eqs. 13, 22]:**")
-                st.latex(r"C_{bex}^T = \frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}\bigg|_{\omega\to 0}")
-                st.latex(r"C_{bcx} = -\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)"
-                        r"- \mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega \cdot \mathrm{denom}}")
-            with c2:
-                st.markdown("**T-topology — Step 3 [Eqs. 16, 29–33]:**")
-                st.latex(r"\alpha = \frac{Z_{12}-Z_{21}}{Z_{22}-Z_{21}},\quad "
-                        r"\alpha_0 = |\alpha|\big|_{\omega\to 0}")
-                st.latex(r"\tau_B = \frac{\sqrt{U-1}}{\omega}")
-                st.latex(r"\tau_C = -\frac{\arctan\bigl[V(1-V^2)^{-1/2}\bigr]}{2\omega}")
+    def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
+        """
+        Re-derive all downstream parameters when an upstream group is overridden.
+          changed_group_idx=0 (Cbex changed)  → recompute Y_ex2, Cbcx, all Step 3
+          changed_group_idx=1 (Cbcx changed)  → keep Y_ex2 from overrides["Cbex"],
+                                                 use overrides["Cbcx"], re-run Step 3
+          changed_group_idx=2 (α₀ changed)   → recompute τB and τC arrays
+          changed_group_idx=3 (τB changed)   → recompute τC array only
+        """
+        omega = 2.0 * np.pi * freq
+
+        # ── Always recompute Y_ex2 from current Cbex ────────────────────────
+        Cbex_arr = np.imag(Y_ex1[:, 0, 0] + Y_ex1[:, 0, 1]) / omega
+        Cbex = float(overrides.get("Cbex") or abs(safe_median(Cbex_arr, n_low)))
+
+        Y_ex2 = Y_ex1.copy()
+        for i, w in enumerate(omega):
+            Y_ex2[i, 0, 0] -= 1j * w * Cbex
+
+        # ── Recompute Cbcx_arr from new Y_ex2 ────────────────────────────────
+        Yms  = Y_ex2[:, 0, 1] + Y_ex2[:, 1, 1]
+        YL   = Y_ex2[:, 0, 0]*Y_ex2[:, 1, 1] - Y_ex2[:, 0, 1]*Y_ex2[:, 1, 0]
+        Ytot = Y_ex2[:, 0, 0] + Y_ex2[:, 0, 1] + Y_ex2[:, 1, 0] + Y_ex2[:, 1, 1]
+        num  = np.imag(Yms)*np.real(YL) - np.real(Yms)*np.imag(YL)
+        den  = np.real(Yms)*np.real(Ytot) + np.imag(Ytot)*np.imag(Yms)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            Cbcx_arr = -np.where(np.abs(den) > 1e-40, num / (omega * den), np.nan)
+        n0c, n1c = len(freq) // 4, 3 * len(freq) // 4
+        Cbcx_recomp = abs(safe_median(Cbcx_arr[n0c:n1c]))
+
+        # Use user-overridden Cbcx only when the user explicitly changed Group 1
+        Cbcx = float(overrides["Cbcx"]) if (changed_group_idx >= 1
+                                             and "Cbcx" in overrides) else Cbcx_recomp
+
+        # ── Re-run Step 3 ─────────────────────────────────────────────────────
+        res_int, arr_int = _step3_T(Y_ex2, freq, Cbcx, n_low)
+
+        # ── Handle within-Step-3 overrides (α₀ → τB → τC) ───────────────────
+        alpha_arr = arr_int["alpha"]   # complex, per-frequency
+
+        if changed_group_idx >= 2 and "alpha0" in overrides:
+            alpha0_ov = float(overrides["alpha0"])
+            U_arr     = (alpha0_ov / (np.abs(alpha_arr) + 1e-30)) ** 2
+            tauB_arr  = np.sqrt(np.maximum(U_arr - 1.0, 0.0)) / omega
+            tauB_ov   = safe_median(tauB_arr[n_low:])
+            with np.errstate(divide="ignore", invalid="ignore"):
+                V_arr    = 2.0 * omega * tauB_ov / (U_arr + 1e-30)
+                tauC_arr = -np.arctan(
+                    V_arr / np.sqrt(np.maximum(1.0 - V_arr**2, 1e-30))
+                ) / (2.0 * omega)
+            tauC_ov = safe_median(tauC_arr[n_low:])
+            arr_int["tauB"] = tauB_arr;  res_int["tauB"] = tauB_ov
+            arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
+
+        elif changed_group_idx >= 3 and "tauB" in overrides:
+            alpha0_cur = float(overrides.get("alpha0", res_int["alpha0"]))
+            U_arr      = (alpha0_cur / (np.abs(alpha_arr) + 1e-30)) ** 2
+            tauB_ov    = float(overrides["tauB"])
+            with np.errstate(divide="ignore", invalid="ignore"):
+                V_arr    = 2.0 * omega * tauB_ov / (U_arr + 1e-30)
+                tauC_arr = -np.arctan(
+                    V_arr / np.sqrt(np.maximum(1.0 - V_arr**2, 1e-30))
+                ) / (2.0 * omega)
+            tauC_ov = safe_median(tauC_arr[n_low:])
+            arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
+
+        new_params = {"Cbex": Cbex, "Cbcx": Cbcx, **res_int}
+        new_arrays = {
+            "Cbex_arr": Cbex_arr,
+            "Cbcx_arr": Cbcx_arr,
+            "Y_ex2":    Y_ex2,
+            **arr_int,
+        }
+        return new_params, new_arrays
 
     @classmethod
     def render_results_table(cls, params):
@@ -438,8 +523,6 @@ class ChengT(AbstractSSMModel):
         st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
                      use_container_width=True, hide_index=True)
 
-    @classmethod
-    def render_formula_trace(cls):
         with st.expander("📐 Full formula trace — T-topology (Cheng 2022)", expanded=False):
             st.markdown("**Dependency chain:** Y_ex1 → peel Cbex → Y_ex2 → peel Cbcx → Z_in → intrinsic")
             st.markdown("**Step 2** *(input: Y_ex1)*")
@@ -513,11 +596,21 @@ class ChengPi(AbstractSSMModel):
             "label":      "Step 2 — Cbex  (from Im(B·C)/Im(B), low-freq range)",
             "params":     [("Cbex_arr", "Cbex", "Cbex", 1e15, "fF")],
             "depends_on": [],
+            "formulas": [
+                ("markdown", "**[Eqs. 26–28]:**"),
+                ("latex", r"B=Y_{12}+Y_{22},\;C=Y_{11}+Y_{21}"),
+                ("latex", r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}"),
+            ],
+
         },
         {
             "label":      "Step 2 — Cbcx  (from Y_ex2 after peeling Cbex)",
             "params":     [("Cbcx_arr", "Cbcx", "Cbcx", 1e15, "fF")],
             "depends_on": ["Cbex"],
+            "formulas": [
+                ("markdown", "**[Eq. 22]:**"),
+                ("latex", r"C_{bcx}=-\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)-\mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega[\mathrm{Re}(Y_{ms})\mathrm{Re}(Y_{tot})+\mathrm{Im}(Y_{tot})\mathrm{Im}(Y_{ms})]}"),
+            ],
         },
         {
             "label":      "Step 3 — Intrinsic  (all from Z_in, depends on Cbex, Cbcx)",
@@ -531,6 +624,12 @@ class ChengPi(AbstractSSMModel):
                 ("tau",  "tau",  "τ",    1e12, "ps"),
             ],
             "depends_on": ["Cbex", "Cbcx"],
+            "formulas": [
+                ("markdown", "**[Eq. 16] / Zhang et al. 2015:**"),
+                ("latex", r"g_m=\frac{Z_{12}-Z_{21}}{Z_{bc}Z_{12}}\;\Rightarrow\;G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega"),
+                ("latex", r"Y_{be}=\frac{Z_{22}-Z_{12}}{Z_{12}Z_{bc}}\;\Rightarrow\;R_{be}=1/\mathrm{Re}(Y_{be}),\;C_{be}=\mathrm{Im}(Y_{be})/\omega"),
+                ("latex", r"R_{bi}=\mathrm{Re}(Z_{11}-Z_{12})"),
+            ],
         },
     ]
 
@@ -556,21 +655,71 @@ class ChengPi(AbstractSSMModel):
             return np.linalg.inv(Z_core)
         return _sim_wrap(_Y_int, params, freq, z0)
 
+    # @classmethod
+    # def render_step_formulas(cls):
+    #     with st.expander("Formulas"):
+    #         c1,c2=st.columns(2)
+    #         with c1:
+    #             st.markdown("**π-topology — Step 2 [Eqs. 26–28]:**")
+    #             st.latex(r"B=Y_{12}+Y_{22},\;C=Y_{11}+Y_{21}")
+    #             st.latex(r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)"
+    #                     r"+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}")
+    #         with c2:
+    #             st.markdown("**π-topology — Step 3 (Zhang et al. 2015):**")
+    #             st.latex(r"g_m=\frac{Z_{12}-Z_{21}}{Z_{bc}Z_{12}}\;\Rightarrow\;"
+    #                     r"G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega")
+    #             st.latex(r"Y_{be}=\frac{Z_{22}-Z_{12}}{Z_{12}Z_{bc}}\;\Rightarrow\;"
+    #                 r"R_{be}=1/\mathrm{Re}(Y_{be}),\;C_{be}=\mathrm{Im}(Y_{be})/\omega")
     @classmethod
-    def render_step_formulas(cls):
-        with st.expander("Formulas"):
-            c1,c2=st.columns(2)
-            with c1:
-                st.markdown("**π-topology — Step 2 [Eqs. 26–28]:**")
-                st.latex(r"B=Y_{12}+Y_{22},\;C=Y_{11}+Y_{21}")
-                st.latex(r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)"
-                        r"+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}")
-            with c2:
-                st.markdown("**π-topology — Step 3 (Zhang et al. 2015):**")
-                st.latex(r"g_m=\frac{Z_{12}-Z_{21}}{Z_{bc}Z_{12}}\;\Rightarrow\;"
-                        r"G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega")
-                st.latex(r"Y_{be}=\frac{Z_{22}-Z_{12}}{Z_{12}Z_{bc}}\;\Rightarrow\;"
-                    r"R_{be}=1/\mathrm{Re}(Y_{be}),\;C_{be}=\mathrm{Im}(Y_{be})/\omega")
+    def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
+        """
+        Re-derive all downstream parameters when an upstream group is overridden.
+          changed_group_idx=0 (Cbex changed)  → recompute Y_ex2, Cbcx, all Step 3
+          changed_group_idx=1 (Cbcx changed)  → keep Y_ex2 from overrides["Cbex"],
+                                                 use overrides["Cbcx"], re-run Step 3
+        """
+        omega = 2.0 * np.pi * freq
+
+        # ── Cbex_arr (π formula) — for reference only, Cbex is taken from overrides ─
+        B = Y_ex1[:, 0, 1] + Y_ex1[:, 1, 1]
+        C = Y_ex1[:, 0, 0] + Y_ex1[:, 1, 0]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            Cbex_arr = np.where(
+                np.abs(np.imag(B)) > 1e-40,
+                (np.real(B)*np.real(C) + np.imag(B)*np.imag(C)) / (omega * np.imag(B)),
+                np.nan)
+        Cbex = float(overrides.get("Cbex") or safe_median(Cbex_arr, n_low))
+
+        # ── Recompute Y_ex2 from current Cbex ────────────────────────────────
+        Y_ex2 = Y_ex1.copy()
+        for i, w in enumerate(omega):
+            Y_ex2[i, 0, 0] -= 1j * w * Cbex
+
+        # ── Recompute Cbcx_arr from new Y_ex2 (same formula as T topology) ───
+        Yms  = Y_ex2[:, 0, 1] + Y_ex2[:, 1, 1]
+        YL   = Y_ex2[:, 0, 0]*Y_ex2[:, 1, 1] - Y_ex2[:, 0, 1]*Y_ex2[:, 1, 0]
+        Ytot = Y_ex2[:, 0, 0] + Y_ex2[:, 0, 1] + Y_ex2[:, 1, 0] + Y_ex2[:, 1, 1]
+        num  = np.imag(Yms)*np.real(YL) - np.real(Yms)*np.imag(YL)
+        den  = np.real(Yms)*np.real(Ytot) + np.imag(Ytot)*np.imag(Yms)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            Cbcx_arr = -np.where(np.abs(den) > 1e-40, num / (omega * den), np.nan)
+        n0c, n1c = len(freq) // 4, 3 * len(freq) // 4
+        Cbcx_recomp = safe_median(Cbcx_arr[n0c:n1c])
+
+        Cbcx = float(overrides["Cbcx"]) if (changed_group_idx >= 1
+                                             and "Cbcx" in overrides) else Cbcx_recomp
+
+        # ── Re-run Step 3 ─────────────────────────────────────────────────────
+        res_int, arr_int = _step3_pi(Y_ex2, freq, Cbcx, n_low)
+
+        new_params = {"Cbex": Cbex, "Cbcx": Cbcx, **res_int}
+        new_arrays = {
+            "Cbex_arr": Cbex_arr,
+            "Cbcx_arr": Cbcx_arr,
+            "Y_ex2":    Y_ex2,
+            **arr_int,
+        }
+        return new_params, new_arrays
 
     @classmethod
     def render_results_table(cls, params):
@@ -591,19 +740,19 @@ class ChengPi(AbstractSSMModel):
         st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
                      use_container_width=True, hide_index=True)
 
-    @classmethod
-    def render_formula_trace(cls):
-        with st.expander("📐 Full formula trace — π-topology (Cheng 2022 / Zhang 2015)", expanded=False):
-            st.markdown("**Step 2** *(input: Y_ex1)*")
-            st.latex(r"[Eqs.26–28]\;B=Y_{12}+Y_{22},\;C=Y_{11}+Y_{21},\;"
-                     r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}")
-            st.markdown("**Step 3** *(input: Y_ex2, Cbcx — same Z-matrix peel as T)*")
-            st.latex(r"g_m=(Z_{12}-Z_{21})/(Z_{bc}Z_{12})\;\Rightarrow\;G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega")
-            st.markdown("**Forward simulation** *(inside → outside)*")
-            st.latex(r"[Y_{core}]=\begin{bmatrix}Y_{be}+Y_{bc}&-Y_{bc}\\g_m-Y_{bc}&Y_{bc}\end{bmatrix},\;"
-                     r"[Z_{in}^{sim}]=[Y_{core}]^{-1}+\begin{bmatrix}R_{bi}&0\\0&0\end{bmatrix}")
-            st.latex(r"[Y_{tot}]=([Y_{ex}]^{-1}+[Z_{ser}])^{-1},\;"
-                     r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
+    # @classmethod
+    # def render_formula_trace(cls):
+    #     with st.expander("📐 Full formula trace — π-topology (Cheng 2022 / Zhang 2015)", expanded=False):
+    #         st.markdown("**Step 2** *(input: Y_ex1)*")
+    #         st.latex(r"[Eqs.26–28]\;B=Y_{12}+Y_{22},\;C=Y_{11}+Y_{21},\;"
+    #                  r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}")
+    #         st.markdown("**Step 3** *(input: Y_ex2, Cbcx — same Z-matrix peel as T)*")
+    #         st.latex(r"g_m=(Z_{12}-Z_{21})/(Z_{bc}Z_{12})\;\Rightarrow\;G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega")
+    #         st.markdown("**Forward simulation** *(inside → outside)*")
+    #         st.latex(r"[Y_{core}]=\begin{bmatrix}Y_{be}+Y_{bc}&-Y_{bc}\\g_m-Y_{bc}&Y_{bc}\end{bmatrix},\;"
+    #                  r"[Z_{in}^{sim}]=[Y_{core}]^{-1}+\begin{bmatrix}R_{bi}&0\\0&0\end{bmatrix}")
+    #         st.latex(r"[Y_{tot}]=([Y_{ex}]^{-1}+[Z_{ser}])^{-1},\;"
+    #                  r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
 
     @classmethod
     def render_override_and_smith(cls, fname, S_raw, freq, z0,

@@ -290,37 +290,190 @@ def render_short_plots(short_arr, para_short, fname=""):
 # Helper: S-parameter comparison plot
 # ════════════════════════════════════════════════════════════════════════════════
 
-def render_sparams_comparison(S_raw, freq, z0, para_eff, fname):
-    """Raw vs de-embedded S-parameters (4 side-by-side subplots)."""
+def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
+    """
+    'De-embedded DUT preview' section — shown before model selection.
+
+    Shows:
+      1. Smith chart: raw (markers) vs Step-1 de-embedded (dashed), all 4 S-params
+      2. Formula expander: de-embedding transform chain
+      3. Bode plot: |h21|² and Mason U for two de-embedding levels
+      4. fT / fmax per trace (vertical lines + annotation)
+      5. S2P download buttons for each de-embedded level
+    """
+    from pathlib import Path
     from .ssm_core import y_to_s_batch
-    f_ghz   = freq * 1e-9
-    Y_deemb = peel_parasitics(S_raw, freq, z0, para_eff)
-    S_deemb = y_to_s_batch(Y_deemb, z0)
-    with st.expander("📊 S-Parameters: Raw vs De-embedded (after Step 1)", expanded=True):
-        st.caption("Solid = raw.  Dashed = after pad removal.")
-        for col_w, (sname, (r,c), color) in zip(
-                st.columns(4),
-                [("S11",(0,0),"#1f77b4"),("S12",(0,1),"#d62728"),
-                 ("S21",(1,0),"#2ca02c"),("S22",(1,1),"#ff7f0e")]):
-            s_r = S_raw[:,r,c]; s_d = S_deemb[:,r,c]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=f_ghz, y=s_r.real, mode="lines",
-                name="Re (raw)",   line=dict(color=color,  width=2.2)))
-            fig.add_trace(go.Scatter(x=f_ghz, y=s_r.imag, mode="lines",
-                name="Im (raw)",   line=dict(color=color,  width=2.2, dash="dot")))
-            fig.add_trace(go.Scatter(x=f_ghz, y=s_d.real, mode="lines",
-                name="Re (deemb)", line=dict(color="#888", width=1.6, dash="dash")))
-            fig.add_trace(go.Scatter(x=f_ghz, y=s_d.imag, mode="lines",
-                name="Im (deemb)", line=dict(color="#aaa", width=1.6, dash="longdash")))
-            fig.update_layout(title=dict(text=sname, font=dict(size=12)),
-                xaxis_title="GHz", plot_bgcolor="white", paper_bgcolor="white", height=300,
-                legend=dict(x=0.01, y=0.99, xanchor="left", yanchor="top",
-                            bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc",
-                            borderwidth=1, font=dict(size=7.5)),
-                margin=dict(l=42,r=6,t=32,b=42), hovermode="x unified")
-            fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
-            fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-            col_w.plotly_chart(fig, use_container_width=True, key=f"cmp_{sname}_{fname}")
+    from .ssm_s2p import write_s2p
+    from .models.base_ui import smith_scale_controls
+
+    st.markdown("---")
+    st.markdown("### 📊 De-embedded DUT Preview")
+
+    f_ghz = freq * 1e-9
+
+    # ── Compute both de-embedded S-parameter sets ─────────────────────────────
+    Y_step1  = peel_parasitics(S_raw, freq, z0, para_step1)
+    S_step1  = y_to_s_batch(Y_step1, z0)
+
+    Y_pareff = peel_parasitics(S_raw, freq, z0, para_eff)
+    S_pareff = y_to_s_batch(Y_pareff, z0)
+
+    # ── 1. Smith chart: raw vs Step-1 de-embedded ─────────────────────────────
+    with st.expander("📐 S-Parameters: Raw vs De-embedded", expanded=False):
+        # st.markdown("#### S-Parameters: Raw vs De-embedded")
+        st.caption(
+            "Markers = raw DUT.  Dashed = after full Open+Short de-embedding "
+            "(Cpbe/Cpce/Cpbc + Lb/Lc/Le + Rb/Rc/Re, using Step 1a/1b values).")
+        sc = smith_scale_controls(fname, "deemb")
+        err = ssm_residual(S_raw, S_step1)
+        render_smith_chart(S_raw, S_step1,
+                        "Raw vs Step-1 De-embedded",
+                        err, sc,
+                        key=f"smith_deemb_{fname}")
+
+    # ── 2. Formula expander ───────────────────────────────────────────────────
+    with st.expander("📐 De-embedding formulas", expanded=False):
+        st.markdown(
+            "**Full Open + Short de-embedding chain** *(Gao §4.2)*  \n"
+            "Applied at every frequency point independently.")
+        st.markdown("**Step 1 — Open (parallel pad subtraction):**  \n"
+                    "S → Y,  then Y − Y_open:")
+        st.latex(
+            r"Y_1 = Y_{DUT} - Y_{pad},\quad "
+            r"Y_{pad}=\begin{bmatrix}Y_{pbe}+Y_{pbc}&-Y_{pbc}\\-Y_{pbc}&Y_{pce}+Y_{pbc}\end{bmatrix}")
+        st.markdown("where $Y_{pXX} = j\\omega C_{pXX}$ (extended: Parallel L, Series L, or Series R).")
+        st.markdown("**Step 2 — Short (series lead subtraction):**  \n"
+                    "Y → Z,  then Z − Z_short,  then Z → Y:")
+        st.latex(
+            r"Z_2 = Z_1 - Z_{ser},\quad "
+            r"Z_{ser}=\begin{bmatrix}Z_b+Z_e&Z_e\\Z_e&Z_c+Z_e\end{bmatrix}")
+        st.markdown(
+            r"where $Z_b = R_b + j\omega L_b$, etc. (optional: $C_{par}$ in parallel with each lead).")
+        st.markdown(
+            "**Output:** $Y_{ex1} = (Z_2)^{-1}$ — model input.  \n"
+            "**Smith chart above:** $Y_{ex1} \\to S_{deemb}$ plotted vs raw S.")
+
+    # ── 3. Bode plot: h21² and Mason U for both de-embedding levels ───────────
+    st.markdown("#### Gain vs Frequency — Two De-embedding Levels")
+    h21_s1, U_s1 = _compute_h21_U(S_step1)
+    h21_pe, U_pe = _compute_h21_U(S_pareff)
+
+    fT_s1,   fmax_s1   = _find_ft_fmax(f_ghz, h21_s1, U_s1)
+    fT_pe,   fmax_pe   = _find_ft_fmax(f_ghz, h21_pe, U_pe)
+
+    def _ft_lbl(ft, fm):
+        parts = []
+        if ft   is not None: parts.append(f"fT={ft:.2f} GHz")
+        if fm   is not None: parts.append(f"fmax={fm:.2f} GHz")
+        return "  |  ".join(parts) if parts else "(0 dB not crossed)"
+
+    fig = go.Figure()
+    # Step-1 traces  (blue family)
+    fig.add_trace(go.Scatter(x=f_ghz, y=h21_s1, mode="lines",
+        name=f"|h21|² Step-1  [{_ft_lbl(fT_s1, None)}]",
+        line=dict(color="#1f77b4", width=2.5)))
+    fig.add_trace(go.Scatter(x=f_ghz, y=U_s1, mode="lines",
+        name=f"Mason U Step-1  [{_ft_lbl(None, fmax_s1)}]",
+        line=dict(color="#1f77b4", width=2.5, dash="dash")))
+    # Pre-ext override traces  (orange family)
+    fig.add_trace(go.Scatter(x=f_ghz, y=h21_pe, mode="lines",
+        name=f"|h21|² Pre-ext  [{_ft_lbl(fT_pe, None)}]",
+        line=dict(color="#e67e22", width=2.0)))
+    fig.add_trace(go.Scatter(x=f_ghz, y=U_pe, mode="lines",
+        name=f"Mason U Pre-ext  [{_ft_lbl(None, fmax_pe)}]",
+        line=dict(color="#e67e22", width=2.0, dash="dash")))
+
+    # 0 dB line
+    fig.add_hline(y=0, line_color="#333", line_width=1.2,
+                  annotation_text="0 dB", annotation_position="right",
+                  annotation_font=dict(size=9))
+
+    # fT / fmax vertical markers
+    _vline_colors = {"fT_s1":"#1f77b4","fmax_s1":"#1f77b4",
+                     "fT_pe":"#e67e22","fmax_pe":"#e67e22"}
+    for lbl, val, col, dash in [
+        ("fT (Step-1)",   fT_s1,   "#1f77b4", "dot"),
+        ("fmax (Step-1)", fmax_s1, "#1f77b4", "dashdot"),
+        ("fT (pre-ext)",  fT_pe,   "#e67e22", "dot"),
+        ("fmax (pre-ext)",fmax_pe, "#e67e22", "dashdot"),
+    ]:
+        if val is not None:
+            fig.add_vline(x=val, line_color=col, line_dash=dash, line_width=1.5,
+                          annotation_text=f"{lbl}={val:.2f}",
+                          annotation_position="top left",
+                          annotation_font=dict(size=8, color=col))
+
+    fig.update_layout(
+        xaxis=dict(title="Frequency (GHz)", type="log",
+                   showgrid=True, gridcolor="#ebebeb"),
+        yaxis=dict(title="Gain (dB)", range=[0, 50],
+                   showgrid=True, gridcolor="#ebebeb"),
+        plot_bgcolor="white", paper_bgcolor="white", height=450,
+        legend=dict(x=1.01, y=1.0, xanchor="left", yanchor="top",
+                    bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
+                    borderwidth=1, font=dict(size=9)),
+        hovermode="x unified", margin=dict(l=55, r=20, t=40, b=50))
+    st.plotly_chart(fig, use_container_width=True, key=f"bode_deemb_{fname}")
+    st.caption(
+        "**Step-1** = Open+Short de-embedded using Step 1a/1b extracted values.  \n"
+        "**Pre-ext** = same de-embedding but with Pre-Extraction Review overrides applied.  \n"
+        "Solid = |h21|²  (→ fT).   Dashed = Mason U  (→ fmax).   Y-axis fixed 0–50 dB.")
+
+    # ── 4. S2P downloads ──────────────────────────────────────────────────────
+    st.markdown("#### Download De-embedded S2P")
+
+    def _rlc_params(p):
+        d = {}
+        d["DUT_file"] = Path(fname).stem
+        for k in ["Cpbe","Cpce","Cpbc"]:
+            d[k] = f"{p.get(k,0)*1e15:.4f} fF"
+            mode = p.get(f"{k}_mode","None")
+            if mode != "None":
+                extra = p.get(f"{k}_extra",0.0)
+                unit_e = "pH" if "L" in mode else "Ω"
+                sc_e   = 1e12 if "L" in mode else 1.0
+                d[f"{k}_extra"] = f"{mode}: {extra*sc_e:.4f} {unit_e}"
+        for k, lbl, sc_v, unit in [("Lb","Lb",1e12,"pH"),("Lc","Lc",1e12,"pH"),
+                                    ("Le","Le",1e12,"pH"),("Rpb","Rb",1,"Ω"),
+                                    ("Rpc","Rc",1,"Ω"),("Rpe","Re",1,"Ω")]:
+            d[lbl] = f"{p.get(k,0)*sc_v:.4f} {unit}"
+        for ck in ["Cpar_Lb","Cpar_Lc","Cpar_Le"]:
+            v = p.get(ck,0.0)
+            if v > 0: d[ck] = f"{v*1e15:.4f} fF"
+        return d
+
+    dl_c1, dl_c2 = st.columns(2)
+    with dl_c1:
+        st.markdown("**Step-1 de-embedded** *(para_step1)*")
+        fT_s1_str   = f"{fT_s1:.3f} GHz"   if fT_s1   is not None else "n/a"
+        fmax_s1_str = f"{fmax_s1:.3f} GHz" if fmax_s1 is not None else "n/a"
+        p1 = _rlc_params(para_step1)
+        p1["fT"]   = fT_s1_str
+        p1["fmax"] = fmax_s1_str
+        st.download_button("📥 Step-1 de-embedded.s2p",
+            data=write_s2p(freq, S_step1,
+                           title=f"Step-1 de-embedded — {Path(fname).stem}",
+                           params=p1),
+            file_name=f"deemb_step1_{Path(fname).stem}.s2p",
+            mime="text/plain",
+            key=f"dl_deemb_s1_{fname}",
+            use_container_width=True)
+
+    with dl_c2:
+        st.markdown("**Pre-extraction override** *(para_eff)*")
+        fT_pe_str   = f"{fT_pe:.3f} GHz"   if fT_pe   is not None else "n/a"
+        fmax_pe_str = f"{fmax_pe:.3f} GHz" if fmax_pe is not None else "n/a"
+        p2 = _rlc_params(para_eff)
+        p2["fT"]   = fT_pe_str
+        p2["fmax"] = fmax_pe_str
+        st.download_button("📥 Pre-ext override.s2p",
+            data=write_s2p(freq, S_pareff,
+                           title=f"Pre-ext override — {Path(fname).stem}",
+                           params=p2),
+            file_name=f"deemb_preext_{Path(fname).stem}.s2p",
+            mime="text/plain",
+            key=f"dl_deemb_pe_{fname}",
+            use_container_width=True)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -339,6 +492,18 @@ def _compute_h21_U(S):
         U       = np.where(den_u > 0, num_u/den_u, np.nan)
         U_db    = 10.0*np.log10(np.abs(U) + 1e-30)
     return h21_db, U_db
+
+def _find_ft_fmax(f_ghz, h21_db, U_db):
+    """Linear interpolation to find 0 dB crossing (fT from h21², fmax from U)."""
+    def _zero_cross(f, arr):
+        arr = np.asarray(arr, dtype=float)
+        for i in range(len(arr) - 1):
+            if np.isfinite(arr[i]) and np.isfinite(arr[i+1]) and arr[i] > 0 >= arr[i+1]:
+                slope = arr[i+1] - arr[i]
+                return float(f[i] - arr[i] * (f[i+1] - f[i]) / slope)
+        return None
+    return _zero_cross(f_ghz, h21_db), _zero_cross(f_ghz, U_db)
+
 
 
 def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fname):
