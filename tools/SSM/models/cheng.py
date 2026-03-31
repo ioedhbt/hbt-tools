@@ -39,24 +39,23 @@ def _step2_T(Y_ex1, freq, n_low):
 
     # [Eq. 13] Cbex from low-frequency Im(Y11+Y12)/ω
     Cbex_arr = np.imag(Y_ex1[:,0,0] + Y_ex1[:,0,1]) / omega
-    Cbex = safe_median(Cbex_arr, n_low)
+    Cbex = abs(safe_median(Cbex_arr, n_low))
 
     # Peel Cbex to get Y_ex2
     Y_ex2 = Y_ex1.copy()
-    for i, w in enumerate(omega):
-        Y_ex2[i,0,0] -= 1j*w*Cbex
+    for i, w in enumerate(omega): # at all frequency
+        Y_ex2[i,0,0] -= 1j*w*Cbex # only the Y11
 
+    Yms   = Y_ex2[:,0,1] + Y_ex2[:,1,1] # eq 21
+    YL    = Y_ex2[:,0,0]*Y_ex2[:,1,1] - Y_ex2[:,0,1]*Y_ex2[:,1,0] # eq 18
+    Ytot  = Y_ex2[:,0,0] + Y_ex2[:,0,1] + Y_ex2[:,1,0] + Y_ex2[:,1,1] # eq 19
     # [Eq. 22] Cbcx
-    Yms   = Y_ex2[:,0,1] + Y_ex2[:,1,1]
-    YL    = Y_ex2[:,0,0]*Y_ex2[:,1,1] - Y_ex2[:,0,1]*Y_ex2[:,1,0]
-    Ytot  = Y_ex2[:,0,0] + Y_ex2[:,0,1] + Y_ex2[:,1,0] + Y_ex2[:,1,1]
     num   = np.imag(Yms)*np.real(YL) - np.real(Yms)*np.imag(YL)
     den   = np.real(Yms)*np.real(Ytot) + np.imag(Ytot)*np.imag(Yms)
     with np.errstate(divide="ignore", invalid="ignore"):
         Cbcx_arr = -np.where(np.abs(den) > 1e-40, num/(omega*den), np.nan)
     n0, n1 = len(freq)//4, 3*len(freq)//4
-    Cbcx = safe_median(Cbcx_arr[n0:n1])
-
+    Cbcx = abs(safe_median(Cbcx_arr[n0:n1]))
     return ({"Cbex": Cbex, "Cbcx": Cbcx},
             {"Cbex_arr": Cbex_arr, "Cbcx_arr": Cbcx_arr, "Y_ex2": Y_ex2})
 
@@ -155,7 +154,7 @@ def _step3_T(Y_ex2, freq, Cbcx, n_low):
 
     params = dict(Rbi=Rbi, Rbe=Rbe, Cbe=Cbe, Rbc=Rbc, Cbc=Cbc,
                   alpha0=alpha0, tauB=tauB, tauC=tauC)
-    arrays = dict(Rbe=Rbe_a, Cbe=Cbe_a, Rbc=Rbc_a, Cbc=Cbc_a,
+    arrays = dict(Rbi=Rbi_a, Rbe=Rbe_a, Cbe=Cbe_a, Rbc=Rbc_a, Cbc=Cbc_a,
                   alpha=alpha_arr, tauB=tauB_arr, tauC=tauC_arr)
     return params, arrays
 
@@ -202,7 +201,7 @@ def _step3_pi(Y_ex2, freq, Cbcx, n_low):
     Gm0  = safe_median(Gm0_a, n_low); tau = safe_median(tau_a,  n_low)
 
     params = dict(Rbi=Rbi, Rbe=Rbe, Cbe=Cbe, Rbc=Rbc, Cbc=Cbc, Gm0=Gm0, tau=tau)
-    arrays = dict(Rbe=Rbe_a, Cbe=Cbe_a, Rbc=Rbc_a, Cbc=Cbc_a, Gm0=Gm0_a, tau=tau_a)
+    arrays = dict(Rbi=Rbi_a, Rbe=Rbe_a, Cbe=Cbe_a, Rbc=Rbc_a, Cbc=Cbc_a, Gm0=Gm0_a, tau=tau_a)
     return params, arrays
 
 
@@ -303,6 +302,31 @@ def _override_ui(fname, tK, calc_vals, int_specs, label):
 # ════════════════════════════════════════════════════════════════════════════════
 # ChengT
 # ════════════════════════════════════════════════════════════════════════════════
+def _render_step2_plots(arrays, params, freq, fname, tK):
+    """Plot Cbex and Cbcx vs frequency with modeled (median) value overlaid."""
+    import matplotlib.pyplot as plt
+    f_ghz = freq * 1e-9
+    Cbex_arr = arrays.get("Cbex_arr")
+    Cbcx_arr = arrays.get("Cbcx_arr")
+    if Cbex_arr is None or Cbcx_arr is None:
+        return
+    with st.expander("📊 Step 2: Cbex & Cbcx vs frequency", expanded=False):
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.5))
+        for ax, arr, key, lbl in [
+            (ax1, Cbex_arr, "Cbex", "Cbex (fF)"),
+            (ax2, Cbcx_arr, "Cbcx", "Cbcx (fF)"),
+        ]:
+            med = params.get(key, np.nan) * 1e15
+            ax.plot(f_ghz, arr * 1e15, "b-", lw=1.2, label="Extracted")
+            ax.axhline(med, color="r", lw=1.5, ls="--", label=f"Model: {med:.2f} fF")
+            ax.set_xlabel("Freq (GHz)")
+            ax.set_ylabel(lbl)
+            ax.legend(fontsize=8)
+            ax.grid(True, lw=0.4)
+        fig.suptitle(f"Step 2 extrinsic caps — {tK}", fontweight="bold")
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
 
 class ChengT(AbstractSSMModel):
     """
@@ -312,9 +336,45 @@ class ChengT(AbstractSSMModel):
     NAME          = "T-topology (Cheng 2022)"
     SHORT         = "T"
     TOPOLOGY_CHAR = "T"
+    PARAM_GROUPS  = [
+        {
+            "label":      "Step 2 — Cbex  (from Im(Y₁₁+Y₁₂)/ω, low-freq range)",
+            "params":     [("Cbex_arr", "Cbex", "Cbex", 1e15, "fF")],
+            "depends_on": [],
+        },
+        {
+            "label":      "Step 2 — Cbcx  (from Y_ex2 after peeling Cbex)",
+            "params":     [("Cbcx_arr", "Cbcx", "Cbcx", 1e15, "fF")],
+            "depends_on": ["Cbex"],
+        },
+        {
+            "label":      "Step 3 — Intrinsic  (Rbi, Rbe, Cbe, Rbc, Cbc, α₀ — all from Z_in)",
+            "params": [
+                ("Rbi",   "Rbi",    "Rbi",  1.0,  "Ω"),
+                ("Rbe",   "Rbe",    "Rbe",  1.0,  "Ω"),
+                ("Cbe",   "Cbe",    "Cbe",  1e15, "fF"),
+                ("Rbc",   "Rbc",    "Rbc",  1e-3, "kΩ"),
+                ("Cbc",   "Cbc",    "Cbc",  1e15, "fF"),
+                ("alpha", "alpha0", "α",    1.0,  ""),
+            ],
+            "depends_on": ["Cbex", "Cbcx"],
+        },
+        {
+            "label":      "τB  (depends on α₀)",
+            "params":     [("tauB", "tauB", "τB", 1e12, "ps")],
+            "depends_on": ["alpha0"],
+        },
+        {
+            "label":      "τC  (depends on τB)",
+            "params":     [("tauC", "tauC", "τC", 1e12, "ps")],
+            "depends_on": ["tauB"],
+        },
+    ]
+
 
     @classmethod
     def extract(cls, Y_ex1, freq, n_low, **kwargs):
+
         """
         Full extraction: Step 2 (Cbex_T, Cbcx) → Step 3 (intrinsic T params).
         See _step2_T and _step3_T for formula references.
@@ -344,32 +404,37 @@ class ChengT(AbstractSSMModel):
     @classmethod
     def render_step_formulas(cls):
         """Show Step 2 and Step 3 formulas (called before extract() in the UI)."""
-        st.markdown("**T-topology — Step 2 [Eqs. 13, 22]:**")
-        st.latex(r"C_{bex}^T = \frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}\bigg|_{\omega\to 0}")
-        st.latex(r"C_{bcx} = -\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)"
-                 r"- \mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega \cdot \mathrm{denom}}")
-        st.markdown("**T-topology — Step 3 [Eqs. 16, 29–33]:**")
-        st.latex(r"\alpha = \frac{Z_{12}-Z_{21}}{Z_{22}-Z_{21}},\quad"
-                 r"\alpha_0 = |\alpha|\big|_{\omega\to 0}")
-        st.latex(r"\tau_B = \frac{\sqrt{U-1}}{\omega},\quad"
-                 r"\tau_C = -\frac{\arctan\bigl[V(1-V^2)^{-1/2}\bigr]}{2\omega}")
+        with st.expander("Formulas"):
+            c1,c2=st.columns(2)
+            with c1:
+                st.markdown("**T-topology — Step 2 [Eqs. 13, 22]:**")
+                st.latex(r"C_{bex}^T = \frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}\bigg|_{\omega\to 0}")
+                st.latex(r"C_{bcx} = -\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)"
+                        r"- \mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega \cdot \mathrm{denom}}")
+            with c2:
+                st.markdown("**T-topology — Step 3 [Eqs. 16, 29–33]:**")
+                st.latex(r"\alpha = \frac{Z_{12}-Z_{21}}{Z_{22}-Z_{21}},\quad "
+                        r"\alpha_0 = |\alpha|\big|_{\omega\to 0}")
+                st.latex(r"\tau_B = \frac{\sqrt{U-1}}{\omega}")
+                st.latex(r"\tau_C = -\frac{\arctan\bigl[V(1-V^2)^{-1/2}\bigr]}{2\omega}")
 
     @classmethod
     def render_results_table(cls, params):
         ri = params
         rows = [
-            ("Rbi",  f"{ri['Rbi']:.4f}",                                       "Ω"),
+            ("Cbex", f"{ri['Cbex']*1e15:.4f}", "fF"),   # Step 2 — extracted first
+            ("Cbcx", f"{ri['Cbcx']*1e15:.4f}", "fF"),   # Step 2
+            ("Rbi",  f"{ri['Rbi']:.4f}",        "Ω"),   # Step 3
             ("Rbe",  f"{ri['Rbe']:.4f}" if ri['Rbe']<1000 else f"{ri['Rbe']*1e-3:.4f}k", "Ω"),
             ("Cbe",  f"{ri['Cbe']*1e15:.4f}" if ri['Cbe']<1e-12 else f"{ri['Cbe']*1e12:.4f}",
                      "fF" if ri['Cbe']<1e-12 else "pF"),
             ("Rbc",  f"{ri['Rbc']*1e-3:.4f}", "kΩ"),
             ("Cbc",  f"{ri['Cbc']*1e15:.4f}", "fF"),
-            ("Cbex", f"{ri['Cbex']*1e15:.4f}","fF"),
-            ("Cbcx", f"{ri['Cbcx']*1e15:.4f}","fF"),
             ("α₀",   f"{ri['alpha0']:.5f}",   ""),
             ("τB",   f"{ri['tauB']*1e12:.4f}", "ps"),
             ("τC",   f"{ri['tauC']*1e12:.4f}", "ps"),
         ]
+
         st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
                      use_container_width=True, hide_index=True)
 
@@ -395,7 +460,7 @@ class ChengT(AbstractSSMModel):
                      r"Z_{be}-\alpha Z_{bc}&(1-\alpha)Z_{bc}+Z_{be}\end{bmatrix}")
             st.latex(r"[Y_{ex}]=[Z_{in}]^{-1}+j\omega C_{bcx}\begin{pmatrix}1&-1\\-1&1\end{pmatrix}"
                      r"+j\omega C_{bex}\begin{pmatrix}1&0\\0&0\end{pmatrix}")
-            st.latex(r"[Y_{tot}]=([Y_{ex}]^{-1}+[Z_{ser}])^{-1}\;,\quad"
+            st.latex(r"[Y_{tot}]=([Y_{ex}]^{-1}+[Z_{ser}])^{-1}\;,\quad "
                      r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
 
     @classmethod
@@ -426,7 +491,9 @@ class ChengT(AbstractSSMModel):
         err = ssm_residual(S_raw, S_sim)
         render_smith_chart(S_raw, S_sim, cls.NAME, err, sc,
                            key=f"smith_{cls.SHORT}_{fname}")
+        _render_step2_plots(arrays, params, freq, fname, cls.NAME)
         return S_sim
+
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -441,9 +508,36 @@ class ChengPi(AbstractSSMModel):
     NAME          = "π-topology (Cheng 2022)"
     SHORT         = "pi"
     TOPOLOGY_CHAR = "pi"
+    PARAM_GROUPS  = [
+        {
+            "label":      "Step 2 — Cbex  (from Im(B·C)/Im(B), low-freq range)",
+            "params":     [("Cbex_arr", "Cbex", "Cbex", 1e15, "fF")],
+            "depends_on": [],
+        },
+        {
+            "label":      "Step 2 — Cbcx  (from Y_ex2 after peeling Cbex)",
+            "params":     [("Cbcx_arr", "Cbcx", "Cbcx", 1e15, "fF")],
+            "depends_on": ["Cbex"],
+        },
+        {
+            "label":      "Step 3 — Intrinsic  (all from Z_in, depends on Cbex, Cbcx)",
+            "params": [
+                ("Rbi",  "Rbi",  "Rbi",  1.0,  "Ω"),
+                ("Rbe",  "Rbe",  "Rbe",  1.0,  "Ω"),
+                ("Cbe",  "Cbe",  "Cbe",  1e15, "fF"),
+                ("Rbc",  "Rbc",  "Rbc",  1e-3, "kΩ"),
+                ("Cbc",  "Cbc",  "Cbc",  1e15, "fF"),
+                ("Gm0",  "Gm0",  "Gm0",  1e3,  "mS"),
+                ("tau",  "tau",  "τ",    1e12, "ps"),
+            ],
+            "depends_on": ["Cbex", "Cbcx"],
+        },
+    ]
+
 
     @classmethod
     def extract(cls, Y_ex1, freq, n_low, **kwargs):
+
         res_ext, arr_ext = _step2_pi(Y_ex1, freq, n_low)
         res_int, arr_int = _step3_pi(arr_ext["Y_ex2"], freq, res_ext["Cbcx"], n_low)
         params = {**res_ext, **res_int}
@@ -464,31 +558,36 @@ class ChengPi(AbstractSSMModel):
 
     @classmethod
     def render_step_formulas(cls):
-        st.markdown("**π-topology — Step 2 [Eqs. 26–28]:**")
-        st.latex(r"B=Y_{12}+Y_{22},\;C=Y_{11}+Y_{21}")
-        st.latex(r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)"
-                 r"+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}")
-        st.markdown("**π-topology — Step 3 (Zhang et al. 2015):**")
-        st.latex(r"g_m=\frac{Z_{12}-Z_{21}}{Z_{bc}Z_{12}}\;\Rightarrow\;"
-                 r"G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega")
-        st.latex(r"Y_{be}=\frac{Z_{22}-Z_{12}}{Z_{12}Z_{bc}}\;\Rightarrow\;"
-                 r"R_{be}=1/\mathrm{Re}(Y_{be}),\;C_{be}=\mathrm{Im}(Y_{be})/\omega")
+        with st.expander("Formulas"):
+            c1,c2=st.columns(2)
+            with c1:
+                st.markdown("**π-topology — Step 2 [Eqs. 26–28]:**")
+                st.latex(r"B=Y_{12}+Y_{22},\;C=Y_{11}+Y_{21}")
+                st.latex(r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)"
+                        r"+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}")
+            with c2:
+                st.markdown("**π-topology — Step 3 (Zhang et al. 2015):**")
+                st.latex(r"g_m=\frac{Z_{12}-Z_{21}}{Z_{bc}Z_{12}}\;\Rightarrow\;"
+                        r"G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega")
+                st.latex(r"Y_{be}=\frac{Z_{22}-Z_{12}}{Z_{12}Z_{bc}}\;\Rightarrow\;"
+                    r"R_{be}=1/\mathrm{Re}(Y_{be}),\;C_{be}=\mathrm{Im}(Y_{be})/\omega")
 
     @classmethod
     def render_results_table(cls, params):
         ri = params
         rows = [
-            ("Rbi",  f"{ri['Rbi']:.4f}", "Ω"),
+            ("Cbex", f"{ri['Cbex']*1e15:.4f}", "fF"),   # Step 2 — extracted first
+            ("Cbcx", f"{ri['Cbcx']*1e15:.4f}", "fF"),   # Step 2
+            ("Rbi",  f"{ri['Rbi']:.4f}", "Ω"),           # Step 3
             ("Rbe",  f"{ri['Rbe']:.4f}" if ri['Rbe']<1000 else f"{ri['Rbe']*1e-3:.4f}k", "Ω"),
             ("Cbe",  f"{ri['Cbe']*1e15:.4f}" if ri['Cbe']<1e-12 else f"{ri['Cbe']*1e12:.4f}",
                      "fF" if ri['Cbe']<1e-12 else "pF"),
             ("Rbc",  f"{ri['Rbc']*1e-3:.4f}", "kΩ"),
             ("Cbc",  f"{ri['Cbc']*1e15:.4f}", "fF"),
-            ("Cbex", f"{ri['Cbex']*1e15:.4f}","fF"),
-            ("Cbcx", f"{ri['Cbcx']*1e15:.4f}","fF"),
             ("Gm0",  f"{ri['Gm0']*1e3:.4f}",  "mS"),
             ("τ",    f"{ri['tau']*1e12:.4f}",  "ps"),
         ]
+
         st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
                      use_container_width=True, hide_index=True)
 
@@ -533,4 +632,6 @@ class ChengPi(AbstractSSMModel):
         err = ssm_residual(S_raw, S_sim)
         render_smith_chart(S_raw, S_sim, cls.NAME, err, sc,
                            key=f"smith_{cls.SHORT}_{fname}")
+        _render_step2_plots(arrays, params, freq, fname, cls.NAME)
         return S_sim
+

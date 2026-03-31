@@ -29,13 +29,47 @@ from .ssm_plots        import (render_open_plots, render_short_plots,
                                 render_rz12_section)
 from .ssm_override     import render_unified_pre_override, make_topology_fig
 from .models           import REGISTRY, DEFAULT_SELECTION   # model registry
-
+from .models.base_ui   import render_interactive_param_groups
 import matplotlib.pyplot as plt
 
 
 # ════════════════════════════════════════════════════════════════════════════════
 # Public API
 # ════════════════════════════════════════════════════════════════════════════════
+
+def _agg(arr, n0, n1, method, trim_pct=20):
+    a = np.asarray(arr[n0:n1], dtype=float)
+    a = a[np.isfinite(a)]
+    if len(a) == 0:
+        return np.nan
+    if method == "Trimmed mean":
+        k = max(0, int(len(a) * trim_pct / 100))
+        s = np.sort(a)
+        s = s[k: len(s) - k] if len(s) > 2 * k else s
+        return float(np.mean(s)) if len(s) > 0 else np.nan
+    return float(np.nanmedian(a))
+
+
+def _extract_ui(fname, key, freq, default_frac_lo=0.0, default_frac_hi=0.2):
+    """Freq-range + method selector. Returns (n0, n1, method, trim_pct)."""
+    N = len(freq)
+    f_ghz = freq * 1e-9
+    lo_idx = min(int(N * default_frac_lo), N - 2)
+    hi_idx = min(int(N * default_frac_hi), N - 1)
+    c1, c2, c3 = st.columns([3, 1, 1])
+    f_range = c1.slider(
+        "Freq range (GHz)", float(f_ghz[0]), float(f_ghz[-1]),
+        (float(f_ghz[lo_idx]), float(f_ghz[hi_idx])),
+        format="%.2f", key=f"frange_{key}_{fname}")
+    method = c2.radio("Method", ["Median", "Trimmed mean"],
+                      key=f"method_{key}_{fname}", horizontal=False)
+    trim_pct = int(c3.number_input("Trim %", 0, 49, 20,
+                                    key=f"trim_{key}_{fname}")) \
+               if method == "Trimmed mean" else 20
+    n0 = max(0, int(np.searchsorted(f_ghz, f_range[0])))
+    n1 = min(N, int(np.searchsorted(f_ghz, f_range[1], side="right")))
+    return n0, max(n0 + 1, n1), method, trim_pct
+
 
 def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None):
     """
@@ -78,6 +112,9 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
 
     st.markdown("---")
     st.markdown("## 🔬 Small-Signal Model (SSM) Parameter Extraction")
+    with st.expander("🖼️ Illustration", expanded=False):
+        st.image(image="tools/SSM/de_embedding_illus.png")
+
     with st.expander("ℹ️ Model notation", expanded=False):
         st.markdown(
             "Rb=Rpb, Rc=Rpc, Re=Rpe — same pad resistance, different naming contexts.  \n"
@@ -85,8 +122,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             "de-embedding and all forward simulations.")
 
     col_nl, _ = st.columns([1, 3])
-    n_low = col_nl.slider("Low-freq pts", 3, 40, 10, key=f"nlow_{fname}",
-                           help="Number of low-frequency points used for median extraction.")
+    n_low = col_nl.slider("Model low-freq pts", 3, 40, 10, key=f"nlow_{fname}",
+                           help="Low-frequency points for Step 2/3 model extractions.")
 
     # ══════════════════════════════════════════════════════════════════════════
     # STEP 1a — Open dummy
@@ -100,8 +137,13 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     with c2: st.latex(r"C_{pce}=\mathrm{Im}(Y_{22}^{open}+Y_{12}^{open})/\omega")
     with c3: st.latex(r"C_{pbc}=-\mathrm{Im}(Y_{12}^{open})/\omega")
 
+    # ── extraction range ─────────────────────────────────────────────────────
+    open_n0, open_n1, open_method, open_trim = _extract_ui(
+        fname, "open", freq, default_frac_lo=0.5, default_frac_hi=1.0)
+
     # ── calculation ──────────────────────────────────────────────────────────
-    para_open_calc, open_arr = step1a_open(open_data, n_low/len(freq))
+    para_open_calc, open_arr = step1a_open(
+        open_data, open_n0, open_n1, open_method, open_trim)
     st.dataframe(pd.DataFrame([
         {"Parameter": k, "Value": f"{para_open_calc[k]*1e15:.4f}", "Unit": "fF", "Description": d}
         for k, d in [("Cpbe","Pad B-E shunt cap"),
@@ -144,11 +186,21 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     with c2: st.latex(r"R_b=\mathrm{Re}(Z_{11}^{corr}-Z_{12}^{corr})")
     with c3: st.latex(r"R_c=\mathrm{Re}(Z_{22}^{corr}-Z_{21}^{corr})")
 
+    c1, c2, c3 = st.columns(3)
+    with c1: st.latex(r"L_e=\mathrm{Im}(Z_{12}^{corr})/\omega")
+    with c2: st.latex(r"L_b=\mathrm{Im}(Z_{11}^{corr}-Z_{12}^{corr})/\omega")
+    with c3: st.latex(r"L_c=\mathrm{Im}(Z_{22}^{corr}-Z_{21}^{corr})/\omega")
+
+    # ── extraction range ─────────────────────────────────────────────────────
+    short_n0, short_n1, short_method, short_trim = _extract_ui(
+        fname, "short", freq, default_frac_lo=0.0, default_frac_hi=0.2)
+
     # ── calculation ──────────────────────────────────────────────────────────
     para_short_calc, short_arr = step1b_short(
         short_data, open_data[0],
         para_caps_ov["Cpbe"], para_caps_ov["Cpce"], para_caps_ov["Cpbc"],
-        open_data, measured_open=do_measured,
+        open_data, n0=short_n0, n1=short_n1, method=short_method,
+        trim_pct=short_trim, measured_open=do_measured,
         Cpbe_mode=para_caps_ov.get("Cpbe_mode","None"),
         Cpbe_extra=para_caps_ov.get("Cpbe_extra",0.0),
         Cpce_mode=para_caps_ov.get("Cpce_mode","None"),
@@ -200,7 +252,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     # ══════════════════════════════════════════════════════════════════════════
     st.markdown("---")
     with st.expander("📈 Z Parameter Method — Extract Rbe and Re  *(Gao [3] Ch. 5.5.1)*",
-                     expanded=False):
+                     expanded=True):
         render_rz12_section(all_data or {}, para_step1, fname)
     rz12_Re  = st.session_state.get(f"rz12_Re_{fname}")
     rz12_Rbe = st.session_state.get(f"rz12_Rbe_{fname}")
@@ -268,12 +320,19 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             params["Rbe"] = rz12_Rbe
             st.info(f"Rbe overridden from Re(Z₁₂): **{rz12_Rbe:.4f} Ω**")
 
-        # Results table — co-located with formulas
+        # Interactive parameter-vs-frequency plots — slider updates medians, inputs allow override
+        # Runs BEFORE the table so the table reflects the current overridden values
+        if hasattr(ModelClass, "PARAM_GROUPS"):
+            params = render_interactive_param_groups(
+                params, arrays, freq, fname, short, ModelClass.PARAM_GROUPS)
+
+        # Results table — shows values after interactive slider/override
         ModelClass.render_results_table(params)
 
         # Degachi-specific diagnostic plots
         if hasattr(ModelClass, "render_diagnostic_plots"):
             ModelClass.render_diagnostic_plots(params, arrays, freq, fname)
+
 
         # Full formula trace (collapsible)
         ModelClass.render_formula_trace()
@@ -290,17 +349,18 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     # Circuit schematics
     # ══════════════════════════════════════════════════════════════════════════
     st.markdown("---")
-    st.markdown("### 🔌 Circuit Topology Diagrams")
-    for short in selected_models:
-        ModelClass = REGISTRY[short]
-        params, _  = extract_results[short]
-        st.markdown(f"**{ModelClass.NAME}**")
-        try:
-            fig_s = make_topology_fig({**para_eff, **params}, ModelClass.TOPOLOGY_CHAR)
-            st.pyplot(fig_s, use_container_width=True)
-            plt.close(fig_s)
-        except Exception as e:
-            st.error(f"Schematic error: {e}")
+    with st.expander("### 🔌 Circuit Topology Diagrams", expanded=False):
+        # st.markdown("")
+        for short in selected_models:
+            ModelClass = REGISTRY[short]
+            params, _  = extract_results[short]
+            st.markdown(f"**{ModelClass.NAME}**")
+            try:
+                fig_s = make_topology_fig({**para_eff, **params}, ModelClass.TOPOLOGY_CHAR)
+                st.pyplot(fig_s, use_container_width=True)
+                plt.close(fig_s)
+            except Exception as e:
+                st.error(f"Schematic error: {e}")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Smith charts (per model — override + residual)
@@ -349,8 +409,34 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
     with st.expander("📐 Cold-HBT Formulas", expanded=False):
         # Formulas — implementation is in the block below
         st.latex(r"[Z_{cor}]=[Y_{cold}-Y_{open}]^{-1}")
-        st.latex(r"D=\frac{AB+\sqrt{A^2B^2+4ABC^2}}{2C^2},\;"
-                 r"C_{ex}=-\frac{(C/B)^2}{\omega A[(1+1/D)^2+(C/B)^2]}")
+        fc1, fc2 = st.columns(2)
+        with fc1:
+            st.markdown("**Intermediate quantities**")
+            st.latex(r"A=\mathrm{Im}(Z_{11}-Z_{12})")
+            st.latex(r"B=\mathrm{Im}(Z_{22}-Z_{12})")
+            st.latex(r"C=\mathrm{Re}(Z_{12})")
+            st.latex(r"D=\frac{AB+\sqrt{A^2B^2+4ABC^2}}{2C^2}")
+        with fc2:
+            st.markdown("**Capacitances**")
+            st.latex(r"C_{bc}+C_{ex}=-\frac{1}{\omega B\!\left[1+\dfrac{A^2}{C^2D^2}\right]}")
+            st.latex(r"C_{ex}=-\frac{(C/B)^2}{\omega A\!\left[\!\left(1+\dfrac{1}{D}\right)^{\!2}+(C/B)^2\right]}")
+        fc3, fc4 = st.columns(2)
+        with fc3:
+            st.markdown("**Resistances**")
+            st.latex(r"R_{bi}=-\frac{D}{\omega C_{ex}}")
+            st.latex(
+                r"R_{bx}=\mathrm{Re}\!\left(Z_{11}-Z_{12}"
+                r"-\frac{R_{bi}C_{bc}}{C_{ex}+C_{bc}+j\omega R_{bi}C_{bc}C_{ex}}\right)")
+            st.latex(
+                r"R_{c}=\mathrm{Re}\!\left(Z_{22}-Z_{12}"
+                r"-\frac{1}{j\omega(C_{ex}+C_{bc})-\omega^2 R_{bi}C_{bc}C_{ex}}\right)")
+        with fc4:
+            st.markdown("**Junction capacitance**")
+            st.latex(
+                r"C_{be}=\frac{1}{\omega\,\mathrm{Im}\!\left("
+                r"Z_{12}-\dfrac{R_{bi}C_{ex}}{C_{ex}+C_{bc}+j\omega R_{bi}C_{bc}C_{ex}}"
+                r"\right)}")
+
     cold_file = st.file_uploader("Cold HBT S2P", type=["s2p"], key=f"cold_upload_{fname}")
     if cold_file is None:
         return None
@@ -366,7 +452,7 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
             f_c_use = f_c_raw; S_c_use = S_c_raw
         omega_c = 2.0*np.pi*f_o; N_c = len(f_o)
         Y_cold  = s_to_y(S_c_use, z0_c)
-
+        
         # Open admittance (measured or modelled)
         if do_measured:
             Y_open_eff = s_to_y(S_o, z0_o)
@@ -376,11 +462,21 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
             for i, w in enumerate(omega_c):
                 Y_open_eff[i] = build_Y_pad(para_caps_ov, w)
 
+        # ── extraction range ─────────────────────────────────────────────
+        cold_n0, cold_n1, cold_method, cold_trim = _extract_ui(
+            fname, "cold", f_o, default_frac_lo=0.5, default_frac_hi=1.0)
+
         # ── Cold-HBT extraction formulas [Gao §5.5.2] ────────────────────
         Z_cor = y_to_z(Y_cold - Y_open_eff)
-        A = np.imag(Z_cor[:,0,0] - Z_cor[:,0,1])
-        B = np.imag(Z_cor[:,1,1] - Z_cor[:,0,1])
-        C = np.real(Z_cor[:,0,1])
+
+        z12_choice = st.radio("Use for Z₁₂ in intermediate quantities:",
+                               ["Z12", "Z21"], horizontal=True,
+                               key=f"cold_z12sel_{fname}")
+        Z12_sel = Z_cor[:,0,1] if z12_choice == "Z12" else Z_cor[:,1,0]
+        A = np.imag(Z_cor[:,0,0] - Z12_sel)
+        B = np.imag(Z_cor[:,1,1] - Z12_sel)
+        C = np.real(Z12_sel)
+
         with np.errstate(divide="ignore", invalid="ignore"):
             disc    = A**2*B**2 + 4.0*A*B*C**2
             D_arr   = np.where(np.abs(C)>1e-30,
@@ -391,28 +487,31 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
                                    -1.0/(omega_c*B*(1.0+A**2/(C**2*D_arr**2))), np.nan)
             Cbc_arr = CbcCex_arr - Cex_arr
             Rbi_arr = np.where(np.abs(omega_c*Cex_arr)>1e-40,
-                               -D_arr/(omega_c*Cex_arr), np.nan)
+                               D_arr/(omega_c*Cex_arr), np.nan)
             num_cbe = Rbi_arr * Cex_arr
             den_cbe = Cex_arr + Cbc_arr + 1j*omega_c*Rbi_arr*Cbc_arr*Cex_arr
             Cbe_arr = np.where(np.abs(den_cbe)>1e-40,
-                               1.0/(omega_c*np.imag(Z_cor[:,0,1]-num_cbe/den_cbe)), np.nan)
+                               -1.0/(omega_c*np.imag(Z_cor[:,0,1]-num_cbe/den_cbe)), np.nan)
             Zex_arr = np.where(np.abs(Cex_arr)>1e-40, 1.0/(1j*omega_c*Cex_arr), np.nan+0j)
             Zbc_z   = np.where(np.abs(Cbc_arr)>1e-40, 1.0/(1j*omega_c*Cbc_arr), np.nan+0j)
             Zbe_arr = np.where(np.abs(Cbe_arr)>1e-40, 1.0/(1j*omega_c*Cbe_arr), np.nan+0j)
             denom_b = Zbc_z + Zex_arr + Rbi_arr
-            Rb_arr  = np.real((Z_cor[:,0,0]-Z_cor[:,0,1]) -
+            Rb_arr  = np.real((Z_cor[:,0,0]-Z12_sel) -
                               np.where(np.abs(denom_b)>1e-40, Zex_arr*Rbi_arr/denom_b, np.nan+0j))
-            Rc_arr  = np.real((Z_cor[:,1,1]-Z_cor[:,0,1]) -
+            Rc_arr  = np.real((Z_cor[:,1,1]-Z12_sel) -
                               np.where(np.abs(denom_b)>1e-40, Zbc_z*Zex_arr/denom_b, np.nan+0j))
-            Re_arr  = np.real(Z_cor[:,0,1] - Zbe_arr -
+            Re_arr  = np.real(Z12_sel - Zbe_arr -
                               np.where(np.abs(denom_b)>1e-40, Zbc_z*Rbi_arr/denom_b, np.nan+0j))
         from .ssm_core import safe_median
-        n0, n1 = N_c//4, 3*N_c//4
-        def _med(arr): return safe_median(arr[n0:n1])
+
+        def _med(arr): return _agg(arr, cold_n0, cold_n1, cold_method, cold_trim)
+
         cold_res = dict(
-            Cex_cold=_med(Cex_arr), Cbc_cold=_med(Cbc_arr), Rbi_cold=_med(Rbi_arr),
-            Cbe_cold=_med(Cbe_arr), Rb_cold=_med(Rb_arr), Rc_cold=_med(Rc_arr),
-            Re_cold=_med(Re_arr))
+            Cex_cold=abs(_med(Cex_arr)), Cbc_cold=abs(_med(Cbc_arr)),
+            Rbi_cold=abs(_med(Rbi_arr)), Cbe_cold=abs(_med(Cbe_arr)),
+            Rb_cold=abs(_med(Rb_arr)),   Rc_cold=abs(_med(Rc_arr)),
+            Re_cold=abs(_med(Re_arr)))
+
         st.dataframe(pd.DataFrame([
             ("Cex",       f"{cold_res['Cex_cold']*1e15:.4f}", "fF"),
             ("Cbc",       f"{cold_res['Cbc_cold']*1e15:.4f}", "fF"),
@@ -422,10 +521,105 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
             ("Rc (Cold)", f"{cold_res['Rc_cold']:.4f}",       "Ω"),
             ("Re (Cold)", f"{cold_res['Re_cold']:.4f}",       "Ω"),
         ], columns=["Parameter","Value","Unit"]), use_container_width=True, hide_index=True)
+
+        # ── Model fit verification plots ─────────────────────────────────
+        with st.expander("📊 Cold-HBT Model Fit Verification", expanded=False):
+            st.caption(
+                "Measured Z_cor vs model reconstructed from extracted parameters.  \n"
+                "A good fit confirms the extracted values are self-consistent.")
+            f_GHz    = f_o / 1e9
+            Zex_m    = 1.0 / (1j * omega_c * cold_res["Cex_cold"])
+            Zbc_m    = 1.0 / (1j * omega_c * cold_res["Cbc_cold"])
+            Zbe_m    = 1.0 / (1j * omega_c * cold_res["Cbe_cold"])
+            denom_m  = Zbc_m + Zex_m + cold_res["Rbi_cold"]
+            Z11Z12_meas  = Z_cor[:, 0, 0] - Z_cor[:, 0, 1]
+            Z12_meas     = Z_cor[:, 0, 1]
+            Z22Z12_meas  = Z_cor[:, 1, 1] - Z_cor[:, 0, 1]
+            Z11Z12_model = Zex_m * cold_res["Rbi_cold"] / denom_m + cold_res["Rb_cold"]
+            Z12_model    = Zbc_m * cold_res["Rbi_cold"] / denom_m + Zbe_m + cold_res["Re_cold"]
+            Z22Z12_model = Zbc_m * Zex_m / denom_m + cold_res["Rc_cold"]
+            fig, axes = plt.subplots(3, 2, figsize=(10, 9), sharex=True)
+            plot_data = [
+                (Z11Z12_meas, Z11Z12_model, "Z11-Z12"),
+                (Z12_meas,    Z12_model,    "Z12"),
+                (Z22Z12_meas, Z22Z12_model, "Z22-Z12"),
+            ]
+            for row, (meas, model, lbl) in enumerate(plot_data):
+                for col, (part_fn, part_lbl) in enumerate(
+                        [(np.real, "Re"), (np.imag, "Im")]):
+                    ax = axes[row, col]
+                    ax.plot(f_GHz, part_fn(meas),  "b-",  lw=1.5, label="Measured")
+                    ax.plot(f_GHz, part_fn(model), "r--", lw=1.5, label="Model")
+                    ax.set_ylabel(f"{part_lbl}({lbl}) (Ω)")
+                    ax.legend(fontsize=7)
+                    ax.grid(True, lw=0.4)
+                    ax.set_ylim(-200, 200)
+                    if row == 0:
+                        ax.set_title(f"{part_lbl} part")
+            for ax in axes[-1]:
+                ax.set_xlabel("Frequency (GHz)")
+            fig.suptitle("Cold-HBT: Measured vs Model", fontweight="bold")
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
+        with st.expander("📊 Intermediate quantities A, B, C, D vs frequency", expanded=False):
+            f_GHz = f_o / 1e9
+            fig_abcd, axes_abcd = plt.subplots(2, 2, figsize=(10, 6), sharex=True)
+            for ax, arr, lbl in zip(
+                axes_abcd.flat,
+                [A, B, C, D_arr],
+                ["A = Im(Z₁₁−Z₁₂)", "B = Im(Z₂₂−Z₁₂)", "C = Re(Z₁₂)", "D"]
+            ):
+                ax.plot(f_GHz, arr, "b-", lw=1.5)
+                ax.axhline(0, color="k", lw=0.8, ls="--")
+                ax.set_ylabel(lbl)
+                ax.grid(True, lw=0.4)
+                ax.set_ylim(-500, 500)
+            for ax in axes_abcd[1]:
+                ax.set_xlabel("Frequency (GHz)")
+            fig_abcd.suptitle("Cold-HBT intermediate quantities", fontweight="bold")
+            plt.tight_layout()
+            st.pyplot(fig_abcd)
+            plt.close(fig_abcd)
+
+        with st.expander("📊 Extracted parameters vs frequency", expanded=False):
+            f_GHz_c = f_o / 1e9
+            fig, axes = plt.subplots(2, 4, figsize=(14, 6))
+            axes = axes.flatten()
+            param_plots = [
+                (Cex_arr * 1e15, "Cex (fF)"),
+                (Cbc_arr * 1e15, "Cbc (fF)"),
+                (Rbi_arr,        "Rbi (Ω)"),
+                (Cbe_arr * 1e15, "Cbe (fF)"),
+                (Rb_arr,         "Rb Cold (Ω)"),
+                (Rc_arr,         "Rc Cold (Ω)"),
+                (Re_arr,         "Re Cold (Ω)"),
+            ]
+            for i, (arr, lbl) in enumerate(param_plots):
+                ax = axes[i]
+                ax.plot(f_GHz_c, arr, lw=1.2)
+                ax.axhline(0, color="k", lw=0.6, ls="--")
+                ax.axvspan(f_GHz_c[cold_n0], f_GHz_c[cold_n1-1], alpha=0.12, color="green",
+                           label="Median range")
+                med = _agg(arr, cold_n0, cold_n1, cold_method, cold_trim)
+                ax.set_ylim(med * 0.5, med * 1.5)
+                ax.axhline(med, color="r", lw=1.2, ls=":", label="Median")
+                ax.set_title(lbl, fontsize=9)
+                ax.set_xlabel("Freq (GHz)", fontsize=8)
+                ax.grid(True, lw=0.4)
+                ax.legend(fontsize=7)
+            axes[-1].set_visible(False)
+            fig.suptitle("Cold-HBT: Extracted parameters vs frequency", fontweight="bold")
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close(fig)
+
         return cold_res
     except Exception as e:
         st.error(f"Cold-HBT failed: {e}")
         return None
+
 
 
 def _render_cold_crosscheck(cold_res, extract_results, registry):

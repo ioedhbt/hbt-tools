@@ -135,12 +135,15 @@ class AbstractSSMModel(ABC):
 
 from .cheng   import ChengT, ChengPi   # noqa: E402
 from .degachi import Degachi           # noqa: E402
+from .xu      import XuModel           # noqa: E402
 
 REGISTRY: dict[str, type[AbstractSSMModel]] = {
     ChengT.SHORT:  ChengT,
     ChengPi.SHORT: ChengPi,
     Degachi.SHORT: Degachi,
+    XuModel.SHORT: XuModel,
 }
+
 
 # Default selection shown on first run (can be overridden in ssm_extraction.py)
 DEFAULT_SELECTION: list[str] = ["T", "pi"]

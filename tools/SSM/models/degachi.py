@@ -222,9 +222,25 @@ class Degachi(AbstractSSMModel):
     NAME          = "Degachi (2008) augmented π"
     SHORT         = "D"
     TOPOLOGY_CHAR = "D"
+    PARAM_GROUPS  = [
+        {
+            "label":      "Gm0, τ  (from residual core admittance, depends on Rbi, Cbi)",
+            "params": [
+                ("Gm0_a", "Gm0", "Gm0", 1e3,  "mS"),
+                ("tau_a", "tau", "τ",   1e12, "ps"),
+            ],
+            "depends_on": ["Rbi"],
+        },
+        {
+            "label":      "Ccx  (from high-freq Im(Y₁₂)/ω — extracted last)",
+            "params":     [("Ccx_arr", "Ccx", "Ccx", 1e15, "fF")],
+            "depends_on": ["Gm0", "tau"],
+        },
+    ]
 
     @classmethod
     def extract(cls, Y_ex1, freq, n_low, **kwargs):
+
         return _extract(Y_ex1, freq, n_low)
 
     @classmethod
@@ -259,11 +275,12 @@ class Degachi(AbstractSSMModel):
                      "fF" if ri['Cbe']<1e-12 else "pF"),
             ("Rbc",  f"{ri['Rbc']*1e-3:.4f}", "kΩ"),
             ("Cbc",  f"{ri['Cbc']*1e15:.4f}", "fF"),
-            ("Rcx",  f"{ri['Rcx']*1e-3:.2f}", "kΩ"),
-            ("Ccx",  f"{ri['Ccx']*1e15:.4f}", "fF"),
-            ("Gm0",  f"{ri['Gm0']*1e3:.4f}",  "mS"),
+            ("Gm0",  f"{ri['Gm0']*1e3:.4f}",  "mS"),   # extracted before Ccx
             ("τ",    f"{ri['tau']*1e12:.4f}",  "ps"),
+            ("Ccx",  f"{ri['Ccx']*1e15:.4f}", "fF"),
+            ("Rcx",  f"{ri['Rcx']*1e-3:.2f}", "kΩ"),
         ]
+
         st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
                      use_container_width=True, hide_index=True)
 

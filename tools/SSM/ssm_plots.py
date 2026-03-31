@@ -388,12 +388,13 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
 
 def render_rz12_section(all_data, para_eff, fname):
     """
-    Multi-bias Re(Z₁₂) vs 1/IE fit for η and Re extraction.
-    Gao [3] Ch. 5.5.1:  Re(Z₁₂) = (ηkT/q)·(1/IE) + Re
+    Z-parameter method (Re(Z12) vs 1/IE) and Open-collector method (Re(Zij) vs 1/IB).
     """
-    st.markdown("#### 📈 Re(Z₁₂) vs 1/IE")
-    st.caption("Gao [3] Ch. 5.5.1.")
+    st.markdown("#### 📈 Z-Parameter Method  *(Gao [3] Ch. 5.5.1)*")
+    st.caption("Re(Z₁₂) = (ηkT/q)·(1/IE) + Re")
     st.latex(r"\mathrm{Re}(Z_{12})=\frac{\eta kT}{q}\cdot\frac{1}{I_E}+R_e")
+
+
     if not all_data:
         st.info("No DUT files loaded."); return
 
@@ -417,7 +418,7 @@ def render_rz12_section(all_data, para_eff, fname):
                     ["","File","IE (mA)","Re(Z₁₂) (Ω)","Rbe*"]):
         h.markdown(f"<small><b>{t}</b></small>", unsafe_allow_html=True)
 
-    points = []; Re_ref = para_eff.get("Rpe", 0.0)
+    points = []; all_rez12 = []; Re_ref = para_eff.get("Rpe", 0.0)
     for fn, d in all_data.items():
         c0,c1,c2,c3,c4 = st.columns([0.3,2.3,1.2,1.4,1.4])
         use = c0.checkbox("", key=f"rz12_use_{fn}__{fname}", value=st.session_state[f"rz12_use_{fn}"],
@@ -436,34 +437,52 @@ def render_rz12_section(all_data, para_eff, fname):
             ReZ12  = float(y_to_z(Y_ex1f)[idx,0,1].real)
             c3.markdown(f"**{ReZ12:.4f}**")
             c4.markdown(f"<small>{ReZ12-Re_ref:.4f}</small>", unsafe_allow_html=True)
+            all_rez12.append((ReZ12, Path(fn).stem))
             if Ie > 0: points.append((1.0/(Ie*1e-3), ReZ12, Path(fn).stem))
         except Exception as ex:
             c3.markdown(f"*err:{ex}*")
 
-    if len(points) < 2:
-        st.caption("Need ≥ 2 files with IE for fit."); return
-
-    x = np.array([p[0] for p in points])
-    y = np.array([p[1] for p in points])
-    lbl = [p[2] for p in points]
-    try:
-        slope, Re_fit = np.polyfit(x, y, 1)
-        eta = slope / (1.381e-23 * 300 / 1.602e-19)
-        x_fit = np.linspace(0, max(x)*1.08, 200)
-        y_fit = slope*x_fit + Re_fit
-    except Exception as ex:
-        st.error(f"Fit failed: {ex}"); return
+    if not all_rez12:
+        st.caption("Enable files above to begin."); return
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=x, y=y, mode="markers+text", text=lbl,
-        textposition="top center", name="Re(Z₁₂)",
-        marker=dict(size=11, color="#1f77b4", line=dict(color="#0d4a7a", width=1.5))))
-    fig.add_trace(go.Scatter(x=x_fit, y=y_fit, mode="lines",
-        name=f"Fit Re={Re_fit:.4f} Ω  η={eta:.3f}",
-        line=dict(color="#d62728", width=2, dash="dash")))
-    fig.add_trace(go.Scatter(x=[0], y=[Re_fit], mode="markers",
-        name=f"Re={Re_fit:.4f} Ω",
-        marker=dict(size=14, symbol="star", color="#d62728")))
+
+    if points:
+        x = np.array([p[0] for p in points])
+        y = np.array([p[1] for p in points])
+        lbl = [p[2] for p in points]
+        fig.add_trace(go.Scatter(x=x, y=y, mode="markers+text", text=lbl,
+            textposition="top center", name="Re(Z₁₂)",
+            marker=dict(size=11, color="#1f77b4", line=dict(color="#0d4a7a", width=1.5))))
+    else:
+        # No Ie entered yet — show Re(Z₁₂) values on y-axis at x=0
+        y0 = np.array([p[0] for p in all_rez12])
+        lbl0 = [p[1] for p in all_rez12]
+        fig.add_trace(go.Scatter(x=np.zeros(len(y0)), y=y0, mode="markers+text", text=lbl0,
+            textposition="top right", name="Re(Z₁₂) (no IE yet)",
+            marker=dict(size=11, symbol="circle-open", color="#1f77b4",
+                        line=dict(color="#0d4a7a", width=1.5))))
+
+    slope, Re_fit, eta = None, None, None
+    if len(points) >= 2:
+        try:
+            x = np.array([p[0] for p in points])
+            y = np.array([p[1] for p in points])
+            slope, Re_fit = np.polyfit(x, y, 1)
+            eta = slope / (1.381e-23 * 300 / 1.602e-19)
+            x_fit = np.linspace(0, max(x)*1.08, 200)
+            y_fit = slope*x_fit + Re_fit
+            fig.add_trace(go.Scatter(x=x_fit, y=y_fit, mode="lines",
+                name=f"Fit Re={Re_fit:.4f} Ω  η={eta:.3f}",
+                line=dict(color="#d62728", width=2, dash="dash")))
+            fig.add_trace(go.Scatter(x=[0], y=[Re_fit], mode="markers",
+                name=f"Re={Re_fit:.4f} Ω",
+                marker=dict(size=14, symbol="star", color="#d62728")))
+        except Exception as ex:
+            st.error(f"Fit failed: {ex}")
+    elif points:
+        st.caption("Need ≥ 2 files with IE for fit.")
+
     fig.update_layout(
         title=f"Re(Z₁₂) vs 1/IE @ {f_extract:.2f} GHz",
         xaxis=dict(title="1/IE (A⁻¹)", rangemode="tozero",
@@ -476,18 +495,141 @@ def render_rz12_section(all_data, para_eff, fname):
         margin=dict(l=55,r=20,t=50,b=50))
     st.plotly_chart(fig, use_container_width=True, key=f"rz12_{fname}")
 
-    current_stem  = Path(fname).stem
-    current_idx   = next((i for i, l in enumerate(lbl) if l == current_stem), None)
-    if current_idx is not None:
-        st.session_state[f"rz12_Rbe_{fname}"] = y[current_idx] - Re_fit
-    else:
-        st.session_state.pop(f"rz12_Rbe_{fname}", None)
-    st.session_state[f"rz12_Re_{fname}"] = Re_fit
+    if Re_fit is not None:
+        x = np.array([p[0] for p in points])
+        y = np.array([p[1] for p in points])
+        lbl = [p[2] for p in points]
+        current_stem  = Path(fname).stem
+        current_idx   = next((i for i, l in enumerate(lbl) if l == current_stem), None)
+        if current_idx is not None:
+            st.session_state[f"rz12_Rbe_{fname}"] = y[current_idx] - Re_fit
+        else:
+            st.session_state.pop(f"rz12_Rbe_{fname}", None)
+        st.session_state[f"rz12_Re_{fname}"] = Re_fit
 
-    mc1, mc2 = st.columns(2)
-    mc1.metric("Re (intercept)", f"{Re_fit:.4f} Ω",
-               delta=f"{Re_fit - para_eff.get('Rpe',0):+.4f} vs open-short")
-    if current_idx is not None:
-        mc2.metric(f"Rbe ({current_stem})", f"{y[current_idx]-Re_fit:.4f} Ω")
+        mc1, mc2 = st.columns(2)
+        mc1.metric("Re (intercept)", f"{Re_fit:.4f} Ω",
+                   delta=f"{Re_fit - para_eff.get('Rpe',0):+.4f} vs open-short")
+        if current_idx is not None:
+            mc2.metric(f"Rbe ({current_stem})", f"{y[current_idx]-Re_fit:.4f} Ω")
+        else:
+            mc2.info("Current file not in fit.")
     else:
-        mc2.info("Current file not in fit.")
+        st.session_state.pop(f"rz12_Re_{fname}", None)
+        st.session_state.pop(f"rz12_Rbe_{fname}", None)
+    # ══════════════════════════════════════════════════════════════════════════
+    # Open-collector method
+    # ══════════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("#### 📈 Open-Collector Method")
+    st.caption("Re(Z₁₁−Z₁₂) vs 1/IB → Rb,  Re(Z₂₂−Z₁₂) vs 1/IB → Rc,  Re(Z₁₂) vs 1/IB → Re")
+    st.latex(r"\mathrm{Re}(Z_{11}-Z_{12})=R_b+f(I_B),\quad"
+             r"\mathrm{Re}(Z_{22}-Z_{12})=R_c+f(I_B),\quad"
+             r"\mathrm{Re}(Z_{12})=R_e+f(I_B)")
+
+    if not all_data:
+        st.info("No DUT files loaded."); return
+
+    for fn in all_data:
+        for suf, dv in [("ocm_use", True), ("ocm_Ib", 0.0)]:
+            gk = f"{suf}_{fn}"
+            if gk not in st.session_state: st.session_state[gk] = dv
+
+    st.markdown("**Files:**")
+    hcols = st.columns([0.3, 2.0, 1.2, 1.4, 1.4, 1.4])
+    for h, t in zip(hcols, ["", "File", "IB (mA)",
+                              "Re(Z11-Z12)", "Re(Z22-Z12)", "Re(Z12)"]):
+        h.markdown(f"<small><b>{t}</b></small>", unsafe_allow_html=True)
+
+    ocm_points = []  # (1/Ib, ReZ11Z12, ReZ22Z12, ReZ12, stem)
+    for fn, d in all_data.items():
+        c0, c1, c2, c3, c4, c5 = st.columns([0.3, 2.0, 1.2, 1.4, 1.4, 1.4])
+        use = c0.checkbox("", key=f"ocm_use_{fn}__{fname}",
+                          value=st.session_state[f"ocm_use_{fn}"],
+                          label_visibility="collapsed")
+        st.session_state[f"ocm_use_{fn}"] = use
+        c1.markdown(f"<small>{Path(fn).stem}</small>", unsafe_allow_html=True)
+        if not use: continue
+        Ib = c2.number_input("", min_value=0.0, step=0.1, format="%.3f",
+                              key=f"ocm_Ib_{fn}__{fname}",
+                              value=float(st.session_state[f"ocm_Ib_{fn}"]),
+                              label_visibility="collapsed")
+        st.session_state[f"ocm_Ib_{fn}"] = Ib
+        try:
+            ref_fn2 = list(all_data.keys())[0]
+            f_ref2  = all_data[ref_fn2]["freq"] * 1e-9
+            f_ext2  = st.session_state.get(f"rz12_fext_{fname}",
+                                            min(1.0, float(f_ref2[-1]) * 0.05))
+            idx2   = int(np.argmin(np.abs(d["freq"] * 1e-9 - f_ext2)))
+            Y_ex1f = peel_parasitics(d["S_raw"], d["freq"], d["z0"], para_eff)
+            Z_f    = y_to_z(Y_ex1f)[idx2]
+            v1 = float(np.real(Z_f[0, 0] - Z_f[0, 1]))
+            v2 = float(np.real(Z_f[1, 1] - Z_f[0, 1]))
+            v3 = float(np.real(Z_f[0, 1]))
+            c3.markdown(f"**{v1:.4f}**")
+            c4.markdown(f"**{v2:.4f}**")
+            c5.markdown(f"**{v3:.4f}**")
+            if Ib > 0:
+                ocm_points.append((1.0 / (Ib * 1e-3), v1, v2, v3,
+                                   Path(fn).stem))
+        except Exception as ex:
+            c3.markdown(f"*err:{ex}*")
+
+    if len(ocm_points) < 2:
+        st.caption("Need ≥ 2 files with IB for fit."); return
+
+    xo   = np.array([p[0] for p in ocm_points])
+    y1o  = np.array([p[1] for p in ocm_points])
+    y2o  = np.array([p[2] for p in ocm_points])
+    y3o  = np.array([p[3] for p in ocm_points])
+    lblo = [p[4] for p in ocm_points]
+    x_fit_o = np.linspace(0, max(xo) * 1.08, 200)
+
+    fig_o = go.Figure()
+    for y_arr, name, color in [
+        (y1o, "Re(Z11-Z12) → Rb", "#1f77b4"),
+        (y2o, "Re(Z22-Z12) → Rc", "#2ca02c"),
+        (y3o, "Re(Z12) → Re",     "#ff7f0e"),
+    ]:
+        try:
+            sl, ic = np.polyfit(xo, y_arr, 1)
+            fig_o.add_trace(go.Scatter(
+                x=xo, y=y_arr, mode="markers+text", text=lblo,
+                textposition="top center", name=name,
+                marker=dict(size=10, color=color)))
+            fig_o.add_trace(go.Scatter(
+                x=x_fit_o, y=sl * x_fit_o + ic, mode="lines",
+                name=f"{name.split('→')[1].strip()} intercept={ic:.4f} Ω",
+                line=dict(color=color, width=1.5, dash="dash")))
+            fig_o.add_trace(go.Scatter(
+                x=[0], y=[ic], mode="markers",
+                marker=dict(size=12, symbol="star", color=color),
+                name=f"intercept {ic:.4f} Ω", showlegend=False))
+        except Exception:
+            pass
+
+    fig_o.update_layout(
+        title="Open-collector: Re(Zij) vs 1/IB",
+        xaxis=dict(title="1/IB (A⁻¹)", rangemode="tozero",
+                   showgrid=True, gridcolor="#ebebeb"),
+        yaxis=dict(title="Re(Zij) (Ω)", showgrid=True, gridcolor="#ebebeb"),
+        plot_bgcolor="white", paper_bgcolor="white", height=400,
+        legend=dict(x=0.01, y=0.99, xanchor="left", yanchor="top",
+                    bgcolor="rgba(255,255,255,0.9)", bordercolor="#ccc",
+                    borderwidth=1, font=dict(size=9)),
+        margin=dict(l=55, r=20, t=50, b=50))
+    st.plotly_chart(fig_o, use_container_width=True, key=f"ocm_{fname}")
+
+    try:
+        Rb_ocm = float(np.polyfit(xo, y1o, 1)[1])
+        Rc_ocm = float(np.polyfit(xo, y2o, 1)[1])
+        Re_ocm = float(np.polyfit(xo, y3o, 1)[1])
+        oc1, oc2, oc3 = st.columns(3)
+        oc1.metric("Rb (intercept)", f"{Rb_ocm:.4f} Ω")
+        oc2.metric("Rc (intercept)", f"{Rc_ocm:.4f} Ω")
+        oc3.metric("Re (intercept)", f"{Re_ocm:.4f} Ω")
+        st.session_state[f"ocm_Rb_{fname}"] = Rb_ocm
+        st.session_state[f"ocm_Rc_{fname}"] = Rc_ocm
+        st.session_state[f"ocm_Re_{fname}"] = Re_ocm
+    except Exception:
+        pass

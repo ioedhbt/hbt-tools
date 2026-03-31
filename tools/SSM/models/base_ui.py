@@ -110,3 +110,118 @@ def sync_pad_from_preov(fname: str, topo_key: str, para_eff: dict):
         for key, _, scale, *_ in PAD_SPECS:
             st.session_state[f"sim_{topo_key}_{key}_{fname}"] = float(para_eff.get(key, 0.0)) * scale
         st.session_state[sync_key] = preov_hash
+
+def render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups):
+    """
+    For each parameter group, render:
+      - A labelled section heading with dependency info
+      - A "same range as previous" button (for dependent groups)
+      - A frequency range slider
+      - Per-frequency line plots with a dashed line at the current median
+      - A number_input per parameter for manual override
+    Returns a copy of params with all overrides applied (SI units).
+    """
+    f_ghz   = freq * 1e-9
+    f_min_v = float(f_ghz[0])
+    f_max_v = float(f_ghz[-1])
+    step_v  = max(round((f_max_v - f_min_v) / 100, 3), 0.001)
+
+    params_out = dict(params)
+    prev_range = (f_min_v, f_max_v)
+
+    with st.expander("📊 Extracted Parameters vs Frequency — Interactive", expanded=False):
+        for g_idx, group in enumerate(param_groups):
+            g_label  = group["label"]
+            g_params = group["params"]
+            g_deps   = group.get("depends_on", [])
+
+            st.markdown(f"**{g_label}**")
+            if g_deps:
+                st.caption(f"Depends on: {', '.join(g_deps)}")
+
+            slider_key = f"pfp_sl_{model_short}_{g_idx}_{fname}"
+
+            # "Use previous range" button for dependent groups
+            if g_deps:
+                if st.button(f"↩ Same range as previous group",
+                             key=f"pfp_useprev_{model_short}_{g_idx}_{fname}"):
+                    st.session_state[slider_key] = prev_range
+                    st.rerun()
+
+            # Initialize slider
+            if slider_key not in st.session_state:
+                st.session_state[slider_key] = (f_min_v, f_max_v)
+
+            f_lo, f_hi = st.slider(
+                "Frequency range (GHz)",
+                min_value=f_min_v, max_value=f_max_v,
+                value=st.session_state[slider_key],
+                step=step_v, format="%.2f",
+                key=slider_key)
+
+            mask   = (f_ghz >= f_lo) & (f_ghz <= f_hi)
+            f_plot = f_ghz[mask]
+            # Tag used in widget keys — changing it recreates inputs fresh on slider move
+            rng_tag = f"{f_lo:.3f}_{f_hi:.3f}"
+
+            valid_specs = [
+                s for s in g_params
+                if s[0] in arrays and isinstance(arrays[s[0]], np.ndarray)
+            ]
+
+            for row_start in range(0, len(valid_specs), 2):
+                row  = valid_specs[row_start:row_start + 2]
+                cols = st.columns(2)
+                for col_w, (arr_key, param_key, label, scale, unit) in zip(cols, row):
+                    raw_masked = arrays[arr_key][mask]
+                    arr_plot   = (np.abs(raw_masked) if np.iscomplexobj(raw_masked)
+                                  else np.real(raw_masked)) * scale
+
+                    # Recompute median from current slider range
+                    arr_num = np.abs(raw_masked) if np.iscomplexobj(raw_masked) else np.real(raw_masked)
+                    fin     = arr_num[np.isfinite(arr_num)]
+                    auto_SI   = float(np.median(fin)) if len(fin) > 0 else float(params.get(param_key, 0.0))
+                    auto_disp = auto_SI * scale
+
+                    # Pre-read session state so plot can use it before number_input renders
+                    inp_key   = f"pfp_inp_{model_short}_{param_key}_{fname}_{rng_tag}"
+                    user_disp = float(st.session_state.get(inp_key, auto_disp))
+                    user_SI   = user_disp / scale
+
+                    ylabel = f"{label} ({unit})" if unit else label
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=f_plot, y=arr_plot, mode="lines", name=label,
+                        line=dict(color="#1f77b4", width=2)))
+                    if np.isfinite(user_disp):
+                        fig.add_hline(
+                            y=user_disp,
+                            line=dict(color="#d62728", width=1.8, dash="dash"),
+                            annotation_text=f"{user_disp:.4g} {unit}",
+                            annotation_position="right",
+                            annotation_font=dict(size=9, color="#d62728"))
+                    fig.update_layout(
+                        title=dict(text=label, font=dict(size=12)),
+                        xaxis_title="Frequency (GHz)", yaxis_title=ylabel,
+                        plot_bgcolor="white", paper_bgcolor="white", height=240,
+                        margin=dict(l=50, r=60, t=35, b=40),
+                        showlegend=False, hovermode="x unified")
+                    fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
+                    fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
+                    col_w.plotly_chart(fig, use_container_width=True,
+                                       key=f"pfp_{model_short}_{arr_key}_{fname}")
+
+                    # Number input — key includes rng_tag so it resets to new median on slider move
+                    actual_val = col_w.number_input(
+                        f"{label} ({unit})" if unit else label,
+                        value=float(auto_disp),
+                        format="%.5g",
+                        key=inp_key)
+
+                    params_out[param_key] = actual_val / scale
+
+            prev_range = (f_lo, f_hi)
+            if g_idx < len(param_groups) - 1:
+                st.markdown("---")
+
+    return params_out

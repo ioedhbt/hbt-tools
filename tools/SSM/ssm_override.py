@@ -47,6 +47,13 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
         src_Re["Cold-HBT"] = float(cold_res.get("Re_cold", 0.0))
     if rz12_Re is not None:
         src_Re["Z-parameter method"] = float(rz12_Re)
+    ocm_Rb = st.session_state.get(f"ocm_Rb_{fname}")
+    ocm_Rc = st.session_state.get(f"ocm_Rc_{fname}")
+    ocm_Re = st.session_state.get(f"ocm_Re_{fname}")
+    if ocm_Rb is not None: src_Rb["Open-collector"] = float(ocm_Rb)
+    if ocm_Rc is not None: src_Rc["Open-collector"] = float(ocm_Rc)
+    if ocm_Re is not None: src_Re["Open-collector"] = float(ocm_Re)
+
 
     def _best(d): return max(d, key=lambda k: d[k])
     def _src_lbl(k, v): return f"{k}: {v:.4f} Ω"
@@ -54,15 +61,18 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
     _cap_keys = ["Cpbe","Cpce","Cpbc"]
     _ind_keys = ["Lb","Lc","Le"]
 
-    # Initialise session state defaults
-    for k in _cap_keys:
-        sk = f"preov_{k}_{fname}"
-        if sk not in st.session_state:
-            st.session_state[sk] = para_step1.get(k, 0.0) * 1e15
-    for k in _ind_keys:
-        sk = f"preov_{k}_{fname}"
-        if sk not in st.session_state:
-            st.session_state[sk] = para_step1.get(k, 0.0) * 1e12
+# Sync preov_ caps/inds whenever upstream ov_ (Open/Short) values change
+    _step1_hash = tuple(
+        round(para_step1.get(k, 0.0) * 1e18)
+        for k in _cap_keys + _ind_keys
+    )
+    if st.session_state.get(f"preov_step1_hash_{fname}") != _step1_hash:
+        for k in _cap_keys:
+            st.session_state[f"preov_{k}_{fname}"] = para_step1.get(k, 0.0) * 1e15
+        for k in _ind_keys:
+            st.session_state[f"preov_{k}_{fname}"] = para_step1.get(k, 0.0) * 1e12
+        st.session_state[f"preov_step1_hash_{fname}"] = _step1_hash
+
     for var, sources in [("Rb",src_Rb),("Rc",src_Rc),("Re",src_Re)]:
         sk_src = f"preov_src_{var}_{fname}"
         sk_val = f"preov_{var}_{fname}"

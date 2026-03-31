@@ -1,0 +1,21 @@
+Formulas for ADS
+
+h21_meas=-2*S_21_meas /( (1 - S_11_meas)*(1 + S_22_meas) + S_12_meas*S_21_meas )
+h21_2_meas_3=10*log10( mag(h21)**2 )
+Delta_meas=(1 + S_11_meas)*(1 + S_22_meas) - S_12_meas*S_21_meas
+Y_11_meas=((1-S_11_meas)*(1+S_22_meas)+S_12_meas*S_21_meas)/Delta_meas
+Y_12_meas=(-2*S_12_meas)/Delta_meas
+Y_21_meas=(-2*S_21_meas)/Delta_meas
+Y_22_meas=((1+S_11_meas)*(1-S_22_meas)+S_12_meas*S_21_meas)/Delta_meas
+U_meas=(abs(Y_21_meas-Y_12_meas)**2)/(4*(real(Y_11_meas)*real(Y_22_meas)-real(Y_12_meas)*real(Y_21_meas)))
+U_dB_meas=10*log10(U_meas)
+
+h21=-2*S_21 /( (1 - S_11)*(1 + S_22) + S_12*S_21 )
+h21_2_3=10*log10( mag(h21)**2 )
+Delta=(1 + S_11)*(1 + S_22) - S_12*S_21
+Y_11=((1-S_11)*(1+S_22)+S_12*S_21)/Delta
+Y_12=(-2*S_12)/Delta
+Y_21=(-2*S_21)/Delta
+Y_22=((1+S_11)*(1-S_22)+S_12*S_21)/Delta
+U=(abs(Y_21-Y_12)**2)/(4*(real(Y_11)*real(Y_22)-real(Y_12)*real(Y_21)))
+U_dB=10*log10(U)

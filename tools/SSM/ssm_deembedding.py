@@ -11,6 +11,19 @@ from .ssm_core import (s_to_y, y_to_z, z_to_y,
 
 # ── Pad matrix builders (also used by forward simulators) ─────────────────────
 
+def _agg_arr(arr, n0, n1, method="Median", trim_pct=20):
+    a = np.asarray(arr[n0:n1], dtype=float)
+    a = a[np.isfinite(a)]
+    if len(a) == 0:
+        return np.nan
+    if method == "Trimmed mean":
+        k = max(0, int(len(a) * trim_pct / 100))
+        s = np.sort(a)
+        s = s[k: len(s) - k] if len(s) > 2 * k else s
+        return float(np.mean(s)) if len(s) > 0 else np.nan
+    return float(np.nanmedian(a))
+
+
 def build_Y_pad(p: dict, w: float) -> np.ndarray:
     """
     2×2 admittance matrix for the three pad capacitors at angular freq w.
@@ -41,7 +54,7 @@ def build_Z_ser(p: dict, w: float) -> np.ndarray:
 
 # ── Step 1a — Open dummy → pad capacitances ───────────────────────────────────
 
-def step1a_open(open_data, n_low_frac=0.20):
+def step1a_open(open_data, n0=None, n1=None, method="Median", trim_pct=20):
     """
     Extract pad shunt capacitances from Open dummy.
     Also returns raw conductance arrays for diagnostic plots.
@@ -59,8 +72,11 @@ def step1a_open(open_data, n_low_frac=0.20):
     """
     f, S_o, z0 = open_data
     omega = 2.0*np.pi*f
-    n_low = max(3, int(len(f)*n_low_frac))
+    N = len(f)
+    if n0 is None: n0 = N // 2
+    if n1 is None: n1 = N
     Y_o = s_to_y(S_o, z0)
+
 
     # Implementation of the formulas above ↓
     Cpbe_arr = np.imag(Y_o[:,0,0] + Y_o[:,0,1]) / omega
@@ -71,10 +87,11 @@ def step1a_open(open_data, n_low_frac=0.20):
     Gpbc_arr = -np.real(Y_o[:,0,1])
 
     params = dict(
-        Cpbe=safe_median(Cpbe_arr, n_low),
-        Cpce=safe_median(Cpce_arr, n_low),
-        Cpbc=safe_median(Cpbc_arr, n_low),
+        Cpbe=abs(_agg_arr(Cpbe_arr, n0, n1, method, trim_pct)),
+        Cpce=abs(_agg_arr(Cpce_arr, n0, n1, method, trim_pct)),
+        Cpbc=abs(_agg_arr(Cpbc_arr, n0, n1, method, trim_pct)),
     )
+
     arrays = dict(Cpbe=Cpbe_arr, Cpce=Cpce_arr, Cpbc=Cpbc_arr,
                   Gpbe=Gpbe_arr, Gpce=Gpce_arr, Gpbc=Gpbc_arr, omega=omega)
     return params, arrays
@@ -83,7 +100,8 @@ def step1a_open(open_data, n_low_frac=0.20):
 # ── Step 1b — Short dummy → lead inductances & series resistances ──────────────
 
 def step1b_short(short_data, freq, Cpbe, Cpce, Cpbc,
-                 open_data=None, n_low_frac=0.20, measured_open=True,
+                 open_data=None, n0=None, n1=None, method="Median", trim_pct=20,
+                 measured_open=True,
                  Cpbe_mode="None", Cpbe_extra=0.0,
                  Cpce_mode="None", Cpce_extra=0.0,
                  Cpbc_mode="None", Cpbc_extra=0.0):
@@ -106,7 +124,9 @@ def step1b_short(short_data, freq, Cpbe, Cpce, Cpbc,
     _, S_s, z0 = short_data
     omega = 2.0*np.pi*freq
     N = len(freq)
-    n_low = max(3, int(N*n_low_frac))
+    if n0 is None: n0 = 0
+    if n1 is None: n1 = max(3, int(N * 0.20))
+
     Y_s = s_to_y(S_s, z0)
 
     # Build Open admittance (measured or modelled)
@@ -131,12 +151,13 @@ def step1b_short(short_data, freq, Cpbe, Cpce, Cpbc,
     Lb_arr  = np.imag(Z_corr[:,0,0] - Z_corr[:,0,1]) / omega
     Lc_arr  = np.imag(Z_corr[:,1,1] - Z_corr[:,1,0]) / omega
 
-    Le_raw  = safe_median(Le_arr,  n_low)
-    Lb_raw  = safe_median(Lb_arr,  n_low)
-    Lc_raw  = safe_median(Lc_arr,  n_low)
-    Rpe_raw = safe_median(Rpe_arr, n_low)
-    Rpb_raw = safe_median(Rpb_arr, n_low)
-    Rpc_raw = safe_median(Rpc_arr, n_low)
+    Le_raw  = abs(_agg_arr(Le_arr,  n0, n1, method, trim_pct))
+    Lb_raw  = abs(_agg_arr(Lb_arr,  n0, n1, method, trim_pct))
+    Lc_raw  = abs(_agg_arr(Lc_arr,  n0, n1, method, trim_pct))
+    Rpe_raw = abs(_agg_arr(Rpe_arr, n0, n1, method, trim_pct))
+    Rpb_raw = abs(_agg_arr(Rpb_arr, n0, n1, method, trim_pct))
+    Rpc_raw = abs(_agg_arr(Rpc_arr, n0, n1, method, trim_pct))
+
 
     NOISE = 3e-12
     warnings_list = []
