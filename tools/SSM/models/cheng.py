@@ -196,12 +196,12 @@ def _step3_pi(Y_ex2, freq, Cbcx, n_low):
         tau_a = -np.angle(gm_arr) / omega
 
     Rbi  = safe_median(Rbi_a, n_low)
-    Rbc  = safe_median(Rbc_a, n_low); Cbc = safe_median(Cbc_a, n_low)
+    Cbc  = safe_median(Cbc_a, n_low)
     Rbe  = safe_median(Rbe_a, n_low); Cbe = safe_median(Cbe_a, n_low)
     Gm0  = safe_median(Gm0_a, n_low); tau = safe_median(tau_a,  n_low)
 
-    params = dict(Rbi=Rbi, Rbe=Rbe, Cbe=Cbe, Rbc=Rbc, Cbc=Cbc, Gm0=Gm0, tau=tau)
-    arrays = dict(Rbi=Rbi_a, Rbe=Rbe_a, Cbe=Cbe_a, Rbc=Rbc_a, Cbc=Cbc_a, Gm0=Gm0_a, tau=tau_a)
+    params = dict(Rbi=Rbi, Rbe=Rbe, Cbe=Cbe, Cbc=Cbc, Gm0=Gm0, tau=tau)
+    arrays = dict(Rbi=Rbi_a, Rbe=Rbe_a, Cbe=Cbe_a, Cbc=Cbc_a, Gm0=Gm0_a, tau=tau_a)
     return params, arrays
 
 
@@ -248,7 +248,6 @@ _INT_PI_SPECS = [
     ("Rbi","Rbi", 1.0, "Ω",  "%.4f", 0.1),
     ("Rbe","Rbe", 1.0, "Ω",  "%.3f", 1.0),
     ("Cbe","Cbe", 1e15,"fF", "%.4f", 0.1),
-    ("Rbc","Rbc", 1e-3,"kΩ", "%.4f", 0.01),
     ("Cbc","Cbc", 1e15,"fF", "%.4f", 0.01),
     ("Gm0","Gm0", 1e3, "mS", "%.4f", 0.01),
     ("tau","τ",   1e12,"ps", "%.4f", 0.01),
@@ -259,11 +258,15 @@ def _override_ui(fname, tK, calc_vals, int_specs, label):
     """Render the override expander for one Cheng topology."""
     all_specs = PAD_SPECS + _EXT_SPECS + int_specs
     sync_pad_from_preov(fname, tK, calc_vals)
-
-    for key, _, scale, *_ in _EXT_SPECS + int_specs:
-        sk = f"sim_{tK}_{key}_{fname}"
-        if sk not in st.session_state:
-            st.session_state[sk] = float(calc_vals.get(key, 0.0)) * scale
+    
+    _int_keys = [k for k, *_ in _EXT_SPECS + int_specs]
+    _sync_hash_key = f"sim_synchash_{tK}_{fname}"
+    _sync_hash = params_hash({k: str(round(float(calc_vals.get(k, 0.0)), 15))
+                            for k in _int_keys})
+    if st.session_state.get(_sync_hash_key) != _sync_hash:
+        for key, _, scale, *_ in _EXT_SPECS + int_specs:
+            st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
+        st.session_state[_sync_hash_key] = _sync_hash
 
     with st.expander(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters", expanded=False):
         if st.button(f"↩️ Reset {label} to calculated", key=f"rst_sim_{tK}_{fname}"):
@@ -310,23 +313,6 @@ def _render_step2_plots(arrays, params, freq, fname, tK):
     Cbcx_arr = arrays.get("Cbcx_arr")
     if Cbex_arr is None or Cbcx_arr is None:
         return
-    with st.expander("📊 Step 2: Cbex & Cbcx vs frequency", expanded=False):
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.5))
-        for ax, arr, key, lbl in [
-            (ax1, Cbex_arr, "Cbex", "Cbex (fF)"),
-            (ax2, Cbcx_arr, "Cbcx", "Cbcx (fF)"),
-        ]:
-            med = params.get(key, np.nan) * 1e15
-            ax.plot(f_ghz, arr * 1e15, "b-", lw=1.2, label="Extracted")
-            ax.axhline(med, color="r", lw=1.5, ls="--", label=f"Model: {med:.2f} fF")
-            ax.set_xlabel("Freq (GHz)")
-            ax.set_ylabel(lbl)
-            ax.legend(fontsize=8)
-            ax.grid(True, lw=0.4)
-        fig.suptitle(f"Step 2 extrinsic caps — {tK}", fontweight="bold")
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close(fig)
 
 class ChengT(AbstractSSMModel):
     """
@@ -367,6 +353,7 @@ class ChengT(AbstractSSMModel):
                 ("alpha", "alpha0", "α",    1.0,  ""),
             ],
             "depends_on": ["Cbex", "Cbcx"],
+            "use_first_params": {"Rbc", "Cbc", "alpha0"},
             "formulas": [
                 ("markdown", "**[Eq. 16]:**"),
                 ("latex", r"Z_{be}=Z_{12},\;Z_{bc}=Z_{22}-Z_{21},\;Z_{bi}=Z_{11}-Z_{12}"),
@@ -591,25 +578,28 @@ class ChengPi(AbstractSSMModel):
     NAME          = "π-topology (Cheng 2022)"
     SHORT         = "pi"
     TOPOLOGY_CHAR = "pi"
-    PARAM_GROUPS  = [
+    PARAM_GROUPS = [
         {
             "label":      "Step 2 — Cbex  (from Im(B·C)/Im(B), low-freq range)",
             "params":     [("Cbex_arr", "Cbex", "Cbex", 1e15, "fF")],
             "depends_on": [],
             "formulas": [
-                ("markdown", "**[Eqs. 26–28]:**"),
-                ("latex", r"B=Y_{12}+Y_{22},\;C=Y_{11}+Y_{21}"),
-                ("latex", r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}"),
+                ("md",    "**Step 2 — Cbex [Eqs. 26–28]**"),
+                ("latex", r"B=Y_{12}+Y_{22},\quad C=Y_{11}+Y_{21}"),
+                ("latex", r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)"
+                        r"+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}"),
             ],
-
         },
         {
             "label":      "Step 2 — Cbcx  (from Y_ex2 after peeling Cbex)",
             "params":     [("Cbcx_arr", "Cbcx", "Cbcx", 1e15, "fF")],
             "depends_on": ["Cbex"],
             "formulas": [
-                ("markdown", "**[Eq. 22]:**"),
-                ("latex", r"C_{bcx}=-\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)-\mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega[\mathrm{Re}(Y_{ms})\mathrm{Re}(Y_{tot})+\mathrm{Im}(Y_{tot})\mathrm{Im}(Y_{ms})]}"),
+                ("md",    "**Step 2 — Cbcx [Eq. 22]**"),
+                ("latex", r"Y_{ms}=Y_{12}+Y_{22},\quad Y_L=\det(Y_{ex2}),"
+                        r"\quad Y_{tot}=\textstyle\sum Y_{ij}"),
+                ("latex", r"C_{bcx}=-\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)"
+                        r"-\mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega\cdot\mathrm{denom}}"),
             ],
         },
         {
@@ -618,17 +608,22 @@ class ChengPi(AbstractSSMModel):
                 ("Rbi",  "Rbi",  "Rbi",  1.0,  "Ω"),
                 ("Rbe",  "Rbe",  "Rbe",  1.0,  "Ω"),
                 ("Cbe",  "Cbe",  "Cbe",  1e15, "fF"),
-                ("Rbc",  "Rbc",  "Rbc",  1e-3, "kΩ"),
                 ("Cbc",  "Cbc",  "Cbc",  1e15, "fF"),
                 ("Gm0",  "Gm0",  "Gm0",  1e3,  "mS"),
                 ("tau",  "tau",  "τ",    1e12, "ps"),
             ],
             "depends_on": ["Cbex", "Cbcx"],
+            "use_first_params": {"Cbc"},
             "formulas": [
-                ("markdown", "**[Eq. 16] / Zhang et al. 2015:**"),
-                ("latex", r"g_m=\frac{Z_{12}-Z_{21}}{Z_{bc}Z_{12}}\;\Rightarrow\;G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega"),
-                ("latex", r"Y_{be}=\frac{Z_{22}-Z_{12}}{Z_{12}Z_{bc}}\;\Rightarrow\;R_{be}=1/\mathrm{Re}(Y_{be}),\;C_{be}=\mathrm{Im}(Y_{be})/\omega"),
-                ("latex", r"R_{bi}=\mathrm{Re}(Z_{11}-Z_{12})"),
+                ("md",    "**Step 3 — Intrinsic (Zhang 2015)**"),
+                ("latex", r"Z_{bc}=Z_{22}-Z_{21}"),
+                ("latex", r"g_m=\frac{Z_{12}-Z_{21}}{Z_{bc}\cdot Z_{12}}"
+                        r"\;\Rightarrow\;G_{m0}=|g_m|,\;\tau=-\frac{\angle g_m}{\omega}"),
+                ("latex", r"Y_{be}=\frac{Z_{22}-Z_{12}}{Z_{12}\cdot Z_{bc}}"
+                        r"\;\Rightarrow\;R_{be}=\frac{1}{\mathrm{Re}(Y_{be})},"
+                        r"\;C_{be}=\frac{\mathrm{Im}(Y_{be})}{\omega}"),
+                ("latex", r"R_{bi}=\mathrm{Re}(Z_{11}-Z_{12}),"
+                        r"\quad C_{bc}=\frac{\mathrm{Im}(Y_{bc})}{\omega}"),
             ],
         },
     ]
@@ -647,7 +642,7 @@ class ChengPi(AbstractSSMModel):
     def simulate(cls, params, freq, z0=50.0):
         def _Y_int(p, w):
             Ybe_v = 1.0/p["Rbe"] + 1j*w*p["Cbe"]
-            Ybc_v = 1.0/p["Rbc"] + 1j*w*p["Cbc"]
+            Ybc_v = 1.0/p.get("Rbc", 1e9) + 1j*w*p["Cbc"]
             gm_v  = p["Gm0"] * np.exp(-1j*w*p["tau"])
             Y_core = np.array([[Ybe_v+Ybc_v, -Ybc_v],
                                 [gm_v-Ybc_v,   Ybc_v]])
@@ -731,7 +726,6 @@ class ChengPi(AbstractSSMModel):
             ("Rbe",  f"{ri['Rbe']:.4f}" if ri['Rbe']<1000 else f"{ri['Rbe']*1e-3:.4f}k", "Ω"),
             ("Cbe",  f"{ri['Cbe']*1e15:.4f}" if ri['Cbe']<1e-12 else f"{ri['Cbe']*1e12:.4f}",
                      "fF" if ri['Cbe']<1e-12 else "pF"),
-            ("Rbc",  f"{ri['Rbc']*1e-3:.4f}", "kΩ"),
             ("Cbc",  f"{ri['Cbc']*1e15:.4f}", "fF"),
             ("Gm0",  f"{ri['Gm0']*1e3:.4f}",  "mS"),
             ("τ",    f"{ri['tau']*1e12:.4f}",  "ps"),

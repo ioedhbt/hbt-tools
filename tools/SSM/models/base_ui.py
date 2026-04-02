@@ -112,7 +112,8 @@ def sync_pad_from_preov(fname: str, topo_key: str, para_eff: dict):
         st.session_state[sync_key] = preov_hash
 
 def render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups,
-                                     reextract_fn=None):
+                                    cold_res=None, cold_param_map=None, reextract_fn=None):
+
     """
     For each parameter group, render:
       - A labelled section heading with dependency info
@@ -122,6 +123,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
       - A number_input per parameter for manual override
     Returns a copy of params with all overrides applied (SI units).
     """
+    
     f_ghz   = freq * 1e-9
     f_min_v = float(f_ghz[0])
     f_max_v = float(f_ghz[-1])
@@ -141,6 +143,12 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
             st.markdown(f"**{g_label}**")
             if g_deps:
                 st.caption(f"Depends on: {', '.join(g_deps)}")
+            
+            for kind, content in group.get("formulas", []):
+                if kind == "latex":
+                    st.latex(content)
+                else:
+                    st.markdown(content)
 
             slider_key = f"pfp_sl_{model_short}_{g_idx}_{fname}"
 
@@ -192,7 +200,12 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     # Recompute median from current slider range
                     arr_num = np.abs(raw_masked) if np.iscomplexobj(raw_masked) else np.real(raw_masked)
                     fin     = arr_num[np.isfinite(arr_num)]
-                    auto_SI   = float(np.median(fin)) if len(fin) > 0 else float(live_params.get(param_key, 0.0))
+                    _use_first = param_key in group.get("use_first_params", set())
+                    if _use_first:
+                        auto_SI = float(fin[0]) if len(fin) > 0 else float(params.get(param_key, 0.0))
+                    else:
+                        auto_SI = float(np.median(fin)) if len(fin) > 0 else float(params.get(param_key, 0.0))
+
                     auto_disp = auto_SI * scale
 
                     # Pre-read session state so plot can use it before number_input renders
@@ -220,14 +233,34 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                             annotation_text=f"{user_disp:.4g} {unit}",
                             annotation_position="right",
                             annotation_font=dict(size=9, color="#d62728"))
+                    if cold_res is not None and cold_param_map is not None:
+                        _ck = cold_param_map.get(param_key)
+                        if _ck and _ck in cold_res:
+                            _cold_disp = float(cold_res[_ck]) * scale
+                            if np.isfinite(_cold_disp):
+                                fig.add_hline(
+                                    y=_cold_disp,
+                                    line=dict(color="#2ca02c", width=1.5, dash="dot"),
+                                    annotation_text=f"Cold: {_cold_disp:.4g} {unit}",
+                                    annotation_position="left",
+                                    annotation_font=dict(size=9, color="#2ca02c"))
                     fig.update_layout(
                         title=dict(text=label, font=dict(size=12)),
                         xaxis_title="Frequency (GHz)", yaxis_title=ylabel,
                         plot_bgcolor="white", paper_bgcolor="white", height=240,
                         margin=dict(l=50, r=60, t=35, b=40),
                         showlegend=False, hovermode="x unified")
+
                     fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
-                    fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
+                    _y_range = None
+                    if np.isfinite(user_disp) and abs(user_disp) > 1e-30:
+                        _v5  = 5.0 * abs(user_disp)
+                        _fin = arr_plot[np.isfinite(arr_plot)]
+                        if len(_fin) > 0 and (_fin.max() > _v5 or _fin.min() < -_v5):
+                            _y_range = [-_v5, _v5]
+                    fig.update_yaxes(showgrid=True, gridcolor="#ebebeb",
+                                     **({"range": _y_range} if _y_range is not None else {}))
+
                     col_w.plotly_chart(fig, use_container_width=True,
                                        key=f"pfp_{model_short}_{arr_key}_{fname}")
 
