@@ -13,12 +13,14 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from ..ssm_core       import (y_to_z, z_to_y, y_to_s_single,
+from ..ssm_core       import (y_to_z, z_to_y, y_to_s_single, y_to_s_vec,
                                safe_median, params_hash,
                                extended_smith_grid)
-from ..ssm_deembedding import build_Y_pad, build_Z_ser
+from ..ssm_deembedding import (build_Y_pad, build_Z_ser,
+                                build_Y_pad_vec, build_Z_ser_vec)
 from .base_ui         import (render_smith_chart, smith_scale_controls,
-                               sync_pad_from_preov, PAD_SPECS, ssm_residual)
+                               sync_pad_from_preov, PAD_SPECS, ssm_residual,
+                               render_tuning_expander)
 from . import AbstractSSMModel
 
 
@@ -228,6 +230,78 @@ def _sim_wrap(Y_int_fn, p, freq, z0):
     return S
 
 
+# ── Vectorised forward simulation (no per-freq loop) ─────────────────────────
+
+def _sim_wrap_vec(Y_int_vec_fn, p, freq, z0, xp):
+    """Vectorised version of _sim_wrap — processes all freq points at once.
+
+    Works identically with numpy (CPU) and cupy (GPU).
+    *Y_int_vec_fn(p, omega, xp)* must return an (N, 2, 2) intrinsic-Y array.
+    """
+    omega = xp.asarray(2.0 * np.pi * freq, dtype=np.float64)
+
+    # Intrinsic admittance (N, 2, 2)
+    Y_in = Y_int_vec_fn(p, omega, xp)
+
+    # Extrinsic caps: Cbcx and Cbex
+    Ybcx = 1j * omega * p["Cbcx"]      # (N,)
+    Ybex = 1j * omega * p["Cbex"]      # (N,)
+
+    Y_ex = Y_in.copy()
+    Y_ex[:, 0, 0] += Ybcx + Ybex
+    Y_ex[:, 0, 1] -= Ybcx
+    Y_ex[:, 1, 0] -= Ybcx
+    Y_ex[:, 1, 1] += Ybcx
+
+    # Series-lead impedance (N, 2, 2)
+    Z_ser = build_Z_ser_vec(p, omega, xp)
+
+    # Y_tot = inv(inv(Y_ex) + Z_ser)   — batched 2×2 inversions
+    Y_tot = xp.linalg.inv(xp.linalg.inv(Y_ex) + Z_ser)
+
+    # Pad admittance (N, 2, 2)
+    Y_pad = build_Y_pad_vec(p, omega, xp)
+
+    # Y → S (batched)
+    S = y_to_s_vec(Y_tot + Y_pad, z0, xp)
+
+    # If CuPy, bring result back to host
+    if xp is not np:
+        S = xp.asnumpy(S)
+    return S
+
+
+def _Y_int_T_vec(p, omega, xp):
+    """Vectorised T-topology intrinsic Y matrix → (N, 2, 2)."""
+    Zbe = p["Rbe"] / (1.0 + 1j * omega * p["Rbe"] * p["Cbe"])
+    Zbc = p["Rbc"] / (1.0 + 1j * omega * p["Rbc"] * p["Cbc"])
+    alpha = (p["alpha0"] * xp.exp(-1j * omega * p["tauC"])
+             / (1.0 + 1j * omega * p["tauB"]))
+    N = len(omega)
+    Z_in = xp.zeros((N, 2, 2), dtype=complex)
+    Z_in[:, 0, 0] = p["Rbi"] + Zbe
+    Z_in[:, 0, 1] = Zbe
+    Z_in[:, 1, 0] = Zbe - alpha * Zbc
+    Z_in[:, 1, 1] = (1.0 - alpha) * Zbc + Zbe
+    return xp.linalg.inv(Z_in)
+
+
+def _Y_int_Pi_vec(p, omega, xp):
+    """Vectorised Pi-topology intrinsic Y matrix → (N, 2, 2)."""
+    Ybe = 1.0 / p["Rbe"] + 1j * omega * p["Cbe"]
+    Ybc = 1.0 / p.get("Rbc", 1e9) + 1j * omega * p["Cbc"]
+    gm  = p["Gm0"] * xp.exp(-1j * omega * p["tau"])
+    N = len(omega)
+    Y_core = xp.zeros((N, 2, 2), dtype=complex)
+    Y_core[:, 0, 0] = Ybe + Ybc
+    Y_core[:, 0, 1] = -Ybc
+    Y_core[:, 1, 0] = gm - Ybc
+    Y_core[:, 1, 1] = Ybc
+    Z_core = xp.linalg.inv(Y_core)
+    Z_core[:, 0, 0] += p["Rbi"]
+    return xp.linalg.inv(Z_core)
+
+
 # ── Override UI specs (used by render_override_and_smith) ─────────────────────
 
 _EXT_SPECS = [
@@ -411,8 +485,18 @@ class ChengT(AbstractSSMModel):
             alpha = p["alpha0"] * np.exp(-1j*w*p["tauC"]) / (1.0 + 1j*w*p["tauB"])
             Z_in  = np.array([[p["Rbi"]+Zbe_v, Zbe_v],
                                [Zbe_v - alpha*Zbc_v, (1-alpha)*Zbc_v + Zbe_v]])
-            return np.linalg.inv(Z_in)
+            try:
+                return np.linalg.inv(Z_in)
+            except np.linalg.LinAlgError:
+                return np.zeros((2, 2), dtype=complex)
         return _sim_wrap(_Y_int, params, freq, z0)
+
+    @classmethod
+    def simulate_vec(cls, params, freq, z0=50.0, xp=None):
+        """Vectorised simulate — no per-freq loop.  Pass xp=cupy for GPU."""
+        if xp is None:
+            xp = np
+        return _sim_wrap_vec(_Y_int_T_vec, params, freq, z0, xp)
 
     @classmethod
     def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
@@ -546,14 +630,22 @@ class ChengT(AbstractSSMModel):
         cur_hash   = params_hash({k: str(v) for k, v in {**all_p, "__nf": len(freq)}.items()})
         if st.session_state.get(hash_key) != cur_hash:
             with st.spinner(f"Simulating {cls.NAME}…"):
-                S_sim = cls.simulate(all_p, freq, z0)
+                try:
+                    S_sim = cls.simulate(all_p, freq, z0)
+                except Exception as e:
+                    st.error(f"Simulation error ({cls.NAME}): {e}")
+                    S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
             st.session_state[cache_key] = S_sim
             st.session_state[hash_key]  = cur_hash
         else:
             S_sim = st.session_state.get(cache_key)
             if S_sim is None or S_sim.shape[0] != len(freq):
                 with st.spinner(f"Simulating {cls.NAME}…"):
-                    S_sim = cls.simulate(all_p, freq, z0)
+                    try:
+                        S_sim = cls.simulate(all_p, freq, z0)
+                    except Exception as e:
+                        st.error(f"Simulation error ({cls.NAME}): {e}")
+                        S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
                 st.session_state[cache_key] = S_sim
                 st.session_state[hash_key]  = cur_hash
 
@@ -561,6 +653,9 @@ class ChengT(AbstractSSMModel):
         err = ssm_residual(S_raw, S_sim)
         render_smith_chart(S_raw, S_sim, cls.NAME, err, sc,
                            key=f"smith_{cls.SHORT}_{fname}")
+
+        render_tuning_expander(cls, all_p, S_raw, freq, z0,
+                               PAD_SPECS + _EXT_SPECS + _INT_T_SPECS, fname, cls.SHORT)
         _render_step2_plots(arrays, params, freq, fname, cls.NAME)
         return S_sim
 
@@ -646,9 +741,19 @@ class ChengPi(AbstractSSMModel):
             gm_v  = p["Gm0"] * np.exp(-1j*w*p["tau"])
             Y_core = np.array([[Ybe_v+Ybc_v, -Ybc_v],
                                 [gm_v-Ybc_v,   Ybc_v]])
-            Z_core = np.linalg.inv(Y_core) + np.array([[p["Rbi"], 0],[0, 0]])
-            return np.linalg.inv(Z_core)
+            try:
+                Z_core = np.linalg.inv(Y_core) + np.array([[p["Rbi"], 0],[0, 0]])
+                return np.linalg.inv(Z_core)
+            except np.linalg.LinAlgError:
+                return np.zeros((2, 2), dtype=complex)
         return _sim_wrap(_Y_int, params, freq, z0)
+
+    @classmethod
+    def simulate_vec(cls, params, freq, z0=50.0, xp=None):
+        """Vectorised simulate — no per-freq loop.  Pass xp=cupy for GPU."""
+        if xp is None:
+            xp = np
+        return _sim_wrap_vec(_Y_int_Pi_vec, params, freq, z0, xp)
 
     # @classmethod
     # def render_step_formulas(cls):
@@ -760,14 +865,22 @@ class ChengPi(AbstractSSMModel):
         cur_hash  = params_hash({k: str(v) for k, v in {**all_p, "__nf": len(freq)}.items()})
         if st.session_state.get(hash_key) != cur_hash:
             with st.spinner(f"Simulating {cls.NAME}…"):
-                S_sim = cls.simulate(all_p, freq, z0)
+                try:
+                    S_sim = cls.simulate(all_p, freq, z0)
+                except Exception as e:
+                    st.error(f"Simulation error ({cls.NAME}): {e}")
+                    S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
             st.session_state[cache_key] = S_sim
             st.session_state[hash_key]  = cur_hash
         else:
             S_sim = st.session_state.get(cache_key)
             if S_sim is None or S_sim.shape[0] != len(freq):
                 with st.spinner(f"Simulating {cls.NAME}…"):
-                    S_sim = cls.simulate(all_p, freq, z0)
+                    try:
+                        S_sim = cls.simulate(all_p, freq, z0)
+                    except Exception as e:
+                        st.error(f"Simulation error ({cls.NAME}): {e}")
+                        S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
                 st.session_state[cache_key] = S_sim
                 st.session_state[hash_key]  = cur_hash
 
@@ -775,6 +888,9 @@ class ChengPi(AbstractSSMModel):
         err = ssm_residual(S_raw, S_sim)
         render_smith_chart(S_raw, S_sim, cls.NAME, err, sc,
                            key=f"smith_{cls.SHORT}_{fname}")
+
+        render_tuning_expander(cls, all_p, S_raw, freq, z0,
+                               PAD_SPECS + _EXT_SPECS + _INT_PI_SPECS, fname, cls.SHORT)
         _render_step2_plots(arrays, params, freq, fname, cls.NAME)
         return S_sim
 

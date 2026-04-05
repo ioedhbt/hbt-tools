@@ -87,14 +87,21 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     short_data : tuple     (freq, S, z0) for Short dummy.
     all_data   : dict|None {fname: {freq,S_raw,z0}} for multi-bias Z-param section.
     """
-    if open_data is None or short_data is None:
-        st.warning("⚠️ SSM Extraction requires Device Open & Short dummy files.")
-        return
-    try:
-        strict_freq_check(freq, open_data[0],  "Device Open")
-        strict_freq_check(freq, short_data[0], "Device Short")
-    except ValueError as e:
-        st.error(f"Frequency grid mismatch: {e}"); return
+    has_open  = open_data  is not None
+    has_short = short_data is not None
+    if not has_open or not has_short:
+        st.info("ℹ️ No Open/Short dummy files — pad parasitics defaulted to zero.")
+    if has_open:
+        try:
+            strict_freq_check(freq, open_data[0], "Device Open")
+        except ValueError as e:
+            st.error(f"Frequency grid mismatch: {e}"); return
+    if has_short:
+        try:
+            strict_freq_check(freq, short_data[0], "Device Short")
+        except ValueError as e:
+            st.error(f"Frequency grid mismatch: {e}"); return
+
 
     # ── Decimation ────────────────────────────────────────────────────────────
     original_points = len(freq)
@@ -106,10 +113,12 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     if decimate_factor > 1:
         freq       = freq[::decimate_factor]
         S_raw      = S_raw[::decimate_factor]
-        f_o, S_o, z0_o = open_data
-        f_s, S_s, z0_s = short_data
-        open_data  = (f_o[::decimate_factor], S_o[::decimate_factor], z0_o)
-        short_data = (f_s[::decimate_factor], S_s[::decimate_factor], z0_s)
+        if open_data is not None:
+            f_o, S_o, z0_o = open_data
+            open_data  = (f_o[::decimate_factor], S_o[::decimate_factor], z0_o)
+        if short_data is not None:
+            f_s, S_s, z0_s = short_data
+            short_data = (f_s[::decimate_factor], S_s[::decimate_factor], z0_s)
         st.success(f"✓ Using {len(freq)} points (every {decimate_factor}th from {original_points})")
 
     st.markdown("---")
@@ -139,38 +148,46 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     with c2: st.latex(r"C_{pce}=\mathrm{Im}(Y_{22}^{open}+Y_{12}^{open})/\omega")
     with c3: st.latex(r"C_{pbc}=-\mathrm{Im}(Y_{12}^{open})/\omega")
 
-    # ── extraction range ─────────────────────────────────────────────────────
-    open_n0, open_n1, open_method, open_trim = _extract_ui(
-        fname, "open", freq, default_frac_lo=0.5, default_frac_hi=1.0)
+    if has_open:
+        # ── extraction range ─────────────────────────────────────────────────
+        open_n0, open_n1, open_method, open_trim = _extract_ui(
+            fname, "open", freq, default_frac_lo=0.5, default_frac_hi=1.0)
 
-    # ── calculation ──────────────────────────────────────────────────────────
-    para_open_calc, open_arr = step1a_open(
-        open_data, open_n0, open_n1, open_method, open_trim)
-    st.dataframe(pd.DataFrame([
-        {"Parameter": k, "Value": f"{para_open_calc[k]*1e15:.4f}", "Unit": "fF", "Description": d}
-        for k, d in [("Cpbe","Pad B-E shunt cap"),
-                     ("Cpce","Pad C-E shunt cap"),
-                     ("Cpbc","Pad B-C shunt cap")]
-    ]), use_container_width=True, hide_index=True)
+        # ── calculation ──────────────────────────────────────────────────────
+        para_open_calc, open_arr = step1a_open(
+            open_data, open_n0, open_n1, open_method, open_trim)
+        st.dataframe(pd.DataFrame([
+            {"Parameter": k, "Value": f"{para_open_calc[k]*1e15:.4f}", "Unit": "fF", "Description": d}
+            for k, d in [("Cpbe","Pad B-E shunt cap"),
+                         ("Cpce","Pad C-E shunt cap"),
+                         ("Cpbc","Pad B-C shunt cap")]
+        ]), use_container_width=True, hide_index=True)
 
-    # Override
-    _OPEN_OV = [("Cpbe",1e15),("Cpce",1e15),("Cpbc",1e15)]
-    for dk, sc in _OPEN_OV:
-        sk = f"ov_{dk}_{fname}"
-        if sk not in st.session_state: st.session_state[sk] = para_open_calc[dk]*sc
-    with st.expander("✏️ Override Open Capacitances", expanded=False):
-        if st.button("↩️ Reset Caps", key=f"rst_caps_{fname}"):
-            for dk, sc in _OPEN_OV: st.session_state[f"ov_{dk}_{fname}"] = para_open_calc[dk]*sc
-            st.rerun()
-        for col_w, (dk, sc) in zip(st.columns(3), _OPEN_OV):
-            col_w.number_input(f"{dk} (fF)", key=f"ov_{dk}_{fname}", format="%.4f", step=0.1)
-    para_caps_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _OPEN_OV}
+        _OPEN_OV = [("Cpbe",1e15),("Cpce",1e15),("Cpbc",1e15)]
+        for dk, sc in _OPEN_OV:
+            sk = f"ov_{dk}_{fname}"
+            if sk not in st.session_state: st.session_state[sk] = para_open_calc[dk]*sc
+        with st.expander("✏️ Override Open Capacitances", expanded=False):
+            if st.button("↩️ Reset Caps", key=f"rst_caps_{fname}"):
+                for dk, sc in _OPEN_OV: st.session_state[f"ov_{dk}_{fname}"] = para_open_calc[dk]*sc
+                st.rerun()
+            for col_w, (dk, sc) in zip(st.columns(3), _OPEN_OV):
+                col_w.number_input(f"{dk} (fF)", key=f"ov_{dk}_{fname}", format="%.4f", step=0.1)
+        para_caps_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _OPEN_OV}
 
-    # Enhanced open plots — returns {cap: (mode, extra_SI)}
-    open_mode_extra = render_open_plots(open_data, para_caps_ov, open_arr, fname)
-    for cap, (mode, extra) in open_mode_extra.items():
-        para_caps_ov[f"{cap}_mode"]  = mode
-        para_caps_ov[f"{cap}_extra"] = extra
+        open_mode_extra = render_open_plots(open_data, para_caps_ov, open_arr, fname)
+        for cap, (mode, extra) in open_mode_extra.items():
+            para_caps_ov[f"{cap}_mode"]  = mode
+            para_caps_ov[f"{cap}_extra"] = extra
+    else:
+        st.info("No Open dummy — Cpbe, Cpce, Cpbc defaulted to 0 fF.")
+        para_caps_ov = {
+            "Cpbe": 0.0, "Cpce": 0.0, "Cpbc": 0.0,
+            "Cpbe_mode": "None", "Cpbe_extra": 0.0,
+            "Cpce_mode": "None", "Cpce_extra": 0.0,
+            "Cpbc_mode": "None", "Cpbc_extra": 0.0,
+        }
+
 
     # ══════════════════════════════════════════════════════════════════════════
     # STEP 1b — Short dummy
@@ -179,9 +196,13 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     st.markdown("### 📌 Step 1b — Short Dummy: Lead Inductances & Series Resistances")
     st.caption("Gao [3] §4.2. Used to extract lead inductances and series resistance. However, series resistance is more accurately modeled by other methods (Cold, Z-parameter, open-collector).")
     col_m2, _ = st.columns([1, 1])
-    open_sel    = col_m2.radio("Use open from:", ["measured","modelled"],
-                                horizontal=True, key=f"osl_{fname}")
-    do_measured = (open_sel == "measured")
+    if has_open:
+        open_sel    = col_m2.radio("Use open from:", ["measured","modelled"],
+                                    horizontal=True, key=f"osl_{fname}")
+        do_measured = (open_sel == "measured")
+    else:
+        col_m2.markdown("*Use open from:* ~~measured~~ / **modelled** *(no Open file)*")
+        do_measured = False
     # Formulas — implementation is in ssm_deembedding.step1b_short
     c1, c2, c3 = st.columns(3)
     with c1: st.latex(r"R_e=\mathrm{Re}(Z_{12}^{corr})")
@@ -192,61 +213,86 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     with c1: st.latex(r"L_e=\mathrm{Im}(Z_{12}^{corr})/\omega")
     with c2: st.latex(r"L_b=\mathrm{Im}(Z_{11}^{corr}-Z_{12}^{corr})/\omega")
     with c3: st.latex(r"L_c=\mathrm{Im}(Z_{22}^{corr}-Z_{21}^{corr})/\omega")
+    
+    if has_short:
+        # # ── extraction range ─────────────────────────────────────────────────
+        # short_n0, short_n1, short_method, short_trim = _extract_ui(
+        #     fname, "short", freq, default_frac_lo=0.0, default_frac_hi=0.2)
 
-    # ── extraction range ─────────────────────────────────────────────────────
-    short_n0, short_n1, short_method, short_trim = _extract_ui(
-        fname, "short", freq, default_frac_lo=0.0, default_frac_hi=0.2)
+        # # ── calculation ──────────────────────────────────────────────────────
+        # para_short_calc, short_arr = step1b_short(
+        #     short_data, open_data[0],
+        #     para_caps_ov["Cpbe"], para_caps_ov["Cpce"], para_caps_ov["Cpbc"],
+        #     open_data, n0=short_n0, n1=short_n1, method=short_method,
+        #     trim_pct=short_trim, measured_open=do_measured,
+        #     Cpbe_mode=para_caps_ov.get("Cpbe_mode","None"),
+        #     Cpbe_extra=para_caps_ov.get("Cpbe_extra",0.0),
+        #     Cpce_mode=para_caps_ov.get("Cpce_mode","None"),
+        #     Cpce_extra=para_caps_ov.get("Cpce_extra",0.0),
+        #     Cpbc_mode=para_caps_ov.get("Cpbc_mode","None"),
+        #     Cpbc_extra=para_caps_ov.get("Cpbc_extra",0.0),
+        # )
 
-    # ── calculation ──────────────────────────────────────────────────────────
-    para_short_calc, short_arr = step1b_short(
-        short_data, open_data[0],
-        para_caps_ov["Cpbe"], para_caps_ov["Cpce"], para_caps_ov["Cpbc"],
-        open_data, n0=short_n0, n1=short_n1, method=short_method,
-        trim_pct=short_trim, measured_open=do_measured,
-        Cpbe_mode=para_caps_ov.get("Cpbe_mode","None"),
-        Cpbe_extra=para_caps_ov.get("Cpbe_extra",0.0),
-        Cpce_mode=para_caps_ov.get("Cpce_mode","None"),
-        Cpce_extra=para_caps_ov.get("Cpce_extra",0.0),
-        Cpbc_mode=para_caps_ov.get("Cpbc_mode","None"),
-        Cpbc_extra=para_caps_ov.get("Cpbc_extra",0.0),
-    )
-    for w in short_arr.get("warnings", []):
-        st.warning(w) if w.startswith("⚠️") else st.info(w)
-    st.dataframe(pd.DataFrame([
-        {"Parameter": lbl, "Value": f"{para_short_calc[dk]*sc:.4f}", "Unit": unit}
-        for dk, lbl, sc, unit in [
-            ("Lb","Lb",1e12,"pH"),("Lc","Lc",1e12,"pH"),("Le","Le",1e12,"pH"),
-            ("Rpb","Rb (Short)",1.0,"Ω"),("Rpc","Rc (Short)",1.0,"Ω"),("Rpe","Re (Short)",1.0,"Ω"),
-        ]
-    ]), use_container_width=True, hide_index=True)
+        # ── extraction range ─────────────────────────────────────────────────────
+        short_n0, short_n1, short_method, short_trim = _extract_ui(
+            fname, "short", freq, default_frac_lo=0.0, default_frac_hi=0.2)
 
-    _SHORT_OV = [("Lb",1e12),("Lc",1e12),("Le",1e12),
-                 ("Rpb",1.0),("Rpc",1.0),("Rpe",1.0)]
-    # Re-init overrides if caps changed (would change Short extraction)
-    cap_hash = tuple(round(para_caps_ov[k]*1e18) for k in ["Cpbe","Cpce","Cpbc"])
-    if st.session_state.get(f"ov_cap_hash_{fname}") != cap_hash:
+        # ── calculation ──────────────────────────────────────────────────────────
+        para_short_calc, short_arr = step1b_short(
+            short_data, freq if open_data is None else open_data[0],
+            para_caps_ov["Cpbe"], para_caps_ov["Cpce"], para_caps_ov["Cpbc"],
+            open_data, n0=short_n0, n1=short_n1, method=short_method,
+            trim_pct=short_trim, measured_open=do_measured,
+            Cpbe_mode=para_caps_ov.get("Cpbe_mode","None"),
+            Cpbe_extra=para_caps_ov.get("Cpbe_extra",0.0),
+            Cpce_mode=para_caps_ov.get("Cpce_mode","None"),
+            Cpce_extra=para_caps_ov.get("Cpce_extra",0.0),
+            Cpbc_mode=para_caps_ov.get("Cpbc_mode","None"),
+            Cpbc_extra=para_caps_ov.get("Cpbc_extra",0.0),
+        )
+        for w in short_arr.get("warnings", []):
+            st.warning(w) if w.startswith("⚠️") else st.info(w)
+        st.dataframe(pd.DataFrame([
+            {"Parameter": lbl, "Value": f"{para_short_calc[dk]*sc:.4f}", "Unit": unit}
+            for dk, lbl, sc, unit in [
+                ("Lb","Lb",1e12,"pH"),("Lc","Lc",1e12,"pH"),("Le","Le",1e12,"pH"),
+                ("Rpb","Rb (Short)",1.0,"Ω"),("Rpc","Rc (Short)",1.0,"Ω"),("Rpe","Re (Short)",1.0,"Ω"),
+            ]
+        ]), use_container_width=True, hide_index=True)
+
+        _SHORT_OV = [("Lb",1e12),("Lc",1e12),("Le",1e12),
+                    ("Rpb",1.0),("Rpc",1.0),("Rpe",1.0)]
+        # Re-init overrides if caps changed (would change Short extraction)
+        cap_hash = tuple(round(para_caps_ov[k]*1e18) for k in ["Cpbe","Cpce","Cpbc"])
+        if st.session_state.get(f"ov_cap_hash_{fname}") != cap_hash:
+            for dk, sc in _SHORT_OV:
+                st.session_state[f"ov_{dk}_{fname}"] = para_short_calc[dk]*sc
+            st.session_state[f"ov_cap_hash_{fname}"] = cap_hash
         for dk, sc in _SHORT_OV:
-            st.session_state[f"ov_{dk}_{fname}"] = para_short_calc[dk]*sc
-        st.session_state[f"ov_cap_hash_{fname}"] = cap_hash
-    for dk, sc in _SHORT_OV:
-        sk = f"ov_{dk}_{fname}"
-        if sk not in st.session_state: st.session_state[sk] = para_short_calc[dk]*sc
-    with st.expander("✏️ Override Short Lead Values", expanded=False):
-        if st.button("↩️ Reset Short", key=f"rst_short_{fname}"):
-            for dk, sc in _SHORT_OV: st.session_state[f"ov_{dk}_{fname}"] = para_short_calc[dk]*sc
-            st.rerun()
-        for row_items in [_SHORT_OV[:3], _SHORT_OV[3:]]:
-            for col_w, (dk, sc) in zip(st.columns(3), row_items):
-                unit = "pH" if sc==1e12 else "Ω"
-                fmt  = "%.3f" if sc==1e12 else "%.4f"
-                col_w.number_input(f"{dk} ({unit})", key=f"ov_{dk}_{fname}",
-                                   format=fmt, step=0.1 if sc==1e12 else 0.01)
-    para_short_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _SHORT_OV}
+            sk = f"ov_{dk}_{fname}"
+            if sk not in st.session_state: st.session_state[sk] = para_short_calc[dk]*sc
+        with st.expander("✏️ Override Short Lead Values", expanded=False):
+            if st.button("↩️ Reset Short", key=f"rst_short_{fname}"):
+                for dk, sc in _SHORT_OV: st.session_state[f"ov_{dk}_{fname}"] = para_short_calc[dk]*sc
+                st.rerun()
+            for row_items in [_SHORT_OV[:3], _SHORT_OV[3:]]:
+                for col_w, (dk, sc) in zip(st.columns(3), row_items):
+                    unit = "pH" if sc==1e12 else "Ω"
+                    fmt  = "%.3f" if sc==1e12 else "%.4f"
+                    col_w.number_input(f"{dk} ({unit})", key=f"ov_{dk}_{fname}",
+                                    format=fmt, step=0.1 if sc==1e12 else 0.01)
+        para_short_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _SHORT_OV}
 
-    # Enhanced short plots — returns {Cpar_Lb, Cpar_Lc, Cpar_Le}
-    short_cpar = render_short_plots(short_arr, para_short_ov, fname)
-    para_short_ov.update(short_cpar)
-
+        # Enhanced short plots — returns {Cpar_Lb, Cpar_Lc, Cpar_Le}
+        short_cpar = render_short_plots(short_arr, para_short_ov, fname)
+        para_short_ov.update(short_cpar)
+    else:
+        st.info("No Short dummy — Lb, Lc, Le, Rb, Rc, Re defaulted to 0.")
+        para_short_ov = {
+            "Lb": 0.0, "Lc": 0.0, "Le": 0.0,
+            "Rpb": 0.0, "Rpc": 0.0, "Rpe": 0.0,
+            "Cpar_Lb": 0.0, "Cpar_Lc": 0.0, "Cpar_Le": 0.0,
+        }
     para_step1 = {**para_caps_ov, **para_short_ov}
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -352,8 +398,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         ModelClass.render_results_table(params)
 
         # Degachi-specific diagnostic plots
-        if hasattr(ModelClass, "render_diagnostic_plots"):
-            ModelClass.render_diagnostic_plots(params, arrays, freq, fname)
+        # if hasattr(ModelClass, "render_diagnostic_plots"):
+        #     ModelClass.render_diagnostic_plots(params, arrays, freq, fname)
 
 
         # Full formula trace (collapsible)
@@ -364,8 +410,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     # ══════════════════════════════════════════════════════════════════════════
     # Cold-HBT cross-check
     # ══════════════════════════════════════════════════════════════════════════
-    if cold_res is not None and extract_results:
-        _render_cold_crosscheck(cold_res, extract_results, REGISTRY)
+    # if cold_res is not None and extract_results:
+    #     _render_cold_crosscheck(cold_res, extract_results, REGISTRY)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Circuit schematics
@@ -431,6 +477,10 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
     cold_file = st.file_uploader("Cold HBT S2P", type=["s2p"], key=f"cold_upload_{fname}")
     if cold_file is None:
         return None
+    if open_data is None:
+        st.warning("Cold-HBT extraction requires an Open dummy file.")
+        return None
+
     try:
         from .ssm_core import y_to_z, z_to_y
         f_c_raw, S_c_raw, z0_c = parse_s2p_bytes(cold_file.getvalue())

@@ -1,10 +1,38 @@
 """
 models/degachi.py — Degachi & Ghannouchi (2008) augmented π HBT model.
 
-Reference: Degachi & Ghannouchi, IEEE TED vol. 55 no. 4, 2008, Eqs. 3–26.
+Reference: Degachi & Ghannouchi, IEEE TED vol. 55 no. 4, 2008, Eqs. 1–26.
 
-Key difference from Cheng: no Step-2 extrinsic-cap peeling.
-Input is Y_ex1 directly.  Adds Cbi (intrinsic base capacitance) and Zcx (external BC network).
+Extraction follows the paper structure exactly:
+
+  GROUP 1 — Preparation
+    Step 1  [Eqs. 3–5]   Z1, Z3, Z4
+    Step 2  [Eq. 8]      Fbi vs ω² linear fit → A0, B0
+    Step 3  [Eq. 12]     Tbi = √(B0/A0)
+
+  GROUP 2 — Extraction of Small-Signal Model Parameters
+    Part A  [Eqs. 13–14] Rbi/Rbc, Rbi·Cbc
+    Part B  [Eqs. 19–21] F1 vs ω² linear fit → A, B, α → Tbe = √(B/A)
+    Part C  [Eqs. 23–24] R, R·T from F2
+    Part D  [Eq. 25]     Rbe, Rbi (2×2 linear solve)
+    Part E               Rbc, Cbc, Cbe, Cbi (derived)
+    Part F  [ref.8/Eq.26] Gm0, τ, Rcx, Ccx
+
+PARAM_GROUPS:
+  G0  z_plots_group    — Step 1: Z1/Z3/Z4 plots
+  G1  fbi_fit_group    — Step 2: Fbi fit window + A0/B0 display
+  G2  standard         — Step 3: Tbi (user-overridable)
+  G3  standard         — Part A: Rbi/Rbc, Rbi·Cbc
+  G4  f1_fit_group     — Part B: F1 fit window + A/B/α display + Tbe
+  G5  standard         — Part C: R, R·T
+  G6  standard         — Part D: Rbe, Rbi
+  G7  standard         — Part E: Rbc, Cbc, Cbe, Cbi
+  G8  standard         — Part F: Gm0, τ, Rcx, Ccx
+
+Special flags handled by base_ui.render_interactive_param_groups:
+  "z_plots_group"  → show Re/Im of Z1/Z3/Z4 vs frequency, no params
+  "fbi_fit_group"  → single-slider fit window, Fbi vs ω² plot, metrics, no params
+  "f1_fit_group"   → single-slider fit window, F1 vs ω² plot, metrics, then Tbe input
 """
 from __future__ import annotations
 import numpy as np
@@ -12,155 +40,223 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
-from ..ssm_core        import (y_to_z, y_to_s_single,
+from ..ssm_core        import (y_to_z, y_to_s_single, y_to_s_vec,
                                 safe_median, params_hash,
                                 extended_smith_grid)
-from ..ssm_deembedding  import build_Y_pad, build_Z_ser
+from ..ssm_deembedding  import (build_Y_pad, build_Z_ser,
+                                 build_Y_pad_vec, build_Z_ser_vec)
 from .base_ui           import (render_smith_chart, smith_scale_controls,
-                                 sync_pad_from_preov, PAD_SPECS, ssm_residual)
+                                 sync_pad_from_preov, PAD_SPECS, ssm_residual,
+                                 render_tuning_expander)
 from . import AbstractSSMModel
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Stateless helpers
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _h_Tbi(Z1, Z3, omega, omega2, n_fit):
+    """[Eqs. 8,12]  Fbi = ω/Im(Z1/Z3) = A0 + ω²B0  →  Tbi = √(B0/A0)"""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Fbi = omega / np.imag(Z1 / Z3)
+    mask = np.isfinite(Fbi[:n_fit]) & (np.abs(Fbi[:n_fit]) < 1e15) & (Fbi[:n_fit] > 0)
+    if mask.sum() >= 3:
+        try:
+            c = np.polyfit(omega2[:n_fit][mask], Fbi[:n_fit][mask], 1)
+            B0, A0 = float(c[0]), float(c[1])
+        except Exception:
+            A0, B0 = 1.0, 0.0
+    else:
+        A0, B0 = 1.0, 0.0
+    Tbi = float(np.sqrt(max(B0 / A0, 0.0))) if A0 > 1e-30 else 0.0
+    return Tbi, Fbi, A0, B0
+
+
+def _h_Tbe(Z1, omega, omega2, Tbi, n_fit):
+    """[Eqs. 15,19,20]  F1 = ω/Im(Z1(1+jωTbi)) = A + ω²B  →  Tbe = √(B/A)"""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        F1 = omega / np.imag(Z1 * (1.0 + 1j * omega * Tbi))
+    mask = np.isfinite(F1[:n_fit]) & (np.abs(F1[:n_fit]) < 1e15) & (F1[:n_fit] > 0)
+    if mask.sum() >= 3:
+        try:
+            c = np.polyfit(omega2[:n_fit][mask], F1[:n_fit][mask], 1)
+            B1, A1 = float(c[0]), float(c[1])
+        except Exception:
+            A1, B1 = 1.0, 0.0
+    else:
+        A1, B1 = 1.0, 0.0
+    Tbe = float(np.sqrt(max(B1 / A1, 0.0))) if A1 > 1e-30 else 0.0
+    return Tbe, F1, A1, B1
+
+
+def _h_ratios(Z1, Z3, omega, Tbi):
+    """[Eqs. 13–14]  Re[(Z1/Z3)(1+jωTbi)] = Rbi/Rbc,  Im[·]/ω = Rbi·Cbc"""
+    c13 = (Z1 / Z3) * (1.0 + 1j * omega * Tbi)
+    ror_arr = np.real(c13)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        rbc_arr = np.where(omega > 0, np.imag(c13) / omega, np.nan)
+    return ror_arr, rbc_arr
+
+
+def _h_R_RT(Z1, omega, Tbi, Tbe):
+    """[Eqs. 23–24]  F2 = Z1(1+jωTbe)(1+jωTbi),  R=Re(F2), R·T=Im(F2)/ω"""
+    F2 = Z1 * (1.0 + 1j * omega * Tbe) * (1.0 + 1j * omega * Tbi)
+    R_arr = np.real(F2)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        RT_arr = np.where(omega > 0, np.imag(F2) / omega, np.nan)
+    return R_arr, RT_arr, F2
+
+
+def _h_solve_pf(ror_arr, rbc_arr, R_arr, RT_arr, Tbi, Tbe):
+    """[Eq. 25] per-frequency 2×2 solve for Rbe, Rbi."""
+    N    = len(R_arr)
+    mats = np.stack([
+        np.column_stack([1.0 + ror_arr,       np.ones(N)]),
+        np.column_stack([Tbi + rbc_arr, np.full(N, Tbe)]),
+    ], axis=1)
+    rhs = np.column_stack([R_arr, RT_arr])
+    try:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s = np.linalg.solve(mats, rhs)
+        Rbe_a = np.where((s[:, 0] > 0) & np.isfinite(s[:, 0]), s[:, 0], np.nan)
+        Rbi_a = np.where((s[:, 1] > 0) & np.isfinite(s[:, 1]), s[:, 1], np.nan)
+    except Exception:
+        Rbe_a = Rbi_a = np.full(N, np.nan)
+    return Rbe_a, Rbi_a
+
+
+def _h_solve_sc(ror, rbc, R, RT, Tbi, Tbe, Z1, Z3, n_low):
+    """[Eq. 25] scalar solve with heuristic fallback."""
+    try:
+        sol = np.linalg.solve(
+            np.array([[1.0 + ror, 1.0], [Tbi + rbc, Tbe]]),
+            np.array([R, RT]))
+        Rbe, Rbi = float(sol[0]), float(sol[1])
+        if Rbe <= 0 or Rbi <= 0:
+            raise ValueError
+    except Exception:
+        Rbi = safe_median(np.real(Z1 - Z3), n_low)
+        Rbe = max(R - Rbi, 1.0)
+    return Rbe, Rbi
+
+
+def _h_derived_pf(Rbe_a, Rbi_a, ror_a, rbc_a, Tbi, Tbe):
+    """Rbc, Cbc, Cbe, Cbi per-frequency arrays from Rbe/Rbi arrays."""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Rbc_a = np.where(np.abs(ror_a) > 1e-30, Rbi_a / ror_a, np.nan)
+        Cbc_a = np.where(np.abs(Rbi_a) > 1e-30, rbc_a / Rbi_a, np.nan)
+        Cbe_a = np.where(np.abs(Rbe_a) > 1e-30, Tbe   / Rbe_a, np.nan)
+        Cbi_a = np.where(np.abs(Rbi_a) > 1e-30, Tbi   / Rbi_a, np.nan)
+    return Rbc_a, Cbc_a, Cbe_a, Cbi_a
+
+
+def _h_derived_sc(Rbi, Rbe, ror, rbc, Tbi, Tbe):
+    """Rbc, Cbc, Cbe, Cbi scalars from Rbe/Rbi scalars."""
+    Rbc = float(Rbi / ror) if abs(ror) > 1e-30 else 1e6
+    Cbc = float(rbc / Rbi) if abs(Rbi) > 1e-30 else 0.0
+    Cbe = float(Tbe / Rbe) if abs(Rbe) > 1e-30 else 0.0
+    Cbi = float(Tbi / Rbi) if abs(Rbi) > 1e-30 else 0.0
+    return Rbc, Cbc, Cbe, Cbi
+
+
+def _h_Rcx(Z4, Rbc, Cbc, omega):
+    """[Eq. 26]  1/Rcx = Re(1/Z4 − 1/Z2),  Z2 = Rbc/(1+jωRbcCbc)"""
+    Z2 = Rbc / (1.0 + 1j * omega * Rbc * Cbc)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        inv = np.real(1.0 / Z4 - 1.0 / Z2)
+        arr = np.where(inv > 1e-12, 1.0 / inv, np.nan)
+    ok  = np.isfinite(arr) & (arr < 1e9)
+    Rcx = max(float(safe_median(arr[ok])), 1.0) if ok.sum() >= 2 else 1e6
+    return Rcx, arr
+
+
+def _h_Gm0_tau(Y_ex1, freq):
+    """[ref.8]  Gm0 = Re(Y22)|f→0,  τ = −(1/2π)·d∠Y21/df"""
+    Gm0_a = np.real(Y_ex1[:, 1, 1])
+    Gm0   = max(float(Gm0_a[0]), 0.0)
+    phi   = np.unwrap(np.angle(Y_ex1[:, 1, 0]))
+    tau   = max(-float(np.polyfit(freq, phi, 1)[0]) / (2.0 * np.pi), 0.0)
+    tau_a = np.maximum(-np.gradient(phi, freq) / (2.0 * np.pi), 0.0)
+    return Gm0, tau, Gm0_a, tau_a, phi
+
+
+def _h_Ccx(Y_ex1, omega, n_hi):
+    """[ref.8]  Ccx ≈ −Im(Y12)/ω at high frequency."""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        arr = -np.imag(Y_ex1[:, 0, 1]) / omega
+    return max(safe_median(arr[n_hi:]), 0.0), arr
 
 
 # ════════════════════════════════════════════════════════════════════════════════
 # Extraction
 # ════════════════════════════════════════════════════════════════════════════════
 
-def _extract(Y_ex1, freq, n_low):
-    """
-    Degachi [Eqs. 3–26] — full extraction from Y_ex1.
-
-    Step-by-step dependency chain:
-      Z1, Z3, Z4  [Eqs. 3–5]
-      →  Fbi linear fit → Tbi  [Eqs. 8–12]
-      →  Rbi/Rbc ratio, Rbi·Cbc  [Eqs. 13–14]
-      →  F1 linear fit → Tbe  [Eqs. 19–20]
-      →  R, RT  [Eqs. 23–24]
-      →  Rbe, Rbi (2×2 linear system)  [Eq. 25]
-      →  Rbc, Cbc, Cbe, Cbi
-      →  Gm0, τ  (from residual core admittance)
-      →  Ccx  (from high-frequency Im(Y12))
-    """
-    omega  = 2.0*np.pi*freq
-    omega2 = omega**2
+def _extract(Y_ex1, freq, n_low, n_fit=None, n_fit_f1=None):
+    omega  = 2.0 * np.pi * freq
+    omega2 = omega ** 2
     N      = len(freq)
-    n_fit  = max(4, 2*N//3)
+    if n_fit is None:
+        n_fit = max(4, 2 * N // 3)
+    if n_fit_f1 is None:
+        n_fit_f1 = n_fit
+    n_hi = max(N // 2, n_low + 1)
 
-    # ── [Eqs. 3–5]  Z1, Z3, Z4 ───────────────────────────────────────────────
     with np.errstate(divide="ignore", invalid="ignore"):
-        Z1 = 1.0 / (Y_ex1[:,0,0] + Y_ex1[:,0,1])
-        Z3 = (Y_ex1[:,1,0] + Y_ex1[:,0,0]) / \
-             ((Y_ex1[:,0,0] + Y_ex1[:,0,1]) * (Y_ex1[:,1,1] + Y_ex1[:,0,1]))
-        Z4 = -1.0 / Y_ex1[:,0,1]
+        Z1 = 1.0 / (Y_ex1[:, 0, 0] + Y_ex1[:, 0, 1])
+        Z3 = (Y_ex1[:, 1, 0] + Y_ex1[:, 0, 0]) / \
+             ((Y_ex1[:, 0, 0] + Y_ex1[:, 0, 1]) * (Y_ex1[:, 1, 1] + Y_ex1[:, 0, 1]))
+        Z4 = -1.0 / Y_ex1[:, 0, 1]
 
-    # ── [Eq. 8]  Fbi = ω / Im(Z1/Z3)  →  fit Fbi = A0 + ω²·B0 ─────────────
-    with np.errstate(divide="ignore", invalid="ignore"):
-        Fbi = omega / np.imag(Z1 / Z3)
-    mask = np.isfinite(Fbi[:n_fit]) & (np.abs(Fbi[:n_fit]) < 1e15) & (Fbi[:n_fit] > 0)
-    if mask.sum() >= 3:
-        try:    coeffs = np.polyfit(omega2[:n_fit][mask], Fbi[:n_fit][mask], 1); B0, A0 = float(coeffs[0]), float(coeffs[1])
-        except: A0, B0 = 1.0, 0.0
-    else:
-        A0, B0 = 1.0, 0.0
-
-    # ── [Eq. 12]  Tbi = √(B0/A0) ─────────────────────────────────────────────
-    Tbi = float(np.sqrt(max(B0/A0, 0.0))) if A0 > 1e-30 else 0.0
-
-    # ── [Eqs. 13–14]  Rbi/Rbc, Rbi·Cbc ──────────────────────────────────────
-    corr13 = (Z1 / Z3) * (1.0 + 1j*omega*Tbi)
-    RbiOverRbc_arr = np.real(corr13)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        RbiCbc_arr = np.where(omega > 0, np.imag(corr13)/omega, np.nan)
-    RbiOverRbc = safe_median(RbiOverRbc_arr, n_low)
-    RbiCbc     = safe_median(RbiCbc_arr,     n_low)
-
-    # ── [Eqs. 19–20]  F1  →  Tbe = √(B1/A1) ─────────────────────────────────
-    with np.errstate(divide="ignore", invalid="ignore"):
-        Z1_mod = Z1 * (1.0 + 1j*omega*Tbi)
-        F1 = omega / np.imag(Z1_mod)
-    mask1 = np.isfinite(F1[:n_fit]) & (np.abs(F1[:n_fit]) < 1e15) & (F1[:n_fit] > 0)
-    if mask1.sum() >= 3:
-        try:    coeffs1 = np.polyfit(omega2[:n_fit][mask1], F1[:n_fit][mask1], 1); B1, A1 = float(coeffs1[0]), float(coeffs1[1])
-        except: A1, B1 = 1.0, 0.0
-    else:
-        A1, B1 = 1.0, 0.0
-    Tbe = float(np.sqrt(max(B1/A1, 0.0))) if A1 > 1e-30 else 0.0
-
-    # ── [Eqs. 23–24]  R = Re(F2),  RT = Im(F2)/ω ─────────────────────────────
-    F2 = Z1 * (1.0 + 1j*omega*Tbe) * (1.0 + 1j*omega*Tbi)
-    R_arr  = np.real(F2)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        RT_arr = np.where(omega > 0, np.imag(F2)/omega, np.nan)
-    R  = safe_median(R_arr,  n_low)
-    RT = safe_median(RT_arr, n_low)
-
-    # ── [Eq. 25]  Solve 2×2 for Rbe, Rbi ─────────────────────────────────────
-    mat = np.array([[1.0+RbiOverRbc, 1.0],
-                    [Tbi+RbiCbc,     Tbe]])
-    rhs = np.array([R, RT])
-    try:
-        sol = np.linalg.solve(mat, rhs)
-        Rbe, Rbi = float(sol[0]), float(sol[1])
-        if Rbe <= 0 or Rbi <= 0: raise ValueError("non-physical")
-    except:
-        Rbi = safe_median(np.real(Z1 - Z3), n_low)
-        Rbe = max(R - Rbi, 1.0)
-
-    # ── Derived parameters ────────────────────────────────────────────────────
-    Rbc = float(Rbi/RbiOverRbc) if abs(RbiOverRbc) > 1e-30 else 1e6
-    Cbc = float(RbiCbc/Rbi)     if abs(Rbi)        > 1e-30 else 0.0
-    Cbe = float(Tbe/Rbe)        if abs(Rbe)        > 1e-30 else 0.0
-    Cbi = float(Tbi/Rbi)        if abs(Rbi)        > 1e-30 else 0.0
-
-    # ── Gm0, τ — from residual core after removing Zbi ───────────────────────
-    Zbi_v = (Rbi/(1.0 + 1j*omega*Rbi*Cbi) if Cbi > 1e-40
-             else Rbi*np.ones(N, dtype=complex))
-    Z_in_full = y_to_z(Y_ex1)
-    Z_in_core = Z_in_full.copy()
-    Z_in_core[:,0,0] -= Zbi_v
-    from ..ssm_core import z_to_y
-    Y_core  = z_to_y(Z_in_core)
-    gm_arr  = Y_core[:,1,0] - Y_core[:,0,1]
-    Gm0_a   = np.abs(gm_arr)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        tau_a = -np.angle(gm_arr) / omega
-    Gm0 = safe_median(Gm0_a, n_low)
-    tau = safe_median(tau_a,  n_low)
-
-    # ── Ccx — from high-freq Im(Y12) ─────────────────────────────────────────
-    n_hi = max(N//2, n_low+1)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        Ccx_arr = -np.imag(Y_ex1[:,0,1]) / omega
-    Ccx = max(safe_median(Ccx_arr[n_hi:]), 0.0)
+    Tbi, Fbi, A0, B0            = _h_Tbi(Z1, Z3, omega, omega2, n_fit)
+    Tbe, F1,  A1, B1            = _h_Tbe(Z1, omega, omega2, Tbi, n_fit_f1)
+    ror_a, rbc_a                = _h_ratios(Z1, Z3, omega, Tbi)
+    ror, rbc                    = safe_median(ror_a, n_low), safe_median(rbc_a, n_low)
+    R_a, RT_a, F2               = _h_R_RT(Z1, omega, Tbi, Tbe)
+    R, RT                       = safe_median(R_a, n_low), safe_median(RT_a, n_low)
+    Rbe_a, Rbi_a                = _h_solve_pf(ror_a, rbc_a, R_a, RT_a, Tbi, Tbe)
+    Rbe, Rbi                    = _h_solve_sc(ror, rbc, R, RT, Tbi, Tbe, Z1, Z3, n_low)
+    Rbc_a, Cbc_a, Cbe_a, Cbi_a = _h_derived_pf(Rbe_a, Rbi_a, ror_a, rbc_a, Tbi, Tbe)
+    Rbc, Cbc, Cbe, Cbi          = _h_derived_sc(Rbi, Rbe, ror, rbc, Tbi, Tbe)
+    Gm0, tau, Gm0_a, tau_a, phi = _h_Gm0_tau(Y_ex1, freq)
+    Rcx, Rcx_a                  = _h_Rcx(Z4, Rbc, Cbc, omega)
+    Ccx, Ccx_a                  = _h_Ccx(Y_ex1, omega, n_hi)
 
     params = dict(
         Rbi=Rbi, Cbi=Cbi, Rbe=Rbe, Cbe=Cbe,
-        Rbc=Rbc, Cbc=Cbc, Rcx=1e6,  Ccx=Ccx,
-        Gm0=Gm0, tau=tau,
-        # diagnostic scalars for the Fbi/F1 fit plots
+        Rbc=Rbc, Cbc=Cbc, Rcx=Rcx, Ccx=Ccx, Gm0=Gm0, tau=tau,
         Tbi=Tbi, Tbe=Tbe, A0=A0, B0=B0, A1=A1, B1=B1,
-        RbiOverRbc=RbiOverRbc, RbiCbc=RbiCbc, R=R, RT=RT,
+        RbiOverRbc=ror, RbiCbc=rbc, R=R, RT=RT,
     )
     arrays = dict(
-        Z1=Z1, Z3=Z3, Z4=Z4, Fbi=Fbi, F1=F1, F2=F2,
-        R_arr=R_arr, RT_arr=RT_arr,
-        RbiOverRbc_arr=RbiOverRbc_arr, RbiCbc_arr=RbiCbc_arr,
-        Gm0_a=Gm0_a, tau_a=tau_a, Ccx_arr=Ccx_arr, omega2=omega2,
+        Z1=Z1, Z3=Z3, Z4=Z4, F2=F2, Fbi=Fbi, F1=F1, omega2=omega2,
+        phase_Y21=phi,
+        Tbi_arr=np.full(N, Tbi),
+        Tbe_arr=np.full(N, Tbe),
+        RbiOverRbc_arr=ror_a, RbiCbc_arr=rbc_a,
+        R_arr=R_a, RT_arr=RT_a,
+        Rbe_arr=Rbe_a, Rbi_arr=Rbi_a,
+        Rbc_arr=Rbc_a, Cbc_arr=Cbc_a, Cbe_arr=Cbe_a, Cbi_arr=Cbi_a,
+        Gm0_a=Gm0_a, tau_a=tau_a,
+        Rcx_arr=Rcx_a, Ccx_arr=Ccx_a,
     )
     return params, arrays
 
 
-# ── Forward simulator ──────────────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════════════════
+# Forward simulator
+# ════════════════════════════════════════════════════════════════════════════════
 
 def _simulate(p, freq, z0=50.0):
+    r"""
+    5-layer inside-out build-up.
+    $$Z_{xy}=R_{xy}/(1+j\omega R_{xy}C_{xy})$$  [Eq.1]
+    $$[Y_{core}]=[[Y_{be}+Y_{bc},-Y_{bc}],[g_m-Y_{bc},Y_{bc}]]$$
+    $$[Z_{core}]=[Y_{core}]^{-1}+[[Z_{bi},0],[0,0]]$$
+    $$[Y_{int}]=[Z_{core}]^{-1}+(1/Z_{cx})[[1,-1],[-1,1]]$$
+    $$[Y_{tot}]=([Y_{int}]^{-1}+[Z_{ser}])^{-1},\quad
+      S=(I-Z_0 Y)(I+Z_0 Y)^{-1},\;Y=Y_{tot}+Y_{pad}$$
     """
-    Degachi forward sim — 5 layers inside-out:
-      1. Zbi, Zbe, Zbc  (RC networks)
-      2. [Y_core] intrinsic admittance with gm
-      3. [Z_core] = [Y_core]⁻¹ + [[Zbi,0],[0,0]]
-      4. [Y_int]  = [Z_core]⁻¹ + (1/Zcx)·shunt
-      5. [Y_tot]  = ([Y_int]⁻¹ + Z_ser)⁻¹  then add Y_pad → S
-    """
-    omega = 2.0*np.pi*freq
+    omega = 2.0 * np.pi * freq
     S = np.zeros((len(freq), 2, 2), dtype=complex)
     for i, w in enumerate(omega):
         Rbi, Cbi = p["Rbi"], p["Cbi"]
@@ -169,36 +265,93 @@ def _simulate(p, freq, z0=50.0):
         Rcx, Ccx = p["Rcx"], p["Ccx"]
         Gm0, tau = p["Gm0"], p["tau"]
 
-        # Step 1: element impedances
-        Zbi_v = Rbi/(1.0 + 1j*w*Rbi*Cbi) if Cbi > 1e-40 else complex(Rbi)
-        Zbe_v = Rbe/(1.0 + 1j*w*Rbe*Cbe)
-        Zbc_v = Rbc/(1.0 + 1j*w*Rbc*Cbc)
+        Zbi_v = Rbi / (1.0 + 1j*w*Rbi*Cbi) if Cbi > 1e-40 else complex(Rbi)
+        Zbe_v = Rbe / (1.0 + 1j*w*Rbe*Cbe)
+        Zbc_v = Rbc / (1.0 + 1j*w*Rbc*Cbc)
         Zcx_v = (1.0/(1j*w*Ccx) if (Rcx > 1e4 and Ccx > 1e-40)
-                 else Rcx/(1.0 + 1j*w*Rcx*Ccx) if Ccx > 1e-40
+                 else Rcx/(1.0+1j*w*Rcx*Ccx) if Ccx > 1e-40
                  else complex(1e9))
 
-        Ybe = 1.0/Zbe_v; Ybc = 1.0/Zbc_v; gm_v = Gm0*np.exp(-1j*w*tau)
+        Ybe  = 1.0/Zbe_v; Ybc = 1.0/Zbc_v
+        gm_v = Gm0 * np.exp(-1j*w*tau)
 
-        # Step 2: intrinsic π admittance matrix
-        Y_core = np.array([[Ybe+Ybc, -Ybc],
-                            [gm_v-Ybc,  Ybc]])
+        Y_core = np.array([[Ybe+Ybc, -Ybc], [gm_v-Ybc, Ybc]])
+        try:
+            Z_core = np.linalg.inv(Y_core) + np.array([[Zbi_v, 0.0], [0.0, 0.0]])
+            Y_int  = np.linalg.inv(Z_core) + (1.0/Zcx_v)*np.array([[1,-1],[-1,1]])
+        except np.linalg.LinAlgError:
+            Y_int = np.zeros((2, 2), dtype=complex)
 
-        # Step 3: add Zbi to base node
-        Z_core = np.linalg.inv(Y_core) + np.array([[Zbi_v, 0.0],[0.0, 0.0]])
-
-        # Step 4: add Zcx shunt
-        Y_int = np.linalg.inv(Z_core) + (1.0/Zcx_v)*np.array([[1,-1],[-1,1]])
-
-        # Step 5: add series leads and pad shunt
         Z_ser = build_Z_ser(p, w)
         try:    Y_tot = np.linalg.inv(np.linalg.inv(Y_int) + Z_ser)
         except: Y_tot = np.zeros((2,2), dtype=complex)
-        Y_pad = build_Y_pad(p, w)
-        S[i]  = y_to_s_single(Y_tot + Y_pad, z0)
+        S[i] = y_to_s_single(Y_tot + build_Y_pad(p, w), z0)
     return S
 
 
-# ── Override UI specs ──────────────────────────────────────────────────────────
+def _simulate_vec(p, freq, z0=50.0, xp=None):
+    """Vectorised Degachi simulate — no per-freq loop.  Pass xp=cupy for GPU."""
+    if xp is None:
+        xp = np
+    omega = xp.asarray(2.0 * np.pi * freq, dtype=np.float64)
+    N = len(freq)
+
+    Rbi, Cbi = p["Rbi"], p["Cbi"]
+    Rbe, Cbe = p["Rbe"], p["Cbe"]
+    Rbc, Cbc = p["Rbc"], p["Cbc"]
+    Rcx, Ccx = p["Rcx"], p["Ccx"]
+    Gm0, tau = p["Gm0"], p["tau"]
+
+    # Impedances (N,)
+    Zbi = Rbi / (1.0 + 1j * omega * Rbi * Cbi) if Cbi > 1e-40 else xp.full(N, complex(Rbi))
+    Zbe = Rbe / (1.0 + 1j * omega * Rbe * Cbe)
+    Zbc = Rbc / (1.0 + 1j * omega * Rbc * Cbc)
+
+    # Zcx — conditional on Rcx/Ccx values
+    if Rcx > 1e4 and Ccx > 1e-40:
+        Zcx = 1.0 / (1j * omega * Ccx)
+    elif Ccx > 1e-40:
+        Zcx = Rcx / (1.0 + 1j * omega * Rcx * Ccx)
+    else:
+        Zcx = xp.full(N, complex(1e9))
+
+    Ybe = 1.0 / Zbe
+    Ybc = 1.0 / Zbc
+    gm  = Gm0 * xp.exp(-1j * omega * tau)
+
+    # Y_core (N, 2, 2)
+    Y_core = xp.zeros((N, 2, 2), dtype=complex)
+    Y_core[:, 0, 0] = Ybe + Ybc
+    Y_core[:, 0, 1] = -Ybc
+    Y_core[:, 1, 0] = gm - Ybc
+    Y_core[:, 1, 1] = Ybc
+
+    # Z_core = inv(Y_core) + [[Zbi, 0], [0, 0]]
+    Z_core = xp.linalg.inv(Y_core)
+    Z_core[:, 0, 0] += Zbi
+
+    # Y_int = inv(Z_core) + (1/Zcx) * [[1,-1],[-1,1]]
+    Y_int = xp.linalg.inv(Z_core)
+    inv_Zcx = 1.0 / Zcx   # (N,)
+    Y_int[:, 0, 0] += inv_Zcx
+    Y_int[:, 0, 1] -= inv_Zcx
+    Y_int[:, 1, 0] -= inv_Zcx
+    Y_int[:, 1, 1] += inv_Zcx
+
+    # Series leads + pad
+    Z_ser = build_Z_ser_vec(p, omega, xp)
+    Y_tot = xp.linalg.inv(xp.linalg.inv(Y_int) + Z_ser)
+    Y_pad = build_Y_pad_vec(p, omega, xp)
+
+    S = y_to_s_vec(Y_tot + Y_pad, z0, xp)
+    if xp is not np:
+        S = xp.asnumpy(S)
+    return S
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Smith chart fine-tune specs
+# ════════════════════════════════════════════════════════════════════════════════
 
 _INT_D_SPECS = [
     ("Rbi","Rbi", 1.0, "Ω",  "%.4f", 0.1),
@@ -215,147 +368,312 @@ _INT_D_SPECS = [
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# Degachi model class
+# Model class
 # ════════════════════════════════════════════════════════════════════════════════
 
 class Degachi(AbstractSSMModel):
     NAME          = "Degachi (2008) augmented π"
     SHORT         = "D"
     TOPOLOGY_CHAR = "D"
-    PARAM_GROUPS  = [
-        {
-            "label":      "Gm0, τ  (from residual core admittance, depends on Rbi, Cbi)",
-            "params": [
-                ("Gm0_a", "Gm0", "Gm0", 1e3,  "mS"),
-                ("tau_a", "tau", "τ",   1e12, "ps"),
-            ],
-            "depends_on": ["Rbi"],
-            "formulas": [
-                ("markdown", "**From residual core admittance after removing Z_bi:**"),
-                ("latex", r"g_m=Y_{21}^{\mathrm{core}}-Y_{12}^{\mathrm{core}},\;G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega"),
-            ],
 
-        },
+    # ── PARAM_GROUPS ─────────────────────────────────────────────────────────
+    # Standard tuple format: (arr_key, param_key, label, scale, unit)
+    # Special flags:
+    #   "z_plots_group"  → base_ui renders Z1/Z3/Z4 Re/Im plots, no params
+    #   "fbi_fit_group"  → base_ui renders Fbi fit, single fit-window slider, no params
+    #   "f1_fit_group"   → base_ui renders F1 fit, single fit-window slider, then Tbe input
+    #
+    # Cascade: G0,G1(fit) → G2(Tbi) → G3(ror,rbc) → G4(Tbe) → G5(R,RT)
+    #          → G6(Rbe,Rbi) → G7(Rbc,Cbc,Cbe,Cbi) → G8(Gm0,τ,Rcx,Ccx)
+    PARAM_GROUPS = [
+
+        # ── Group 0: Preparation — Step 1: Z1, Z3, Z4 ────────────────────────
         {
-            "label":      "Ccx  (from high-freq Im(Y₁₂)/ω — extracted last)",
-            "params":     [("Ccx_arr", "Ccx", "Ccx", 1e15, "fF")],
-            "depends_on": ["Gm0", "tau"],
+            "label":         "Preparation — Step 1: Z₁, Z₃, Z₄  [Eqs. 3–5]",
+            "params":        [],
+            "depends_on":    [],
+            "z_plots_group": True,
             "formulas": [
-                ("markdown", "**From high-frequency Im(Y₁₂)/ω:**"),
-                ("latex", r"C_{cx}=-\frac{\mathrm{Im}(Y_{12})}{\omega}\bigg|_{\mathrm{high\,freq}}"),
+                ("latex", r"Z_1=\frac{1}{Y_{11}+Y_{12}}"),
+                ("latex", r"Z_3=\frac{Y_{21}+Y_{11}}{(Y_{11}+Y_{12})(Y_{22}+Y_{12})}"),
+                ("latex", r"Z_4=-\frac{1}{Y_{12}}"),
+            ],
+        },
+
+        # ── Group 1: Preparation — Step 2: Fbi fit ───────────────────────────
+        {
+            "label":          "Preparation — Step 2: Fbi vs ω²  [Eq. 8]",
+            "params":         [],
+            "depends_on":     [],
+            "fbi_fit_group":  True,
+            "formulas": [
+                ("latex", r"F_{bi}\triangleq\frac{\omega}{\mathrm{Im}(Z_1/Z_3)}=A_0+\omega^2 B_0"),
+            ],
+        },
+
+        # ── Group 2: Preparation — Step 3: Tbi ───────────────────────────────
+        {
+            "label":      "Preparation — Step 3: Tbi  [Eq. 12]",
+            "params":     [("Tbi_arr", "Tbi", "Tbi", 1e12, "ps")],
+            "depends_on": [],
+            "formulas": [
+                ("latex", r"T_{bi}=\sqrt{\frac{B_0}{A_0}}"),
+            ],
+        },
+
+        # ── Group 3: Part A — Rbi/Rbc and Rbi·Cbc ────────────────────────────
+        {
+            "label":      "Part A — Rbi/Rbc and Rbi·Cbc  [Eqs. 13–14]",
+            "params":     [("RbiOverRbc_arr", "RbiOverRbc", "Rbi/Rbc", 1.0,  ""),
+                           ("RbiCbc_arr",     "RbiCbc",     "Rbi·Cbc", 1e12, "ps")],
+            "depends_on": ["Tbi"],
+            "formulas": [
+                ("latex", r"\mathrm{Re}\!\left[\frac{Z_1}{Z_3}(1+j\omega T_{bi})\right]"
+                          r"=\frac{R_{bi}}{R_{bc}}"),
+                ("latex", r"\frac{\mathrm{Im}\!\left[\frac{Z_1}{Z_3}(1+j\omega T_{bi})\right]}{\omega}"
+                          r"=R_{bi}C_{bc}"),
+            ],
+        },
+
+        # ── Group 4: Part B — F1 fit → Tbe ───────────────────────────────────
+        {
+            "label":        "Part B — Determination of Tbe = Rbe·Cbe  [Eqs. 19–21]",
+            "params":       [("Tbe_arr", "Tbe", "Tbe", 1e12, "ps")],
+            "depends_on":   ["Tbi"],
+            "f1_fit_group": True,
+            "formulas": [
+                ("latex", r"F_1\triangleq\frac{\omega}{\mathrm{Im}[Z_1(1+j\omega T_{bi})]}"
+                          r"=A+\omega^2 B"),
+                ("latex", r"\alpha=R(T-T_{be})=\frac{1}{A},\quad "
+                          r"T_{be}=\sqrt{\frac{B}{A}}"),
+            ],
+        },
+
+        # ── Group 5: Part C — R and R·T ──────────────────────────────────────
+        {
+            "label":      "Part C — R and R·T  [Eqs. 23–24]",
+            "params":     [("R_arr",  "R",  "R",   1.0,  "Ω"),
+                           ("RT_arr", "RT", "R·T", 1e12, "Ω·ps")],
+            "depends_on": ["Tbi", "Tbe"],
+            "formulas": [
+                ("latex", r"F_2\triangleq Z_1(1+j\omega T_{be})(1+j\omega T_{bi})"
+                          r"=R(1+j\omega T)"),
+                ("latex", r"R=\mathrm{Re}(F_2),\quad "
+                          r"R\cdot T=\frac{\mathrm{Im}(F_2)}{\omega}"),
+            ],
+        },
+
+        # ── Group 6: Part D — Rbe and Rbi ────────────────────────────────────
+        {
+            "label":      "Part D — Rbe and Rbi  [Eq. 25]",
+            "params":     [("Rbe_arr", "Rbe", "Rbe", 1.0, "Ω"),
+                           ("Rbi_arr", "Rbi", "Rbi", 1.0, "Ω")],
+            "depends_on": ["RbiOverRbc", "RbiCbc", "R", "RT"],
+            "formulas": [
+                ("latex", r"\begin{pmatrix}R_{be}\\R_{bi}\end{pmatrix}="
+                          r"\begin{pmatrix}1+\dfrac{R_{bi}}{R_{bc}}&1\\"
+                          r"T_{bi}+R_{bi}C_{bc}&T_{be}\end{pmatrix}^{\!-1}"
+                          r"\begin{pmatrix}R\\R\cdot T\end{pmatrix}"),
+            ],
+        },
+
+        # ── Group 7: Part E — Rbc, Cbc, Cbe, Cbi ────────────────────────────
+        {
+            "label":      "Part E — Rbc, Cbc, Cbe, Cbi",
+            "params":     [("Rbc_arr", "Rbc", "Rbc", 1e-3, "kΩ"),
+                           ("Cbc_arr", "Cbc", "Cbc", 1e15, "fF"),
+                           ("Cbe_arr", "Cbe", "Cbe", 1e15, "fF"),
+                           ("Cbi_arr", "Cbi", "Cbi", 1e15, "fF")],
+            "depends_on": ["Rbe", "Rbi"],
+            "formulas": [
+                ("latex", r"R_{bc}=\frac{R_{bi}}{R_{bi}/R_{bc}},\quad "
+                          r"C_{bc}=\frac{R_{bi}C_{bc}}{R_{bi}},\quad "
+                          r"C_{be}=\frac{T_{be}}{R_{be}},\quad "
+                          r"C_{bi}=\frac{T_{bi}}{R_{bi}}"),
+            ],
+        },
+
+        # ── Group 8: Part F — Gm0, τ, Rcx, Ccx ──────────────────────────────
+        {
+            "label":            "Part F — Gm0, τ, Rcx, Ccx",
+            "params":           [("Gm0_a",   "Gm0", "Gm0", 1e3,  "mS"),
+                                 ("tau_a",   "tau", "τ",   1e12, "ps"),
+                                 ("Rcx_arr", "Rcx", "Rcx", 1e-3, "kΩ"),
+                                 ("Ccx_arr", "Ccx", "Ccx", 1e15, "fF")],
+            "use_first_params": {"Gm0"},
+            "depends_on":       ["Rbc", "Cbc"],
+            "formulas": [
+                ("latex", r"G_{m0}=\mathrm{Re}(Y_{22})\big|_{f\to 0}"),
+                ("latex", r"\tau=-\frac{1}{2\pi}\frac{d\,\angle Y_{21}}{df}"),
+                ("latex", r"\frac{1}{R_{cx}}=\mathrm{Re}\!\left(\frac{1}{Z_4}-\frac{1}{Z_2}\right),"
+                          r"\quad Z_2=\frac{R_{bc}}{1+j\omega R_{bc}C_{bc}}"),
+                ("latex", r"C_{cx}\approx-\frac{\mathrm{Im}(Y_{12})}{\omega}"
+                          r"\bigg|_{\mathrm{high\,freq}}"),
             ],
         },
     ]
 
     @classmethod
     def extract(cls, Y_ex1, freq, n_low, **kwargs):
-
-        return _extract(Y_ex1, freq, n_low)
+        return _extract(Y_ex1, freq, n_low,
+                        n_fit=kwargs.get("n_fit"),
+                        n_fit_f1=kwargs.get("n_fit_f1"))
 
     @classmethod
     def simulate(cls, params, freq, z0=50.0):
         return _simulate(params, freq, z0)
 
-    # @classmethod
-    # def render_step_formulas(cls):
-    #     """Formulas shown immediately before extraction in the UI."""
-    #     st.markdown("**Degachi (2008) — [Eqs. 3–26], input: Y_ex1 directly**")
-    #     st.latex(r"Z_1=\frac{1}{Y_{11}+Y_{12}},\;"
-    #              r"Z_3=\frac{Y_{21}+Y_{11}}{(Y_{11}+Y_{12})(Y_{22}+Y_{12})}")
-    #     st.latex(r"F_{bi}=\omega/\mathrm{Im}(Z_1/Z_3)=A_0+\omega^2 B_0"
-    #              r"\;\Rightarrow\;T_{bi}=\sqrt{B_0/A_0}")
-    #     st.latex(r"\mathrm{Re}[Z_1/Z_3(1+j\omega T_{bi})]=R_{bi}/R_{bc},\;"
-    #              r"\mathrm{Im}[\cdot]/\omega=R_{bi}C_{bc}")
-    #     st.latex(r"F_1=\omega/\mathrm{Im}[Z_1(1+j\omega T_{bi})]=A+\omega^2 B"
-    #              r"\;\Rightarrow\;T_{be}=\sqrt{B/A}")
-    #     st.latex(r"\begin{bmatrix}R_{be}\\R_{bi}\end{bmatrix}="
-    #              r"\begin{bmatrix}1+R_{bi}/R_{bc}&1\\"
-    #              r"T_{bi}+R_{bi}C_{bc}&T_{be}\end{bmatrix}^{-1}"
-    #              r"\begin{bmatrix}R\\RT\end{bmatrix}")
+    @classmethod
+    def simulate_vec(cls, params, freq, z0=50.0, xp=None):
+        """Vectorised simulate — no per-freq loop.  Pass xp=cupy for GPU."""
+        if xp is None:
+            xp = np
+        return _simulate_vec(params, freq, z0, xp)
+
+    @classmethod
+    def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
+        """
+        Cascade re-extraction called by render_interactive_param_groups.
+
+        Group → param mapping (new numbering):
+          G0  z_plots_group   — no params
+          G1  fbi_fit_group   — no params; _n_fit forces Tbi recompute
+          G2                  — Tbi
+          G3                  — RbiOverRbc, RbiCbc
+          G4  f1_fit_group    — Tbe; _n_fit_f1 forces Tbe recompute
+          G5                  — R, RT
+          G6                  — Rbe, Rbi
+          G7                  — Rbc, Cbc, Cbe, Cbi
+          G8                  — Gm0, τ, Rcx, Ccx (always recomputed)
+
+        Special override keys:
+          "_n_fit"    — fit window changed for Fbi → force Tbi from fit
+          "_n_fit_f1" — fit window changed for F1  → force Tbe from fit
+        """
+        omega  = 2.0 * np.pi * freq
+        omega2 = omega ** 2
+        N      = len(freq)
+        n_fit_fbi = int(overrides.get("_n_fit",    max(4, 2 * N // 3)))
+        n_fit_f1  = int(overrides.get("_n_fit_f1", max(4, 2 * N // 3)))
+        n_hi      = max(N // 2, n_low + 1)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            Z1 = 1.0 / (Y_ex1[:, 0, 0] + Y_ex1[:, 0, 1])
+            Z3 = (Y_ex1[:, 1, 0] + Y_ex1[:, 0, 0]) / \
+                 ((Y_ex1[:, 0, 0] + Y_ex1[:, 0, 1]) * (Y_ex1[:, 1, 1] + Y_ex1[:, 0, 1]))
+            Z4 = -1.0 / Y_ex1[:, 0, 1]
+
+        # G2 — Tbi
+        # Fit window change (_n_fit) or changed_group_idx < 2 → recompute from fit
+        _Tbi_fit, Fbi, A0, B0 = _h_Tbi(Z1, Z3, omega, omega2, n_fit_fbi)
+        if "_n_fit" in overrides or changed_group_idx < 2:
+            Tbi = _Tbi_fit
+        else:
+            Tbi = float(overrides.get("Tbi", _Tbi_fit))
+
+        # G3 — RbiOverRbc, RbiCbc
+        ror_a, rbc_a = _h_ratios(Z1, Z3, omega, Tbi)
+        if changed_group_idx >= 3:
+            ror = float(overrides.get("RbiOverRbc", safe_median(ror_a, n_low)))
+            rbc = float(overrides.get("RbiCbc",     safe_median(rbc_a, n_low)))
+        else:
+            ror = safe_median(ror_a, n_low)
+            rbc = safe_median(rbc_a, n_low)
+
+        # G4 — Tbe
+        # Fit window change (_n_fit_f1) or changed_group_idx < 4 → recompute from fit
+        _Tbe_fit, F1, A1, B1 = _h_Tbe(Z1, omega, omega2, Tbi, n_fit_f1)
+        if "_n_fit_f1" in overrides or changed_group_idx < 4:
+            Tbe = _Tbe_fit
+        else:
+            Tbe = float(overrides.get("Tbe", _Tbe_fit))
+
+        # G5 — R, RT
+        R_a, RT_a, F2 = _h_R_RT(Z1, omega, Tbi, Tbe)
+        if changed_group_idx >= 5:
+            R  = float(overrides.get("R",  safe_median(R_a,  n_low)))
+            RT = float(overrides.get("RT", safe_median(RT_a, n_low)))
+        else:
+            R  = safe_median(R_a,  n_low)
+            RT = safe_median(RT_a, n_low)
+
+        # G6 — Rbe, Rbi
+        Rbe_a, Rbi_a   = _h_solve_pf(ror_a, rbc_a, R_a, RT_a, Tbi, Tbe)
+        Rbe_sc, Rbi_sc = _h_solve_sc(ror, rbc, R, RT, Tbi, Tbe, Z1, Z3, n_low)
+        if changed_group_idx >= 6:
+            Rbe = float(overrides.get("Rbe", Rbe_sc))
+            Rbi = float(overrides.get("Rbi", Rbi_sc))
+        else:
+            Rbe, Rbi = Rbe_sc, Rbi_sc
+
+        # G7 — Rbc, Cbc, Cbe, Cbi
+        Rbc_a, Cbc_a, Cbe_a, Cbi_a = _h_derived_pf(Rbe_a, Rbi_a, ror_a, rbc_a, Tbi, Tbe)
+        _Rbc, _Cbc, _Cbe, _Cbi     = _h_derived_sc(Rbi, Rbe, ror, rbc, Tbi, Tbe)
+        if changed_group_idx >= 7:
+            Rbc = float(overrides.get("Rbc", _Rbc))
+            Cbc = float(overrides.get("Cbc", _Cbc))
+            Cbe = float(overrides.get("Cbe", _Cbe))
+            Cbi = float(overrides.get("Cbi", _Cbi))
+        else:
+            Rbc, Cbc, Cbe, Cbi = _Rbc, _Cbc, _Cbe, _Cbi
+
+        # G8 — always recomputed from raw data
+        Gm0, tau, Gm0_a, tau_a, phi = _h_Gm0_tau(Y_ex1, freq)
+        Ccx, Ccx_a                  = _h_Ccx(Y_ex1, omega, n_hi)
+        Rcx, Rcx_a                  = _h_Rcx(Z4, Rbc, Cbc, omega)
+
+        new_params = dict(
+            Rbi=Rbi, Cbi=Cbi, Rbe=Rbe, Cbe=Cbe,
+            Rbc=Rbc, Cbc=Cbc, Rcx=Rcx, Ccx=Ccx, Gm0=Gm0, tau=tau,
+            Tbi=Tbi, Tbe=Tbe, A0=A0, B0=B0, A1=A1, B1=B1,
+            RbiOverRbc=ror, RbiCbc=rbc, R=R, RT=RT,
+        )
+        new_arrays = dict(
+            Z1=Z1, Z3=Z3, Z4=Z4, F2=F2, Fbi=Fbi, F1=F1, omega2=omega2,
+            phase_Y21=phi,
+            Tbi_arr=np.full(N, Tbi),
+            Tbe_arr=np.full(N, Tbe),
+            RbiOverRbc_arr=ror_a, RbiCbc_arr=rbc_a,
+            R_arr=R_a, RT_arr=RT_a,
+            Rbe_arr=Rbe_a, Rbi_arr=Rbi_a,
+            Rbc_arr=Rbc_a, Cbc_arr=Cbc_a, Cbe_arr=Cbe_a, Cbi_arr=Cbi_a,
+            Gm0_a=Gm0_a, tau_a=tau_a,
+            Rcx_arr=Rcx_a, Ccx_arr=Ccx_a,
+        )
+        return new_params, new_arrays
 
     @classmethod
     def render_results_table(cls, params):
         ri = params
         rows = [
-            ("Rbi",  f"{ri['Rbi']:.4f}",   "Ω"),
-            ("Cbi",  f"{ri['Cbi']*1e15:.4f}", "fF"),
-            ("Rbe",  f"{ri['Rbe']:.4f}" if ri['Rbe']<1000 else f"{ri['Rbe']*1e-3:.4f}k", "Ω"),
-            ("Cbe",  f"{ri['Cbe']*1e15:.4f}" if ri['Cbe']<1e-12 else f"{ri['Cbe']*1e12:.4f}",
-                     "fF" if ri['Cbe']<1e-12 else "pF"),
-            ("Rbc",  f"{ri['Rbc']*1e-3:.4f}", "kΩ"),
-            ("Cbc",  f"{ri['Cbc']*1e15:.4f}", "fF"),
-            ("Gm0",  f"{ri['Gm0']*1e3:.4f}",  "mS"),   # extracted before Ccx
-            ("τ",    f"{ri['tau']*1e12:.4f}",  "ps"),
-            ("Ccx",  f"{ri['Ccx']*1e15:.4f}", "fF"),
-            ("Rcx",  f"{ri['Rcx']*1e-3:.2f}", "kΩ"),
+            ("Tbi",  f"{ri['Tbi']*1e12:.4f}",  "ps"),
+            ("Tbe",  f"{ri['Tbe']*1e12:.4f}",  "ps"),
+            ("Rbi",  f"{ri['Rbi']:.4f}",        "Ω"),
+            ("Cbi",  f"{ri['Cbi']*1e15:.4f}",   "fF"),
+            ("Rbe",  f"{ri['Rbe']:.4f}" if ri['Rbe'] < 1000 else f"{ri['Rbe']*1e-3:.4f}k", "Ω"),
+            ("Cbe",  f"{ri['Cbe']*1e15:.4f}" if ri['Cbe'] < 1e-12 else f"{ri['Cbe']*1e12:.4f}",
+                     "fF" if ri['Cbe'] < 1e-12 else "pF"),
+            ("Rbc",  f"{ri['Rbc']*1e-3:.4f}",  "kΩ"),
+            ("Cbc",  f"{ri['Cbc']*1e15:.4f}",  "fF"),
+            ("Gm0",  f"{ri['Gm0']*1e3:.4f}",   "mS"),
+            ("τ",    f"{ri['tau']*1e12:.4f}",   "ps"),
+            ("Rcx",  f"{ri['Rcx']*1e-3:.4f}",  "kΩ"),
+            ("Ccx",  f"{ri['Ccx']*1e15:.4f}",  "fF"),
         ]
-
-        st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
+        st.dataframe(pd.DataFrame(rows, columns=["Symbol", "Value", "Unit"]),
                      use_container_width=True, hide_index=True)
-
-    # @classmethod
-    # def render_formula_trace(cls):
-    #     with st.expander("📐 Full formula trace — Degachi (2008) augmented π", expanded=False):
-    #         st.markdown("**Dependency chain:**  "
-    #                     "Y_ex1 → Z1,Z3,Z4 → Tbi → Tbe → R,RT → Rbe,Rbi → all others")
-    #         st.latex(r"[Eq.3]\;Z_1=\frac{1}{Y_{11}+Y_{12}},\;"
-    #                  r"[Eq.4]\;Z_3=\frac{Y_{21}+Y_{11}}{(Y_{11}+Y_{12})(Y_{22}+Y_{12})},\;"
-    #                  r"[Eq.5]\;Z_4=-\frac{1}{Y_{12}}")
-    #         st.latex(r"[Eq.8]\;F_{bi}=\omega/\mathrm{Im}(Z_1/Z_3)=A_0+\omega^2 B_0"
-    #                  r"\;\Rightarrow\;[Eq.12]\;T_{bi}=\sqrt{B_0/A_0}")
-    #         st.latex(r"[Eq.13]\;\mathrm{Re}[Z_1/Z_3(1+j\omega T_{bi})]=R_{bi}/R_{bc}")
-    #         st.latex(r"[Eq.14]\;\mathrm{Im}[\cdot]/\omega=R_{bi}C_{bc}")
-    #         st.latex(r"[Eq.19]\;F_1=\omega/\mathrm{Im}[Z_1(1+j\omega T_{bi})]"
-    #                  r"=A+\omega^2 B\;\Rightarrow\;T_{be}=\sqrt{B/A}")
-    #         st.latex(r"[Eqs.23–24]\;R=\mathrm{Re}(F_2),\;RT=\mathrm{Im}(F_2)/\omega")
-    #         st.latex(r"[Eq.25]\;\begin{bmatrix}R_{be}\\R_{bi}\end{bmatrix}="
-    #                  r"\begin{bmatrix}1+R_{bi}/R_{bc}&1\\T_{bi}+R_{bi}C_{bc}&T_{be}\end{bmatrix}^{-1}"
-    #                  r"\begin{bmatrix}R\\RT\end{bmatrix}")
-    #         st.markdown("**Forward simulation** *(5 layers, inside → outside)*")
-    #         st.latex(r"1.\;Z_{bi}=R_{bi}/(1+j\omega R_{bi}C_{bi}),\;"
-    #                  r"Z_{be},Z_{bc}\text{ similarly}")
-    #         st.latex(r"2.\;[Y_{core}]=[[Y_{be}+Y_{bc},-Y_{bc}],[g_m-Y_{bc},Y_{bc}]]")
-    #         st.latex(r"3.\;[Z_{core}]=[Y_{core}]^{-1}+[[Z_{bi},0],[0,0]]")
-    #         st.latex(r"4.\;[Y_{int}]=[Z_{core}]^{-1}+(1/Z_{cx})[[1,-1],[-1,1]]")
-    #         st.latex(r"5.\;[Y_{tot}]=([Y_{int}]^{-1}+[Z_{ser}])^{-1},\;"
-    #                  r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
 
     @classmethod
     def render_diagnostic_plots(cls, params, arrays, freq, fname):
-        """Degachi-specific: Fbi and F1 linear-fit diagnostic plots."""
-        ri = params; omega2 = arrays["omega2"]
-        Fbi = arrays["Fbi"]; F1 = arrays["F1"]
-        n_fit = max(4, 2*len(freq)//3)
-        with st.expander("📊 Degachi — Fbi and F1 diagnostic fits", expanded=True):
-            c1d, c2d = st.columns(2)
-            for col_w, Farr, A, B, title in [
-                (c1d, Fbi, ri["A0"], ri["B0"], "Fbi [Eq.8]"),
-                (c2d, F1,  ri["A1"], ri["B1"], "F1 [Eq.19]"),
-            ]:
-                fig = go.Figure()
-                mask = np.isfinite(Farr) & (np.abs(Farr) < 1e15) & (Farr > 0)
-                fig.add_trace(go.Scatter(x=omega2[mask], y=Farr[mask], mode="markers",
-                                         name="Meas.", marker=dict(size=5, color="#1f77b4")))
-                if A > 0 and mask.any():
-                    x_fit = np.linspace(0, np.max(omega2[mask])*1.05, 200)
-                    fig.add_trace(go.Scatter(x=x_fit, y=A+B*x_fit, mode="lines",
-                                             name=f"Fit {A:.3e}+{B:.3e}·ω²",
-                                             line=dict(color="#d62728", dash="dash", width=2)))
-                fig.update_layout(title=dict(text=title, font=dict(size=12)),
-                                  xaxis_title="ω²", plot_bgcolor="white",
-                                  paper_bgcolor="white", height=280,
-                                  margin=dict(l=55,r=10,t=40,b=42))
-                fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
-                fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-                col_w.plotly_chart(fig, use_container_width=True,
-                                   key=f"dfit_{title[:4]}_{fname}")
+        """Fbi and F1 diagnostic fits (now shown inline in the expander). No-op."""
+        pass
 
     @classmethod
     def render_override_and_smith(cls, fname, S_raw, freq, z0,
                                   para_eff, extract_result, **kwargs):
         params, arrays = extract_result
         calc_vals = {**para_eff, **params}
-        all_specs  = PAD_SPECS + _INT_D_SPECS
+        all_specs = PAD_SPECS + _INT_D_SPECS
         sync_pad_from_preov(fname, cls.SHORT, calc_vals)
 
         for key, _, scale, *_ in _INT_D_SPECS:
@@ -364,9 +682,11 @@ class Degachi(AbstractSSMModel):
                 st.session_state[sk] = float(calc_vals.get(key, 0.0)) * scale
 
         with st.expander(f"✏️ Fine-tune {cls.NAME} intrinsic parameters", expanded=False):
-            if st.button(f"↩️ Reset {cls.NAME} to calculated", key=f"rst_sim_{cls.SHORT}_{fname}"):
+            if st.button(f"↩️ Reset {cls.NAME} to calculated",
+                         key=f"rst_sim_{cls.SHORT}_{fname}"):
                 for key, _, scale, *_ in all_specs:
-                    st.session_state[f"sim_{cls.SHORT}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
+                    st.session_state[f"sim_{cls.SHORT}_{key}_{fname}"] = \
+                        float(calc_vals.get(key, 0.0)) * scale
                 st.rerun()
 
             st.markdown("**Pad Parasitics** *(auto-synced)*")
@@ -374,18 +694,22 @@ class Degachi(AbstractSSMModel):
                 row = PAD_SPECS[row_start:row_start+3]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
                     col_w.number_input(f"{lbl} ({unit})" if unit else lbl,
-                                       key=f"sim_{cls.SHORT}_{key}_{fname}", format=fmt, step=step)
+                                       key=f"sim_{cls.SHORT}_{key}_{fname}",
+                                       format=fmt, step=step)
 
             st.markdown("**Intrinsic (Degachi)**")
             for row_start in range(0, len(_INT_D_SPECS), 4):
                 row = _INT_D_SPECS[row_start:row_start+4]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
                     col_w.number_input(f"{lbl} ({unit})" if unit else lbl,
-                                       key=f"sim_{cls.SHORT}_{key}_{fname}", format=fmt, step=step)
+                                       key=f"sim_{cls.SHORT}_{key}_{fname}",
+                                       format=fmt, step=step)
 
-        all_p = {key: st.session_state.get(f"sim_{cls.SHORT}_{key}_{fname}",
-                                             float(calc_vals.get(key, 0.0))*scale) / scale
-                 for key, _, scale, *_ in all_specs}
+        all_p = {
+            key: st.session_state.get(f"sim_{cls.SHORT}_{key}_{fname}",
+                                       float(calc_vals.get(key, 0.0))*scale) / scale
+            for key, _, scale, *_ in all_specs
+        }
         for ek in ["Cpbe_mode","Cpbe_extra","Cpce_mode","Cpce_extra",
                    "Cpbc_mode","Cpbc_extra","Cpar_Lb","Cpar_Lc","Cpar_Le"]:
             all_p[ek] = calc_vals.get(ek, "None" if "mode" in ek else 0.0)
@@ -395,14 +719,22 @@ class Degachi(AbstractSSMModel):
         cur_hash  = params_hash({k: str(v) for k, v in {**all_p, "__nf": len(freq)}.items()})
         if st.session_state.get(hash_key) != cur_hash:
             with st.spinner(f"Simulating {cls.NAME}…"):
-                S_sim = cls.simulate(all_p, freq, z0)
+                try:
+                    S_sim = cls.simulate(all_p, freq, z0)
+                except Exception as e:
+                    st.error(f"Simulation error ({cls.NAME}): {e}")
+                    S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
             st.session_state[cache_key] = S_sim
             st.session_state[hash_key]  = cur_hash
         else:
             S_sim = st.session_state.get(cache_key)
             if S_sim is None or S_sim.shape[0] != len(freq):
                 with st.spinner(f"Simulating {cls.NAME}…"):
-                    S_sim = cls.simulate(all_p, freq, z0)
+                    try:
+                        S_sim = cls.simulate(all_p, freq, z0)
+                    except Exception as e:
+                        st.error(f"Simulation error ({cls.NAME}): {e}")
+                        S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
                 st.session_state[cache_key] = S_sim
                 st.session_state[hash_key]  = cur_hash
 
@@ -410,4 +742,7 @@ class Degachi(AbstractSSMModel):
         err = ssm_residual(S_raw, S_sim)
         render_smith_chart(S_raw, S_sim, cls.NAME, err, sc,
                            key=f"smith_{cls.SHORT}_{fname}")
+
+        render_tuning_expander(cls, all_p, S_raw, freq, z0,
+                               PAD_SPECS + _INT_D_SPECS, fname, cls.SHORT)
         return S_sim

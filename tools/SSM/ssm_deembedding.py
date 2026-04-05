@@ -52,6 +52,57 @@ def build_Z_ser(p: dict, w: float) -> np.ndarray:
                      [Ze,    Zc+Ze]])
 
 
+# ── Vectorised pad / series builders (no per-freq loop) ──���──────────────────
+
+def _open_elem_Y_vec(C, mode, extra, omega, xp):
+    """Vectorised admittance of one pad cap over an (N,) omega array."""
+    if mode == "Parallel L" and extra > 0:
+        return 1j*omega*C + 1.0/(1j*omega*extra + 1e-60)
+    if mode == "Series L" and extra > 0:
+        denom = 1.0 - omega**2 * extra * C
+        denom = xp.where(xp.abs(denom) < 1e-10, 1e-10, denom)
+        return 1j*omega*C / denom
+    if mode == "Series R" and extra > 0:
+        return 1j*omega*C / (1.0 + 1j*omega*extra*C)
+    return 1j*omega*C
+
+
+def _short_lead_Z_vec(R, L, Cpar, omega, xp):
+    """Vectorised impedance of one series lead over an (N,) omega array."""
+    Z = R + 1j*omega*L
+    if Cpar > 0:
+        return 1.0 / (1.0/Z + 1j*omega*Cpar)
+    return Z
+
+
+def build_Y_pad_vec(p, omega, xp):
+    """(N,2,2) pad admittance matrix — fully vectorised."""
+    N = len(omega)
+    Ypbe = _open_elem_Y_vec(p["Cpbe"], p.get("Cpbe_mode","None"), p.get("Cpbe_extra",0.0), omega, xp)
+    Ypce = _open_elem_Y_vec(p["Cpce"], p.get("Cpce_mode","None"), p.get("Cpce_extra",0.0), omega, xp)
+    Ypbc = _open_elem_Y_vec(p["Cpbc"], p.get("Cpbc_mode","None"), p.get("Cpbc_extra",0.0), omega, xp)
+    Y = xp.zeros((N, 2, 2), dtype=complex)
+    Y[:, 0, 0] = Ypbe + Ypbc
+    Y[:, 0, 1] = -Ypbc
+    Y[:, 1, 0] = -Ypbc
+    Y[:, 1, 1] = Ypce + Ypbc
+    return Y
+
+
+def build_Z_ser_vec(p, omega, xp):
+    """(N,2,2) series-lead impedance matrix — fully vectorised."""
+    N = len(omega)
+    Zb = _short_lead_Z_vec(p["Rpb"], p["Lb"], p.get("Cpar_Lb", 0.0), omega, xp)
+    Zc = _short_lead_Z_vec(p["Rpc"], p["Lc"], p.get("Cpar_Lc", 0.0), omega, xp)
+    Ze = _short_lead_Z_vec(p["Rpe"], p["Le"], p.get("Cpar_Le", 0.0), omega, xp)
+    Z = xp.zeros((N, 2, 2), dtype=complex)
+    Z[:, 0, 0] = Zb + Ze
+    Z[:, 0, 1] = Ze
+    Z[:, 1, 0] = Ze
+    Z[:, 1, 1] = Zc + Ze
+    return Z
+
+
 # ── Step 1a — Open dummy → pad capacitances ───────────────────────────────────
 
 def step1a_open(open_data, n0=None, n1=None, method="Median", trim_pct=20):

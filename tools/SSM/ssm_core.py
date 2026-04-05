@@ -44,6 +44,19 @@ def y_to_s_batch(Y, z0=50.0):
     return S
 
 
+def y_to_s_vec(Y, z0=50.0, xp=None):
+    """Fully vectorised Y→S conversion for (N,2,2) arrays — no Python loop.
+
+    Works with numpy *and* cupy (pass xp=cupy when on GPU).
+    """
+    if xp is None:
+        xp = np
+    Yn = Y * z0                          # (N, 2, 2)
+    I  = xp.eye(2, dtype=Y.dtype)        # (2, 2) — broadcasts
+    S  = xp.matmul(I - Yn, xp.linalg.inv(I + Yn))   # batched
+    return S
+
+
 # ── Statistics helpers ─────────────────────────────────────────────────────────
 
 def safe_median(arr, n=None):
