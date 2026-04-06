@@ -138,42 +138,32 @@ def _b1(p, key, default, xp):
 
 
 def build_Y_pad_batch(p, omega, B, N, xp):
-    """(B, N, 2, 2) pad admittance — broadcasts over the parameter batch."""
+    """Pad admittance as 4 planes (y00, y01, y10, y11), each broadcastable to (B, N).
+
+    Returning planes (rather than a (B, N, 2, 2) tensor) lets the caller
+    keep the 2×2 algebra inlined and avoids the cost of allocating /
+    scatter-writing a full 4-D complex tensor every chunk.  ``B`` and
+    ``N`` are kept in the signature for backward compatibility but the
+    result is purely broadcast-shape.
+    """
     Cpbe = _b1(p, "Cpbe", 0.0, xp)
     Cpce = _b1(p, "Cpce", 0.0, xp)
     Cpbc = _b1(p, "Cpbc", 0.0, xp)
     Ypbe = _open_elem_Y_batch(Cpbe, p.get("Cpbe_mode","None"), p.get("Cpbe_extra",0.0), omega, xp)
     Ypce = _open_elem_Y_batch(Cpce, p.get("Cpce_mode","None"), p.get("Cpce_extra",0.0), omega, xp)
     Ypbc = _open_elem_Y_batch(Cpbc, p.get("Cpbc_mode","None"), p.get("Cpbc_extra",0.0), omega, xp)
-    # Broadcast each result up to (B, N) so it fills the (B, N, 2, 2) tensor.
-    Ypbe = xp.broadcast_to(Ypbe, (B, N))
-    Ypce = xp.broadcast_to(Ypce, (B, N))
-    Ypbc = xp.broadcast_to(Ypbc, (B, N))
-    Y = xp.zeros((B, N, 2, 2), dtype=complex)
-    Y[:, :, 0, 0] = Ypbe + Ypbc
-    Y[:, :, 0, 1] = -Ypbc
-    Y[:, :, 1, 0] = -Ypbc
-    Y[:, :, 1, 1] = Ypce + Ypbc
-    return Y
+    return (Ypbe + Ypbc, -Ypbc, -Ypbc, Ypce + Ypbc)
 
 
 def build_Z_ser_batch(p, omega, B, N, xp):
-    """(B, N, 2, 2) series-lead impedance — broadcasts over the parameter batch."""
+    """Series-lead impedance as 4 planes (z00, z01, z10, z11)."""
     Rpb = _b1(p, "Rpb", 0.0, xp); Lb = _b1(p, "Lb", 0.0, xp)
     Rpc = _b1(p, "Rpc", 0.0, xp); Lc = _b1(p, "Lc", 0.0, xp)
     Rpe = _b1(p, "Rpe", 0.0, xp); Le = _b1(p, "Le", 0.0, xp)
     Zb = _short_lead_Z_batch(Rpb, Lb, p.get("Cpar_Lb", 0.0), omega, xp)
     Zc = _short_lead_Z_batch(Rpc, Lc, p.get("Cpar_Lc", 0.0), omega, xp)
     Ze = _short_lead_Z_batch(Rpe, Le, p.get("Cpar_Le", 0.0), omega, xp)
-    Zb = xp.broadcast_to(Zb, (B, N))
-    Zc = xp.broadcast_to(Zc, (B, N))
-    Ze = xp.broadcast_to(Ze, (B, N))
-    Z = xp.zeros((B, N, 2, 2), dtype=complex)
-    Z[:, :, 0, 0] = Zb + Ze
-    Z[:, :, 0, 1] = Ze
-    Z[:, :, 1, 0] = Ze
-    Z[:, :, 1, 1] = Zc + Ze
-    return Z
+    return (Zb + Ze, Ze, Ze, Zc + Ze)
 
 
 # ── Step 1a — Open dummy → pad capacitances ───────────────────────────────────

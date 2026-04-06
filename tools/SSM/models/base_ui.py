@@ -14,6 +14,19 @@ from itertools import product as iterproduct
 from io import BytesIO
 
 from ..ssm_core import extended_smith_grid, params_hash, s_to_y
+from ..ssm_deembedding import build_Y_pad_batch, build_Z_ser_batch
+
+# Streamlit's "rerun current script" exception — raised when any st.* call
+# happens after the user has clicked a widget that triggers a re-run (e.g.
+# the Stop button below).  We catch it so the long-running tuning loop can
+# break out cleanly without losing the persisted top-K state.
+try:
+    from streamlit.runtime.scriptrunner.script_runner import RerunException as _RerunException
+except Exception:
+    try:
+        from streamlit.runtime.scriptrunner import RerunException as _RerunException
+    except Exception:
+        _RerunException = None  # type: ignore[assignment]
 
 # ── CUDA detection (runtime, zero-cost when CuPy is absent) ─────────────────
 
@@ -79,27 +92,29 @@ def _port_residuals(S_mea, S_mod):
 
 
 def _port_residuals_batch(S_mea, S_mod_batch, xp):
-    """Batched residuals.
+    """Batched residuals — *fused* across all 4 ports for minimum kernel launches.
 
     S_mea       : (N, 2, 2)              — measured (already on device)
     S_mod_batch : (B, N, 2, 2)           — model
     Returns dict whose values are (B,) arrays on the *xp* device.
+
+    Old impl ran ~5 ops per port × 4 ports + summation = ~22 kernel launches.
+    This impl does ~7 launches total — significant Python/launch overhead saved
+    in the GPU hot loop.
     """
-    res = {}
-    total = xp.zeros(S_mod_batch.shape[0])
-    for name, (r, c) in [("S11",(0,0)),("S12",(0,1)),("S21",(1,0)),("S22",(1,1))]:
-        sm = S_mea[:, r, c]              # (N,)
-        sk = S_mod_batch[:, :, r, c]     # (B, N)
-        denom = xp.sum(xp.abs(sm) ** 2)  # scalar
-        # diff: (B, N), sum over freq → (B,)
-        num = xp.sum(xp.abs(sm[None, :] - sk) ** 2, axis=1)
-        val = xp.where(denom > 0,
-                       xp.sqrt(num / denom) * 100.0,
-                       xp.zeros_like(num, dtype=xp.float64))
-        res[name] = val
-        total = total + val
-    res["Total"] = total / 4.0
-    return res
+    diff   = S_mea[None, :, :, :] - S_mod_batch        # (B, N, 2, 2)
+    num    = xp.sum(xp.abs(diff)  ** 2, axis=1)        # (B, 2, 2)
+    den    = xp.sum(xp.abs(S_mea) ** 2, axis=0)        # (2, 2)
+    den_s  = xp.where(den > 0, den, 1.0)               # avoid div-by-0
+    val    = xp.sqrt(num / den_s[None, :, :]) * 100.0  # (B, 2, 2)
+    val    = xp.where(den[None, :, :] > 0, val, 0.0)
+
+    s11 = val[:, 0, 0]
+    s12 = val[:, 0, 1]
+    s21 = val[:, 1, 0]
+    s22 = val[:, 1, 1]
+    total = (s11 + s12 + s21 + s22) * 0.25
+    return {"S11": s11, "S12": s12, "S21": s21, "S22": s22, "Total": total}
 
 
 # ── Smith chart ───────────────────────────────────────────────────────────────
@@ -772,13 +787,37 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 "⚡ Calculate with CUDA",
                 key=f"tune_calc_cuda_{topo_key}_{fname}"))
 
+        # ── Helper: format a "best result" markdown line including all params ──
+        def _best_summary_md(best_row, label="Best so far"):
+            head = (f"**{label} — Total: {best_row['Total Residual (%)']:.2f}%  |  "
+                    f"S11: {best_row['S11 (%)']:.2f}%  S12: {best_row['S12 (%)']:.2f}%  "
+                    f"S21: {best_row['S21 (%)']:.2f}%  S22: {best_row['S22 (%)']:.2f}%**")
+            parts = []
+            for spec in tuning_specs:
+                key = spec[0]; label_p = spec[1]
+                unit = spec[3] if len(spec) > 3 else ""
+                fmt = spec[4] if len(spec) > 4 else "%.4g"
+                col = f"{label_p} ({unit})" if unit else label_p
+                if col in best_row.index:
+                    v = float(best_row[col])
+                    sval = (fmt % v) if np.isfinite(v) else "NaN"
+                    parts.append(f"{label_p}: {sval} {unit}".strip())
+            if parts:
+                head += "  \n<small>" + ", ".join(parts) + "</small>"
+            return head
+
         if cpu_clicked or cuda_clicked:
             use_cuda = bool(cuda_clicked)
             xp = _cp if use_cuda else np
             has_batch = hasattr(model_cls, "simulate_batch")
             _mode_label = "CUDA" if use_cuda else "CPU"
 
-            # Build sweep lists (display units)
+            # Only the top-K combos (lowest residuals) are kept in memory.
+            # Saves >99% RAM on huge sweeps and side-steps MemoryError.
+            TOP_K = 100
+
+            # Build sweep lists (display units) — short host arrays of unique
+            # values per parameter (length 1 for unswept params).
             sweep_keys, sweep_lists = [], []
             sweep_scales, sweep_labels, sweep_units = [], [], []
             for row in param_rows:
@@ -787,163 +826,422 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 sweep_labels.append(row["label"])
                 sweep_units.append(row["unit"])
                 if row["enabled"]:
-                    sweep_lists.append(row["sweep"].tolist())
+                    sweep_lists.append(np.asarray(row["sweep"], dtype=np.float64))
                 else:
-                    sweep_lists.append([float(all_p.get(row["key"], 0.0)) * row["scale"]])
+                    sweep_lists.append(np.array(
+                        [float(all_p.get(row["key"], 0.0)) * row["scale"]],
+                        dtype=np.float64))
 
             n_params = len(sweep_keys)
+            L_list = [int(len(sl)) for sl in sweep_lists]
             n_total = 1
-            for sl in sweep_lists:
-                n_total *= len(sl)
+            for L in L_list:
+                n_total *= L
 
-            # ── Generate the full combo grid as flat (n_total, n_params) ────
-            # Using meshgrid avoids the slow Python product loop entirely.
-            mesh = np.meshgrid(*[np.asarray(sl, dtype=np.float64) for sl in sweep_lists],
-                               indexing="ij")
-            all_combos_disp = np.stack([m.ravel() for m in mesh], axis=1)  # (n_total, n_params)
+            # Strides for "ij"-order linear→multi-index decomposition:
+            #   combo k → (i_0, i_1, …, i_{n-1})
+            #   where i_p = (k // strides[p]) % L_list[p]
+            strides = [1] * n_params
+            for i in range(n_params - 2, -1, -1):
+                strides[i] = strides[i + 1] * L_list[i + 1]
 
-            # Pre-allocate host result arrays
-            result_total = np.zeros(n_total)
-            result_s11   = np.zeros(n_total)
-            result_s12   = np.zeros(n_total)
-            result_s21   = np.zeros(n_total)
-            result_s22   = np.zeros(n_total)
+            # Indices of params that actually vary — only these need to be
+            # carried per-row in the top-K state. Constants get filled in at
+            # display time from sweep_lists.
+            swept_idx_full = [i for i in range(n_params) if L_list[i] > 1]
+            n_swept = len(swept_idx_full)
 
-            # ── Chunk size: large for GPU, modest for CPU ───────────────────
-            if use_cuda:
-                CHUNK = 4096
+            # ── Pack per-param data into 2D device tables for vectorised
+            #     lookup.  Doing the index math in ONE kernel launch instead
+            #     of one launch per parameter is a major Python-overhead win.
+            L_max = max(max(L_list), 1)
+            sweep_table_h = np.zeros((n_params, L_max), dtype=np.float64)
+            for i, sl in enumerate(sweep_lists):
+                sweep_table_h[i, :L_list[i]] = sl
+            sweep_table_dev    = xp.asarray(sweep_table_h)                    # (n_params, L_max)
+            strides_dev        = xp.asarray(np.asarray(strides, dtype=np.int64))   # (n_params,)
+            L_dev              = xp.asarray(np.asarray(L_list,  dtype=np.int64))   # (n_params,)
+            sweep_scales_dev   = xp.asarray(np.asarray(sweep_scales, dtype=np.float64))  # (n_params,)
+            param_axis_dev     = xp.arange(n_params, dtype=xp.int64)
+            if n_swept > 0:
+                swept_indices_dev = xp.asarray(np.asarray(swept_idx_full, dtype=np.int64))
             else:
-                CHUNK = 256
+                swept_indices_dev = None
 
-            # Move S_mea to device once (outside the loop)
+            # Constant scalars passed straight into simulate_batch
+            const_si = {sweep_keys[i]: float(sweep_lists[i][0]) / float(sweep_scales[i])
+                        for i in range(n_params) if L_list[i] == 1}
+            varies_mask = [L_list[i] > 1 for i in range(n_params)]
+            swept_set = {sweep_keys[i] for i in range(n_params) if varies_mask[i]}
+
+            # Move S_mea onto the compute device once
             S_mea_dev = xp.asarray(S_raw)
 
-            # Cancel flag (used by Ctrl+C path; chunk loop is single-threaded)
-            cancel = threading.Event()
+            # ── Pre-bake constant sub-networks (lifted out of the chunk loop) ──
+            # If the user isn't sweeping any of a sub-network's input params,
+            # build that network's planes ONCE here and reuse them every chunk.
+            # Eliminates dozens of kernel launches per chunk in the common
+            # "tune intrinsic params only" case.
+            _PAD_CAP_KEYS = ("Cpbe", "Cpce", "Cpbc")
+            _SER_LEAD_KEYS = ("Rpb", "Rpc", "Rpe", "Lb", "Lc", "Le")
+            _CHENG_EXTR_KEYS = ("Cbex", "Cbcx")
+
+            static_p = dict(all_p)
+            for _k, _v in const_si.items():
+                static_p[_k] = _v
+            omega_dev = xp.asarray(2.0 * np.pi * np.asarray(freq, dtype=np.float64)
+                                   ).reshape(1, len(freq))
+
+            static_cache = {"omega": omega_dev}
+            _cached_msgs = []
+            if not (set(_PAD_CAP_KEYS) & swept_set):
+                static_cache["Y_pad"] = build_Y_pad_batch(static_p, omega_dev, 1, len(freq), xp)
+                _cached_msgs.append("Y_pad")
+            if not (set(_SER_LEAD_KEYS) & swept_set):
+                static_cache["Z_ser"] = build_Z_ser_batch(static_p, omega_dev, 1, len(freq), xp)
+                _cached_msgs.append("Z_ser")
+            if not (set(_CHENG_EXTR_KEYS) & swept_set):
+                _Cbex_c = float(static_p.get("Cbex", 0.0))
+                _Cbcx_c = float(static_p.get("Cbcx", 0.0))
+                static_cache["Y_extr"] = (1j * omega_dev * _Cbex_c,
+                                          1j * omega_dev * _Cbcx_c)
+                _cached_msgs.append("Y_extr")
+            if _cached_msgs:
+                st.caption("Pre-baked constant networks: " + ", ".join(_cached_msgs))
+                print(f"[tune] pre-baked: {', '.join(_cached_msgs)}", flush=True)
+
+            col_names = ["Total Residual (%)", "S11 (%)", "S12 (%)", "S21 (%)", "S22 (%)"]
+            for lbl, u in zip(sweep_labels, sweep_units):
+                col_names.append(f"{lbl} ({u})" if u else lbl)
+
+            sess_key = f"tune_df_{topo_key}_{fname}"
+
+            def _topk_to_df(top_arr_host):
+                return pd.DataFrame(top_arr_host, columns=col_names)
+
+            # ── Auto chunk sizing from device free memory ───────────────────
+            # Per-combo working-set estimate:
+            #   simulate_batch holds ~8 (B, N, 2, 2) complex128 tensors
+            #   simultaneously (Y_pad, Z_ser, Y_int, intermediates, S_out, plus
+            #   linalg.inv scratch).  64 bytes per (2, 2) cell × N_freq × ~8.
+            N_freq = len(freq)
+            per_combo_bytes = 64 * N_freq * 8
+            free_label = ""
+            if use_cuda:
+                try:
+                    free_b, total_b = _cp.cuda.runtime.memGetInfo()
+                    dev = _cp.cuda.Device(0)
+                    sm_count = dev.attributes.get("MultiProcessorCount", 0)
+                    free_label = (f"GPU{dev.id}: {free_b/1024**3:.2f}/"
+                                  f"{total_b/1024**3:.2f} GiB free  ·  {sm_count} SMs")
+                    # Aggressive: use most of the free VRAM as working set.
+                    budget = free_b * 0.85
+                except Exception:
+                    budget = 2 * 1024**3
+                CHUNK = max(1024, int(budget // max(per_combo_bytes, 1)))
+                CHUNK = min(CHUNK, n_total, 4_000_000)
+            else:
+                try:
+                    import psutil
+                    avail = psutil.virtual_memory().available
+                    free_label = f"CPU RAM: {avail/1024**3:.2f} GiB free"
+                except Exception:
+                    avail = 4 * 1024**3
+                budget = avail * 0.30
+                CHUNK = max(64, int(budget // max(per_combo_bytes, 1)))
+                CHUNK = min(CHUNK, n_total, 16_384)
+            CHUNK_MIN = 16
+            CHUNK_MAX = CHUNK   # remember the initial cap for scratch sizing
 
             import sys as _sys, time as _time
             _t_start = _time.time()
+            if free_label:
+                st.caption(free_label)
             print(f"\n[tune] start  mode={_mode_label}  total={n_total:,}  "
-                  f"chunk={CHUNK}  batched={has_batch}", flush=True)
+                  f"chunk={CHUNK:,}  batched={has_batch}  {free_label}", flush=True)
 
-            progress = st.progress(0, text=f"Tuning ({_mode_label})…")
+            # ── UI placeholders ────────────────────────────────────────────
+            ui_cols = st.columns([5, 1])
+            with ui_cols[0]:
+                progress = st.progress(0, text=f"Tuning ({_mode_label})…")
+            with ui_cols[1]:
+                stop_box = st.empty()
+            best_box = st.empty()      # live "best so far" line
+
+            # The Stop button works by triggering a Streamlit re-run on click;
+            # the next st.* call inside the loop raises RerunException, which
+            # we catch and turn into a clean cancellation.  No on_click needed.
+            stop_key = f"tune_stop_{topo_key}_{fname}"
+            stop_box.button(
+                "⏹ Stop",
+                key=stop_key,
+                help="Stop the calculation. The best results found so far are kept.",
+                type="secondary",
+            )
+
             cancelled = False
+
+            # ── Persistent device buffers for the top-K accumulator ─────────
+            # Inf placeholders ensure new finite values always displace them.
+            top_res    = xp.full(TOP_K, xp.inf, dtype=xp.float64)
+            top_4      = xp.zeros((TOP_K, 4),       dtype=xp.float64)
+            top_swept  = xp.zeros((TOP_K, max(n_swept, 1)), dtype=xp.float64)
+
+            # ── Pre-allocated scratch buffers for the merge step ────────────
+            # Sized for TOP_K + the *maximum* chunk we'd ever submit.  Reused
+            # every iteration → zero per-chunk allocation churn for top-K.
+            SCRATCH = TOP_K + CHUNK_MAX
+            scratch_res   = xp.empty(SCRATCH, dtype=xp.float64)
+            scratch_4     = xp.empty((SCRATCH, 4), dtype=xp.float64)
+            scratch_swept = xp.empty((SCRATCH, max(n_swept, 1)), dtype=xp.float64)
+
+            def _sync_topk_host():
+                """Pull the top-K state to host as a (n, 5+n_params) numpy array.
+                Drops inf placeholders. Constants are filled from sweep_lists.
+                """
+                if use_cuda:
+                    tr = _cp.asnumpy(top_res)
+                    t4 = _cp.asnumpy(top_4)
+                    ts = _cp.asnumpy(top_swept) if n_swept > 0 else \
+                         np.zeros((TOP_K, 0), dtype=np.float64)
+                else:
+                    tr = np.asarray(top_res)
+                    t4 = np.asarray(top_4)
+                    ts = np.asarray(top_swept) if n_swept > 0 else \
+                         np.zeros((TOP_K, 0), dtype=np.float64)
+                valid = np.isfinite(tr)
+                n = int(valid.sum())
+                if n == 0:
+                    return None
+                out = np.empty((n, 5 + n_params), dtype=np.float64)
+                out[:, 0]   = tr[valid]
+                out[:, 1:5] = t4[valid]
+                j = 0
+                for i in range(n_params):
+                    if L_list[i] == 1:
+                        out[:, 5 + i] = float(sweep_lists[i][0])
+                    else:
+                        out[:, 5 + i] = ts[valid, j]
+                        j += 1
+                return out
+
+            def _persist_topk():
+                """Best-effort persist to session_state. Safe to call from
+                anywhere (including the finally clause)."""
+                try:
+                    h = _sync_topk_host()
+                    if h is not None:
+                        st.session_state[sess_key] = _topk_to_df(h)
+                except Exception:
+                    pass
+
             try:
                 if not has_batch:
                     raise RuntimeError(
                         f"Model {model_cls.__name__} has no simulate_batch — "
                         f"cannot run batched tuning. Implement simulate_batch.")
 
-                n_chunks = (n_total + CHUNK - 1) // CHUNK
-                for ci in range(n_chunks):
-                    if cancel.is_set():
-                        cancelled = True
-                        break
-                    s = ci * CHUNK
+                processed = 0
+                last_ui = 0.0
+                chunks_done = 0
+                last_chunk_ms = 0.0
+                while processed < n_total:
+                    s = processed
                     e = min(s + CHUNK, n_total)
                     B = e - s
+                    _t_chunk = _time.time()
 
-                    # Build the per-chunk param dict — start from current SI
-                    # values (scalars), then overwrite swept keys with (B,)
-                    # arrays in SI units.
-                    p_chunk = dict(all_p)
-                    chunk_disp = all_combos_disp[s:e]   # (B, n_params)
-                    for pi, key in enumerate(sweep_keys):
-                        si_arr = chunk_disp[:, pi] / sweep_scales[pi]   # (B,)
-                        p_chunk[key] = xp.asarray(si_arr) if use_cuda else si_arr
-
-                    # Run the batched simulate (stays on device)
+                    # ── Generate this chunk's combos directly on the device ──
+                    # Vectorised: ONE indexing op covers all parameters.
                     try:
-                        S_batch = model_cls.simulate_batch(p_chunk, freq, z0, xp=xp)
-                    except Exception as exc:
-                        # Whole chunk failed → mark all rows as inf, log once
-                        print(f"\n[tune] chunk {ci+1}/{n_chunks} simulate "
-                              f"failed: {exc!r}", flush=True)
-                        result_total[s:e] = float("inf")
-                        result_s11[s:e]   = float("inf")
-                        result_s12[s:e]   = float("inf")
-                        result_s21[s:e]   = float("inf")
-                        result_s22[s:e]   = float("inf")
-                    else:
-                        # Residuals on device → transfer compact (B, 5) to host
-                        res = _port_residuals_batch(S_mea_dev, S_batch, xp)
-                        def _to_host(a):
-                            return a.get() if use_cuda else np.asarray(a)
-                        result_total[s:e] = _to_host(res["Total"])
-                        result_s11[s:e]   = _to_host(res["S11"])
-                        result_s12[s:e]   = _to_host(res["S12"])
-                        result_s21[s:e]   = _to_host(res["S21"])
-                        result_s22[s:e]   = _to_host(res["S22"])
+                        lin = xp.arange(s, e, dtype=xp.int64)                       # (B,)
+                        idx_2d = (lin[:, None] // strides_dev[None, :]) \
+                                  % L_dev[None, :]                                  # (B, n_params)
+                        chunk_disp = sweep_table_dev[param_axis_dev[None, :], idx_2d]  # (B, n_params)
+                        chunk_si   = chunk_disp / sweep_scales_dev[None, :]            # (B, n_params)
 
-                    # Progress
-                    elapsed = _time.time() - _t_start
-                    rate = e / elapsed if elapsed > 0 else 0.0
-                    eta = (n_total - e) / rate if rate > 0 else 0.0
-                    progress.progress(
-                        e / n_total,
-                        text=f"Tuning ({_mode_label})… "
-                             f"{e:,}/{n_total:,} combos  "
-                             f"({rate:.0f}/s, ETA {eta:.1f}s)")
+                        p_chunk = dict(all_p)
+                        for i, key in enumerate(sweep_keys):
+                            if varies_mask[i]:
+                                p_chunk[key] = chunk_si[:, i]   # device view
+                            else:
+                                p_chunk[key] = const_si[key]    # scalar
+
+                        if n_swept > 0:
+                            cur_swept = chunk_disp[:, swept_indices_dev]  # (B, n_swept)
+                        else:
+                            cur_swept = None
+                    except Exception as exc:
+                        is_oom = (isinstance(exc, MemoryError) or
+                                  "out of memory" in str(exc).lower() or
+                                  "OutOfMemoryError" in type(exc).__name__)
+                        if is_oom and CHUNK > CHUNK_MIN:
+                            CHUNK = max(CHUNK_MIN, CHUNK // 2)
+                            print(f"\n[tune] OOM in param-gen → chunk {CHUNK:,}", flush=True)
+                            if use_cuda:
+                                try: _cp.get_default_memory_pool().free_all_blocks()
+                                except Exception: pass
+                            continue
+                        raise
+
+                    # ── Run simulate + residuals + top-K merge entirely on
+                    #     the device.  No host sync inside this hot block.   ──
+                    try:
+                        S_batch = model_cls.simulate_batch(
+                            p_chunk, freq, z0, xp=xp, cache=static_cache)
+                        res = _port_residuals_batch(S_mea_dev, S_batch, xp)
+                        cur_total = res["Total"]                              # (B,)
+                        cur_4 = xp.stack(
+                            [res["S11"], res["S12"], res["S21"], res["S22"]],
+                            axis=1)                                            # (B, 4)
+
+                        # NaN/inf protection — replace with a huge finite value
+                        # so they sort to the bottom of argpartition without
+                        # forcing a host-side .all() check (no sync).
+                        BIG = 1.0e308
+                        cur_total = xp.where(xp.isfinite(cur_total), cur_total, BIG)
+
+                        # ── Top-K merge into pre-allocated scratch ──────────
+                        total_in = TOP_K + B
+                        scratch_res[:TOP_K]              = top_res
+                        scratch_res[TOP_K:total_in]      = cur_total
+                        scratch_4[:TOP_K]                = top_4
+                        scratch_4[TOP_K:total_in]        = cur_4
+                        if n_swept > 0:
+                            scratch_swept[:TOP_K]            = top_swept
+                            scratch_swept[TOP_K:total_in]    = cur_swept
+
+                        view_res = scratch_res[:total_in]
+                        idx = xp.argpartition(view_res, TOP_K)[:TOP_K]
+                        idx = idx[xp.argsort(view_res[idx])]
+
+                        # Write the K winners back into the persistent buffers
+                        top_res[:] = view_res[idx]
+                        top_4[:]   = scratch_4[:total_in][idx]
+                        if n_swept > 0:
+                            top_swept[:] = scratch_swept[:total_in][idx]
+
+                        del S_batch, res, cur_total, cur_4, idx, view_res
+                        del lin, idx_2d, chunk_disp, chunk_si
+                        if cur_swept is not None:
+                            del cur_swept
+                    except Exception as exc:
+                        is_oom = (isinstance(exc, MemoryError) or
+                                  "out of memory" in str(exc).lower() or
+                                  "OutOfMemoryError" in type(exc).__name__)
+                        if is_oom and CHUNK > CHUNK_MIN:
+                            new_chunk = max(CHUNK_MIN, CHUNK // 2)
+                            print(f"\n[tune] OOM at chunk {CHUNK:,} → retry with {new_chunk:,}",
+                                  flush=True)
+                            CHUNK = new_chunk
+                            if use_cuda:
+                                try: _cp.get_default_memory_pool().free_all_blocks()
+                                except Exception: pass
+                            continue   # do NOT advance processed
+                        print(f"\n[tune] chunk {s}-{e} failed: {exc!r}", flush=True)
+                        processed = e
+                        continue
+
+                    processed = e
+                    chunks_done += 1
+                    last_chunk_ms = (_time.time() - _t_chunk) * 1000.0
+
+                    # ── Throttled UI tick: ~2 Hz, the only host sync point ──
+                    now = _time.time()
+                    if now - last_ui > 0.5 or processed >= n_total:
+                        elapsed = now - _t_start
+                        rate = processed / elapsed if elapsed > 0 else 0.0
+                        eta = (n_total - processed) / rate if rate > 0 else 0.0
+                        progress.progress(
+                            processed / n_total,
+                            text=(f"Tuning ({_mode_label})… "
+                                  f"{processed:,}/{n_total:,} combos  "
+                                  f"({rate:,.0f}/s, ETA {eta:.1f}s)  "
+                                  f"chunk={CHUNK:,}  ({last_chunk_ms:.1f} ms/chunk)"))
+                        top_arr_host = _sync_topk_host()
+                        if top_arr_host is not None:
+                            best_series = pd.Series(top_arr_host[0], index=col_names)
+                            best_box.markdown(
+                                _best_summary_md(best_series, label="Best so far"),
+                                unsafe_allow_html=True,
+                            )
+                            # Persist every tick so a later crash leaves a result
+                            st.session_state[sess_key] = _topk_to_df(top_arr_host)
+                        last_ui = now
+
                     _sys.stdout.write(
-                        f"\r[tune] {e:>9,}/{n_total:,}  "
-                        f"({100.0*e/n_total:5.1f}%)  "
-                        f"{rate:>8.0f} calc/s  ETA {eta:6.1f}s")
+                        f"\r[tune] {processed:>11,}/{n_total:,}  "
+                        f"({100.0*processed/n_total:5.1f}%)  "
+                        f"{(processed / max(_time.time()-_t_start, 1e-9)):>10,.0f} calc/s  "
+                        f"chunk={CHUNK:,}  {last_chunk_ms:6.1f} ms/chunk")
                     _sys.stdout.flush()
             except (KeyboardInterrupt, SystemExit):
-                cancel.set()
                 cancelled = True
-                st.warning("Computation cancelled.")
-                print("\n[tune] cancelled by user", flush=True)
-            progress.empty()
-            print(f"\n[tune] done   {n_total if not cancelled else '?':>9}  in "
-                  f"{_time.time()-_t_start:.2f}s", flush=True)
+                st.warning("Computation cancelled — keeping the best results found so far.")
+                print("\n[tune] cancelled by user (KeyboardInterrupt)", flush=True)
+            except MemoryError as me:
+                st.error(f"Out of memory: {me}. Keeping the best results found so far.")
+                print(f"\n[tune] MemoryError: {me}", flush=True)
+            except BaseException as exc:
+                # Streamlit raises RerunException when the user clicks any
+                # widget (incl. our Stop button).  Persist and re-raise so
+                # Streamlit can finish the rerun cleanly.
+                if _RerunException is not None and isinstance(exc, _RerunException):
+                    cancelled = True
+                    print("\n[tune] cancelled (Streamlit rerun, e.g. Stop button)",
+                          flush=True)
+                    _persist_topk()
+                    # Free GPU buffers before re-raising so the rerun starts clean
+                    if use_cuda:
+                        try:
+                            del S_mea_dev, top_res, top_4, top_swept
+                            del scratch_res, scratch_4, scratch_swept
+                            del sweep_table_dev, strides_dev, L_dev
+                            del sweep_scales_dev, param_axis_dev
+                            if swept_indices_dev is not None:
+                                del swept_indices_dev
+                            static_cache.clear()
+                            _cp.get_default_memory_pool().free_all_blocks()
+                        except Exception:
+                            pass
+                    raise
+                # Anything else: log, persist, re-raise
+                print(f"\n[tune] unexpected exception: {exc!r}", flush=True)
+                _persist_topk()
+                raise
+            finally:
+                # Always persist whatever we have so a crash never wipes results.
+                _persist_topk()
 
-            # Free GPU memory we held during the sweep
+            progress.empty()
+            best_box.empty()
+            stop_box.empty()
+
+            n_kept = 0 if top_res is None else int(xp.sum(xp.isfinite(top_res)).item())
+            print(f"\n[tune] done   processed={'?' if cancelled else f'{n_total:,}'}  "
+                  f"top={n_kept}  in {_time.time()-_t_start:.2f}s", flush=True)
+
+            # Free GPU buffers
             if use_cuda:
                 try:
-                    del S_mea_dev
+                    del S_mea_dev, top_res, top_4, top_swept
+                    del scratch_res, scratch_4, scratch_swept
+                    del sweep_table_dev, strides_dev, L_dev
+                    del sweep_scales_dev, param_axis_dev
+                    if swept_indices_dev is not None:
+                        del swept_indices_dev
+                    static_cache.clear()
                     _cp.get_default_memory_pool().free_all_blocks()
                 except Exception:
                     pass
-
-            # Display values for the result table (already in display units)
-            result_vals = all_combos_disp
-
-            if not cancelled:
-                # Build DataFrame
-                col_names = ["Total Residual (%)", "S11 (%)", "S12 (%)", "S21 (%)", "S22 (%)"]
-                for i, (lbl, u) in enumerate(zip(sweep_labels, sweep_units)):
-                    col_names.append(f"{lbl} ({u})" if u else lbl)
-
-                data = np.column_stack([
-                    result_total, result_s11, result_s12, result_s21, result_s22,
-                    result_vals
-                ])
-                df = pd.DataFrame(data, columns=col_names)
-                df = df.sort_values("Total Residual (%)", ascending=True).reset_index(drop=True)
-
-                # Streamlit/Excel sheet limit: 1,048,576 rows × 16,384 cols.
-                # If we exceed either, keep only the top 1000 (lowest residual).
-                _XL_MAX_ROWS, _XL_MAX_COLS = 1_048_576, 16_384
-                if len(df) > _XL_MAX_ROWS or len(df.columns) > _XL_MAX_COLS:
-                    st.warning(
-                        f"Sweep produced {len(df):,} rows × {len(df.columns)} cols, "
-                        f"exceeding the {_XL_MAX_ROWS:,}×{_XL_MAX_COLS:,} sheet limit. "
-                        f"Keeping the top 1000 rows with the lowest total residual."
-                    )
-                    df = df.head(1000).reset_index(drop=True)
-
-                # Store in session state for persistence across reruns
-                st.session_state[f"tune_df_{topo_key}_{fname}"] = df
 
         # Display results if available
         df = st.session_state.get(f"tune_df_{topo_key}_{fname}")
         if df is not None:
             best = df.iloc[0]
             st.markdown(
-                f"**Best residual — Total: {best['Total Residual (%)']:.2f}%  |  "
-                f"S11: {best['S11 (%)']:.2f}%  S12: {best['S12 (%)']:.2f}%  "
-                f"S21: {best['S21 (%)']:.2f}%  S22: {best['S22 (%)']:.2f}%**"
+                _best_summary_md(best, label="Best residual"),
+                unsafe_allow_html=True,
             )
 
             # "Use best values" — push best-row params into the fine-tune widgets.

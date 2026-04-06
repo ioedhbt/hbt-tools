@@ -14,6 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from ..ssm_core       import (y_to_z, z_to_y, y_to_s_single, y_to_s_vec,
+                               inv2x2, mm2x2,
                                safe_median, params_hash,
                                extended_smith_grid)
 from ..ssm_deembedding import (build_Y_pad, build_Z_ser,
@@ -329,42 +330,134 @@ def _detect_B(p, xp):
     return B
 
 
-def _sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp):
+def _stack22(a00, a01, a10, a11, xp):
+    """Stack four (..., ) planes into a (..., 2, 2) tensor.
+
+    Avoids the ``xp.zeros + scatter assignments`` pattern (5 kernel
+    launches) — does it in 3 launches via xp.stack and amortises better
+    on the GPU.  Inputs may be any broadcastable shapes; the result has
+    the broadcast shape with two extra trailing axes.
+    """
+    return xp.stack(
+        [xp.stack([a00, a01], axis=-1),
+         xp.stack([a10, a11], axis=-1)],
+        axis=-2,
+    )
+
+
+def _sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None):
     """Batched forward simulation over (param_combo × frequency).
 
     *p* is a dict whose values are scalars or (B,) arrays — both may be mixed.
     Returns S of shape (B, N_freq, 2, 2), still on the *xp* device.
+
+    Hand-inlined 2×2 algebra throughout: every matrix inverse is the
+    analytic adjugate formula, every matmul is 8 scalar mults.  This
+    skips cuSOLVER/cuBLAS entirely, which have launch overhead orders of
+    magnitude larger than the actual 2×2 arithmetic.
+
+    Optional ``cache`` (built once before the chunk loop in
+    ``render_tuning_expander``) lets us skip recomputing constant
+    sub-networks every chunk.  Recognised keys:
+
+      - ``"omega"``  : pre-built (1, N) angular-frequency array
+      - ``"Y_pad"``  : 4 planes (yp00, yp01, yp10, yp11)
+      - ``"Z_ser"``  : 4 planes (zs00, zs01, zs10, zs11)
+      - ``"Y_extr"`` : (Ybex, Ybcx) — extrinsic-cap admittances
     """
     N = len(freq)
     B = _detect_B(p, xp)
-    omega = xp.asarray(2.0 * np.pi * freq, dtype=np.float64).reshape(1, N)  # (1, N)
+    if cache is not None and "omega" in cache:
+        omega = cache["omega"]
+    else:
+        omega = xp.asarray(2.0 * np.pi * freq, dtype=np.float64).reshape(1, N)  # (1, N)
 
-    # Intrinsic Y matrix (B, N, 2, 2)
-    Y_in = Y_int_batch_fn(p, omega, B, N, xp)
+    # Intrinsic Y matrix as 4 (B, N) planes — no (B, N, 2, 2) tensor yet
+    yi00, yi01, yi10, yi11 = Y_int_batch_fn(p, omega, B, N, xp)
 
-    # Extrinsic caps (B, N) via broadcasting
-    Cbcx = _b1(p, "Cbcx", 0.0, xp)
-    Cbex = _b1(p, "Cbex", 0.0, xp)
-    Ybcx = xp.broadcast_to(1j * omega * Cbcx, (B, N))
-    Ybex = xp.broadcast_to(1j * omega * Cbex, (B, N))
+    # Extrinsic caps (broadcastable to (B, N)) — cache-aware
+    if cache is not None and "Y_extr" in cache:
+        Ybex, Ybcx = cache["Y_extr"]
+    else:
+        Cbcx = _b1(p, "Cbcx", 0.0, xp)
+        Cbex = _b1(p, "Cbex", 0.0, xp)
+        jw   = 1j * omega
+        Ybcx = jw * Cbcx
+        Ybex = jw * Cbex
 
-    Y_ex = Y_in.copy()
-    Y_ex[:, :, 0, 0] += Ybcx + Ybex
-    Y_ex[:, :, 0, 1] -= Ybcx
-    Y_ex[:, :, 1, 0] -= Ybcx
-    Y_ex[:, :, 1, 1] += Ybcx
+    # Y_ex = Y_in + extrinsic-cap network (additions on the four planes)
+    ye00 = yi00 + Ybcx + Ybex
+    ye01 = yi01 - Ybcx
+    ye10 = yi10 - Ybcx
+    ye11 = yi11 + Ybcx
 
-    Z_ser = build_Z_ser_batch(p, omega, B, N, xp)
-    Y_tot = xp.linalg.inv(xp.linalg.inv(Y_ex) + Z_ser)
+    # Z_ex = inv(Y_ex)  — analytic 2×2
+    inv_det_e = 1.0 / (ye00 * ye11 - ye01 * ye10)
+    ze00 =  ye11 * inv_det_e
+    ze01 = -ye01 * inv_det_e
+    ze10 = -ye10 * inv_det_e
+    ze11 =  ye00 * inv_det_e
 
-    Y_pad = build_Y_pad_batch(p, omega, B, N, xp)
+    # Z_ser as 4 planes (cache-aware) — no (B,N,2,2) build
+    if cache is not None and "Z_ser" in cache:
+        zs00, zs01, zs10, zs11 = cache["Z_ser"]
+    else:
+        zs00, zs01, zs10, zs11 = build_Z_ser_batch(p, omega, B, N, xp)
 
-    S = y_to_s_vec(Y_tot + Y_pad, z0, xp)   # works on (B, N, 2, 2)
-    return S    # still on device — caller computes residuals on device
+    zt00 = ze00 + zs00
+    zt01 = ze01 + zs01
+    zt10 = ze10 + zs10
+    zt11 = ze11 + zs11
+
+    # Y_tot = inv(Z_tot) — analytic 2×2
+    inv_det_t = 1.0 / (zt00 * zt11 - zt01 * zt10)
+    yt00 =  zt11 * inv_det_t
+    yt01 = -zt01 * inv_det_t
+    yt10 = -zt10 * inv_det_t
+    yt11 =  zt00 * inv_det_t
+
+    # Y_pad as 4 planes (cache-aware)
+    if cache is not None and "Y_pad" in cache:
+        yp00, yp01, yp10, yp11 = cache["Y_pad"]
+    else:
+        yp00, yp01, yp10, yp11 = build_Y_pad_batch(p, omega, B, N, xp)
+
+    # Y_total network = Y_tot + Y_pad
+    ya00 = yt00 + yp00
+    ya01 = yt01 + yp01
+    ya10 = yt10 + yp10
+    ya11 = yt11 + yp11
+
+    # ── Y → S, fully inlined.  M = I + Yn ; S = (I − Yn) · M⁻¹ ──
+    yn00 = ya00 * z0
+    yn01 = ya01 * z0
+    yn10 = ya10 * z0
+    yn11 = ya11 * z0
+
+    m00 = 1.0 + yn00
+    m11 = 1.0 + yn11
+    inv_det_m = 1.0 / (m00 * m11 - yn01 * yn10)
+    mi00 =  m11 * inv_det_m
+    mi01 = -yn01 * inv_det_m
+    mi10 = -yn10 * inv_det_m
+    mi11 =  m00 * inv_det_m
+
+    n00 = 1.0 - yn00
+    n11 = 1.0 - yn11
+    s00 = n00 * mi00 + (-yn01) * mi10
+    s01 = n00 * mi01 + (-yn01) * mi11
+    s10 = (-yn10) * mi00 + n11 * mi10
+    s11 = (-yn10) * mi01 + n11 * mi11
+
+    return _stack22(s00, s01, s10, s11, xp)   # (B, N, 2, 2)
 
 
 def _Y_int_T_batch(p, omega, B, N, xp):
-    """Batched T-topology intrinsic Y → (B, N, 2, 2)."""
+    """Batched T-topology intrinsic Y → 4 (B, N) planes (y00, y01, y10, y11).
+
+    Returning planes (not a (B, N, 2, 2) tensor) lets ``_sim_wrap_batch``
+    keep the algebra fully inlined.
+    """
     Rbi    = _b1(p, "Rbi",    0.0, xp)
     Rbe    = _b1(p, "Rbe",    1.0, xp)
     Cbe    = _b1(p, "Cbe",    0.0, xp)
@@ -378,16 +471,23 @@ def _Y_int_T_batch(p, omega, B, N, xp):
     Zbc   = Rbc / (1.0 + 1j * omega * Rbc * Cbc)
     alpha = alpha0 * xp.exp(-1j * omega * tauC) / (1.0 + 1j * omega * tauB)
 
-    Z_in = xp.zeros((B, N, 2, 2), dtype=complex)
-    Z_in[:, :, 0, 0] = Rbi + Zbe
-    Z_in[:, :, 0, 1] = Zbe
-    Z_in[:, :, 1, 0] = Zbe - alpha * Zbc
-    Z_in[:, :, 1, 1] = (1.0 - alpha) * Zbc + Zbe
-    return xp.linalg.inv(Z_in)
+    # Z_in 2×2
+    z00 = Rbi + Zbe
+    z01 = Zbe
+    z10 = Zbe - alpha * Zbc
+    z11 = (1.0 - alpha) * Zbc + Zbe
+
+    # Y_in = inv(Z_in)
+    inv_det = 1.0 / (z00 * z11 - z01 * z10)
+    y00 =  z11 * inv_det
+    y01 = -z01 * inv_det
+    y10 = -z10 * inv_det
+    y11 =  z00 * inv_det
+    return y00, y01, y10, y11
 
 
 def _Y_int_Pi_batch(p, omega, B, N, xp):
-    """Batched Pi-topology intrinsic Y → (B, N, 2, 2)."""
+    """Batched Pi-topology intrinsic Y → 4 (B, N) planes (y00, y01, y10, y11)."""
     Rbi = _b1(p, "Rbi", 0.0, xp)
     Rbe = _b1(p, "Rbe", 1.0, xp)
     Cbe = _b1(p, "Cbe", 0.0, xp)
@@ -400,15 +500,29 @@ def _Y_int_Pi_batch(p, omega, B, N, xp):
     Ybc = 1.0 / Rbc + 1j * omega * Cbc
     gm  = Gm0 * xp.exp(-1j * omega * tau)
 
-    Y_core = xp.zeros((B, N, 2, 2), dtype=complex)
-    Y_core[:, :, 0, 0] = Ybe + Ybc
-    Y_core[:, :, 0, 1] = -Ybc
-    Y_core[:, :, 1, 0] = gm - Ybc
-    Y_core[:, :, 1, 1] = Ybc
+    # Y_core 2×2
+    yc00 = Ybe + Ybc
+    yc01 = -Ybc
+    yc10 = gm - Ybc
+    yc11 = Ybc
 
-    Z_core = xp.linalg.inv(Y_core)
-    Z_core[:, :, 0, 0] += Rbi
-    return xp.linalg.inv(Z_core)
+    # Z_core = inv(Y_core)
+    inv_det_c = 1.0 / (yc00 * yc11 - yc01 * yc10)
+    zc00 =  yc11 * inv_det_c
+    zc01 = -yc01 * inv_det_c
+    zc10 = -yc10 * inv_det_c
+    zc11 =  yc00 * inv_det_c
+
+    # Add Rbi to Z_core[0,0]
+    zc00 = zc00 + Rbi
+
+    # Y_in = inv(Z_core)
+    inv_det_i = 1.0 / (zc00 * zc11 - zc01 * zc10)
+    y00 =  zc11 * inv_det_i
+    y01 = -zc01 * inv_det_i
+    y10 = -zc10 * inv_det_i
+    y11 =  zc00 * inv_det_i
+    return y00, y01, y10, y11
 
 
 # ── Override UI specs (used by render_override_and_smith) ─────────────────────
@@ -608,15 +722,18 @@ class ChengT(AbstractSSMModel):
         return _sim_wrap_vec(_Y_int_T_vec, params, freq, z0, xp)
 
     @classmethod
-    def simulate_batch(cls, params, freq, z0=50.0, xp=None):
+    def simulate_batch(cls, params, freq, z0=50.0, xp=None, cache=None):
         """Batched simulate over (param_combo × freq).  Pass xp=cupy for GPU.
 
         params dict values may be scalars or (B,) arrays.
         Returns (B, N_freq, 2, 2) on the *xp* device (no host transfer).
+
+        Optional ``cache`` dict (built once per sweep) carries pre-computed
+        constant sub-networks (Y_pad, Z_ser, Y_extr, omega).
         """
         if xp is None:
             xp = np
-        return _sim_wrap_batch(_Y_int_T_batch, params, freq, z0, xp)
+        return _sim_wrap_batch(_Y_int_T_batch, params, freq, z0, xp, cache)
 
     @classmethod
     def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
@@ -876,11 +993,11 @@ class ChengPi(AbstractSSMModel):
         return _sim_wrap_vec(_Y_int_Pi_vec, params, freq, z0, xp)
 
     @classmethod
-    def simulate_batch(cls, params, freq, z0=50.0, xp=None):
+    def simulate_batch(cls, params, freq, z0=50.0, xp=None, cache=None):
         """Batched simulate over (param_combo × freq)."""
         if xp is None:
             xp = np
-        return _sim_wrap_batch(_Y_int_Pi_batch, params, freq, z0, xp)
+        return _sim_wrap_batch(_Y_int_Pi_batch, params, freq, z0, xp, cache)
 
     # @classmethod
     # def render_step_formulas(cls):

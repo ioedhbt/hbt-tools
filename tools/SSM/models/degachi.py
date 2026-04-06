@@ -375,17 +375,28 @@ def _detect_B(p, xp):
     return B
 
 
-def _simulate_batch(p, freq, z0=50.0, xp=None):
+def _simulate_batch(p, freq, z0=50.0, xp=None, cache=None):
     """Batched Degachi simulate over (param_combo × freq).
 
     Returns S of shape (B, N, 2, 2) on the *xp* device.
     Param values may be scalars or (B,) arrays.
+
+    Hand-inlined 2×2 algebra throughout — every matrix inverse uses the
+    analytic adjugate formula instead of cuSOLVER's batched LU, which
+    has launch overhead orders of magnitude larger than the actual
+    arithmetic for 2×2 matrices.
+
+    Optional ``cache`` dict (built once per sweep) carries pre-computed
+    constant sub-networks: ``"omega"``, ``"Y_pad"``, ``"Z_ser"``.
     """
     if xp is None:
         xp = np
     N = len(freq)
     B = _detect_B(p, xp)
-    omega = xp.asarray(2.0 * np.pi * freq, dtype=np.float64).reshape(1, N)  # (1, N)
+    if cache is not None and "omega" in cache:
+        omega = cache["omega"]
+    else:
+        omega = xp.asarray(2.0 * np.pi * freq, dtype=np.float64).reshape(1, N)  # (1, N)
 
     Rbi = _b1(p, "Rbi", 0.0, xp)
     Cbi = _b1(p, "Cbi", 0.0, xp)
@@ -422,28 +433,96 @@ def _simulate_batch(p, freq, z0=50.0, xp=None):
     Ybc = 1.0 / Zbc
     gm  = Gm0 * xp.exp(-1j * omega * tau)
 
-    Y_core = xp.zeros((B, N, 2, 2), dtype=complex)
-    Y_core[:, :, 0, 0] = Ybe + Ybc
-    Y_core[:, :, 0, 1] = -Ybc
-    Y_core[:, :, 1, 0] = gm - Ybc
-    Y_core[:, :, 1, 1] = Ybc
+    # Y_core 2×2 → 4 planes
+    yc00 = Ybe + Ybc
+    yc01 = -Ybc
+    yc10 = gm - Ybc
+    yc11 = Ybc
 
-    Z_core = xp.linalg.inv(Y_core)
-    Z_core[:, :, 0, 0] += Zbi
+    # Z_core = inv(Y_core)
+    inv_det_c = 1.0 / (yc00 * yc11 - yc01 * yc10)
+    zc00 =  yc11 * inv_det_c
+    zc01 = -yc01 * inv_det_c
+    zc10 = -yc10 * inv_det_c
+    zc11 =  yc00 * inv_det_c
 
-    Y_int = xp.linalg.inv(Z_core)
+    # Add Zbi to Z_core[0,0]
+    zc00 = zc00 + Zbi
+
+    # Y_int = inv(Z_core)
+    inv_det_i = 1.0 / (zc00 * zc11 - zc01 * zc10)
+    yi00 =  zc11 * inv_det_i
+    yi01 = -zc01 * inv_det_i
+    yi10 = -zc10 * inv_det_i
+    yi11 =  zc00 * inv_det_i
+
+    # Add Cbcx-style network: inv_Zcx in/out shunt across the (b,c) port
     inv_Zcx = 1.0 / Zcx
-    Y_int[:, :, 0, 0] += inv_Zcx
-    Y_int[:, :, 0, 1] -= inv_Zcx
-    Y_int[:, :, 1, 0] -= inv_Zcx
-    Y_int[:, :, 1, 1] += inv_Zcx
+    yi00 = yi00 + inv_Zcx
+    yi01 = yi01 - inv_Zcx
+    yi10 = yi10 - inv_Zcx
+    yi11 = yi11 + inv_Zcx
 
-    Z_ser = build_Z_ser_batch(p, omega, B, N, xp)
-    Y_tot = xp.linalg.inv(xp.linalg.inv(Y_int) + Z_ser)
-    Y_pad = build_Y_pad_batch(p, omega, B, N, xp)
+    # Z_int = inv(Y_int)
+    inv_det_yi = 1.0 / (yi00 * yi11 - yi01 * yi10)
+    zi00 =  yi11 * inv_det_yi
+    zi01 = -yi01 * inv_det_yi
+    zi10 = -yi10 * inv_det_yi
+    zi11 =  yi00 * inv_det_yi
 
-    S = y_to_s_vec(Y_tot + Y_pad, z0, xp)
-    return S   # still on device
+    # Add Z_ser (planes) — cache-aware
+    if cache is not None and "Z_ser" in cache:
+        zs00, zs01, zs10, zs11 = cache["Z_ser"]
+    else:
+        zs00, zs01, zs10, zs11 = build_Z_ser_batch(p, omega, B, N, xp)
+    zt00 = zi00 + zs00
+    zt01 = zi01 + zs01
+    zt10 = zi10 + zs10
+    zt11 = zi11 + zs11
+
+    # Y_tot = inv(Z_tot)
+    inv_det_t = 1.0 / (zt00 * zt11 - zt01 * zt10)
+    yt00 =  zt11 * inv_det_t
+    yt01 = -zt01 * inv_det_t
+    yt10 = -zt10 * inv_det_t
+    yt11 =  zt00 * inv_det_t
+
+    # Y_total = Y_tot + Y_pad — cache-aware
+    if cache is not None and "Y_pad" in cache:
+        yp00, yp01, yp10, yp11 = cache["Y_pad"]
+    else:
+        yp00, yp01, yp10, yp11 = build_Y_pad_batch(p, omega, B, N, xp)
+    ya00 = yt00 + yp00
+    ya01 = yt01 + yp01
+    ya10 = yt10 + yp10
+    ya11 = yt11 + yp11
+
+    # Y → S, fully inlined
+    yn00 = ya00 * z0
+    yn01 = ya01 * z0
+    yn10 = ya10 * z0
+    yn11 = ya11 * z0
+
+    m00 = 1.0 + yn00
+    m11 = 1.0 + yn11
+    inv_det_m = 1.0 / (m00 * m11 - yn01 * yn10)
+    mi00 =  m11 * inv_det_m
+    mi01 = -yn01 * inv_det_m
+    mi10 = -yn10 * inv_det_m
+    mi11 =  m00 * inv_det_m
+
+    n00 = 1.0 - yn00
+    n11 = 1.0 - yn11
+    s00 = n00 * mi00 + (-yn01) * mi10
+    s01 = n00 * mi01 + (-yn01) * mi11
+    s10 = (-yn10) * mi00 + n11 * mi10
+    s11 = (-yn10) * mi01 + n11 * mi11
+
+    return xp.stack(
+        [xp.stack([s00, s01], axis=-1),
+         xp.stack([s10, s11], axis=-1)],
+        axis=-2,
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -628,9 +707,13 @@ class Degachi(AbstractSSMModel):
         return _simulate_vec(params, freq, z0, xp)
 
     @classmethod
-    def simulate_batch(cls, params, freq, z0=50.0, xp=None):
-        """Batched simulate over (param_combo × freq) — used by tuning sweep."""
-        return _simulate_batch(params, freq, z0, xp)
+    def simulate_batch(cls, params, freq, z0=50.0, xp=None, cache=None):
+        """Batched simulate over (param_combo × freq) — used by tuning sweep.
+
+        Optional ``cache`` dict carries pre-computed constant sub-networks
+        (Y_pad, Z_ser, omega) that don't depend on the swept parameters.
+        """
+        return _simulate_batch(params, freq, z0, xp, cache)
 
     @classmethod
     def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
