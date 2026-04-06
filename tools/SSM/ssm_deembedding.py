@@ -103,6 +103,79 @@ def build_Z_ser_vec(p, omega, xp):
     return Z
 
 
+# ── Batched (B, N, 2, 2) builders for parameter-sweep tuning ────────────────
+# These accept omega shaped (1, N) and parameters that may be either scalars
+# or (B, 1) arrays.  Result is broadcast to (B, N, 2, 2).
+
+def _open_elem_Y_batch(C, mode, extra, omega, xp):
+    """Same formulae as _open_elem_Y_vec but C may be a (B,1) array."""
+    if mode == "Parallel L" and extra > 0:
+        return 1j*omega*C + 1.0/(1j*omega*extra + 1e-60)
+    if mode == "Series L" and extra > 0:
+        denom = 1.0 - omega**2 * extra * C
+        denom = xp.where(xp.abs(denom) < 1e-10, 1e-10, denom)
+        return 1j*omega*C / denom
+    if mode == "Series R" and extra > 0:
+        return 1j*omega*C / (1.0 + 1j*omega*extra*C)
+    return 1j*omega*C
+
+
+def _short_lead_Z_batch(R, L, Cpar, omega, xp):
+    """Same as _short_lead_Z_vec but R/L may be (B,1) arrays."""
+    Z = R + 1j*omega*L
+    if Cpar > 0:
+        return 1.0 / (1.0/Z + 1j*omega*Cpar)
+    return Z
+
+
+def _b1(p, key, default, xp):
+    """Fetch p[key] (or default) and reshape (B,) → (B,1).  Scalars stay scalar."""
+    v = p.get(key, default)
+    a = xp.asarray(v)
+    if a.ndim == 1:
+        return a.reshape(-1, 1)
+    return a
+
+
+def build_Y_pad_batch(p, omega, B, N, xp):
+    """(B, N, 2, 2) pad admittance — broadcasts over the parameter batch."""
+    Cpbe = _b1(p, "Cpbe", 0.0, xp)
+    Cpce = _b1(p, "Cpce", 0.0, xp)
+    Cpbc = _b1(p, "Cpbc", 0.0, xp)
+    Ypbe = _open_elem_Y_batch(Cpbe, p.get("Cpbe_mode","None"), p.get("Cpbe_extra",0.0), omega, xp)
+    Ypce = _open_elem_Y_batch(Cpce, p.get("Cpce_mode","None"), p.get("Cpce_extra",0.0), omega, xp)
+    Ypbc = _open_elem_Y_batch(Cpbc, p.get("Cpbc_mode","None"), p.get("Cpbc_extra",0.0), omega, xp)
+    # Broadcast each result up to (B, N) so it fills the (B, N, 2, 2) tensor.
+    Ypbe = xp.broadcast_to(Ypbe, (B, N))
+    Ypce = xp.broadcast_to(Ypce, (B, N))
+    Ypbc = xp.broadcast_to(Ypbc, (B, N))
+    Y = xp.zeros((B, N, 2, 2), dtype=complex)
+    Y[:, :, 0, 0] = Ypbe + Ypbc
+    Y[:, :, 0, 1] = -Ypbc
+    Y[:, :, 1, 0] = -Ypbc
+    Y[:, :, 1, 1] = Ypce + Ypbc
+    return Y
+
+
+def build_Z_ser_batch(p, omega, B, N, xp):
+    """(B, N, 2, 2) series-lead impedance — broadcasts over the parameter batch."""
+    Rpb = _b1(p, "Rpb", 0.0, xp); Lb = _b1(p, "Lb", 0.0, xp)
+    Rpc = _b1(p, "Rpc", 0.0, xp); Lc = _b1(p, "Lc", 0.0, xp)
+    Rpe = _b1(p, "Rpe", 0.0, xp); Le = _b1(p, "Le", 0.0, xp)
+    Zb = _short_lead_Z_batch(Rpb, Lb, p.get("Cpar_Lb", 0.0), omega, xp)
+    Zc = _short_lead_Z_batch(Rpc, Lc, p.get("Cpar_Lc", 0.0), omega, xp)
+    Ze = _short_lead_Z_batch(Rpe, Le, p.get("Cpar_Le", 0.0), omega, xp)
+    Zb = xp.broadcast_to(Zb, (B, N))
+    Zc = xp.broadcast_to(Zc, (B, N))
+    Ze = xp.broadcast_to(Ze, (B, N))
+    Z = xp.zeros((B, N, 2, 2), dtype=complex)
+    Z[:, :, 0, 0] = Zb + Ze
+    Z[:, :, 0, 1] = Ze
+    Z[:, :, 1, 0] = Ze
+    Z[:, :, 1, 1] = Zc + Ze
+    return Z
+
+
 # ── Step 1a — Open dummy → pad capacitances ───────────────────────────────────
 
 def step1a_open(open_data, n0=None, n1=None, method="Median", trim_pct=20):

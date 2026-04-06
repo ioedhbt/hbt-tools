@@ -17,7 +17,8 @@ from ..ssm_core       import (y_to_z, z_to_y, y_to_s_single, y_to_s_vec,
                                safe_median, params_hash,
                                extended_smith_grid)
 from ..ssm_deembedding import (build_Y_pad, build_Z_ser,
-                                build_Y_pad_vec, build_Z_ser_vec)
+                                build_Y_pad_vec, build_Z_ser_vec,
+                                build_Y_pad_batch, build_Z_ser_batch)
 from .base_ui         import (render_smith_chart, smith_scale_controls,
                                sync_pad_from_preov, PAD_SPECS, ssm_residual,
                                render_tuning_expander)
@@ -302,6 +303,114 @@ def _Y_int_Pi_vec(p, omega, xp):
     return xp.linalg.inv(Z_core)
 
 
+# ── Batched (B, N, 2, 2) forward simulation for parameter-sweep tuning ─────
+
+def _b1(p, key, default, xp):
+    """Fetch p[key] (or default) and reshape (B,) → (B,1).  Scalars stay scalar."""
+    v = p.get(key, default)
+    a = xp.asarray(v)
+    if a.ndim == 1:
+        return a.reshape(-1, 1)
+    return a
+
+
+def _detect_B(p, xp):
+    """Determine batch size B from any (B,)-shaped value in p."""
+    B = 1
+    for v in p.values():
+        if isinstance(v, str):
+            continue
+        try:
+            a = xp.asarray(v)
+        except Exception:
+            continue
+        if a.ndim == 1 and a.shape[0] > B:
+            B = a.shape[0]
+    return B
+
+
+def _sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp):
+    """Batched forward simulation over (param_combo × frequency).
+
+    *p* is a dict whose values are scalars or (B,) arrays — both may be mixed.
+    Returns S of shape (B, N_freq, 2, 2), still on the *xp* device.
+    """
+    N = len(freq)
+    B = _detect_B(p, xp)
+    omega = xp.asarray(2.0 * np.pi * freq, dtype=np.float64).reshape(1, N)  # (1, N)
+
+    # Intrinsic Y matrix (B, N, 2, 2)
+    Y_in = Y_int_batch_fn(p, omega, B, N, xp)
+
+    # Extrinsic caps (B, N) via broadcasting
+    Cbcx = _b1(p, "Cbcx", 0.0, xp)
+    Cbex = _b1(p, "Cbex", 0.0, xp)
+    Ybcx = xp.broadcast_to(1j * omega * Cbcx, (B, N))
+    Ybex = xp.broadcast_to(1j * omega * Cbex, (B, N))
+
+    Y_ex = Y_in.copy()
+    Y_ex[:, :, 0, 0] += Ybcx + Ybex
+    Y_ex[:, :, 0, 1] -= Ybcx
+    Y_ex[:, :, 1, 0] -= Ybcx
+    Y_ex[:, :, 1, 1] += Ybcx
+
+    Z_ser = build_Z_ser_batch(p, omega, B, N, xp)
+    Y_tot = xp.linalg.inv(xp.linalg.inv(Y_ex) + Z_ser)
+
+    Y_pad = build_Y_pad_batch(p, omega, B, N, xp)
+
+    S = y_to_s_vec(Y_tot + Y_pad, z0, xp)   # works on (B, N, 2, 2)
+    return S    # still on device — caller computes residuals on device
+
+
+def _Y_int_T_batch(p, omega, B, N, xp):
+    """Batched T-topology intrinsic Y → (B, N, 2, 2)."""
+    Rbi    = _b1(p, "Rbi",    0.0, xp)
+    Rbe    = _b1(p, "Rbe",    1.0, xp)
+    Cbe    = _b1(p, "Cbe",    0.0, xp)
+    Rbc    = _b1(p, "Rbc",    1.0, xp)
+    Cbc    = _b1(p, "Cbc",    0.0, xp)
+    alpha0 = _b1(p, "alpha0", 0.0, xp)
+    tauC   = _b1(p, "tauC",   0.0, xp)
+    tauB   = _b1(p, "tauB",   0.0, xp)
+
+    Zbe   = Rbe / (1.0 + 1j * omega * Rbe * Cbe)               # (B, N) or (1, N)
+    Zbc   = Rbc / (1.0 + 1j * omega * Rbc * Cbc)
+    alpha = alpha0 * xp.exp(-1j * omega * tauC) / (1.0 + 1j * omega * tauB)
+
+    Z_in = xp.zeros((B, N, 2, 2), dtype=complex)
+    Z_in[:, :, 0, 0] = Rbi + Zbe
+    Z_in[:, :, 0, 1] = Zbe
+    Z_in[:, :, 1, 0] = Zbe - alpha * Zbc
+    Z_in[:, :, 1, 1] = (1.0 - alpha) * Zbc + Zbe
+    return xp.linalg.inv(Z_in)
+
+
+def _Y_int_Pi_batch(p, omega, B, N, xp):
+    """Batched Pi-topology intrinsic Y → (B, N, 2, 2)."""
+    Rbi = _b1(p, "Rbi", 0.0, xp)
+    Rbe = _b1(p, "Rbe", 1.0, xp)
+    Cbe = _b1(p, "Cbe", 0.0, xp)
+    Rbc = _b1(p, "Rbc", 1e9, xp)
+    Cbc = _b1(p, "Cbc", 0.0, xp)
+    Gm0 = _b1(p, "Gm0", 0.0, xp)
+    tau = _b1(p, "tau", 0.0, xp)
+
+    Ybe = 1.0 / Rbe + 1j * omega * Cbe
+    Ybc = 1.0 / Rbc + 1j * omega * Cbc
+    gm  = Gm0 * xp.exp(-1j * omega * tau)
+
+    Y_core = xp.zeros((B, N, 2, 2), dtype=complex)
+    Y_core[:, :, 0, 0] = Ybe + Ybc
+    Y_core[:, :, 0, 1] = -Ybc
+    Y_core[:, :, 1, 0] = gm - Ybc
+    Y_core[:, :, 1, 1] = Ybc
+
+    Z_core = xp.linalg.inv(Y_core)
+    Z_core[:, :, 0, 0] += Rbi
+    return xp.linalg.inv(Z_core)
+
+
 # ── Override UI specs (used by render_override_and_smith) ─────────────────────
 
 _EXT_SPECS = [
@@ -499,6 +608,17 @@ class ChengT(AbstractSSMModel):
         return _sim_wrap_vec(_Y_int_T_vec, params, freq, z0, xp)
 
     @classmethod
+    def simulate_batch(cls, params, freq, z0=50.0, xp=None):
+        """Batched simulate over (param_combo × freq).  Pass xp=cupy for GPU.
+
+        params dict values may be scalars or (B,) arrays.
+        Returns (B, N_freq, 2, 2) on the *xp* device (no host transfer).
+        """
+        if xp is None:
+            xp = np
+        return _sim_wrap_batch(_Y_int_T_batch, params, freq, z0, xp)
+
+    @classmethod
     def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
         """
         Re-derive all downstream parameters when an upstream group is overridden.
@@ -592,7 +712,7 @@ class ChengT(AbstractSSMModel):
         ]
 
         st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
         with st.expander("📐 Full formula trace — T-topology (Cheng 2022)", expanded=False):
             st.markdown("**Dependency chain:** Y_ex1 → peel Cbex → Y_ex2 → peel Cbcx → Z_in → intrinsic")
@@ -755,6 +875,13 @@ class ChengPi(AbstractSSMModel):
             xp = np
         return _sim_wrap_vec(_Y_int_Pi_vec, params, freq, z0, xp)
 
+    @classmethod
+    def simulate_batch(cls, params, freq, z0=50.0, xp=None):
+        """Batched simulate over (param_combo × freq)."""
+        if xp is None:
+            xp = np
+        return _sim_wrap_batch(_Y_int_Pi_batch, params, freq, z0, xp)
+
     # @classmethod
     # def render_step_formulas(cls):
     #     with st.expander("Formulas"):
@@ -837,7 +964,7 @@ class ChengPi(AbstractSSMModel):
         ]
 
         st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
     # @classmethod
     # def render_formula_trace(cls):

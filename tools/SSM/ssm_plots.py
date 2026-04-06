@@ -105,7 +105,7 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_cap.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_cap.update_yaxes(showgrid=True, gridcolor="#ebebeb", range=[0, 50])
-        st.plotly_chart(fig_cap, use_container_width=True, key=f"step1_cap_{fname}")
+        st.plotly_chart(fig_cap, width="stretch", key=f"step1_cap_{fname}")
         st.caption("Flat line = pure C. Slope/resonance = inductive effect. Range fixed 0–50 fF.")
 
     # ── 3. Conductance plot (Series R indicator) ──────────────────────────────
@@ -135,7 +135,7 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_g.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_g.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-        st.plotly_chart(fig_g, use_container_width=True, key=f"step1_cond_{fname}")
+        st.plotly_chart(fig_g, width="stretch", key=f"step1_cond_{fname}")
         st.caption(
             "Pure C → Re(Y)=0.  "
             "Series R → Re(Y) = ω²RC² / (1+ω²R²C²) — rises then saturates.  \n"
@@ -161,7 +161,7 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_l.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_l.update_yaxes(showgrid=True, gridcolor="#ebebeb", range=[0, 50])
-        st.plotly_chart(fig_l, use_container_width=True, key=f"step1_lind_{fname}")
+        st.plotly_chart(fig_l, width="stretch", key=f"step1_lind_{fname}")
         st.caption(
             "Parallel L model: Im(Y)/ω = C − 1/(ω²L).  "
             "A straight line with negative slope → L = −1/slope (SI).")
@@ -253,7 +253,7 @@ def render_short_plots(short_arr, para_short, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_ind.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_ind.update_yaxes(showgrid=True, gridcolor="#ebebeb", range=[0, 150])
-        st.plotly_chart(fig_ind, use_container_width=True, key=f"step1_ind_{fname}")
+        st.plotly_chart(fig_ind, width="stretch", key=f"step1_ind_{fname}")
         if any_neg:
             st.warning("One or more lead inductances are negative. Use Short Override to correct.")
         st.caption("Range fixed 0–150 pH.")
@@ -280,7 +280,7 @@ def render_short_plots(short_arr, para_short, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_r.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_r.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-        st.plotly_chart(fig_r, use_container_width=True, key=f"step1_res_{fname}")
+        st.plotly_chart(fig_r, width="stretch", key=f"step1_res_{fname}")
         st.caption("Flat curve = clean extraction. Rising with frequency = skin effect or artefact.")
 
     return {"Cpar_Lb": cpar_Lb, "Cpar_Lc": cpar_Lc, "Cpar_Le": cpar_Le}
@@ -413,7 +413,7 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
                     bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
         hovermode="x unified", margin=dict(l=55, r=20, t=40, b=50))
-    st.plotly_chart(fig, use_container_width=True, key=f"bode_deemb_{fname}")
+    st.plotly_chart(fig, width="stretch", key=f"bode_deemb_{fname}")
     st.caption(
         "**Step-1** = Open+Short de-embedded using Step 1a/1b extracted values.  \n"
         "**Pre-ext** = same de-embedding but with Pre-Extraction Review overrides applied.  \n"
@@ -457,7 +457,7 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
             file_name=f"deemb_step1_{Path(fname).stem}.s2p",
             mime="text/plain",
             key=f"dl_deemb_s1_{fname}",
-            use_container_width=True)
+            width="stretch")
 
     with dl_c2:
         st.markdown("**Pre-extraction override** *(para_eff)*")
@@ -473,7 +473,7 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
             file_name=f"deemb_preext_{Path(fname).stem}.s2p",
             mime="text/plain",
             key=f"dl_deemb_pe_{fname}",
-            use_container_width=True)
+            width="stretch")
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -543,7 +543,7 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
                     bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
         hovermode="x unified", margin=dict(l=55,r=20,t=50,b=50))
-    st.plotly_chart(fig, use_container_width=True, key=f"ftfmax_{fname}")
+    st.plotly_chart(fig, width="stretch", key=f"ftfmax_{fname}")
     st.caption("Y-axis fixed 0–50 dB.")
 
 
@@ -658,7 +658,7 @@ def render_rz12_section(all_data, para_eff, fname):
                     bgcolor="rgba(255,255,255,0.9)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
         margin=dict(l=55,r=20,t=50,b=50))
-    st.plotly_chart(fig, use_container_width=True, key=f"rz12_{fname}")
+    st.plotly_chart(fig, width="stretch", key=f"rz12_{fname}")
 
     if Re_fit is not None:
         x = np.array([p[0] for p in points])
@@ -783,7 +783,7 @@ def render_rz12_section(all_data, para_eff, fname):
                     bgcolor="rgba(255,255,255,0.9)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
         margin=dict(l=55, r=20, t=50, b=50))
-    st.plotly_chart(fig_o, use_container_width=True, key=f"ocm_{fname}")
+    st.plotly_chart(fig_o, width="stretch", key=f"ocm_{fname}")
 
     try:
         Rb_ocm = float(np.polyfit(xo, y1o, 1)[1])

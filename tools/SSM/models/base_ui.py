@@ -9,7 +9,7 @@ import numpy as np
 import threading
 import streamlit as st
 import plotly.graph_objects as go
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
 from itertools import product as iterproduct
 from io import BytesIO
 
@@ -78,6 +78,30 @@ def _port_residuals(S_mea, S_mod):
     return res
 
 
+def _port_residuals_batch(S_mea, S_mod_batch, xp):
+    """Batched residuals.
+
+    S_mea       : (N, 2, 2)              — measured (already on device)
+    S_mod_batch : (B, N, 2, 2)           — model
+    Returns dict whose values are (B,) arrays on the *xp* device.
+    """
+    res = {}
+    total = xp.zeros(S_mod_batch.shape[0])
+    for name, (r, c) in [("S11",(0,0)),("S12",(0,1)),("S21",(1,0)),("S22",(1,1))]:
+        sm = S_mea[:, r, c]              # (N,)
+        sk = S_mod_batch[:, :, r, c]     # (B, N)
+        denom = xp.sum(xp.abs(sm) ** 2)  # scalar
+        # diff: (B, N), sum over freq → (B,)
+        num = xp.sum(xp.abs(sm[None, :] - sk) ** 2, axis=1)
+        val = xp.where(denom > 0,
+                       xp.sqrt(num / denom) * 100.0,
+                       xp.zeros_like(num, dtype=xp.float64))
+        res[name] = val
+        total = total + val
+    res["Total"] = total / 4.0
+    return res
+
+
 # ── Smith chart ───────────────────────────────────────────────────────────────
 
 _SMITH_COLORS = {"S11":"#1f77b4","S22":"#ff7f0e","S21":"#2ca02c","S12":"#d62728"}
@@ -116,7 +140,7 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
         annotations=[dict(x=0.5, y=-0.08, xref="paper", yref="paper", showarrow=False,
                           text="● Measured (markers)  |  - - Modeled (dashed)",
                           font=dict(size=10, color="gray"), align="center")])
-    st.plotly_chart(fig, use_container_width=True, key=key)
+    st.plotly_chart(fig, width="stretch", key=key)
 
 
 def smith_scale_controls(fname, topo_key) -> dict:
@@ -220,7 +244,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                             margin=dict(l=50, r=20, t=35, b=40), showlegend=False)
                         fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
                         fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-                        col_w.plotly_chart(fig, use_container_width=True,
+                        col_w.plotly_chart(fig, width="stretch",
                                            key=f"pfp_z_{zlabel}_{part_lbl}_{model_short}_{fname}")
 
                 prev_range = (f_lo, f_hi)
@@ -292,7 +316,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                                     font=dict(size=9)))
                     fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
                     fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-                    st.plotly_chart(fig, use_container_width=True,
+                    st.plotly_chart(fig, width="stretch",
                                     key=f"pfp_fbi_{model_short}_{fname}")
 
                     Tbi_fit = float(np.sqrt(max(B0 / A0, 0.0))) if A0 > 1e-30 else 0.0
@@ -373,7 +397,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                                     font=dict(size=9)))
                     fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
                     fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-                    st.plotly_chart(fig, use_container_width=True,
+                    st.plotly_chart(fig, width="stretch",
                                     key=f"pfp_f1_{model_short}_{fname}")
 
                     alpha   = 1.0 / A1 if A1 > 1e-30 else 0.0
@@ -557,7 +581,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     fig.update_yaxes(showgrid=True, gridcolor="#ebebeb",
                                      **({"range": _y_range} if _y_range is not None else {}))
 
-                    col_w.plotly_chart(fig, use_container_width=True,
+                    col_w.plotly_chart(fig, width="stretch",
                                        key=f"pfp_{model_short}_{arr_key}_{fname}")
 
                     # Number input — key includes rng_tag so it resets to new median on slider move
@@ -687,7 +711,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             kp = f"tune_{topo_key}_{key}_{fname}"
 
             cols = st.columns([0.5, 1.5, 1.2, 1.2, 1.2, 1.0])
-            enabled = cols[0].checkbox("", value=False, key=f"{kp}_chk",
+            enabled = cols[0].checkbox(f"sweep_{key}", value=False, key=f"{kp}_chk",
                                        label_visibility="collapsed")
             cur_str = f"{current_disp:.2f} {unit}".strip()
             cols[1].markdown(f"**{label}** ({unit}) ({cur_str})" if unit else f"**{label}** ({cur_str})")
@@ -751,16 +775,12 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         if cpu_clicked or cuda_clicked:
             use_cuda = bool(cuda_clicked)
             xp = _cp if use_cuda else np
-            has_vec = hasattr(model_cls, "simulate_vec")
+            has_batch = hasattr(model_cls, "simulate_batch")
+            _mode_label = "CUDA" if use_cuda else "CPU"
 
-            # Build sweep lists: for checked params → sweep values,
-            # for unchecked → [current_value_in_display_units]
-            sweep_keys = []    # param keys in sweep order
-            sweep_lists = []   # list of display-unit values per param
-            sweep_scales = []  # scale factors
-            sweep_labels = []  # display labels
-            sweep_units = []   # display units
-
+            # Build sweep lists (display units)
+            sweep_keys, sweep_lists = [], []
+            sweep_scales, sweep_labels, sweep_units = [], [], []
             for row in param_rows:
                 sweep_keys.append(row["key"])
                 sweep_scales.append(row["scale"])
@@ -771,101 +791,123 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 else:
                     sweep_lists.append([float(all_p.get(row["key"], 0.0)) * row["scale"]])
 
-            # Find anchor parameter (largest sweep)
-            anchor_idx = 0
-            anchor_len = 1
-            for i, sl in enumerate(sweep_lists):
-                if len(sl) > anchor_len:
-                    anchor_len = len(sl)
-                    anchor_idx = i
+            n_params = len(sweep_keys)
+            n_total = 1
+            for sl in sweep_lists:
+                n_total *= len(sl)
 
-            # Build combos for non-anchor params
-            other_indices = [i for i in range(len(sweep_keys)) if i != anchor_idx]
-            other_lists = [sweep_lists[i] for i in other_indices]
-            other_combos = list(iterproduct(*other_lists)) if other_lists else [()]
+            # ── Generate the full combo grid as flat (n_total, n_params) ────
+            # Using meshgrid avoids the slow Python product loop entirely.
+            mesh = np.meshgrid(*[np.asarray(sl, dtype=np.float64) for sl in sweep_lists],
+                               indexing="ij")
+            all_combos_disp = np.stack([m.ravel() for m in mesh], axis=1)  # (n_total, n_params)
 
-            n_total = anchor_len * len(other_combos)
-
-            # Pre-allocate result arrays
+            # Pre-allocate host result arrays
             result_total = np.zeros(n_total)
             result_s11   = np.zeros(n_total)
             result_s12   = np.zeros(n_total)
             result_s21   = np.zeros(n_total)
             result_s22   = np.zeros(n_total)
-            result_vals  = np.zeros((n_total, len(sweep_keys)))
 
-            # Cancel flag — checked by worker threads
+            # ── Chunk size: large for GPU, modest for CPU ───────────────────
+            if use_cuda:
+                CHUNK = 4096
+            else:
+                CHUNK = 256
+
+            # Move S_mea to device once (outside the loop)
+            S_mea_dev = xp.asarray(S_raw)
+
+            # Cancel flag (used by Ctrl+C path; chunk loop is single-threaded)
             cancel = threading.Event()
 
-            def _run_anchor_slice(anchor_val_idx):
-                """Process all combos for one anchor value."""
-                if cancel.is_set():
-                    return
-                anchor_disp = sweep_lists[anchor_idx][anchor_val_idx]
-                row_offset = anchor_val_idx * len(other_combos)
+            import sys as _sys, time as _time
+            _t_start = _time.time()
+            print(f"\n[tune] start  mode={_mode_label}  total={n_total:,}  "
+                  f"chunk={CHUNK}  batched={has_batch}", flush=True)
 
-                for combo_idx, other_vals in enumerate(other_combos):
-                    if cancel.is_set():
-                        return
-                    row_i = row_offset + combo_idx
-
-                    p = dict(all_p)
-                    disp_vals = [0.0] * len(sweep_keys)
-
-                    p[sweep_keys[anchor_idx]] = anchor_disp / sweep_scales[anchor_idx]
-                    disp_vals[anchor_idx] = anchor_disp
-
-                    for oi, oi_global in enumerate(other_indices):
-                        dv = other_vals[oi]
-                        p[sweep_keys[oi_global]] = dv / sweep_scales[oi_global]
-                        disp_vals[oi_global] = dv
-
-                    # Simulate — prefer vectorised path
-                    try:
-                        if has_vec:
-                            S_sim = model_cls.simulate_vec(p, freq, z0, xp=xp)
-                        else:
-                            S_sim = model_cls.simulate(p, freq, z0)
-                    except Exception:
-                        S_sim = None
-                    if S_sim is None:
-                        result_total[row_i] = float("inf")
-                        result_s11[row_i] = float("inf")
-                        result_s12[row_i] = float("inf")
-                        result_s21[row_i] = float("inf")
-                        result_s22[row_i] = float("inf")
-                    else:
-                        res = _port_residuals(S_raw, S_sim)
-                        result_total[row_i] = res["Total"]
-                        result_s11[row_i] = res["S11"]
-                        result_s12[row_i] = res["S12"]
-                        result_s21[row_i] = res["S21"]
-                        result_s22[row_i] = res["S22"]
-                    result_vals[row_i] = disp_vals
-
-            # Run in parallel — one thread per anchor value
-            _mode_label = "CUDA" if use_cuda else "CPU"
             progress = st.progress(0, text=f"Tuning ({_mode_label})…")
             cancelled = False
             try:
-                with ThreadPoolExecutor(max_workers=min(anchor_len, 16)) as executor:
-                    futures = [
-                        executor.submit(_run_anchor_slice, ai)
-                        for ai in range(anchor_len)
-                    ]
-                    done_count = 0
-                    for future in as_completed(futures):
-                        future.result()  # propagate exceptions
-                        done_count += 1
-                        progress.progress(
-                            done_count / anchor_len,
-                            text=f"Tuning ({_mode_label})… "
-                                 f"{done_count}/{anchor_len} anchor slices")
+                if not has_batch:
+                    raise RuntimeError(
+                        f"Model {model_cls.__name__} has no simulate_batch — "
+                        f"cannot run batched tuning. Implement simulate_batch.")
+
+                n_chunks = (n_total + CHUNK - 1) // CHUNK
+                for ci in range(n_chunks):
+                    if cancel.is_set():
+                        cancelled = True
+                        break
+                    s = ci * CHUNK
+                    e = min(s + CHUNK, n_total)
+                    B = e - s
+
+                    # Build the per-chunk param dict — start from current SI
+                    # values (scalars), then overwrite swept keys with (B,)
+                    # arrays in SI units.
+                    p_chunk = dict(all_p)
+                    chunk_disp = all_combos_disp[s:e]   # (B, n_params)
+                    for pi, key in enumerate(sweep_keys):
+                        si_arr = chunk_disp[:, pi] / sweep_scales[pi]   # (B,)
+                        p_chunk[key] = xp.asarray(si_arr) if use_cuda else si_arr
+
+                    # Run the batched simulate (stays on device)
+                    try:
+                        S_batch = model_cls.simulate_batch(p_chunk, freq, z0, xp=xp)
+                    except Exception as exc:
+                        # Whole chunk failed → mark all rows as inf, log once
+                        print(f"\n[tune] chunk {ci+1}/{n_chunks} simulate "
+                              f"failed: {exc!r}", flush=True)
+                        result_total[s:e] = float("inf")
+                        result_s11[s:e]   = float("inf")
+                        result_s12[s:e]   = float("inf")
+                        result_s21[s:e]   = float("inf")
+                        result_s22[s:e]   = float("inf")
+                    else:
+                        # Residuals on device → transfer compact (B, 5) to host
+                        res = _port_residuals_batch(S_mea_dev, S_batch, xp)
+                        def _to_host(a):
+                            return a.get() if use_cuda else np.asarray(a)
+                        result_total[s:e] = _to_host(res["Total"])
+                        result_s11[s:e]   = _to_host(res["S11"])
+                        result_s12[s:e]   = _to_host(res["S12"])
+                        result_s21[s:e]   = _to_host(res["S21"])
+                        result_s22[s:e]   = _to_host(res["S22"])
+
+                    # Progress
+                    elapsed = _time.time() - _t_start
+                    rate = e / elapsed if elapsed > 0 else 0.0
+                    eta = (n_total - e) / rate if rate > 0 else 0.0
+                    progress.progress(
+                        e / n_total,
+                        text=f"Tuning ({_mode_label})… "
+                             f"{e:,}/{n_total:,} combos  "
+                             f"({rate:.0f}/s, ETA {eta:.1f}s)")
+                    _sys.stdout.write(
+                        f"\r[tune] {e:>9,}/{n_total:,}  "
+                        f"({100.0*e/n_total:5.1f}%)  "
+                        f"{rate:>8.0f} calc/s  ETA {eta:6.1f}s")
+                    _sys.stdout.flush()
             except (KeyboardInterrupt, SystemExit):
                 cancel.set()
                 cancelled = True
                 st.warning("Computation cancelled.")
+                print("\n[tune] cancelled by user", flush=True)
             progress.empty()
+            print(f"\n[tune] done   {n_total if not cancelled else '?':>9}  in "
+                  f"{_time.time()-_t_start:.2f}s", flush=True)
+
+            # Free GPU memory we held during the sweep
+            if use_cuda:
+                try:
+                    del S_mea_dev
+                    _cp.get_default_memory_pool().free_all_blocks()
+                except Exception:
+                    pass
+
+            # Display values for the result table (already in display units)
+            result_vals = all_combos_disp
 
             if not cancelled:
                 # Build DataFrame
@@ -879,6 +921,17 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 ])
                 df = pd.DataFrame(data, columns=col_names)
                 df = df.sort_values("Total Residual (%)", ascending=True).reset_index(drop=True)
+
+                # Streamlit/Excel sheet limit: 1,048,576 rows × 16,384 cols.
+                # If we exceed either, keep only the top 1000 (lowest residual).
+                _XL_MAX_ROWS, _XL_MAX_COLS = 1_048_576, 16_384
+                if len(df) > _XL_MAX_ROWS or len(df.columns) > _XL_MAX_COLS:
+                    st.warning(
+                        f"Sweep produced {len(df):,} rows × {len(df.columns)} cols, "
+                        f"exceeding the {_XL_MAX_ROWS:,}×{_XL_MAX_COLS:,} sheet limit. "
+                        f"Keeping the top 1000 rows with the lowest total residual."
+                    )
+                    df = df.head(1000).reset_index(drop=True)
 
                 # Store in session state for persistence across reruns
                 st.session_state[f"tune_df_{topo_key}_{fname}"] = df
@@ -917,7 +970,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                       on_click=_apply_best,
                       args=(best, tuning_specs, topo_key, fname))
 
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
 
             # Excel download
             buf = BytesIO()
@@ -1011,5 +1064,5 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         legend=dict(orientation="h", y=1.12),
                         hovermode="x unified",
                     )
-                    st.plotly_chart(fig, use_container_width=True,
+                    st.plotly_chart(fig, width="stretch",
                                    key=f"tune_sens_{topo_key}_{key}_{fname}")

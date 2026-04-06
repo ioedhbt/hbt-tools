@@ -107,7 +107,7 @@ class XuModel(AbstractSSMModel):
             ("Cpi (Eq.28)",       f"{params['Cpi']*1e15:.4f}",    "fF"),
         ]
         st.dataframe(pd.DataFrame(rows, columns=["Parameter", "Value", "Unit"]),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
     # @classmethod
     # def render_formula_trace(cls):
@@ -165,7 +165,7 @@ class XuModel(AbstractSSMModel):
             ax.grid(True, linewidth=0.4)
 
         fig.tight_layout()
-        st.pyplot(fig, use_container_width=True)
+        st.pyplot(fig, width="stretch")
         plt.close(fig)
 
         st.info("Forward simulation not available for this model — no Smith chart.")

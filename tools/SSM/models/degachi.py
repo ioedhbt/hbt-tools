@@ -44,7 +44,8 @@ from ..ssm_core        import (y_to_z, y_to_s_single, y_to_s_vec,
                                 safe_median, params_hash,
                                 extended_smith_grid)
 from ..ssm_deembedding  import (build_Y_pad, build_Z_ser,
-                                 build_Y_pad_vec, build_Z_ser_vec)
+                                 build_Y_pad_vec, build_Z_ser_vec,
+                                 build_Y_pad_batch, build_Z_ser_batch)
 from .base_ui           import (render_smith_chart, smith_scale_controls,
                                  sync_pad_from_preov, PAD_SPECS, ssm_residual,
                                  render_tuning_expander)
@@ -349,6 +350,102 @@ def _simulate_vec(p, freq, z0=50.0, xp=None):
     return S
 
 
+# ── Batched (B, N, 2, 2) simulate for parameter-sweep tuning ─────────────────
+
+def _b1(p, key, default, xp):
+    """Fetch p[key] (or default) and reshape (B,) → (B,1).  Scalars stay scalar."""
+    v = p.get(key, default)
+    a = xp.asarray(v)
+    if a.ndim == 1:
+        return a.reshape(-1, 1)
+    return a
+
+
+def _detect_B(p, xp):
+    B = 1
+    for v in p.values():
+        if isinstance(v, str):
+            continue
+        try:
+            a = xp.asarray(v)
+        except Exception:
+            continue
+        if a.ndim == 1 and a.shape[0] > B:
+            B = a.shape[0]
+    return B
+
+
+def _simulate_batch(p, freq, z0=50.0, xp=None):
+    """Batched Degachi simulate over (param_combo × freq).
+
+    Returns S of shape (B, N, 2, 2) on the *xp* device.
+    Param values may be scalars or (B,) arrays.
+    """
+    if xp is None:
+        xp = np
+    N = len(freq)
+    B = _detect_B(p, xp)
+    omega = xp.asarray(2.0 * np.pi * freq, dtype=np.float64).reshape(1, N)  # (1, N)
+
+    Rbi = _b1(p, "Rbi", 0.0, xp)
+    Cbi = _b1(p, "Cbi", 0.0, xp)
+    Rbe = _b1(p, "Rbe", 1.0, xp)
+    Cbe = _b1(p, "Cbe", 0.0, xp)
+    Rbc = _b1(p, "Rbc", 1.0, xp)
+    Cbc = _b1(p, "Cbc", 0.0, xp)
+    Rcx = _b1(p, "Rcx", 0.0, xp)
+    Ccx = _b1(p, "Ccx", 0.0, xp)
+    Gm0 = _b1(p, "Gm0", 0.0, xp)
+    tau = _b1(p, "tau", 0.0, xp)
+
+    # Zbi: Rbi/(1+jωRbiCbi) — when Cbi tiny, falls back to Rbi (handled by xp.where)
+    Cbi_safe = xp.where(xp.abs(Cbi) > 1e-40, Cbi, 1e-40)
+    Zbi_full = Rbi / (1.0 + 1j * omega * Rbi * Cbi_safe)
+    Zbi      = xp.where(xp.abs(Cbi) > 1e-40, Zbi_full, Rbi + 0j*omega)
+
+    Zbe = Rbe / (1.0 + 1j * omega * Rbe * Cbe)
+    Zbc = Rbc / (1.0 + 1j * omega * Rbc * Cbc)
+
+    # Zcx — three branches:
+    #   Rcx > 1e4 and Ccx > 1e-40 → 1/(jωCcx)
+    #   Ccx > 1e-40              → Rcx/(1+jωRcxCcx)
+    #   else                     → 1e9 (open)
+    Ccx_safe = xp.where(xp.abs(Ccx) > 1e-40, Ccx, 1e-40)
+    Zcx_a = 1.0 / (1j * omega * Ccx_safe)
+    Zcx_b = Rcx / (1.0 + 1j * omega * Rcx * Ccx_safe)
+    Zcx_open = xp.full_like(Zcx_a, complex(1e9))
+    cond_a = (xp.abs(Rcx) > 1e4) & (xp.abs(Ccx) > 1e-40)
+    cond_b = (xp.abs(Ccx) > 1e-40) & ~cond_a
+    Zcx = xp.where(cond_a, Zcx_a, xp.where(cond_b, Zcx_b, Zcx_open))
+
+    Ybe = 1.0 / Zbe
+    Ybc = 1.0 / Zbc
+    gm  = Gm0 * xp.exp(-1j * omega * tau)
+
+    Y_core = xp.zeros((B, N, 2, 2), dtype=complex)
+    Y_core[:, :, 0, 0] = Ybe + Ybc
+    Y_core[:, :, 0, 1] = -Ybc
+    Y_core[:, :, 1, 0] = gm - Ybc
+    Y_core[:, :, 1, 1] = Ybc
+
+    Z_core = xp.linalg.inv(Y_core)
+    Z_core[:, :, 0, 0] += Zbi
+
+    Y_int = xp.linalg.inv(Z_core)
+    inv_Zcx = 1.0 / Zcx
+    Y_int[:, :, 0, 0] += inv_Zcx
+    Y_int[:, :, 0, 1] -= inv_Zcx
+    Y_int[:, :, 1, 0] -= inv_Zcx
+    Y_int[:, :, 1, 1] += inv_Zcx
+
+    Z_ser = build_Z_ser_batch(p, omega, B, N, xp)
+    Y_tot = xp.linalg.inv(xp.linalg.inv(Y_int) + Z_ser)
+    Y_pad = build_Y_pad_batch(p, omega, B, N, xp)
+
+    S = y_to_s_vec(Y_tot + Y_pad, z0, xp)
+    return S   # still on device
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # Smith chart fine-tune specs
 # ════════════════════════════════════════════════════════════════════════════════
@@ -531,6 +628,11 @@ class Degachi(AbstractSSMModel):
         return _simulate_vec(params, freq, z0, xp)
 
     @classmethod
+    def simulate_batch(cls, params, freq, z0=50.0, xp=None):
+        """Batched simulate over (param_combo × freq) — used by tuning sweep."""
+        return _simulate_batch(params, freq, z0, xp)
+
+    @classmethod
     def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
         """
         Cascade re-extraction called by render_interactive_param_groups.
@@ -661,7 +763,7 @@ class Degachi(AbstractSSMModel):
             ("Ccx",  f"{ri['Ccx']*1e15:.4f}",  "fF"),
         ]
         st.dataframe(pd.DataFrame(rows, columns=["Symbol", "Value", "Unit"]),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
 
     @classmethod
     def render_diagnostic_plots(cls, params, arrays, freq, fname):

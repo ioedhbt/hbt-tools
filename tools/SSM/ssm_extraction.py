@@ -161,7 +161,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             for k, d in [("Cpbe","Pad B-E shunt cap"),
                          ("Cpce","Pad C-E shunt cap"),
                          ("Cpbc","Pad B-C shunt cap")]
-        ]), use_container_width=True, hide_index=True)
+        ]), width="stretch", hide_index=True)
 
         _OPEN_OV = [("Cpbe",1e15),("Cpce",1e15),("Cpbc",1e15)]
         for dk, sc in _OPEN_OV:
@@ -258,7 +258,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                 ("Lb","Lb",1e12,"pH"),("Lc","Lc",1e12,"pH"),("Le","Le",1e12,"pH"),
                 ("Rpb","Rb (Short)",1.0,"Ω"),("Rpc","Rc (Short)",1.0,"Ω"),("Rpe","Re (Short)",1.0,"Ω"),
             ]
-        ]), use_container_width=True, hide_index=True)
+        ]), width="stretch", hide_index=True)
 
         _SHORT_OV = [("Lb",1e12),("Lc",1e12),("Le",1e12),
                     ("Rpb",1.0),("Rpc",1.0),("Rpe",1.0)]
@@ -425,7 +425,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     #         st.markdown(f"**{ModelClass.NAME}**")
     #         try:
     #             fig_s = make_topology_fig({**para_eff, **params}, ModelClass.TOPOLOGY_CHAR)
-    #             st.pyplot(fig_s, use_container_width=True)
+    #             st.pyplot(fig_s, width="stretch")
     #             plt.close(fig_s)
     #         except Exception as e:
     #             st.error(f"Schematic error: {e}")
@@ -634,7 +634,7 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
                                  **({"range": _y_range} if _y_range is not None else {}))
 
 
-                col_w.plotly_chart(fig, use_container_width=True,
+                col_w.plotly_chart(fig, width="stretch",
                                    key=f"cold_pfp_{res_key}_{fname}")
 
                 actual_val = col_w.number_input(
@@ -816,7 +816,7 @@ def _render_cold_crosscheck(cold_res, extract_results, registry):
         try:    delta = f"{(cv-hot)*sc:+.4f}" if (hot and cv) else "—"
         except: delta = "—"
         rows.append({"Symbol":sym,"Hot (RF)":hs,"Cold-HBT":cs,"Δ":delta,"Unit":unit})
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
@@ -846,7 +846,7 @@ def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
                            title=f"Open dummy — {Path(fname).stem}",
                            params=open_params),
             file_name=f"model_open_{Path(fname).stem}.s2p", mime="text/plain",
-            key=f"dl_open_{fname}", use_container_width=True)
+            key=f"dl_open_{fname}", width="stretch")
         st.caption("Y_pad only — no series leads.")
 
     # ── Short ────────────────────────────────────────────────────────────────
@@ -866,7 +866,7 @@ def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
                            title=f"Short dummy — {Path(fname).stem}",
                            params=short_params),
             file_name=f"model_short_{Path(fname).stem}.s2p", mime="text/plain",
-            key=f"dl_short_{fname}", use_container_width=True)
+            key=f"dl_short_{fname}", width="stretch")
         st.caption("Y_pad + inv(Z_ser) — terminals shorted.")
 
     # ── DUT ──────────────────────────────────────────────────────────────────
@@ -890,7 +890,7 @@ def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
                                title=f"DUT {chosen_name} — {Path(fname).stem}",
                                params=dut_params),
                 file_name=f"model_dut_{Path(fname).stem}.s2p", mime="text/plain",
-                key=f"dl_dut_{fname}", use_container_width=True)
+                key=f"dl_dut_{fname}", width="stretch")
             st.caption("Uses Smith chart fine-tune override values.")
         else:
             st.info("Run at least one model above to enable DUT download.")
@@ -940,7 +940,7 @@ def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
             rows.append({"Layer":layer,"Symbol":k,"Value":f"{float(v)*sc_d:.4f}","Unit":unit_d})
     if rows:
         df_sum = pd.DataFrame(rows)
-        st.dataframe(df_sum, use_container_width=True, hide_index=True)
+        st.dataframe(df_sum, width="stretch", hide_index=True)
         buf = io.BytesIO(); df_sum.to_csv(buf, index=False)
         st.download_button("📥 Download SSM parameters (CSV)", data=buf.getvalue(),
             file_name=f"SSM_{Path(fname).stem}.csv", mime="text/csv",
