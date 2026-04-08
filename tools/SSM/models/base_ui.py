@@ -203,8 +203,142 @@ def sync_pad_from_preov(fname: str, topo_key: str, para_eff: dict):
             st.session_state[f"sim_{topo_key}_{key}_{fname}"] = float(para_eff.get(key, 0.0)) * scale
         st.session_state[sync_key] = preov_hash
 
+def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
+                            cbex_scale, cbex_unit, cbex_param_key,
+                            model_short, fname, g_idx, rng_tag,
+                            cbex_sweep_fn, param_groups):
+    """Render the Min / Step / Max inputs + Calculate button for the Cbex
+    sweep.  On button click: generate candidate Cbex values, call
+    `cbex_sweep_fn(cbex_SI_array, mask)` to get per-candidate std(Cbcx_arr),
+    pick the argmin, and write the best value into the Cbex number_input's
+    session-state key so the widget below renders the new value on the next
+    natural rerun.
+
+    The std window (mask) comes from the Cbcx group's slider session state
+    if the user has already moved it, otherwise the full frequency range.
+    """
+    # Defaults: min = min|Cbex_arr| (fF), max = max|Cbex_arr| (fF), step = 10 fF
+    fin = cbex_arr[np.isfinite(cbex_arr)]
+    if len(fin) == 0:
+        st.caption("Cbex sweep unavailable — no finite Cbex samples.")
+        return
+    abs_disp = np.abs(fin) * cbex_scale
+    default_min = float(np.min(abs_disp))
+    default_max = float(np.max(abs_disp))
+    if default_max <= default_min:
+        default_max = default_min + 1.0
+    default_step = 10.0
+
+    # Per-group state keys — tied to rng_tag so defaults refresh on slider move
+    sweep_key_base = f"cbex_sweep_{model_short}_{fname}_{rng_tag}"
+    k_min  = f"{sweep_key_base}_min"
+    k_step = f"{sweep_key_base}_step"
+    k_max  = f"{sweep_key_base}_max"
+    k_res  = f"cbex_sweep_result_{model_short}_{fname}"  # persists across reruns
+
+    st.markdown("**🔍 Cbex sweep — minimise std(Cbcx)**")
+    st.caption(
+        "Sweeps candidate Cbex values in the range below (inclusive), "
+        "recomputes Cbcx_arr for each, and picks the Cbex that yields the "
+        "lowest standard deviation of Cbcx over the Cbcx group's frequency "
+        "window.  Click Calculate to run the sweep and push the best value "
+        "into the Cbex input below.")
+
+    c_min, c_step, c_max, c_btn = st.columns([1.0, 1.0, 1.0, 1.1])
+    sweep_min = c_min.number_input(
+        f"Min ({cbex_unit})",
+        value=float(st.session_state.get(k_min, default_min)),
+        min_value=0.0, format="%.4f", key=k_min)
+    sweep_step = c_step.number_input(
+        f"Step ({cbex_unit})",
+        value=float(st.session_state.get(k_step, default_step)),
+        min_value=1e-6, format="%.4f", key=k_step)
+    sweep_max = c_max.number_input(
+        f"Max ({cbex_unit})",
+        value=float(st.session_state.get(k_max, default_max)),
+        min_value=0.0, format="%.4f", key=k_max)
+    run_sweep = c_btn.button(
+        "Calculate",
+        key=f"{sweep_key_base}_btn",
+        width="stretch")
+
+    if run_sweep:
+        if sweep_max < sweep_min or sweep_step <= 0:
+            st.error("Sweep range is invalid: need max ≥ min and step > 0.")
+        else:
+            # Build candidate array in display units, then convert to SI
+            n_pts = int(np.floor((sweep_max - sweep_min) / sweep_step)) + 1
+            n_pts = max(2, min(n_pts, 10000))  # sanity cap
+            cand_disp = sweep_min + np.arange(n_pts) * sweep_step
+            cand_disp = cand_disp[cand_disp <= sweep_max + 1e-12]
+            cand_SI = cand_disp / float(cbex_scale)
+
+            # Mask: use the Cbcx group's slider range if the user has set it,
+            # otherwise the full freq range.  The Cbcx group is the NEXT group
+            # after the Cbex group (g_idx + 1), so its slider key mirrors ours.
+            cbcx_sl_key = f"pfp_sl_{model_short}_{g_idx + 1}_{fname}"
+            cbcx_range = st.session_state.get(cbcx_sl_key, (f_min_v, f_max_v))
+            try:
+                f_lo_cbcx, f_hi_cbcx = float(cbcx_range[0]), float(cbcx_range[1])
+            except Exception:
+                f_lo_cbcx, f_hi_cbcx = f_min_v, f_max_v
+            mask = (f_ghz >= f_lo_cbcx) & (f_ghz <= f_hi_cbcx)
+            if not mask.any():
+                mask = np.ones_like(f_ghz, dtype=bool)
+
+            try:
+                stds = cbex_sweep_fn(cand_SI, mask)
+            except Exception as exc:
+                st.error(f"Sweep failed: {exc!r}")
+                return
+            stds = np.asarray(stds, dtype=float)
+            if not np.any(np.isfinite(stds)):
+                st.error("All candidates produced non-finite std(Cbcx) — "
+                         "try a different range.")
+                return
+            best_k = int(np.nanargmin(stds))
+            best_cbex_SI = float(cand_SI[best_k])
+            best_cbex_disp = best_cbex_SI * float(cbex_scale)
+            best_std = float(stds[best_k])
+
+            # Write the result into the Cbex number_input's session-state key
+            # so the widget below renders the new value.  The key must match
+            # the one built in the plot loop EXACTLY.
+            _upstream_vals = tuple(
+                round(0.0 * 1e15)
+                for gi in range(g_idx)
+                for _spec in param_groups[gi]["params"]
+            )
+            upstream_tag = str(hash(_upstream_vals) % (10 ** 9))
+            inp_key = (f"pfp_inp_{model_short}_{cbex_param_key}_"
+                       f"{fname}_{rng_tag}_{upstream_tag}")
+            st.session_state[inp_key] = float(best_cbex_disp)
+
+            # Persist the message so it survives the rerun
+            st.session_state[k_res] = {
+                "best_disp": best_cbex_disp,
+                "best_std":  best_std,
+                "n_pts":     len(cand_SI),
+                "f_lo":      f_lo_cbcx,
+                "f_hi":      f_hi_cbcx,
+                "rng_tag":   rng_tag,
+            }
+            st.rerun()
+
+    # Show the last sweep result (if any) — scoped to this rng_tag so it
+    # clears when the Cbex slider is moved.
+    last = st.session_state.get(k_res)
+    if last and last.get("rng_tag") == rng_tag:
+        st.success(
+            f"Best Cbex = **{last['best_disp']:.4f} {cbex_unit}**  "
+            f"(std(Cbcx) = {last['best_std']:.3e}, "
+            f"{last['n_pts']} candidates, "
+            f"Cbcx window {last['f_lo']:.2f}–{last['f_hi']:.2f} GHz)")
+
+
 def render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups,
-                                    cold_res=None, cold_param_map=None, reextract_fn=None):
+                                    cold_res=None, cold_param_map=None, reextract_fn=None,
+                                    cbex_sweep_fn=None):
 
     """
     For each parameter group, render:
@@ -213,6 +347,9 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
       - A frequency range slider
       - Per-frequency line plots with a dashed line at the current median
       - A number_input per parameter for manual override
+      - (Groups flagged `cbex_sweep_group` only) a Cbex sweep tool that
+        searches for the Cbex value that minimises std(Cbcx_arr) across
+        the Cbcx-group's selected frequency window.
     Returns a copy of params with all overrides applied (SI units).
     """
     
@@ -531,6 +668,31 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
             f_plot = f_ghz[mask]
             # Tag used in widget keys — changing it recreates inputs fresh on slider move
             rng_tag = f"{f_lo:.3f}_{f_hi:.3f}"
+
+            # ── Cbex sweep tool ────────────────────────────────────────────────
+            # Only rendered for groups explicitly flagged `cbex_sweep_group`.
+            # Finds the Cbex value that minimises std(Cbcx_arr) across the
+            # Cbcx-group's currently selected frequency window (falling back
+            # to the full range if the user hasn't moved that slider yet).
+            if (group.get("cbex_sweep_group")
+                    and cbex_sweep_fn is not None
+                    and "Cbex_arr" in live_arrays):
+                _render_cbex_sweep_tool(
+                    cbex_arr=live_arrays["Cbex_arr"],
+                    freq=freq,
+                    f_ghz=f_ghz,
+                    f_min_v=f_min_v,
+                    f_max_v=f_max_v,
+                    cbex_scale=g_params[0][3],   # 1e15 (fF)
+                    cbex_unit=g_params[0][4],    # "fF"
+                    cbex_param_key=g_params[0][1],  # "Cbex"
+                    model_short=model_short,
+                    fname=fname,
+                    g_idx=g_idx,
+                    rng_tag=rng_tag,
+                    cbex_sweep_fn=cbex_sweep_fn,
+                    param_groups=param_groups,
+                )
 
             valid_specs = [
                 s for s in g_params

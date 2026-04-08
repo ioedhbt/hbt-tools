@@ -383,6 +383,13 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                                               curr_params, changed_group_idx, curr_arrays)
                     return _fn
                 _reextract_fn = _make_fn(ModelClass, Y_ex1, freq, n_low)
+            _cbex_sweep_fn = None
+            if hasattr(ModelClass, "sweep_cbex"):
+                def _make_sweep_fn(_cls, _Y, _f):
+                    def _fn(cbex_SI_array, mask):
+                        return _cls.sweep_cbex(_Y, _f, cbex_SI_array, mask)
+                    return _fn
+                _cbex_sweep_fn = _make_sweep_fn(ModelClass, Y_ex1, freq)
             _cold_map = {
                 "Cbex": "Cex_cold",
                 "Rbi":  "Rbi_cold",
@@ -392,7 +399,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             params = render_interactive_param_groups(
                 params, arrays, freq, fname, short, ModelClass.PARAM_GROUPS,
                 cold_res=cold_res, cold_param_map=_cold_map,
-                reextract_fn=_reextract_fn)
+                reextract_fn=_reextract_fn,
+                cbex_sweep_fn=_cbex_sweep_fn)
 
         # Results table — shows values after interactive slider/override
         ModelClass.render_results_table(params)

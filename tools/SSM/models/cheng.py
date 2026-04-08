@@ -30,6 +30,45 @@ from . import AbstractSSMModel
 # Shared Step-2 helpers
 # ════════════════════════════════════════════════════════════════════════════════
 
+def _sweep_cbex_stds_cheng(Y_ex1, freq, cbex_SI_array, mask):
+    """For each candidate Cbex, rebuild Y_ex2 and return std(Cbcx_arr[mask]).
+
+    Both Cheng T and π use the same Cbcx formula [Eq. 22] once Y_ex2 has been
+    built by peeling Cbex from Y_ex1[0,0], so the sweep helper is shared.
+
+    Arguments
+    ---------
+    Y_ex1          : (N, 2, 2) complex — de-embedded Y before Cbex peel
+    freq           : (N,) real — frequency axis (Hz)
+    cbex_SI_array  : (K,) real — candidate Cbex values in SI units (F)
+    mask           : (N,) bool — frequency window over which to compute std
+
+    Returns
+    -------
+    stds : (K,) real — std of Cbcx_arr[mask] for each candidate Cbex.
+           Candidates whose mask yields < 2 finite points get `inf`.
+    """
+    omega = 2.0 * np.pi * freq
+    K = len(cbex_SI_array)
+    stds = np.empty(K, dtype=float)
+    mask = np.asarray(mask, dtype=bool)
+    for k, Cb in enumerate(cbex_SI_array):
+        Y_ex2 = Y_ex1.copy()
+        # Vectorised Y[0,0] peel: -= j ω Cb for all frequencies at once
+        Y_ex2[:, 0, 0] = Y_ex2[:, 0, 0] - 1j * omega * float(Cb)
+        Yms  = Y_ex2[:, 0, 1] + Y_ex2[:, 1, 1]
+        YL   = Y_ex2[:, 0, 0]*Y_ex2[:, 1, 1] - Y_ex2[:, 0, 1]*Y_ex2[:, 1, 0]
+        Ytot = Y_ex2[:, 0, 0] + Y_ex2[:, 0, 1] + Y_ex2[:, 1, 0] + Y_ex2[:, 1, 1]
+        num  = np.imag(Yms)*np.real(YL) - np.real(Yms)*np.imag(YL)
+        den  = np.real(Yms)*np.real(Ytot) + np.imag(Ytot)*np.imag(Yms)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            Cbcx_arr = -np.where(np.abs(den) > 1e-40, num/(omega*den), np.nan)
+        vals = Cbcx_arr[mask]
+        vals = vals[np.isfinite(vals)]
+        stds[k] = float(np.std(vals)) if len(vals) >= 2 else np.inf
+    return stds
+
+
 def _step2_T(Y_ex1, freq, n_low):
     """
     Cheng [Eqs. 13, 22] — Extract Cbex (T variant) and Cbcx.
@@ -624,6 +663,7 @@ class ChengT(AbstractSSMModel):
             "label":      "Step 2 — Cbex  (from Im(Y₁₁+Y₁₂)/ω, low-freq range)",
             "params":     [("Cbex_arr", "Cbex", "Cbex", 1e15, "fF")],
             "depends_on": [],
+            "cbex_sweep_group": True,
             "formulas": [
                 ("markdown", "**[Eq. 13]:**"),
                 ("latex", r"C_{bex}^T=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}\big|_{\omega\to0}"),
@@ -645,9 +685,9 @@ class ChengT(AbstractSSMModel):
                 ("Rbi",   "Rbi",    "Rbi",  1.0,  "Ω"),
                 ("Rbe",   "Rbe",    "Rbe",  1.0,  "Ω"),
                 ("Cbe",   "Cbe",    "Cbe",  1e15, "fF"),
-                ("Rbc",   "Rbc",    "Rbc",  1e-3, "kΩ"),
-                ("Cbc",   "Cbc",    "Cbc",  1e15, "fF"),
-                ("alpha", "alpha0", "α",    1.0,  ""),
+                ("Rbc",   "Rbc",    "Rbc (low frequency range)",  1e-3, "kΩ"),
+                ("Cbc",   "Cbc",    "Cbc (low frequency range)",  1e15, "fF"),
+                ("alpha", "alpha0", "α (low frequency range)",    1.0,  ""),
             ],
             "depends_on": ["Cbex", "Cbcx"],
             "use_first_params": {"Rbc", "Cbc", "alpha0"},
@@ -694,6 +734,16 @@ class ChengT(AbstractSSMModel):
         params = {**res_ext, **res_int}
         arrays = {**arr_ext, **arr_int, "_res_ext": res_ext, "_res_int": res_int}
         return params, arrays
+
+    @classmethod
+    def sweep_cbex(cls, Y_ex1, freq, cbex_SI_array, mask):
+        """Sweep helper for the interactive Cbex-vs-Cbcx-stability search.
+
+        See _sweep_cbex_stds_cheng for the full docstring.  Returns an array
+        of std(Cbcx_arr[mask]) values, one per candidate Cbex; the caller
+        (base_ui.render_interactive_param_groups) picks the argmin.
+        """
+        return _sweep_cbex_stds_cheng(Y_ex1, freq, cbex_SI_array, mask)
 
     @classmethod
     def simulate(cls, params, freq, z0=50.0):
@@ -915,6 +965,7 @@ class ChengPi(AbstractSSMModel):
             "label":      "Step 2 — Cbex  (from Im(B·C)/Im(B), low-freq range)",
             "params":     [("Cbex_arr", "Cbex", "Cbex", 1e15, "fF")],
             "depends_on": [],
+            "cbex_sweep_group": True,
             "formulas": [
                 ("md",    "**Step 2 — Cbex [Eqs. 26–28]**"),
                 ("latex", r"B=Y_{12}+Y_{22},\quad C=Y_{11}+Y_{21}"),
@@ -969,6 +1020,12 @@ class ChengPi(AbstractSSMModel):
         params = {**res_ext, **res_int}
         arrays = {**arr_ext, **arr_int, "_res_ext": res_ext, "_res_int": res_int}
         return params, arrays
+
+    @classmethod
+    def sweep_cbex(cls, Y_ex1, freq, cbex_SI_array, mask):
+        """Same sweep as ChengT — Cbcx formula [Eq. 22] is identical for
+        both topologies once Y_ex2 has been built."""
+        return _sweep_cbex_stds_cheng(Y_ex1, freq, cbex_SI_array, mask)
 
     @classmethod
     def simulate(cls, params, freq, z0=50.0):

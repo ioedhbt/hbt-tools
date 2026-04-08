@@ -25,11 +25,9 @@ from tools.SSM.ssm_extraction import render_ssm_tab   # ← SSM module (Cheng 20
 if "rf_uploader_key" not in st.session_state:
     st.session_state["rf_uploader_key"] = 0
 
-st.title("📡 IOED HBT RF Extraction Tool (Beta v3.2)")
+st.title("📡 IOED HBT RF Extraction Tool (Beta v4.0)")
 st.caption(
-    "**v3.2**: SSM extraction lives in `ssm_extraction.py` — "
-    "T & π topology, analytical peeling, schematic, measured-vs-modeled overlay. "
-    "Pad resistances correctly named R_pb / R_pc / R_pe (Gao, Wiley 2015 §4.2)."
+    "**v4.0**: Extraction tuning with CPU and GPU optimizations)."
 )
 
 # ═════════════════════════════════════════════════════════════════════════════
