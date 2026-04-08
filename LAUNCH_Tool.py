@@ -35,6 +35,7 @@ REQUIRED = [
 # ── Resolve venv interpreter path (Windows vs. Unix) ─────────────────────────
 _win = sys.platform == "win32"
 VENV_PYTHON = VENV_DIR / ("Scripts/python.exe" if _win else "bin/python")
+VENV_STREAMLIT = VENV_DIR / ("Scripts/streamlit.exe" if _win else "bin/streamlit")
 
 
 # ── CUDA detection ────────────────────────────────────────────────────────────
@@ -85,6 +86,35 @@ def run(cmd, **kwargs):
     subprocess.check_call(cmd, **kwargs)
 
 
+def pip_works():
+    """Return True if pip is functional inside the venv."""
+    result = subprocess.run(
+        [str(VENV_PYTHON), "-m", "pip", "--version"],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def recreate_venv():
+    """Delete and recreate the venv from scratch."""
+    import shutil, stat, os
+    if VENV_DIR.exists():
+        print(f"Removing broken virtual environment at {VENV_DIR} ...")
+
+        def _force_remove(func, path, _exc):
+            # Clear read-only flag then retry — common on Windows/OneDrive.
+            try:
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            except Exception:
+                pass  # best-effort; rmtree will surface any real failure
+
+        shutil.rmtree(str(VENV_DIR), onexc=_force_remove)
+    print(f"Creating fresh virtual environment at {VENV_DIR} ...")
+    run([sys.executable, "-m", "venv", str(VENV_DIR)])
+    print("Virtual environment created.")
+
+
 def create_venv():
     print(f"Creating virtual environment at {VENV_DIR} ...")
     run([sys.executable, "-m", "venv", str(VENV_DIR)])
@@ -124,22 +154,24 @@ def main():
     cupy_pkg   = cupy_pip_name(cuda_major) if cuda_major else None
 
     all_packages = list(REQUIRED)
-    # if cupy_pkg:
-    #     print(f"CUDA {cuda_major} detected — will install {cupy_pkg} for GPU acceleration.")
-    #     all_packages.append(("cupy", cupy_pkg))
-    # elif cuda_major:
-    #     print(f"CUDA {cuda_major} detected but no matching CuPy wheel "
-    #           f"(supported: 12, 13). GPU acceleration will not be available.")
-    # else:
-    #     print("No CUDA toolkit found. GPU acceleration will not be available.")
+    if cupy_pkg:
+        print(f"CUDA {cuda_major} detected — will install {cupy_pkg} for GPU acceleration.")
+        all_packages.append(("cupy", cupy_pkg))
+    elif cuda_major:
+        print(f"CUDA {cuda_major} detected but no matching CuPy wheel "
+              f"(supported: 12, 13). GPU acceleration will not be available.")
+    else:
+        print("No CUDA toolkit found. GPU acceleration will not be available.")
 
-    # ── Create venv if it doesn't exist ──────────────────────────────────────
-    if not VENV_PYTHON.exists():
-        create_venv()
+    # ── Create or repair venv ─────────────────────────────────────────────────
+    # A broken venv (missing pip, missing CLI entry points) is treated the
+    # same as no venv: delete and recreate so the user never gets stuck.
+    if not VENV_PYTHON.exists() or not pip_works():
+        recreate_venv()
         run([str(VENV_PYTHON), "-m", "pip", "install", "--upgrade", "pip"])
         pip_install([pip for _, pip in all_packages])
     else:
-        # Venv exists — only install what's missing
+        # Venv is healthy — only install what's missing
         missing = check_missing(all_packages)
         if missing:
             print(f"Installing missing packages: {', '.join(missing)}")
@@ -156,7 +188,7 @@ def main():
     print()
 
     try:
-        run([str(VENV_PYTHON), "-m", "streamlit", "run", str(APP_FILE)])
+        run([str(VENV_STREAMLIT), "run", str(APP_FILE)])
     except KeyboardInterrupt:
         print("\nServer shut down cleanly.")
 
