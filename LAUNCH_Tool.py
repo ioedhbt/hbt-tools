@@ -1,31 +1,165 @@
-import importlib.util, subprocess, sys, os
+"""
+LAUNCH_Tool.py — Bootstrap launcher for IOED Tool.
+
+Creates (or reuses) a local Python virtual environment at .hbttools/ next to
+this file, installs all required packages into it, then launches the
+Streamlit app using the venv interpreter.
+
+Run with any system Python 3.9+:
+    python LAUNCH_Tool.py
+
+CuPy (CUDA GPU acceleration) is installed automatically when a compatible
+NVIDIA GPU and CUDA 12 or 13 toolkit are detected.
+"""
+
+import re
+import subprocess
+import sys
 from pathlib import Path
 
-def ensure(pkg, pip_name=None):
-    if importlib.util.find_spec(pkg) is None:
-        print(f"Installing {pkg}...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name or pkg])
+ROOT     = Path(__file__).parent.resolve()
+VENV_DIR = ROOT / ".hbttools"
+APP_FILE = ROOT / "IOED_Tool_Web.py"
 
-# 確保所有繪圖與資料處理套件都已安裝
-for pkg, pip in [("openpyxl", None), ("pandas", None), ("streamlit", None),
-                  ("numpy", None), ("plotly", None)]:
-    ensure(pkg, pip)
+# ── Core packages always installed ───────────────────────────────────────────
+REQUIRED = [
+    ("streamlit",  "streamlit"),
+    ("numpy",      "numpy"),
+    ("pandas",     "pandas"),
+    ("plotly",     "plotly"),
+    ("matplotlib", "matplotlib"),
+    ("openpyxl",   "openpyxl"),
+    ("psutil",     "psutil"),
+]
 
-# 指向你的整合主程式檔案 main.py
-file = Path(__file__).parent / "IOED_Tool_Web.py"
+# ── Resolve venv interpreter path (Windows vs. Unix) ─────────────────────────
+_win = sys.platform == "win32"
+VENV_PYTHON = VENV_DIR / ("Scripts/python.exe" if _win else "bin/python")
 
-if not file.exists():
-    print(f"❌ 找不到主程式：{file.name}！")
-    print("請確認 main.py 與 LAUNCH_Tool.py 在同一個資料夾底下。")
-    input("按 Enter 鍵結束...")
-    sys.exit(1)
 
-print("==================================================")
-print("🔬 正在啟動 IOED 整合式元件分析與萃取平台...")
-print("==================================================")
+# ── CUDA detection ────────────────────────────────────────────────────────────
 
-try:
-    # 自動使用 streamlit run 執行 main.py
-    subprocess.run([sys.executable, "-m", "streamlit", "run", str(file.resolve())])
-except KeyboardInterrupt:
-    print("\n伺服器已安全關閉。")
+def _run_silent(cmd):
+    """Run a command, return stdout+stderr as a string, or '' on failure."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return (r.stdout or "") + (r.stderr or "")
+    except Exception:
+        return ""
+
+
+def detect_cuda_major():
+    """Return the CUDA major version (12, 13, …) or None if not found.
+
+    Strategy:
+      1. `nvcc --version`   — gives the installed toolkit version.
+      2. `nvidia-smi`       — gives the driver's max supported CUDA version.
+    Either source is sufficient; nvcc is preferred as it reflects the actual
+    runtime used to build CuPy wheels.
+    """
+    # nvcc --version output: "Cuda compilation tools, release 12.4, V12.4.99"
+    out = _run_silent(["nvcc", "--version"])
+    m = re.search(r"release\s+(\d+)\.(\d+)", out)
+    if m:
+        return int(m.group(1))
+
+    # nvidia-smi output header: "CUDA Version: 12.4"
+    out = _run_silent(["nvidia-smi"])
+    m = re.search(r"CUDA Version:\s*(\d+)\.(\d+)", out)
+    if m:
+        return int(m.group(1))
+
+    return None
+
+
+def cupy_pip_name(cuda_major):
+    """Return the correct CuPy wheel name for the given CUDA major version."""
+    mapping = {12: "cupy-cuda12x", 13: "cupy-cuda13x"}
+    return mapping.get(cuda_major)
+
+
+# ── Venv helpers ──────────────────────────────────────────────────────────────
+
+def run(cmd, **kwargs):
+    """Run a command, streaming output live."""
+    subprocess.check_call(cmd, **kwargs)
+
+
+def create_venv():
+    print(f"Creating virtual environment at {VENV_DIR} ...")
+    run([sys.executable, "-m", "venv", str(VENV_DIR)])
+    print("Virtual environment created.")
+
+
+def pip_install(packages):
+    """Install a list of pip package names into the venv."""
+    run([str(VENV_PYTHON), "-m", "pip", "install", "--upgrade"] + packages)
+
+
+def is_importable(import_name):
+    """Return True if import_name can be imported inside the venv."""
+    result = subprocess.run(
+        [str(VENV_PYTHON), "-c", f"import {import_name}"],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def check_missing(packages):
+    """Return list of pip names from `packages` not yet importable in the venv."""
+    return [pip for imp, pip in packages if not is_importable(imp)]
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main():
+    if not APP_FILE.exists():
+        print(f"ERROR: Cannot find {APP_FILE.name} in {ROOT}")
+        print("Make sure LAUNCH_Tool.py and IOED_Tool_Web.py are in the same folder.")
+        input("Press Enter to exit...")
+        sys.exit(1)
+
+    # ── Detect CUDA and build the full package list ───────────────────────────
+    cuda_major = detect_cuda_major()
+    cupy_pkg   = cupy_pip_name(cuda_major) if cuda_major else None
+
+    all_packages = list(REQUIRED)
+    # if cupy_pkg:
+    #     print(f"CUDA {cuda_major} detected — will install {cupy_pkg} for GPU acceleration.")
+    #     all_packages.append(("cupy", cupy_pkg))
+    # elif cuda_major:
+    #     print(f"CUDA {cuda_major} detected but no matching CuPy wheel "
+    #           f"(supported: 12, 13). GPU acceleration will not be available.")
+    # else:
+    #     print("No CUDA toolkit found. GPU acceleration will not be available.")
+
+    # ── Create venv if it doesn't exist ──────────────────────────────────────
+    if not VENV_PYTHON.exists():
+        create_venv()
+        run([str(VENV_PYTHON), "-m", "pip", "install", "--upgrade", "pip"])
+        pip_install([pip for _, pip in all_packages])
+    else:
+        # Venv exists — only install what's missing
+        missing = check_missing(all_packages)
+        if missing:
+            print(f"Installing missing packages: {', '.join(missing)}")
+            pip_install(missing)
+        else:
+            print("All required packages are present.")
+
+    # ── Launch the app ────────────────────────────────────────────────────────
+    print()
+    print("=" * 50)
+    print("  Launching IOED Integrated Component Analysis")
+    print("  and Extraction Platform ...")
+    print("=" * 50)
+    print()
+
+    try:
+        run([str(VENV_PYTHON), "-m", "streamlit", "run", str(APP_FILE)])
+    except KeyboardInterrupt:
+        print("\nServer shut down cleanly.")
+
+
+if __name__ == "__main__":
+    main()

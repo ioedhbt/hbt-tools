@@ -5,6 +5,7 @@ Kept separate from the abstract base so model files import one thing,
 not a chain of ssm_* modules.
 """
 from __future__ import annotations
+import gc
 import numpy as np
 import threading
 import streamlit as st
@@ -20,6 +21,12 @@ from ..ssm_deembedding import build_Y_pad_batch, build_Z_ser_batch
 # happens after the user has clicked a widget that triggers a re-run (e.g.
 # the Stop button below).  We catch it so the long-running tuning loop can
 # break out cleanly without losing the persisted top-K state.
+#
+# We also catch `StopException`, which Streamlit raises through a *different*
+# code path (e.g. `st.stop()` or some Stop-button paths in newer versions).
+# Both indicate "the user wants the current run to end now"; we treat them
+# identically — persist state, free GPU buffers, and re-raise so Streamlit
+# can finish the rerun cleanly.
 try:
     from streamlit.runtime.scriptrunner.script_runner import RerunException as _RerunException
 except Exception:
@@ -27,6 +34,13 @@ except Exception:
         from streamlit.runtime.scriptrunner import RerunException as _RerunException
     except Exception:
         _RerunException = None  # type: ignore[assignment]
+try:
+    from streamlit.runtime.scriptrunner.script_runner import StopException as _StopException
+except Exception:
+    try:
+        from streamlit.runtime.scriptrunner_utils.exceptions import StopException as _StopException
+    except Exception:
+        _StopException = None  # type: ignore[assignment]
 
 # ── CUDA detection (runtime, zero-cost when CuPy is absent) ─────────────────
 
@@ -851,18 +865,31 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             swept_idx_full = [i for i in range(n_params) if L_list[i] > 1]
             n_swept = len(swept_idx_full)
 
-            # ── Pack per-param data into 2D device tables for vectorised
-            #     lookup.  Doing the index math in ONE kernel launch instead
-            #     of one launch per parameter is a major Python-overhead win.
+            # ── N-D parameter-sweep layout ──────────────────────────────────
+            # Each *swept* parameter gets its own broadcast axis.  Sub-networks
+            # whose inputs are not all swept are computed at their *native*
+            # dimensionality and broadcast across the rest of the grid — so
+            # `h/i` in `g·h/i` is built once with shape `(1,Lh,Li,1)` and
+            # reused for every value of `g`, with no recomputation.
+            #
+            # Layout convention:
+            #   axis 0 .. n_swept_dims-1  → one length-L_i axis per swept param
+            #   axis n_swept_dims         → frequency (length N_freq)
+            # Constants stay as Python scalars (broadcast to anything).
+            #
+            # Output S has shape  (L_0, L_1, ..., L_{n-1}, N_freq, 2, 2)
+            # — flattened to (B_inner, N_freq, 2, 2) for residual scoring.
+
+            swept_pos_to_param_idx = [i for i in range(n_params) if L_list[i] > 1]
+            n_swept_dims = len(swept_pos_to_param_idx)
+            inner_lens = [int(L_list[i]) for i in swept_pos_to_param_idx]
+
+            # Lookup table of *display* values for index→display mapping
             L_max = max(max(L_list), 1)
             sweep_table_h = np.zeros((n_params, L_max), dtype=np.float64)
             for i, sl in enumerate(sweep_lists):
                 sweep_table_h[i, :L_list[i]] = sl
-            sweep_table_dev    = xp.asarray(sweep_table_h)                    # (n_params, L_max)
-            strides_dev        = xp.asarray(np.asarray(strides, dtype=np.int64))   # (n_params,)
-            L_dev              = xp.asarray(np.asarray(L_list,  dtype=np.int64))   # (n_params,)
-            sweep_scales_dev   = xp.asarray(np.asarray(sweep_scales, dtype=np.float64))  # (n_params,)
-            param_axis_dev     = xp.arange(n_params, dtype=xp.int64)
+            sweep_table_dev = xp.asarray(sweep_table_h)                            # (n_params, L_max)
             if n_swept > 0:
                 swept_indices_dev = xp.asarray(np.asarray(swept_idx_full, dtype=np.int64))
             else:
@@ -877,11 +904,22 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # Move S_mea onto the compute device once
             S_mea_dev = xp.asarray(S_raw)
 
-            # ── Pre-bake constant sub-networks (lifted out of the chunk loop) ──
-            # If the user isn't sweeping any of a sub-network's input params,
-            # build that network's planes ONCE here and reuse them every chunk.
-            # Eliminates dozens of kernel launches per chunk in the common
-            # "tune intrinsic params only" case.
+            # ── N-D omega: (1,)*n_swept_dims + (N_freq,) ────────────────────
+            # Number of leading 1s = number of swept axes, so omega broadcasts
+            # cleanly against any swept-param tensor regardless of which axes
+            # it occupies.
+            N_freq = len(freq)
+            omega_shape = (1,) * n_swept_dims + (N_freq,)
+            omega_dev = xp.asarray(
+                2.0 * np.pi * np.asarray(freq, dtype=np.float64)
+            ).reshape(omega_shape)
+
+            # ── Pre-bake fully-constant sub-networks (lifted out of the loop)
+            # If a sub-network has *zero* swept inputs, its tensor is built
+            # once here at shape (1,...,1,N_freq) and reused every iteration.
+            # If a sub-network has *some* swept inputs, the model code will
+            # build it inside simulate_batch — but at its own native dims
+            # (smaller than the full inner block), thanks to N-D broadcasting.
             _PAD_CAP_KEYS = ("Cpbe", "Cpce", "Cpbc")
             _SER_LEAD_KEYS = ("Rpb", "Rpc", "Rpe", "Lb", "Lc", "Le")
             _CHENG_EXTR_KEYS = ("Cbex", "Cbcx")
@@ -889,16 +927,14 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             static_p = dict(all_p)
             for _k, _v in const_si.items():
                 static_p[_k] = _v
-            omega_dev = xp.asarray(2.0 * np.pi * np.asarray(freq, dtype=np.float64)
-                                   ).reshape(1, len(freq))
 
             static_cache = {"omega": omega_dev}
             _cached_msgs = []
             if not (set(_PAD_CAP_KEYS) & swept_set):
-                static_cache["Y_pad"] = build_Y_pad_batch(static_p, omega_dev, 1, len(freq), xp)
+                static_cache["Y_pad"] = build_Y_pad_batch(static_p, omega_dev, 1, N_freq, xp)
                 _cached_msgs.append("Y_pad")
             if not (set(_SER_LEAD_KEYS) & swept_set):
-                static_cache["Z_ser"] = build_Z_ser_batch(static_p, omega_dev, 1, len(freq), xp)
+                static_cache["Z_ser"] = build_Z_ser_batch(static_p, omega_dev, 1, N_freq, xp)
                 _cached_msgs.append("Z_ser")
             if not (set(_CHENG_EXTR_KEYS) & swept_set):
                 _Cbex_c = float(static_p.get("Cbex", 0.0))
@@ -919,27 +955,50 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             def _topk_to_df(top_arr_host):
                 return pd.DataFrame(top_arr_host, columns=col_names)
 
-            # ── Auto chunk sizing from device free memory ───────────────────
-            # Per-combo working-set estimate:
-            #   simulate_batch holds ~8 (B, N, 2, 2) complex128 tensors
-            #   simultaneously (Y_pad, Z_ser, Y_int, intermediates, S_out, plus
-            #   linalg.inv scratch).  64 bytes per (2, 2) cell × N_freq × ~8.
-            N_freq = len(freq)
-            per_combo_bytes = 64 * N_freq * 8
+            # ── Auto slab sizing from device free memory ────────────────────
+            # Per-combo working-set estimate.
+            #
+            # The model uses *scalar plane* representation (4 separate (B,N)
+            # complex128 planes per 2×2 matrix, not full (B,N,2,2) tensors)
+            # — see _sim_wrap_batch in models/cheng.py.  Realistic peak live
+            # planes per combo:
+            #   • Y_int (4 planes) + Y_extr (2) + Y_ex (4)       = 10 planes
+            #   • Z_ex (4) + Z_ser (4) + Z_tot (4)               = 12 planes
+            #   • Y_tot (4) + Y_pad (4) + Y_total (4)            = 12 planes
+            #   • Y_norm/M/M_inv/N/S working set                 = 12 planes
+            #   • Final stacked (B,N,2,2)                        =  4 planes
+            #   • Residual diff/num/val                          =  6 planes
+            # Each plane = 16 bytes/element × N_freq elements per combo.
+            # Initial guess: ~60 planes × 16 = 960 B/combo per N_freq, with a
+            # 1.25× safety margin → 12× N_freq complex128 tensor-equivalents.
+            # This is replaced after iter 1 by an empirical measurement
+            # (see `_calibrated` below) — the initial guess only governs the
+            # *first* block size before we have real data.
+            per_combo_bytes = 64 * N_freq * 12
+            _calibrated = False
             free_label = ""
             if use_cuda:
                 try:
+                    # Free up any cached blocks first so the query reflects
+                    # what we can *actually* allocate now (not what's been
+                    # pinned by previous calculations).
+                    try:
+                        _cp.get_default_memory_pool().free_all_blocks()
+                        _cp.get_default_pinned_memory_pool().free_all_blocks()
+                    except Exception:
+                        pass
                     free_b, total_b = _cp.cuda.runtime.memGetInfo()
                     dev = _cp.cuda.Device(0)
                     sm_count = dev.attributes.get("MultiProcessorCount", 0)
                     free_label = (f"GPU{dev.id}: {free_b/1024**3:.2f}/"
                                   f"{total_b/1024**3:.2f} GiB free  ·  {sm_count} SMs")
-                    # Aggressive: use most of the free VRAM as working set.
-                    budget = free_b * 0.85
+                    # 0.55 keeps ~45% of free VRAM as headroom for pool
+                    # 0.75 uses more VRAM
+                    # fragmentation, top-K scratch, persistent buffers, and
+                    # the measurement S_mea_dev tensor.
+                    budget = int(free_b * 0.75)
                 except Exception:
-                    budget = 2 * 1024**3
-                CHUNK = max(1024, int(budget // max(per_combo_bytes, 1)))
-                CHUNK = min(CHUNK, n_total, 4_000_000)
+                    budget = 1 * 1024**3
             else:
                 try:
                     import psutil
@@ -947,18 +1006,115 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     free_label = f"CPU RAM: {avail/1024**3:.2f} GiB free"
                 except Exception:
                     avail = 4 * 1024**3
-                budget = avail * 0.30
-                CHUNK = max(64, int(budget // max(per_combo_bytes, 1)))
-                CHUNK = min(CHUNK, n_total, 16_384)
-            CHUNK_MIN = 16
-            CHUNK_MAX = CHUNK   # remember the initial cap for scratch sizing
+                budget = int(avail * 0.25)
+
+            max_inner = max(1, budget // max(per_combo_bytes, 1))
+            if not use_cuda:
+                # CPU mode: cap inner block size more aggressively
+                max_inner = min(max_inner, 65_536)
+            else:
+                # GPU mode: clamp to a sane upper bound to bound output size
+                max_inner = min(max_inner, 16_777_216)  # 16M combos per slab
+
+            # ── Multi-axis block sizing ─────────────────────────────────────
+            # Pick a per-axis block_shape (one length per swept axis) such
+            # that prod(block_shape) <= max_inner.  We start with the full
+            # inner_lens and greedily halve the *largest* axis until the
+            # product fits.  This generalises the old "slab one axis" logic
+            # to handle the case where multiple axes need slabbing — i.e.
+            # when the product of all "other" axes alone exceeds VRAM.
+            def _shrink_to_budget(shape, budget):
+                """Greedy: halve the largest axis until prod(shape) <= budget."""
+                bs = list(shape)
+                if not bs:
+                    return bs
+                while True:
+                    p = 1
+                    for v in bs:
+                        p *= v
+                    if p <= budget or budget < 1:
+                        return bs
+                    k_max = 0
+                    for k in range(1, len(bs)):
+                        if bs[k] > bs[k_max]:
+                            k_max = k
+                    if bs[k_max] <= 1:
+                        return bs  # cannot shrink further
+                    bs[k_max] = max(1, bs[k_max] // 2)
+
+            def _shrink_one_step(shape):
+                """Halve the largest axis once. Returns (new_shape, did_shrink)."""
+                bs = list(shape)
+                if not bs:
+                    return bs, False
+                k_max = 0
+                for k in range(1, len(bs)):
+                    if bs[k] > bs[k_max]:
+                        k_max = k
+                if bs[k_max] <= 1:
+                    return bs, False
+                bs[k_max] = max(1, bs[k_max] // 2)
+                return bs, True
+
+            def _grow_to_budget(shape, full_lens, budget):
+                """Greedy: double the smallest still-growable axis until either
+                doubling again would exceed `budget`, or every axis is at its
+                maximum (full_lens[k]).  Returns the new shape (a list)."""
+                bs = list(shape)
+                if not bs:
+                    return bs
+                while True:
+                    p = 1
+                    for v in bs:
+                        p *= v
+                    if p * 2 > budget:
+                        return bs
+                    # Pick smallest axis that can still grow
+                    cand_k = -1
+                    cand_v = None
+                    for k in range(len(bs)):
+                        if bs[k] < full_lens[k]:
+                            if cand_k < 0 or bs[k] < cand_v:
+                                cand_k = k
+                                cand_v = bs[k]
+                    if cand_k < 0:
+                        return bs  # nothing left to grow
+                    bs[cand_k] = min(full_lens[cand_k], max(2, bs[cand_k] * 2))
+
+            if n_swept_dims == 0:
+                block_shape = []
+                inner_block = 1
+            else:
+                block_shape = _shrink_to_budget(inner_lens, max_inner)
+                inner_block = 1
+                for v in block_shape:
+                    inner_block *= v
+
+            CHUNK_MAX = inner_block  # upper bound on per-iter combo count
 
             import sys as _sys, time as _time
             _t_start = _time.time()
             if free_label:
                 st.caption(free_label)
+            if n_swept_dims == 0:
+                _slab_label = "single combo"
+            elif inner_block >= n_total:
+                _slab_label = (f"single N-D block, "
+                               f"{inner_block:,} combos / iter")
+            else:
+                # Shape summary: e.g. "block=(8,32,7), 1,792 combos / iter"
+                _shape_str = ",".join(str(v) for v in block_shape)
+                _full_str  = ",".join(str(v) for v in inner_lens)
+                # Conservative iter count from current block (may rise if
+                # shrunk later, fall if grown — we don't grow).
+                _n_iters_pre = 1
+                for k, v in enumerate(block_shape):
+                    _n_iters_pre *= (inner_lens[k] + v - 1) // v
+                _slab_label = (f"block=({_shape_str})/({_full_str}), "
+                               f"{inner_block:,} combos / iter, "
+                               f"≥{_n_iters_pre} iters")
             print(f"\n[tune] start  mode={_mode_label}  total={n_total:,}  "
-                  f"chunk={CHUNK:,}  batched={has_batch}  {free_label}", flush=True)
+                  f"{_slab_label}  batched={has_batch}  {free_label}", flush=True)
 
             # ── UI placeholders ────────────────────────────────────────────
             ui_cols = st.columns([5, 1])
@@ -1035,6 +1191,35 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 except Exception:
                     pass
 
+            def _release_gpu_memory():
+                """Best-effort: synchronize the device, run gc twice (to break
+                cycles), then return all idle pool blocks to the driver.
+
+                Order matters:
+                  1. Synchronize first — async kernels may still be holding
+                     tensor inputs alive on the stream.  Without sync,
+                     `free_all_blocks()` would skip those blocks.
+                  2. gc.collect() twice — CuPy ndarrays often participate in
+                     reference cycles via residual/topk dicts; one pass may
+                     not break them all.
+                  3. Free both device and pinned-host memory pools.
+                """
+                if not use_cuda:
+                    gc.collect()
+                    gc.collect()
+                    return
+                try:
+                    _cp.cuda.runtime.deviceSynchronize()
+                except Exception:
+                    pass
+                gc.collect()
+                gc.collect()
+                try:
+                    _cp.get_default_memory_pool().free_all_blocks()
+                    _cp.get_default_pinned_memory_pool().free_all_blocks()
+                except Exception:
+                    pass
+
             try:
                 if not has_batch:
                     raise RuntimeError(
@@ -1045,104 +1230,361 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 last_ui = 0.0
                 chunks_done = 0
                 last_chunk_ms = 0.0
+                # axis_offsets[k] = current row index along swept axis k.
+                # Advances by block_shape[k] after each successful iteration,
+                # carrying over to the next-outer axis at L_k.
+                axis_offsets = [0] * n_swept_dims
+                # Resize gate — never re-poll the driver more than once per
+                # this many seconds.  Polling memGetInfo() is cheap (~µs) but
+                # the *real* cost we're avoiding is fragmenting the allocator
+                # by trying to resize too aggressively.
+                _last_resize_t = 0.0
+                _RESIZE_INTERVAL = 2.0
+                # Consecutive-OOM counter — drives the escalating recovery
+                # strategy: 1st OOM just shrinks (cheap), 2nd consecutive OOM
+                # also flushes the pool (expensive but reclaims everything).
+                # Reset to 0 after any successful iteration.
+                _oom_streak = 0
+
                 while processed < n_total:
-                    s = processed
-                    e = min(s + CHUNK, n_total)
-                    B = e - s
+                    # ── Adaptive multi-axis block sizing (gated). ──────────
+                    # We re-query free VRAM at most once every _RESIZE_INTERVAL
+                    # seconds.  Crucially we do NOT call free_all_blocks() —
+                    # flushing the pool every iteration kills allocator
+                    # amortization and forces every alloc to fall through to
+                    # cudaMalloc, which on Windows WDDM saturates the Copy
+                    # engine with page-table updates and starves Compute.
+                    #
+                    # Instead we use the pool's own bookkeeping (free_bytes
+                    # = bytes already cached and re-allocatable for free) to
+                    # build an "effective free" estimate without disturbing
+                    # the pool.  Once `_calibrated`, the budget is also used
+                    # to decide whether the block can grow.
+                    _now_t = _time.time()
+                    if (use_cuda and n_swept_dims > 0
+                            and (_now_t - _last_resize_t) >= _RESIZE_INTERVAL):
+                        _last_resize_t = _now_t
+                        try:
+                            _mp = _cp.get_default_memory_pool()
+                            _pool_free = _mp.free_bytes()    # cached, re-allocatable
+                            _drv_free, _ = _cp.cuda.runtime.memGetInfo()
+                            # Effective free = what driver reports + what's
+                            # already cached in the pool (the pool's cached
+                            # blocks count against driver-reported free, but
+                            # are available to us without a malloc).
+                            _eff_free = _drv_free + _pool_free
+                            _budget_now = int(_eff_free * 0.55)
+                            _max_inner_now = max(
+                                1, _budget_now // max(per_combo_bytes, 1))
+                            _cur_prod = 1
+                            for v in block_shape:
+                                _cur_prod *= v
+                            # Shrink if we're now over budget
+                            _shrunk = _shrink_to_budget(block_shape, _max_inner_now)
+                            _shrunk_prod = 1
+                            for v in _shrunk:
+                                _shrunk_prod *= v
+                            if _shrunk_prod < _cur_prod:
+                                block_shape = _shrunk
+                                print(f"\n[tune] free VRAM dropped → block shrunk to "
+                                      f"({','.join(str(v) for v in block_shape)}) "
+                                      f"= {_shrunk_prod:,} combos / iter",
+                                      flush=True)
+                            elif _calibrated:
+                                # Try to grow.  Only after calibration — using
+                                # the pessimistic initial estimate to compute
+                                # a grow target would let us grow into an OOM.
+                                _grown = _grow_to_budget(
+                                    block_shape, inner_lens, _max_inner_now)
+                                _grown_prod = 1
+                                for v in _grown:
+                                    _grown_prod *= v
+                                # Only act if growth is meaningful (≥ +50%)
+                                if _grown_prod >= int(_cur_prod * 1.5):
+                                    block_shape = _grown
+                                    print(f"\n[tune] free VRAM ample → block grown to "
+                                          f"({','.join(str(v) for v in block_shape)}) "
+                                          f"= {_grown_prod:,} combos / iter",
+                                          flush=True)
+                        except Exception:
+                            pass
+
+                    # ── Compute this iteration's per-axis extent ────────────
+                    # cur_shape[k] = how many rows of axis k this iteration
+                    # covers, capped at the remainder of the axis.
+                    if n_swept_dims == 0:
+                        cur_shape = ()
+                        inner_shape = ()
+                    else:
+                        cur_shape = tuple(
+                            min(block_shape[k], inner_lens[k] - axis_offsets[k])
+                            for k in range(n_swept_dims)
+                        )
+                        inner_shape = cur_shape
+                    B_inner = 1
+                    for L in inner_shape:
+                        B_inner *= L
+                    if B_inner == 0:
+                        break
                     _t_chunk = _time.time()
 
-                    # ── Generate this chunk's combos directly on the device ──
-                    # Vectorised: ONE indexing op covers all parameters.
+                    # ── Build N-D parameter tensors for this slab ───────────
+                    # Each swept param gets shape (1,..,L,..,1,1) — its own
+                    # length-L axis at its position, 1s elsewhere, and a
+                    # trailing 1 for the freq slot.  Constants stay scalar.
+                    # On host the per-param values are tiny: only the *device*
+                    # tensors matter for VRAM, and they're (1,..,L,..,1,1).
+                    p_nd = None
+                    S_batch_nd = None
+                    S_flat = None
+                    res = None
+                    cur_total = None
+                    cur_4 = None
+                    cur_swept = None
+                    lin = None
+                    idx_2d = None
+                    view_res = None
+                    idx = None
                     try:
-                        lin = xp.arange(s, e, dtype=xp.int64)                       # (B,)
-                        idx_2d = (lin[:, None] // strides_dev[None, :]) \
-                                  % L_dev[None, :]                                  # (B, n_params)
-                        chunk_disp = sweep_table_dev[param_axis_dev[None, :], idx_2d]  # (B, n_params)
-                        chunk_si   = chunk_disp / sweep_scales_dev[None, :]            # (B, n_params)
-
-                        p_chunk = dict(all_p)
-                        for i, key in enumerate(sweep_keys):
-                            if varies_mask[i]:
-                                p_chunk[key] = chunk_si[:, i]   # device view
-                            else:
-                                p_chunk[key] = const_si[key]    # scalar
-
-                        if n_swept > 0:
-                            cur_swept = chunk_disp[:, swept_indices_dev]  # (B, n_swept)
-                        else:
-                            cur_swept = None
+                        p_nd = dict(all_p)
+                        for j, key in enumerate(sweep_keys):
+                            if not varies_mask[j]:
+                                p_nd[key] = const_si[key]
+                                continue
+                            swept_pos = swept_pos_to_param_idx.index(j)
+                            o = axis_offsets[swept_pos]
+                            ln = cur_shape[swept_pos]
+                            vals_disp = sweep_lists[j][o:o + ln]
+                            vals_si = vals_disp / float(sweep_scales[j])
+                            nd_shape = [1] * (n_swept_dims + 1)
+                            nd_shape[swept_pos] = len(vals_si)
+                            p_nd[key] = xp.asarray(vals_si).reshape(nd_shape)
                     except Exception as exc:
                         is_oom = (isinstance(exc, MemoryError) or
                                   "out of memory" in str(exc).lower() or
                                   "OutOfMemoryError" in type(exc).__name__)
-                        if is_oom and CHUNK > CHUNK_MIN:
-                            CHUNK = max(CHUNK_MIN, CHUNK // 2)
-                            print(f"\n[tune] OOM in param-gen → chunk {CHUNK:,}", flush=True)
-                            if use_cuda:
-                                try: _cp.get_default_memory_pool().free_all_blocks()
-                                except Exception: pass
-                            continue
+                        # Drop any partially-built tensors so the retry has room
+                        p_nd = None
+                        if is_oom:
+                            new_block, did = _shrink_one_step(block_shape)
+                            if did:
+                                block_shape = new_block
+                                _oom_streak += 1
+                                print(f"\n[tune] OOM in param-gen → block "
+                                      f"({','.join(str(v) for v in block_shape)}) "
+                                      f"[streak={_oom_streak}]",
+                                      flush=True)
+                                gc.collect()
+                                # Only flush the pool on the *second* OOM in a
+                                # row.  A single OOM is usually solved by the
+                                # shrink alone — flushing every time would
+                                # destroy allocator amortization (the same
+                                # bug we're fixing in this commit).
+                                if use_cuda and _oom_streak >= 2:
+                                    try:
+                                        _cp.get_default_memory_pool().free_all_blocks()
+                                        _cp.get_default_pinned_memory_pool().free_all_blocks()
+                                        print("[tune]   pool flushed (last resort)",
+                                              flush=True)
+                                    except Exception:
+                                        pass
+                                continue
                         raise
 
-                    # ── Run simulate + residuals + top-K merge entirely on
-                    #     the device.  No host sync inside this hot block.   ──
+                    # ── Run simulate + residuals + top-K merge on device ────
                     try:
-                        S_batch = model_cls.simulate_batch(
-                            p_chunk, freq, z0, xp=xp, cache=static_cache)
-                        res = _port_residuals_batch(S_mea_dev, S_batch, xp)
-                        cur_total = res["Total"]                              # (B,)
+                        # Snapshot pool size BEFORE simulate so we can
+                        # measure the actual per-combo allocation footprint
+                        # of this iteration and replace the static estimate
+                        # with an empirical one (only on the first call,
+                        # gated by `_calibrated`).
+                        if use_cuda and not _calibrated:
+                            try:
+                                _bytes_before = _cp.get_default_memory_pool().total_bytes()
+                            except Exception:
+                                _bytes_before = 0
+                        S_batch_nd = model_cls.simulate_batch(
+                            p_nd, freq, z0, xp=xp, cache=static_cache)
+                        # Shape: inner_shape + (N_freq, 2, 2)
+                        S_flat = S_batch_nd.reshape(B_inner, N_freq, 2, 2)
+                        res = _port_residuals_batch(S_mea_dev, S_flat, xp)
+                        cur_total = res["Total"]                                  # (B_inner,)
                         cur_4 = xp.stack(
                             [res["S11"], res["S12"], res["S21"], res["S22"]],
-                            axis=1)                                            # (B, 4)
+                            axis=1)                                                # (B_inner, 4)
 
-                        # NaN/inf protection — replace with a huge finite value
-                        # so they sort to the bottom of argpartition without
-                        # forcing a host-side .all() check (no sync).
+                        # NaN/inf protection — sentinel value sorts to bottom
+                        # without forcing a host-side .all() check (no sync).
                         BIG = 1.0e308
                         cur_total = xp.where(xp.isfinite(cur_total), cur_total, BIG)
 
+                        # ── Build display values for swept params ───────────
+                        # Decompose flat index → multi-axis index using
+                        # row-major strides over `inner_shape`, then look up
+                        # via sweep_table_dev[swept_indices, axis_index].
+                        if n_swept_dims > 0:
+                            local_strides_h = np.ones(n_swept_dims, dtype=np.int64)
+                            for k in range(n_swept_dims - 2, -1, -1):
+                                local_strides_h[k] = local_strides_h[k + 1] * inner_shape[k + 1]
+                            local_strides_dev = xp.asarray(local_strides_h)
+                            local_lens_dev    = xp.asarray(np.asarray(inner_shape, dtype=np.int64))
+
+                            lin = xp.arange(B_inner, dtype=xp.int64)
+                            idx_2d = (lin[:, None] // local_strides_dev[None, :]) \
+                                      % local_lens_dev[None, :]                    # (B_inner, n_swept)
+
+                            if any(o > 0 for o in axis_offsets):
+                                offset_h = np.asarray(axis_offsets, dtype=np.int64)
+                                idx_2d = idx_2d + xp.asarray(offset_h)[None, :]
+
+                            cur_swept = sweep_table_dev[swept_indices_dev[None, :], idx_2d]
+
                         # ── Top-K merge into pre-allocated scratch ──────────
-                        total_in = TOP_K + B
+                        total_in = TOP_K + B_inner
                         scratch_res[:TOP_K]              = top_res
                         scratch_res[TOP_K:total_in]      = cur_total
                         scratch_4[:TOP_K]                = top_4
                         scratch_4[TOP_K:total_in]        = cur_4
-                        if n_swept > 0:
-                            scratch_swept[:TOP_K]            = top_swept
-                            scratch_swept[TOP_K:total_in]    = cur_swept
+                        if n_swept_dims > 0:
+                            scratch_swept[:TOP_K]         = top_swept
+                            scratch_swept[TOP_K:total_in] = cur_swept
 
                         view_res = scratch_res[:total_in]
                         idx = xp.argpartition(view_res, TOP_K)[:TOP_K]
                         idx = idx[xp.argsort(view_res[idx])]
 
-                        # Write the K winners back into the persistent buffers
                         top_res[:] = view_res[idx]
                         top_4[:]   = scratch_4[:total_in][idx]
-                        if n_swept > 0:
+                        if n_swept_dims > 0:
                             top_swept[:] = scratch_swept[:total_in][idx]
 
-                        del S_batch, res, cur_total, cur_4, idx, view_res
-                        del lin, idx_2d, chunk_disp, chunk_si
-                        if cur_swept is not None:
-                            del cur_swept
+                        # ── Empirical calibration (first iteration only) ─
+                        # Measure how many bytes the pool actually grew by
+                        # during this iteration, divide by B_inner, and use
+                        # that as the ground-truth per-combo footprint.
+                        # Apply a 1.3× safety to absorb spike differences
+                        # between iterations.  This replaces the (rough)
+                        # initial estimate so subsequent shrink/grow
+                        # decisions are made on real data.
+                        if use_cuda and not _calibrated and B_inner > 0:
+                            try:
+                                _bytes_after = _cp.get_default_memory_pool().total_bytes()
+                                _delta = max(0, _bytes_after - _bytes_before)
+                                if _delta > 0:
+                                    _measured = _delta // B_inner
+                                    _new_pcb = max(1, int(_measured * 1.3))
+                                    print(f"\n[tune] calibrated per_combo_bytes "
+                                          f"= {_new_pcb:,}  ({_measured:,} "
+                                          f"measured × 1.3 safety; was "
+                                          f"{per_combo_bytes:,})",
+                                          flush=True)
+                                    per_combo_bytes = _new_pcb
+                                _calibrated = True
+                                # Force a resize check on the *next* iter so
+                                # the new estimate can immediately grow the
+                                # block if there's headroom.
+                                _last_resize_t = 0.0
+                            except Exception:
+                                _calibrated = True   # don't keep retrying
                     except Exception as exc:
                         is_oom = (isinstance(exc, MemoryError) or
                                   "out of memory" in str(exc).lower() or
                                   "OutOfMemoryError" in type(exc).__name__)
-                        if is_oom and CHUNK > CHUNK_MIN:
-                            new_chunk = max(CHUNK_MIN, CHUNK // 2)
-                            print(f"\n[tune] OOM at chunk {CHUNK:,} → retry with {new_chunk:,}",
+                        if is_oom:
+                            new_block, did = _shrink_one_step(block_shape)
+                            if did:
+                                old_str = ",".join(str(v) for v in block_shape)
+                                new_str = ",".join(str(v) for v in new_block)
+                                _oom_streak += 1
+                                print(f"\n[tune] OOM at block=({old_str}) → "
+                                      f"retry with ({new_str}) "
+                                      f"[streak={_oom_streak}]",
+                                      flush=True)
+                                block_shape = new_block
+                                # Drop intermediates before retrying — finally
+                                # block will null these out, but we run gc.collect
+                                # immediately to release memory before continue.
+                                p_nd = None
+                                S_batch_nd = None
+                                S_flat = None
+                                res = None
+                                cur_total = None
+                                cur_4 = None
+                                cur_swept = None
+                                lin = None
+                                idx_2d = None
+                                view_res = None
+                                idx = None
+                                gc.collect()
+                                # Only flush the pool on the *second*
+                                # consecutive OOM.  A single OOM is usually
+                                # solved by the shrink alone.  Flushing every
+                                # OOM destroys allocator amortization.
+                                if use_cuda and _oom_streak >= 2:
+                                    try:
+                                        _cp.get_default_memory_pool().free_all_blocks()
+                                        _cp.get_default_pinned_memory_pool().free_all_blocks()
+                                        print("[tune]   pool flushed (last resort)",
+                                              flush=True)
+                                    except Exception:
+                                        pass
+                                continue   # do NOT advance counters
+                            # Already at all-1s floor — bail out cleanly with
+                            # whatever top-K we have, instead of spinning
+                            # forever or crashing the Streamlit script.
+                            print(f"\n[tune] OOM at block=(1,1,...) — single combo "
+                                  f"won't fit in VRAM, giving up",
                                   flush=True)
-                            CHUNK = new_chunk
-                            if use_cuda:
-                                try: _cp.get_default_memory_pool().free_all_blocks()
-                                except Exception: pass
-                            continue   # do NOT advance processed
-                        print(f"\n[tune] chunk {s}-{e} failed: {exc!r}", flush=True)
-                        processed = e
-                        continue
+                            st.error(
+                                f"GPU ran out of memory even at block=(1,1,...): "
+                                f"a single combination's working set "
+                                f"(~{per_combo_bytes/1024**2:.1f} MiB for {N_freq} freq pts) "
+                                f"won't fit in available VRAM. Reduce the number "
+                                f"of frequency points or free GPU memory.")
+                            cancelled = True
+                            break
+                        off_str = ",".join(str(o) for o in axis_offsets)
+                        print(f"\n[tune] block @offsets ({off_str}) failed: {exc!r}",
+                              flush=True)
+                        # Skip this block on non-OOM errors — advance below
+                        # via the post-loop counters by treating it as done.
+                        # Fall through to normal advance.
+                    finally:
+                        # Drop per-iteration intermediates so OOM retry has room
+                        # *before* re-allocating next iteration.  We don't
+                        # touch `top_*` / `scratch_*` (persistent).
+                        p_nd = None
+                        S_batch_nd = None
+                        S_flat = None
+                        res = None
+                        cur_total = None
+                        cur_4 = None
+                        cur_swept = None
+                        lin = None
+                        idx_2d = None
+                        view_res = None
+                        idx = None
 
-                    processed = e
+                    # Successful (or skipped) iteration — advance counters.
+                    # Reset OOM streak: we got through a full iteration, so
+                    # any past OOMs are no longer "consecutive".
+                    _oom_streak = 0
+                    # Multi-axis carry: advance the *innermost* axis by its
+                    # current block step; if it overflows L_k, reset to 0
+                    # and carry into the next-outer axis.
+                    if n_swept_dims == 0:
+                        processed = 1
+                    else:
+                        processed += B_inner
+                        k = n_swept_dims - 1
+                        while k >= 0:
+                            axis_offsets[k] += block_shape[k]
+                            if axis_offsets[k] < inner_lens[k]:
+                                break
+                            axis_offsets[k] = 0
+                            k -= 1
+                        # k < 0  →  every axis wrapped, we're done.  The
+                        # while-loop guard `processed < n_total` will exit.
                     chunks_done += 1
                     last_chunk_ms = (_time.time() - _t_chunk) * 1000.0
 
@@ -1153,11 +1595,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         rate = processed / elapsed if elapsed > 0 else 0.0
                         eta = (n_total - processed) / rate if rate > 0 else 0.0
                         progress.progress(
-                            processed / n_total,
+                            min(1.0, processed / max(n_total, 1)),
                             text=(f"Tuning ({_mode_label})… "
                                   f"{processed:,}/{n_total:,} combos  "
                                   f"({rate:,.0f}/s, ETA {eta:.1f}s)  "
-                                  f"chunk={CHUNK:,}  ({last_chunk_ms:.1f} ms/chunk)"))
+                                  f"slab={B_inner:,}  ({last_chunk_ms:.1f} ms/iter)"))
                         top_arr_host = _sync_topk_host()
                         if top_arr_host is not None:
                             best_series = pd.Series(top_arr_host[0], index=col_names)
@@ -1171,9 +1613,9 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
 
                     _sys.stdout.write(
                         f"\r[tune] {processed:>11,}/{n_total:,}  "
-                        f"({100.0*processed/n_total:5.1f}%)  "
+                        f"({100.0*processed/max(n_total,1):5.1f}%)  "
                         f"{(processed / max(_time.time()-_t_start, 1e-9)):>10,.0f} calc/s  "
-                        f"chunk={CHUNK:,}  {last_chunk_ms:6.1f} ms/chunk")
+                        f"slab={B_inner:,}  {last_chunk_ms:6.1f} ms/iter")
                     _sys.stdout.flush()
             except (KeyboardInterrupt, SystemExit):
                 cancelled = True
@@ -1183,27 +1625,47 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 st.error(f"Out of memory: {me}. Keeping the best results found so far.")
                 print(f"\n[tune] MemoryError: {me}", flush=True)
             except BaseException as exc:
-                # Streamlit raises RerunException when the user clicks any
-                # widget (incl. our Stop button).  Persist and re-raise so
-                # Streamlit can finish the rerun cleanly.
-                if _RerunException is not None and isinstance(exc, _RerunException):
+                # Streamlit raises RerunException OR StopException when the
+                # user clicks any widget (incl. our Stop button) — which one
+                # depends on Streamlit version and the exact widget path.
+                # Treat both identically: persist state, free GPU buffers,
+                # then re-raise so Streamlit can finish the rerun cleanly.
+                _is_rerun = (_RerunException is not None
+                             and isinstance(exc, _RerunException))
+                _is_stop  = (_StopException  is not None
+                             and isinstance(exc, _StopException))
+                # Belt-and-suspenders: also match by class name in case the
+                # exception class moved between Streamlit versions and our
+                # imports above silently fell through to None.
+                _name = type(exc).__name__
+                _is_streamlit_stop = _is_rerun or _is_stop or (
+                    _name in ("RerunException", "StopException"))
+                if _is_streamlit_stop:
                     cancelled = True
-                    print("\n[tune] cancelled (Streamlit rerun, e.g. Stop button)",
-                          flush=True)
+                    print(f"\n[tune] cancelled (Streamlit {_name}, "
+                          f"e.g. Stop button)", flush=True)
                     _persist_topk()
                     # Free GPU buffers before re-raising so the rerun starts clean
-                    if use_cuda:
+                    try:
+                        S_mea_dev = None
+                        top_res = None; top_4 = None; top_swept = None
+                        scratch_res = None; scratch_4 = None; scratch_swept = None
+                        sweep_table_dev = None
+                        swept_indices_dev = None
+                        omega_dev = None
+                        # Per-iteration intermediates that may still be alive
+                        # if the exception was raised mid-iteration.  The
+                        # inner finally usually nulls these, but we
+                        # belt-and-suspenders here.
                         try:
-                            del S_mea_dev, top_res, top_4, top_swept
-                            del scratch_res, scratch_4, scratch_swept
-                            del sweep_table_dev, strides_dev, L_dev
-                            del sweep_scales_dev, param_axis_dev
-                            if swept_indices_dev is not None:
-                                del swept_indices_dev
-                            static_cache.clear()
-                            _cp.get_default_memory_pool().free_all_blocks()
-                        except Exception:
+                            del p_nd, S_batch_nd, S_flat, res, cur_total, cur_4
+                            del cur_swept, lin, idx_2d, view_res, idx
+                        except (NameError, UnboundLocalError):
                             pass
+                        static_cache.clear()
+                    except Exception:
+                        pass
+                    _release_gpu_memory()
                     raise
                 # Anything else: log, persist, re-raise
                 print(f"\n[tune] unexpected exception: {exc!r}", flush=True)
@@ -1221,19 +1683,23 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             print(f"\n[tune] done   processed={'?' if cancelled else f'{n_total:,}'}  "
                   f"top={n_kept}  in {_time.time()-_t_start:.2f}s", flush=True)
 
-            # Free GPU buffers
-            if use_cuda:
-                try:
-                    del S_mea_dev, top_res, top_4, top_swept
-                    del scratch_res, scratch_4, scratch_swept
-                    del sweep_table_dev, strides_dev, L_dev
-                    del sweep_scales_dev, param_axis_dev
-                    if swept_indices_dev is not None:
-                        del swept_indices_dev
-                    static_cache.clear()
-                    _cp.get_default_memory_pool().free_all_blocks()
-                except Exception:
-                    pass
+            # ── Aggressive cleanup: free everything except the persisted
+            # top-100 dataframe (already in st.session_state).  Drop refs
+            # first so the GC can collect, then return memory pools to the
+            # device / OS.  See _release_gpu_memory() for the sync+gc+flush
+            # sequence — without it, async kernels in flight would prevent
+            # the pool from actually returning blocks to the driver.
+            try:
+                S_mea_dev = None
+                top_res = None; top_4 = None; top_swept = None
+                scratch_res = None; scratch_4 = None; scratch_swept = None
+                sweep_table_dev = None
+                swept_indices_dev = None
+                omega_dev = None
+                static_cache.clear()
+            except Exception:
+                pass
+            _release_gpu_memory()
 
         # Display results if available
         df = st.session_state.get(f"tune_df_{topo_key}_{fname}")
