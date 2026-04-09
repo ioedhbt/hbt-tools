@@ -227,7 +227,7 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
     default_max = float(np.max(abs_disp))
     if default_max <= default_min:
         default_max = default_min + 1.0
-    default_step = 10.0
+    default_step = 0.1
 
     # Per-group state keys — tied to rng_tag so defaults refresh on slider move
     sweep_key_base = f"cbex_sweep_{model_short}_{fname}_{rng_tag}"
@@ -236,6 +236,7 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
     k_max  = f"{sweep_key_base}_max"
     k_res  = f"cbex_sweep_result_{model_short}_{fname}"  # persists across reruns
 
+    st.markdown("---")
     st.markdown("**🔍 Cbex sweep — minimise std(Cbcx)**")
     st.caption(
         "Sweeps candidate Cbex values in the range below (inclusive), "
@@ -244,7 +245,7 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
         "window.  Click Calculate to run the sweep and push the best value "
         "into the Cbex input below.")
 
-    c_min, c_step, c_max, c_btn = st.columns([1.0, 1.0, 1.0, 1.1])
+    c_min, c_step, c_max = st.columns(3)
     sweep_min = c_min.number_input(
         f"Min ({cbex_unit})",
         value=float(st.session_state.get(k_min, default_min)),
@@ -257,7 +258,7 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
         f"Max ({cbex_unit})",
         value=float(st.session_state.get(k_max, default_max)),
         min_value=0.0, format="%.4f", key=k_max)
-    run_sweep = c_btn.button(
+    run_sweep = st.button(
         "Calculate",
         key=f"{sweep_key_base}_btn",
         width="stretch")
@@ -301,18 +302,16 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
             best_cbex_disp = best_cbex_SI * float(cbex_scale)
             best_std = float(stds[best_k])
 
-            # Write the result into the Cbex number_input's session-state key
-            # so the widget below renders the new value.  The key must match
-            # the one built in the plot loop EXACTLY.
-            _upstream_vals = tuple(
-                round(0.0 * 1e15)
-                for gi in range(g_idx)
-                for _spec in param_groups[gi]["params"]
-            )
-            upstream_tag = str(hash(_upstream_vals) % (10 ** 9))
-            inp_key = (f"pfp_inp_{model_short}_{cbex_param_key}_"
-                       f"{fname}_{rng_tag}_{upstream_tag}")
-            st.session_state[inp_key] = float(best_cbex_disp)
+            # Stage the result in a "pending" key.  We CAN'T write directly
+            # to the number_input's session-state key here because that
+            # widget has already been instantiated earlier in this same run
+            # (it lives in cols[0] of the same row).  On the next rerun the
+            # plot loop will see this pending value and copy it into the
+            # widget key BEFORE the widget is created — see the
+            # `pfp_pending_*` lookup just above the number_input render.
+            pending_key = (f"pfp_pending_{model_short}_{cbex_param_key}_"
+                           f"{fname}")
+            st.session_state[pending_key] = float(best_cbex_disp)
 
             # Persist the message so it survives the rerun
             st.session_state[k_res] = {
@@ -669,36 +668,16 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
             # Tag used in widget keys — changing it recreates inputs fresh on slider move
             rng_tag = f"{f_lo:.3f}_{f_hi:.3f}"
 
-            # ── Cbex sweep tool ────────────────────────────────────────────────
-            # Only rendered for groups explicitly flagged `cbex_sweep_group`.
-            # Finds the Cbex value that minimises std(Cbcx_arr) across the
-            # Cbcx-group's currently selected frequency window (falling back
-            # to the full range if the user hasn't moved that slider yet).
-            if (group.get("cbex_sweep_group")
-                    and cbex_sweep_fn is not None
-                    and "Cbex_arr" in live_arrays):
-                _render_cbex_sweep_tool(
-                    cbex_arr=live_arrays["Cbex_arr"],
-                    freq=freq,
-                    f_ghz=f_ghz,
-                    f_min_v=f_min_v,
-                    f_max_v=f_max_v,
-                    cbex_scale=g_params[0][3],   # 1e15 (fF)
-                    cbex_unit=g_params[0][4],    # "fF"
-                    cbex_param_key=g_params[0][1],  # "Cbex"
-                    model_short=model_short,
-                    fname=fname,
-                    g_idx=g_idx,
-                    rng_tag=rng_tag,
-                    cbex_sweep_fn=cbex_sweep_fn,
-                    param_groups=param_groups,
-                )
-
             valid_specs = [
                 s for s in g_params
                 if s[0] in live_arrays and isinstance(live_arrays[s[0]], np.ndarray)
             ]
 
+
+            _is_cbex_sweep_group = (group.get("cbex_sweep_group")
+                                    and cbex_sweep_fn is not None
+                                    and "Cbex_arr" in live_arrays)
+            _cbex_sweep_rendered = False
 
             for row_start in range(0, len(valid_specs), 2):
                 row  = valid_specs[row_start:row_start + 2]
@@ -729,6 +708,15 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     )
                     upstream_tag = str(hash(_upstream_vals) % (10 ** 9))
                     inp_key   = f"pfp_inp_{model_short}_{param_key}_{fname}_{rng_tag}_{upstream_tag}"
+
+                    # Transfer any pending override (e.g. from the Cbex
+                    # sweep tool) into the widget key.  Must happen BEFORE
+                    # the number_input is instantiated, or Streamlit raises
+                    # "session_state ... cannot be modified after widget".
+                    pending_key = f"pfp_pending_{model_short}_{param_key}_{fname}"
+                    if pending_key in st.session_state:
+                        st.session_state[inp_key] = st.session_state.pop(pending_key)
+
                     user_disp = float(st.session_state.get(inp_key, auto_disp))
                     user_SI   = user_disp / scale
 
@@ -783,7 +771,31 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                         key=inp_key)
 
                     params_out[param_key] = actual_val / scale
-                    
+
+                # Render the Cbex sweep tool in the unused 2nd column,
+                # immediately beside the Cbex plot.
+                if (_is_cbex_sweep_group
+                        and not _cbex_sweep_rendered
+                        and len(row) < 2):
+                    with cols[1]:
+                        _render_cbex_sweep_tool(
+                            cbex_arr=live_arrays["Cbex_arr"],
+                            freq=freq,
+                            f_ghz=f_ghz,
+                            f_min_v=f_min_v,
+                            f_max_v=f_max_v,
+                            cbex_scale=g_params[0][3],   # 1e15 (fF)
+                            cbex_unit=g_params[0][4],    # "fF"
+                            cbex_param_key=g_params[0][1],  # "Cbex"
+                            model_short=model_short,
+                            fname=fname,
+                            g_idx=g_idx,
+                            rng_tag=rng_tag,
+                            cbex_sweep_fn=cbex_sweep_fn,
+                            param_groups=param_groups,
+                        )
+                    _cbex_sweep_rendered = True
+
             # ── Re-extract downstream groups if any param in this group changed ──
             if reextract_fn is not None and g_idx < len(param_groups) - 1:
                 _grp_param_keys = {spec[1] for spec in g_params}
@@ -1063,8 +1075,27 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             varies_mask = [L_list[i] > 1 for i in range(n_params)]
             swept_set = {sweep_keys[i] for i in range(n_params) if varies_mask[i]}
 
-            # Move S_mea onto the compute device once
-            S_mea_dev = xp.asarray(S_raw)
+            # ── FP32 sweep mode (GPU only, model-opt-in) ─────────────────────
+            # Cheng T/Pi's batched intrinsic-Y kernels honour cache["_cdtype"]
+            # so the main loop can run entirely in complex64.  fp64 rerank
+            # below replaces the residuals on the surviving top-K combos so
+            # the final ranking and the persisted residuals are double-precision.
+            #
+            # CPU mode is left at fp64: scalar AVX is the same width for
+            # both, and reduced precision saves no wall time on this code.
+            use_fp32_sweep = bool(use_cuda and getattr(
+                model_cls, "SUPPORTS_FP32_SWEEP", False))
+            cdtype_main = np.complex64 if use_fp32_sweep else np.complex128
+            rdtype_main = np.float32   if use_fp32_sweep else np.float64
+
+            # Move S_mea onto the compute device once.  Two copies for fp32:
+            # the cast (complex64) version drives the main loop, the original
+            # complex128 stays alive for the fp64 rerank.
+            S_mea_dev_fp64 = xp.asarray(S_raw)
+            if use_fp32_sweep:
+                S_mea_dev = S_mea_dev_fp64.astype(np.complex64)
+            else:
+                S_mea_dev = S_mea_dev_fp64
 
             # ── N-D omega: (1,)*n_swept_dims + (N_freq,) ────────────────────
             # Number of leading 1s = number of swept axes, so omega broadcasts
@@ -1085,28 +1116,162 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             _PAD_CAP_KEYS = ("Cpbe", "Cpce", "Cpbc")
             _SER_LEAD_KEYS = ("Rpb", "Rpc", "Rpe", "Lb", "Lc", "Le")
             _CHENG_EXTR_KEYS = ("Cbex", "Cbcx")
+            # Cheng-T intrinsic sub-expression groups: each is pre-bakeable
+            # whenever *none* of its inputs are swept.
+            _T_ZBE_KEYS   = ("Rbe", "Cbe")
+            _T_ZBC_KEYS   = ("Rbc", "Cbc")
+            _T_ALPHA_KEYS = ("alpha0", "tauB", "tauC")
+            _T_INT_ALL    = ("Rbi",) + _T_ZBE_KEYS + _T_ZBC_KEYS + _T_ALPHA_KEYS
+            # Cheng-π intrinsic sub-expression groups
+            _PI_YBE_KEYS  = ("Rbe", "Cbe")
+            _PI_YBC_KEYS  = ("Rbc", "Cbc")
+            _PI_GM_KEYS   = ("Gm0", "tau")
+            _PI_INT_ALL   = ("Rbi",) + _PI_YBE_KEYS + _PI_YBC_KEYS + _PI_GM_KEYS
 
             static_p = dict(all_p)
             for _k, _v in const_si.items():
                 static_p[_k] = _v
 
-            static_cache = {"omega": omega_dev}
+            # The fp64 cache is the canonical one — built first, then
+            # cast to a parallel fp32 cache for the main loop if eligible.
+            # The fp64 cache is also kept alive for the fp64 rerank below.
+            static_cache_fp64 = {"omega": omega_dev}
             _cached_msgs = []
             if not (set(_PAD_CAP_KEYS) & swept_set):
-                static_cache["Y_pad"] = build_Y_pad_batch(static_p, omega_dev, 1, N_freq, xp)
+                static_cache_fp64["Y_pad"] = build_Y_pad_batch(
+                    static_p, omega_dev, 1, N_freq, xp)
                 _cached_msgs.append("Y_pad")
             if not (set(_SER_LEAD_KEYS) & swept_set):
-                static_cache["Z_ser"] = build_Z_ser_batch(static_p, omega_dev, 1, N_freq, xp)
+                static_cache_fp64["Z_ser"] = build_Z_ser_batch(
+                    static_p, omega_dev, 1, N_freq, xp)
                 _cached_msgs.append("Z_ser")
             if not (set(_CHENG_EXTR_KEYS) & swept_set):
                 _Cbex_c = float(static_p.get("Cbex", 0.0))
                 _Cbcx_c = float(static_p.get("Cbcx", 0.0))
-                static_cache["Y_extr"] = (1j * omega_dev * _Cbex_c,
-                                          1j * omega_dev * _Cbcx_c)
+                static_cache_fp64["Y_extr"] = (1j * omega_dev * _Cbex_c,
+                                               1j * omega_dev * _Cbcx_c)
                 _cached_msgs.append("Y_extr")
+
+            # ── Cheng-specific intrinsic sub-expression caches ──────────────
+            # These mirror what _Y_int_T_batch / _Y_int_Pi_batch will look up:
+            # if a (Rbe,Cbe) / (Rbc,Cbc) / (alpha0,tauB,tauC) pair has all
+            # constant inputs we can pre-build the result once and reuse it
+            # every chunk.  When *every* intrinsic param is constant we go
+            # one step further and pre-build the four intrinsic-Y planes
+            # outright, skipping the entire per-chunk inv() of Z_in.
+            _model_short = getattr(model_cls, "SHORT", "")
+            if _model_short == "T":
+                if not (set(_T_ZBE_KEYS) & swept_set):
+                    _Rbe_c = float(static_p.get("Rbe", 1.0))
+                    _Cbe_c = float(static_p.get("Cbe", 0.0))
+                    static_cache_fp64["Zbe"] = (
+                        _Rbe_c / (1.0 + 1j * omega_dev * _Rbe_c * _Cbe_c))
+                    _cached_msgs.append("Zbe")
+                if not (set(_T_ZBC_KEYS) & swept_set):
+                    _Rbc_c = float(static_p.get("Rbc", 1.0))
+                    _Cbc_c = float(static_p.get("Cbc", 0.0))
+                    static_cache_fp64["Zbc"] = (
+                        _Rbc_c / (1.0 + 1j * omega_dev * _Rbc_c * _Cbc_c))
+                    _cached_msgs.append("Zbc")
+                if not (set(_T_ALPHA_KEYS) & swept_set):
+                    _a0 = float(static_p.get("alpha0", 0.0))
+                    _tC = float(static_p.get("tauC",   0.0))
+                    _tB = float(static_p.get("tauB",   0.0))
+                    static_cache_fp64["alpha"] = (
+                        _a0 * xp.exp(-1j * omega_dev * _tC)
+                        / (1.0 + 1j * omega_dev * _tB))
+                    _cached_msgs.append("alpha")
+                if not (set(_T_INT_ALL) & swept_set):
+                    # Inline what _Y_int_T_batch would compute, once.
+                    _Rbi_c = float(static_p.get("Rbi", 0.0))
+                    _Zbe_c = static_cache_fp64["Zbe"]
+                    _Zbc_c = static_cache_fp64["Zbc"]
+                    _alpha_c = static_cache_fp64["alpha"]
+                    _z00 = _Rbi_c + _Zbe_c
+                    _z01 = _Zbe_c
+                    _z10 = _Zbe_c - _alpha_c * _Zbc_c
+                    _z11 = (1.0 - _alpha_c) * _Zbc_c + _Zbe_c
+                    _det = _z00 * _z11 - _z01 * _z10
+                    _inv_det = 1.0 / _det
+                    static_cache_fp64["T_int_planes"] = (
+                         _z11 * _inv_det,
+                        -_z01 * _inv_det,
+                        -_z10 * _inv_det,
+                         _z00 * _inv_det,
+                    )
+                    _cached_msgs.append("T_int_planes")
+            elif _model_short == "pi":
+                if not (set(_PI_YBE_KEYS) & swept_set):
+                    _Rbe_c = float(static_p.get("Rbe", 1.0))
+                    _Cbe_c = float(static_p.get("Cbe", 0.0))
+                    static_cache_fp64["Ybe"] = (
+                        1.0 / _Rbe_c + 1j * omega_dev * _Cbe_c)
+                    _cached_msgs.append("Ybe")
+                if not (set(_PI_YBC_KEYS) & swept_set):
+                    _Rbc_c = float(static_p.get("Rbc", 1e9))
+                    _Cbc_c = float(static_p.get("Cbc", 0.0))
+                    static_cache_fp64["Ybc"] = (
+                        1.0 / _Rbc_c + 1j * omega_dev * _Cbc_c)
+                    _cached_msgs.append("Ybc")
+                if not (set(_PI_GM_KEYS) & swept_set):
+                    _Gm0_c = float(static_p.get("Gm0", 0.0))
+                    _tau_c = float(static_p.get("tau", 0.0))
+                    static_cache_fp64["gm"] = (
+                        _Gm0_c * xp.exp(-1j * omega_dev * _tau_c))
+                    _cached_msgs.append("gm")
+                if not (set(_PI_INT_ALL) & swept_set):
+                    # Inline what _Y_int_Pi_batch would compute, once.
+                    _Rbi_c   = float(static_p.get("Rbi", 0.0))
+                    _Ybe_c   = static_cache_fp64["Ybe"]
+                    _Ybc_c   = static_cache_fp64["Ybc"]
+                    _gm_c    = static_cache_fp64["gm"]
+                    _yc00 = _Ybe_c + _Ybc_c
+                    _yc01 = -_Ybc_c
+                    _yc10 = _gm_c  - _Ybc_c
+                    _yc11 = _Ybc_c
+                    _idc  = 1.0 / (_yc00 * _yc11 - _yc01 * _yc10)
+                    _zc00 =  _yc11 * _idc + _Rbi_c
+                    _zc01 = -_yc01 * _idc
+                    _zc10 = -_yc10 * _idc
+                    _zc11 =  _yc00 * _idc
+                    _idi  = 1.0 / (_zc00 * _zc11 - _zc01 * _zc10)
+                    static_cache_fp64["Pi_int_planes"] = (
+                         _zc11 * _idi,
+                        -_zc01 * _idi,
+                        -_zc10 * _idi,
+                         _zc00 * _idi,
+                    )
+                    _cached_msgs.append("Pi_int_planes")
+
+            # ── Build the fp32 cache (cast of fp64 cache) for main loop ─────
+            # Everything except `omega` and the dtype tag is a complex tensor;
+            # cast each in-place to complex64.  `omega` is real — keep its
+            # own copy at float32 so multiply-by-J stays in c64.
+            if use_fp32_sweep:
+                omega_dev_fp32 = omega_dev.astype(np.float32)
+                static_cache = {"omega": omega_dev_fp32, "_cdtype": np.complex64}
+                for _k, _v in static_cache_fp64.items():
+                    if _k in ("omega", "_cdtype"):
+                        continue
+                    if isinstance(_v, tuple):
+                        static_cache[_k] = tuple(
+                            _p.astype(np.complex64) if hasattr(_p, "astype") else _p
+                            for _p in _v
+                        )
+                    elif hasattr(_v, "astype"):
+                        static_cache[_k] = _v.astype(np.complex64)
+                    else:
+                        static_cache[_k] = _v
+            else:
+                static_cache = static_cache_fp64
+                static_cache["_cdtype"] = np.complex128
+
             if _cached_msgs:
-                st.caption("Pre-baked constant networks: " + ", ".join(_cached_msgs))
-                print(f"[tune] pre-baked: {', '.join(_cached_msgs)}", flush=True)
+                _prec_lbl = "fp32" if use_fp32_sweep else "fp64"
+                st.caption(f"Pre-baked constant networks ({_prec_lbl}): "
+                           + ", ".join(_cached_msgs))
+                print(f"[tune] pre-baked ({_prec_lbl}): "
+                      f"{', '.join(_cached_msgs)}", flush=True)
 
             col_names = ["Total Residual (%)", "S11 (%)", "S12 (%)", "S21 (%)", "S22 (%)"]
             for lbl, u in zip(sweep_labels, sweep_units):
@@ -1130,13 +1295,16 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             #   • Y_norm/M/M_inv/N/S working set                 = 12 planes
             #   • Final stacked (B,N,2,2)                        =  4 planes
             #   • Residual diff/num/val                          =  6 planes
-            # Each plane = 16 bytes/element × N_freq elements per combo.
+            # Each plane = 16 bytes/element × N_freq elements per combo
+            # in complex128, or 8 bytes/element in complex64 (fp32 sweep).
             # Initial guess: ~60 planes × 16 = 960 B/combo per N_freq, with a
             # 1.25× safety margin → 12× N_freq complex128 tensor-equivalents.
-            # This is replaced after iter 1 by an empirical measurement
-            # (see `_calibrated` below) — the initial guess only governs the
-            # *first* block size before we have real data.
-            per_combo_bytes = 64 * N_freq * 12
+            # In fp32 mode the same 60 planes are 8 B each, so the bytes
+            # estimate halves.  Replaced after iter 1 by an empirical
+            # measurement (see `_calibrated` below) — the initial guess only
+            # governs the *first* block size before we have real data.
+            _bytes_per_complex = 8 if use_fp32_sweep else 16
+            per_combo_bytes = (_bytes_per_complex * 4) * N_freq * 12
             _calibrated = False
             free_label = ""
             if use_cuda:
@@ -1155,10 +1323,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     free_label = (f"GPU{dev.id}: {free_b/1024**3:.2f}/"
                                   f"{total_b/1024**3:.2f} GiB free  ·  {sm_count} SMs")
                     # 0.55 keeps ~45% of free VRAM as headroom for pool
-                    # 0.75 uses more VRAM
+                    # 0.95 uses more VRAM
                     # fragmentation, top-K scratch, persistent buffers, and
                     # the measurement S_mea_dev tensor.
-                    budget = int(free_b * 0.75)
+                    budget = int(free_b * 0.95)
                 except Exception:
                     budget = 1 * 1024**3
             else:
@@ -1520,7 +1688,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             vals_si = vals_disp / float(sweep_scales[j])
                             nd_shape = [1] * (n_swept_dims + 1)
                             nd_shape[swept_pos] = len(vals_si)
-                            p_nd[key] = xp.asarray(vals_si).reshape(nd_shape)
+                            # rdtype_main is float32 in fp32 sweep mode, so
+                            # the swept tensor doesn't get promoted back to
+                            # float64 inside the model kernels.
+                            p_nd[key] = xp.asarray(
+                                vals_si, dtype=rdtype_main).reshape(nd_shape)
                     except Exception as exc:
                         is_oom = (isinstance(exc, MemoryError) or
                                   "out of memory" in str(exc).lower() or
@@ -1810,6 +1982,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     # Free GPU buffers before re-raising so the rerun starts clean
                     try:
                         S_mea_dev = None
+                        S_mea_dev_fp64 = None
                         top_res = None; top_4 = None; top_swept = None
                         scratch_res = None; scratch_4 = None; scratch_swept = None
                         sweep_table_dev = None
@@ -1825,6 +1998,8 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         except (NameError, UnboundLocalError):
                             pass
                         static_cache.clear()
+                        if static_cache_fp64 is not static_cache:
+                            static_cache_fp64.clear()
                     except Exception:
                         pass
                     _release_gpu_memory()
@@ -1845,6 +2020,79 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             print(f"\n[tune] done   processed={'?' if cancelled else f'{n_total:,}'}  "
                   f"top={n_kept}  in {_time.time()-_t_start:.2f}s", flush=True)
 
+            # ── FP64 rerank of the surviving top-K ──────────────────────────
+            # The main loop ran in complex64 (cache_fp32) so the residuals
+            # are fp32-accurate.  Re-evaluate every finite top-K combo at
+            # complex128 using `static_cache_fp64`, replace the residuals,
+            # and re-sort.  TOP_K is small (~100) so this is one batched
+            # simulate_batch call — negligible cost vs the main sweep.
+            if (use_fp32_sweep and not cancelled
+                    and top_res is not None and n_kept > 0):
+                try:
+                    _top_h = _sync_topk_host()
+                    if _top_h is not None and len(_top_h) > 0:
+                        K_rk = int(len(_top_h))
+                        # Build (K,) SI arrays for swept params, scalars for
+                        # constants — same param dict shape `simulate_batch`
+                        # already understands.
+                        _p_rk = dict(all_p)
+                        for j, key in enumerate(sweep_keys):
+                            col_disp = _top_h[:, 5 + j]
+                            if L_list[j] == 1:
+                                _p_rk[key] = (float(col_disp[0])
+                                              / float(sweep_scales[j]))
+                            else:
+                                _p_rk[key] = xp.asarray(
+                                    col_disp / float(sweep_scales[j]),
+                                    dtype=np.float64)
+                        # Force fp64 cdtype on the rerank cache.
+                        static_cache_fp64["_cdtype"] = np.complex128
+                        S_rk = model_cls.simulate_batch(
+                            _p_rk, freq, z0, xp=xp, cache=static_cache_fp64)
+                        S_rk_flat = S_rk.reshape(K_rk, N_freq, 2, 2)
+                        res_rk = _port_residuals_batch(
+                            S_mea_dev_fp64, S_rk_flat, xp)
+                        tot_rk = xp.where(
+                            xp.isfinite(res_rk["Total"]),
+                            res_rk["Total"], 1.0e308)
+                        s4_rk  = xp.stack(
+                            [res_rk["S11"], res_rk["S12"],
+                             res_rk["S21"], res_rk["S22"]], axis=1)
+
+                        # Re-sort by fp64 residuals
+                        order_dev = xp.argsort(tot_rk)
+                        tot_rk_s  = tot_rk[order_dev]
+                        s4_rk_s   = s4_rk[order_dev]
+
+                        order_h = (_cp.asnumpy(order_dev) if use_cuda
+                                   else np.asarray(order_dev))
+                        _top_h_s = _top_h[order_h]
+                        _top_h_s[:, 0]   = (_cp.asnumpy(tot_rk_s) if use_cuda
+                                            else np.asarray(tot_rk_s))
+                        _top_h_s[:, 1:5] = (_cp.asnumpy(s4_rk_s) if use_cuda
+                                            else np.asarray(s4_rk_s))
+
+                        # Push back into the device top-K accumulators so
+                        # display and persist see fp64 values.
+                        top_res[:K_rk] = xp.asarray(_top_h_s[:, 0])
+                        if K_rk < TOP_K:
+                            top_res[K_rk:] = xp.inf
+                        top_4[:K_rk] = xp.asarray(_top_h_s[:, 1:5])
+                        if n_swept > 0:
+                            _ts = np.empty((K_rk, n_swept), dtype=np.float64)
+                            _jswept = 0
+                            for i in range(n_params):
+                                if L_list[i] > 1:
+                                    _ts[:, _jswept] = _top_h_s[:, 5 + i]
+                                    _jswept += 1
+                            top_swept[:K_rk] = xp.asarray(_ts)
+                        _persist_topk()
+                        print(f"[tune] fp64 rerank: top-{K_rk} "
+                              f"re-evaluated and re-sorted", flush=True)
+                except Exception as _rk_exc:
+                    print(f"[tune] fp64 rerank failed: {_rk_exc!r} — "
+                          f"keeping fp32 ranking", flush=True)
+
             # ── Aggressive cleanup: free everything except the persisted
             # top-100 dataframe (already in st.session_state).  Drop refs
             # first so the GC can collect, then return memory pools to the
@@ -1853,12 +2101,15 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # the pool from actually returning blocks to the driver.
             try:
                 S_mea_dev = None
+                S_mea_dev_fp64 = None
                 top_res = None; top_4 = None; top_swept = None
                 scratch_res = None; scratch_4 = None; scratch_swept = None
                 sweep_table_dev = None
                 swept_indices_dev = None
                 omega_dev = None
                 static_cache.clear()
+                if static_cache_fp64 is not static_cache:
+                    static_cache_fp64.clear()
             except Exception:
                 pass
             _release_gpu_memory()

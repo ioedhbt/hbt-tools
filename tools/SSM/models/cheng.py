@@ -345,10 +345,18 @@ def _Y_int_Pi_vec(p, omega, xp):
 
 # ── Batched (B, N, 2, 2) forward simulation for parameter-sweep tuning ─────
 
-def _b1(p, key, default, xp):
-    """Fetch p[key] (or default) and reshape (B,) → (B,1).  Scalars stay scalar."""
+def _b1(p, key, default, xp, dtype=None):
+    """Fetch p[key] (or default) and reshape (B,) → (B,1).  Scalars stay scalar.
+
+    If ``dtype`` is given, the value is coerced to that dtype.  Used by the
+    fp32 sweep path so a scalar Python ``float`` constant doesn't promote
+    a (B,N) ``float32`` swept tensor back up to ``float64``.
+    """
     v = p.get(key, default)
-    a = xp.asarray(v)
+    if dtype is not None:
+        a = xp.asarray(v, dtype=dtype)
+    else:
+        a = xp.asarray(v)
     if a.ndim == 1:
         return a.reshape(-1, 1)
     return a
@@ -403,24 +411,31 @@ def _sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None):
       - ``"Y_pad"``  : 4 planes (yp00, yp01, yp10, yp11)
       - ``"Z_ser"``  : 4 planes (zs00, zs01, zs10, zs11)
       - ``"Y_extr"`` : (Ybex, Ybcx) — extrinsic-cap admittances
+      - ``"_cdtype"``: complex dtype for the entire compute path.  Use
+        ``np.complex64`` for the fp32 sweep main loop, ``np.complex128``
+        for the final fp64 rerank.  Defaults to ``np.complex128`` so
+        callers without a cache get the original behaviour.
     """
     N = len(freq)
     B = _detect_B(p, xp)
+    cdtype = (cache or {}).get("_cdtype", np.complex128)
+    rdtype = np.float32 if cdtype == np.complex64 else np.float64
+    J = xp.asarray(1j, dtype=cdtype)
     if cache is not None and "omega" in cache:
         omega = cache["omega"]
     else:
-        omega = xp.asarray(2.0 * np.pi * freq, dtype=np.float64).reshape(1, N)  # (1, N)
+        omega = xp.asarray(2.0 * np.pi * freq, dtype=rdtype).reshape(1, N)  # (1, N)
 
     # Intrinsic Y matrix as 4 (B, N) planes — no (B, N, 2, 2) tensor yet
-    yi00, yi01, yi10, yi11 = Y_int_batch_fn(p, omega, B, N, xp)
+    yi00, yi01, yi10, yi11 = Y_int_batch_fn(p, omega, B, N, xp, cache)
 
     # Extrinsic caps (broadcastable to (B, N)) — cache-aware
     if cache is not None and "Y_extr" in cache:
         Ybex, Ybcx = cache["Y_extr"]
     else:
-        Cbcx = _b1(p, "Cbcx", 0.0, xp)
-        Cbex = _b1(p, "Cbex", 0.0, xp)
-        jw   = 1j * omega
+        Cbcx = _b1(p, "Cbcx", 0.0, xp, rdtype)
+        Cbex = _b1(p, "Cbex", 0.0, xp, rdtype)
+        jw   = J * omega
         Ybcx = jw * Cbcx
         Ybex = jw * Cbex
 
@@ -491,24 +506,55 @@ def _sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None):
     return _stack22(s00, s01, s10, s11, xp)   # (B, N, 2, 2)
 
 
-def _Y_int_T_batch(p, omega, B, N, xp):
+def _Y_int_T_batch(p, omega, B, N, xp, cache=None):
     """Batched T-topology intrinsic Y → 4 (B, N) planes (y00, y01, y10, y11).
 
     Returning planes (not a (B, N, 2, 2) tensor) lets ``_sim_wrap_batch``
     keep the algebra fully inlined.
-    """
-    Rbi    = _b1(p, "Rbi",    0.0, xp)
-    Rbe    = _b1(p, "Rbe",    1.0, xp)
-    Cbe    = _b1(p, "Cbe",    0.0, xp)
-    Rbc    = _b1(p, "Rbc",    1.0, xp)
-    Cbc    = _b1(p, "Cbc",    0.0, xp)
-    alpha0 = _b1(p, "alpha0", 0.0, xp)
-    tauC   = _b1(p, "tauC",   0.0, xp)
-    tauB   = _b1(p, "tauB",   0.0, xp)
 
-    Zbe   = Rbe / (1.0 + 1j * omega * Rbe * Cbe)               # (B, N) or (1, N)
-    Zbc   = Rbc / (1.0 + 1j * omega * Rbc * Cbc)
-    alpha = alpha0 * xp.exp(-1j * omega * tauC) / (1.0 + 1j * omega * tauB)
+    Cache-aware: skip whichever sub-expressions are constant for the
+    sweep (only their inputs aren't being swept):
+
+      - ``"T_int_planes"`` : full (yi00..yi11) tuple — used when *every*
+        intrinsic param (Rbi, Rbe, Cbe, Rbc, Cbc, alpha0, tauB, tauC) is
+        constant, so we can return the four planes directly.
+      - ``"Zbe"``          : pre-built when both Rbe and Cbe are constant.
+      - ``"Zbc"``          : pre-built when both Rbc and Cbc are constant.
+      - ``"alpha"``        : pre-built when alpha0, tauB, tauC are all constant.
+
+    The dtype is propagated through ``cache["_cdtype"]`` (complex64 for
+    fp32 sweep, complex128 otherwise).
+    """
+    if cache is not None and "T_int_planes" in cache:
+        return cache["T_int_planes"]
+
+    cdtype = (cache or {}).get("_cdtype", np.complex128)
+    rdtype = np.float32 if cdtype == np.complex64 else np.float64
+    J = xp.asarray(1j, dtype=cdtype)
+
+    Rbi = _b1(p, "Rbi", 0.0, xp, rdtype)
+
+    if cache is not None and "Zbe" in cache:
+        Zbe = cache["Zbe"]
+    else:
+        Rbe = _b1(p, "Rbe", 1.0, xp, rdtype)
+        Cbe = _b1(p, "Cbe", 0.0, xp, rdtype)
+        Zbe = Rbe / (1.0 + J * omega * Rbe * Cbe)
+
+    if cache is not None and "Zbc" in cache:
+        Zbc = cache["Zbc"]
+    else:
+        Rbc = _b1(p, "Rbc", 1.0, xp, rdtype)
+        Cbc = _b1(p, "Cbc", 0.0, xp, rdtype)
+        Zbc = Rbc / (1.0 + J * omega * Rbc * Cbc)
+
+    if cache is not None and "alpha" in cache:
+        alpha = cache["alpha"]
+    else:
+        alpha0 = _b1(p, "alpha0", 0.0, xp, rdtype)
+        tauC   = _b1(p, "tauC",   0.0, xp, rdtype)
+        tauB   = _b1(p, "tauB",   0.0, xp, rdtype)
+        alpha = alpha0 * xp.exp(-J * omega * tauC) / (1.0 + J * omega * tauB)
 
     # Z_in 2×2
     z00 = Rbi + Zbe
@@ -525,19 +571,48 @@ def _Y_int_T_batch(p, omega, B, N, xp):
     return y00, y01, y10, y11
 
 
-def _Y_int_Pi_batch(p, omega, B, N, xp):
-    """Batched Pi-topology intrinsic Y → 4 (B, N) planes (y00, y01, y10, y11)."""
-    Rbi = _b1(p, "Rbi", 0.0, xp)
-    Rbe = _b1(p, "Rbe", 1.0, xp)
-    Cbe = _b1(p, "Cbe", 0.0, xp)
-    Rbc = _b1(p, "Rbc", 1e9, xp)
-    Cbc = _b1(p, "Cbc", 0.0, xp)
-    Gm0 = _b1(p, "Gm0", 0.0, xp)
-    tau = _b1(p, "tau", 0.0, xp)
+def _Y_int_Pi_batch(p, omega, B, N, xp, cache=None):
+    """Batched Pi-topology intrinsic Y → 4 (B, N) planes (y00, y01, y10, y11).
 
-    Ybe = 1.0 / Rbe + 1j * omega * Cbe
-    Ybc = 1.0 / Rbc + 1j * omega * Cbc
-    gm  = Gm0 * xp.exp(-1j * omega * tau)
+    Cache-aware (mirrors ``_Y_int_T_batch``):
+
+      - ``"Pi_int_planes"`` : full (yi00..yi11) tuple — used when *every*
+        intrinsic param (Rbi, Rbe, Cbe, Rbc, Cbc, Gm0, tau) is constant.
+      - ``"Ybe"``           : pre-built when Rbe and Cbe are both constant.
+      - ``"Ybc"``           : pre-built when Rbc and Cbc are both constant.
+      - ``"gm"``            : pre-built when Gm0 and tau are both constant.
+
+    The dtype is propagated through ``cache["_cdtype"]``.
+    """
+    if cache is not None and "Pi_int_planes" in cache:
+        return cache["Pi_int_planes"]
+
+    cdtype = (cache or {}).get("_cdtype", np.complex128)
+    rdtype = np.float32 if cdtype == np.complex64 else np.float64
+    J = xp.asarray(1j, dtype=cdtype)
+
+    Rbi = _b1(p, "Rbi", 0.0, xp, rdtype)
+
+    if cache is not None and "Ybe" in cache:
+        Ybe = cache["Ybe"]
+    else:
+        Rbe = _b1(p, "Rbe", 1.0, xp, rdtype)
+        Cbe = _b1(p, "Cbe", 0.0, xp, rdtype)
+        Ybe = 1.0 / Rbe + J * omega * Cbe
+
+    if cache is not None and "Ybc" in cache:
+        Ybc = cache["Ybc"]
+    else:
+        Rbc = _b1(p, "Rbc", 1e9, xp, rdtype)
+        Cbc = _b1(p, "Cbc", 0.0, xp, rdtype)
+        Ybc = 1.0 / Rbc + J * omega * Cbc
+
+    if cache is not None and "gm" in cache:
+        gm = cache["gm"]
+    else:
+        Gm0 = _b1(p, "Gm0", 0.0, xp, rdtype)
+        tau = _b1(p, "tau", 0.0, xp, rdtype)
+        gm  = Gm0 * xp.exp(-J * omega * tau)
 
     # Y_core 2×2
     yc00 = Ybe + Ybc
@@ -658,6 +733,12 @@ class ChengT(AbstractSSMModel):
     NAME          = "T-topology (Cheng 2022)"
     SHORT         = "T"
     TOPOLOGY_CHAR = "T"
+    # Cheng's batched intrinsic-Y kernels honour ``cache["_cdtype"]``,
+    # so the tuning loop is allowed to run in complex64 ↓ ~5–10× speedup
+    # on consumer GPUs (fp64 is gimped 1/64 vs fp32 on RTX 3050).  The
+    # final top-K is reranked at fp64 to keep the published residuals
+    # fully precise.
+    SUPPORTS_FP32_SWEEP = True
     PARAM_GROUPS  = [
         {
             "label":      "Step 2 — Cbex  (from Im(Y₁₁+Y₁₂)/ω, low-freq range)",
@@ -960,6 +1041,7 @@ class ChengPi(AbstractSSMModel):
     NAME          = "π-topology (Cheng 2022)"
     SHORT         = "pi"
     TOPOLOGY_CHAR = "pi"
+    SUPPORTS_FP32_SWEEP = True   # see ChengT for rationale
     PARAM_GROUPS = [
         {
             "label":      "Step 2 — Cbex  (from Im(B·C)/Im(B), low-freq range)",
