@@ -20,9 +20,9 @@ from ..ssm_core       import (y_to_z, z_to_y, y_to_s_single, y_to_s_vec,
 from ..ssm_deembedding import (build_Y_pad, build_Z_ser,
                                 build_Y_pad_vec, build_Z_ser_vec,
                                 build_Y_pad_batch, build_Z_ser_batch)
-from .base_ui         import (render_smith_chart, smith_scale_controls,
-                               sync_pad_from_preov, PAD_SPECS, ssm_residual,
-                               render_tuning_expander)
+from .base_ui         import (smith_scale_controls,
+                               sync_pad_from_preov, PAD_SPECS,
+                               render_tuning_expander, render_smith_with_ftfmax)
 from . import AbstractSSMModel
 
 
@@ -1017,10 +1017,14 @@ class ChengT(AbstractSSMModel):
                 st.session_state[cache_key] = S_sim
                 st.session_state[hash_key]  = cur_hash
 
-        sc  = smith_scale_controls(fname, cls.SHORT)
-        err = ssm_residual(S_raw, S_sim)
-        render_smith_chart(S_raw, S_sim, cls.NAME, err, sc,
-                           key=f"smith_{cls.SHORT}_{fname}")
+        sc = smith_scale_controls(fname, cls.SHORT)
+        render_smith_with_ftfmax(S_raw, S_sim, freq,
+                                 model_name=cls.NAME, model_short=cls.SHORT,
+                                 fname=fname, scales=sc)
+
+        # Persist the *current* (post-override) param dict so the Complete
+        # Parameter Summary can read live values instead of extraction-time ones.
+        st.session_state[f"current_p_{cls.SHORT}_{fname}"] = dict(all_p)
 
         render_tuning_expander(cls, all_p, S_raw, freq, z0,
                                PAD_SPECS + _EXT_SPECS + _INT_T_SPECS, fname, cls.SHORT)
@@ -1267,10 +1271,14 @@ class ChengPi(AbstractSSMModel):
                 st.session_state[cache_key] = S_sim
                 st.session_state[hash_key]  = cur_hash
 
-        sc  = smith_scale_controls(fname, cls.SHORT)
-        err = ssm_residual(S_raw, S_sim)
-        render_smith_chart(S_raw, S_sim, cls.NAME, err, sc,
-                           key=f"smith_{cls.SHORT}_{fname}")
+        sc = smith_scale_controls(fname, cls.SHORT)
+        render_smith_with_ftfmax(S_raw, S_sim, freq,
+                                 model_name=cls.NAME, model_short=cls.SHORT,
+                                 fname=fname, scales=sc)
+
+        # Persist the *current* (post-override) param dict so the Complete
+        # Parameter Summary can read live values instead of extraction-time ones.
+        st.session_state[f"current_p_{cls.SHORT}_{fname}"] = dict(all_p)
 
         render_tuning_expander(cls, all_p, S_raw, freq, z0,
                                PAD_SPECS + _EXT_SPECS + _INT_PI_SPECS, fname, cls.SHORT)

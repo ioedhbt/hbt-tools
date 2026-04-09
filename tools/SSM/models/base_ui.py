@@ -154,11 +154,14 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
                                   line=dict(color=col, width=2.0, dash="dash"),
                                   hovertemplate=f"{name} Model<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
     port_res = _port_residuals(S_mea, S_sim)
-    title_line1 = f"Measured vs Modeled — {model_name}   (Total Residual: {error_pct:.2f}%)"
-    title_line2 = (f"S11: {port_res['S11']:.2f}%   S12: {port_res['S12']:.2f}%   "
-                   f"S21: {port_res['S21']:.2f}%   S22: {port_res['S22']:.2f}%")
+    # title_line1 = f"Measured vs Modeled — {model_name}   (Total Residual: {error_pct:.2f}%)"
+    # title_line2 = (f"S11: {port_res['S11']:.2f}%   S12: {port_res['S12']:.2f}%   "
+    #                f"S21: {port_res['S21']:.2f}%   S22: {port_res['S22']:.2f}%")
+    # st.markdown(title_line1)
+    # st.markdown(title_line2)
     fig.update_layout(
-        title=f"{title_line1}<br><sup>{title_line2}</sup>",
+        # title=f"{title_line1}<br><sup>{title_line2}</sup>",
+        title=f"Smith Chart - {model_name}",
         xaxis=dict(title="Re(Γ)", range=[-1.1,1.1], scaleanchor="y", scaleratio=1,
                    showgrid=False, zeroline=False),
         yaxis=dict(title="Im(Γ)", range=[-1.1,1.1], showgrid=False, zeroline=False),
@@ -170,6 +173,38 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
                           text="● Measured (markers)  |  - - Modeled (dashed)",
                           font=dict(size=10, color="gray"), align="center")])
     st.plotly_chart(fig, width="stretch", key=key)
+
+
+def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
+                             model_short: str, fname: str, scales=None):
+    """
+    Two-column layout: Smith chart (left) + fT/fmax mini-card (right).
+
+    The Smith chart still owns the residual line in its title; the mini-card
+    on the right shows |h21|² and Mason U for both measured and modeled with
+    20 dB/dec extrapolation when needed.  Use this in place of the bare
+    `render_smith_chart()` call inside each model's `render_override_and_smith`.
+    """
+    # Local import — ssm_plots imports back from base_ui at module load time,
+    # so a top-level import here would create a circular dependency.
+    from ..ssm_plots import render_ft_fmax_card
+
+    port_res = _port_residuals(S_raw, S_sim)
+    err = ssm_residual(S_raw, S_sim)
+    title_line1 = f"**{model_name} Measured vs Modeled** — **Total Residual**: {err:.2f}%"
+    title_line2 = (f"**per-trace residuals**: **S11**: {port_res['S11']:.2f}%  , **S12**: {port_res['S12']:.2f}%  , "
+                   f"**S21**: {port_res['S21']:.2f}%  , **S22**: {port_res['S22']:.2f}%")
+    st.markdown(f"{title_line1}; {title_line2}")
+    # st.markdown(title_line2)
+    col_l, col_r = st.columns([1.05, 1])
+    with col_l:
+        render_smith_chart(S_raw, S_sim, model_name, err, scales,
+                           key=f"smith_{model_short}_{fname}")
+    with col_r:
+        render_ft_fmax_card(S_raw, S_sim, freq,
+                            model_name=model_name,
+                            key=f"ftfmax_card_{model_short}_{fname}",
+                            height=560)
 
 
 def smith_scale_controls(fname, topo_key) -> dict:

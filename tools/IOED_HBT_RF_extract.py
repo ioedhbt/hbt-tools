@@ -20,6 +20,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from tools.SSM.ssm_extraction import render_ssm_tab   # ← SSM module (Cheng 2022)
+from tools.SSM.ssm_plots     import extrap_20dbdec    # 20 dB/dec extrap helper
 
 # ─────────────────────────────────────────────────────────────────────────────
 if "rf_uploader_key" not in st.session_state:
@@ -297,13 +298,65 @@ def make_smith(S,f_array,f_min,f_max,toggles,scales,title,max_r=1.0):
     return fig
 
 def make_bode(df,title,xr,yr,sh21,su,smag,color):
-    fig=go.Figure(); f=df["Freq (GHz)"]
+    """
+    Individual Bode plot.
+
+    Measured traces use markers (○ for |h21|², □ for Mason U, ◇ for MAG/MSG).
+    If |h21|² and/or Mason U are still above 0 dB at the highest measured
+    frequency, a 20 dB/dec extrapolation (dotted) is appended and the x-axis
+    is auto-extended past the projected fT/fmax crossing.
+    """
+    fig=go.Figure(); f=df["Freq (GHz)"].values
     hov="Freq:%{x:.4f}GHz<br>Gain:%{y:.4f}dB<extra></extra>"
-    if sh21: fig.add_trace(go.Scatter(x=f,y=df["|h21|² (dB)"],name="|h21|²",line=dict(color=color,width=2.5),hovertemplate=hov))
-    if su:   fig.add_trace(go.Scatter(x=f,y=df["Mason U (dB)"],name="Mason U",line=dict(color=_darken(color),width=2.5,dash="dash"),hovertemplate=hov))
-    if smag: fig.add_trace(go.Scatter(x=f,y=df["MAG/MSG (dB)"],name="MAG/MSG",line=dict(color="#2ca02c",width=2.5,dash="dot"),hovertemplate=hov))
+
+    f_high_track = float(f[-1]) if len(f) else float(xr[1])
+    extrap_used  = False
+
+    def _add_extrap(y_vals, color_, kind):
+        """Append a dotted 20 dB/dec extrapolation, return new f_high if any."""
+        nonlocal f_high_track, extrap_used
+        f_ext, g_ext, f0 = extrap_20dbdec(f, y_vals)
+        if f_ext is None:
+            return
+        extrap_used  = True
+        f_high_track = max(f_high_track, f0)
+        fig.add_trace(go.Scatter(
+            x=f_ext, y=g_ext, mode="lines",
+            name=f"{kind} extrap (≈{f0:.1f} GHz)",
+            line=dict(color=color_, width=1.6, dash="dot"),
+            hovertemplate=hov, showlegend=False))
+
+    if sh21:
+        y = df["|h21|² (dB)"].values
+        fig.add_trace(go.Scatter(
+            x=f, y=y, name="|h21|²", mode="lines+markers",
+            line=dict(color=color, width=1.4),
+            marker=dict(symbol="circle", size=6, color=color),
+            hovertemplate=hov))
+        _add_extrap(y, color, "fT")
+    if su:
+        y = df["Mason U (dB)"].values
+        col_u = _darken(color)
+        fig.add_trace(go.Scatter(
+            x=f, y=y, name="Mason U", mode="lines+markers",
+            line=dict(color=col_u, width=1.4),
+            marker=dict(symbol="square", size=6, color=col_u),
+            hovertemplate=hov))
+        _add_extrap(y, col_u, "fmax(U)")
+    if smag:
+        y = df["MAG/MSG (dB)"].values
+        fig.add_trace(go.Scatter(
+            x=f, y=y, name="MAG/MSG", mode="lines+markers",
+            line=dict(color="#2ca02c", width=1.4),
+            marker=dict(symbol="diamond", size=6, color="#2ca02c"),
+            hovertemplate=hov))
+
     fig.add_hline(y=0,line_dash="dash",line_color="black")
-    fig.update_layout(**_layout(f"Bode — {title}","Gain (dB)",yr,xr)); return fig
+
+    # Auto-extend x-range if extrapolation pushes past xr[1]
+    xr_eff = (xr[0], max(float(xr[1]), float(f_high_track) * 1.25)) if extrap_used else xr
+    fig.update_layout(**_layout(f"Bode — {title}","Gain (dB)",yr,xr_eff))
+    return fig
 
 def make_plateau(df,res,title,xr,sh21,su,smag,color):
     cols=[]

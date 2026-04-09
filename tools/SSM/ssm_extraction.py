@@ -455,9 +455,11 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         sim_results[short] = S_sim
 
     # ══════════════════════════════════════════════════════════════════════════
-    # fT / fmax overlay
+    # fT / fmax overlay  (only when ≥ 2 models — single-model is already
+    # shown beside its Smith chart up above, so an overlay would be redundant)
     # ══════════════════════════════════════════════════════════════════════════
-    if any(v is not None for v in sim_results.values()):
+    _n_with_sim = sum(1 for v in sim_results.values() if v is not None)
+    if _n_with_sim >= 2:
         st.markdown("---")
         st.markdown("### 📊 fT and fmax — Measured vs Modeled")
         render_ft_fmax_overlay(S_raw, sim_results, freq, fname)
@@ -906,6 +908,30 @@ def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
 
 def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
     st.markdown("---"); st.markdown("### 📋 Complete Parameter Summary")
+    st.caption("Values reflect the **current** state after any pre-extraction "
+               "overrides, fine-tune Smith chart edits, and tuning sweeps.")
+
+    # Source of truth for the *current* per-model param dict.  Each model
+    # writes this in its own render_override_and_smith() right after the
+    # Smith chart is rendered, so it always reflects the latest fine-tune /
+    # tuning state.  Falls back to extraction-time params on first run.
+    def _live_params(short):
+        live = st.session_state.get(f"current_p_{short}_{fname}")
+        if live is not None:
+            return live
+        return extract_results.get(short, ({}, {}))[0]
+
+    # Pad: prefer the *first* model's live param dict (it shares pad keys with
+    # all other models via the pre-extraction sync), then fall back to para_eff.
+    pad_src = dict(para_eff)
+    for short in extract_results:
+        live = st.session_state.get(f"current_p_{short}_{fname}")
+        if live is not None:
+            for pk in ("Cpbe","Cpce","Cpbc","Lb","Lc","Le","Rpb","Rpc","Rpe"):
+                if pk in live:
+                    pad_src[pk] = live[pk]
+            break
+
     rows = []
     # Pad
     for sym, key, sc, unit in [
@@ -913,16 +939,18 @@ def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
         ("Lb","Lb",1e12,"pH"),("Lc","Lc",1e12,"pH"),("Le","Le",1e12,"pH"),
         ("Rb (=Rpb)","Rpb",1,"Ω"),("Rc (=Rpc)","Rpc",1,"Ω"),("Re (=Rpe)","Rpe",1,"Ω"),
     ]:
-        rows.append({"Layer":"Pad","Symbol":sym,"Value":f"{para_eff[key]*sc:.4f}","Unit":unit})
+        rows.append({"Layer":"Pad","Symbol":sym,
+                     "Value":f"{pad_src.get(key, para_eff.get(key, 0.0))*sc:.4f}",
+                     "Unit":unit})
     # Open extra elements
     for cap in ["Cpbe","Cpce","Cpbc"]:
-        mode = para_eff.get(f"{cap}_mode","None")
+        mode = pad_src.get(f"{cap}_mode", para_eff.get(f"{cap}_mode","None"))
         if mode != "None":
-            extra = para_eff.get(f"{cap}_extra",0.0)
+            extra = pad_src.get(f"{cap}_extra", para_eff.get(f"{cap}_extra",0.0))
             unit_e = "pH" if "L" in mode else "Ω"; sc_e = 1e12 if "L" in mode else 1.0
             rows.append({"Layer":"Open Extra","Symbol":f"{cap} {mode}","Value":f"{extra*sc_e:.4f}","Unit":unit_e})
     for cap, ck in [("Lb","Cpar_Lb"),("Lc","Cpar_Lc"),("Le","Cpar_Le")]:
-        v = para_eff.get(ck,0.0)
+        v = pad_src.get(ck, para_eff.get(ck,0.0))
         if v > 0: rows.append({"Layer":"Short Extra","Symbol":f"Cpar_{cap}","Value":f"{v*1e15:.4f}","Unit":"fF"})
     # Cold-HBT
     if cold_res:
@@ -932,20 +960,34 @@ def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
             ("Cbc (cold)","Cbc_cold",1e15,"fF"),("Cex","Cex_cold",1e15,"fF"),
         ]:
             rows.append({"Layer":"Cold-HBT","Symbol":sym,"Value":f"{cold_res[key]*sc:.4f}","Unit":unit})
-    # Per-model
-    for short, (params, _) in extract_results.items():
+    # Per-model — pull *current* (post-override / post-tuning) values when
+    # available, fall back to extraction-time results otherwise.
+    _PAD_KEYS_SET = {"Cpbe","Cpce","Cpbc","Lb","Lc","Le","Rpb","Rpc","Rpe"}
+    for short, (extr_params, _) in extract_results.items():
         ModelClass = registry[short]
         layer = ModelClass.NAME
-        for k, v in params.items():
-            if k.startswith("_") or not isinstance(v, (int,float)): continue
-            if not np.isfinite(float(v)): continue
-            # choose sensible display scale
-            av = abs(float(v))
+        live_p = _live_params(short)
+        # Iterate the union of extracted-param keys and live keys, preferring
+        # live values whenever present.
+        all_keys = list(extr_params.keys())
+        for lk in live_p:
+            if lk not in all_keys:
+                all_keys.append(lk)
+        for k in all_keys:
+            if k.startswith("_") or k in _PAD_KEYS_SET:
+                continue
+            v = live_p.get(k, extr_params.get(k))
+            if not isinstance(v, (int, float)):
+                continue
+            v = float(v)
+            if not np.isfinite(v):
+                continue
+            av = abs(v)
             if av < 1e-12:  sc_d, unit_d = 1e15, "fF"
             elif av < 1e-9: sc_d, unit_d = 1e12, "pH"
             elif av > 1e2:  sc_d, unit_d = 1e-3, "k-unit"
             else:           sc_d, unit_d = 1.0,  ""
-            rows.append({"Layer":layer,"Symbol":k,"Value":f"{float(v)*sc_d:.4f}","Unit":unit_d})
+            rows.append({"Layer":layer,"Symbol":k,"Value":f"{v*sc_d:.4f}","Unit":unit_d})
     if rows:
         df_sum = pd.DataFrame(rows)
         st.dataframe(df_sum, width="stretch", hide_index=True)

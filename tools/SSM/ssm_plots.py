@@ -368,43 +368,65 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
         return "  |  ".join(parts) if parts else "(0 dB not crossed)"
 
     fig = go.Figure()
-    # Step-1 traces  (blue family)
-    fig.add_trace(go.Scatter(x=f_ghz, y=h21_s1, mode="lines",
-        name=f"|h21|² Step-1  [{_ft_lbl(fT_s1, None)}]",
-        line=dict(color="#1f77b4", width=2.5)))
-    fig.add_trace(go.Scatter(x=f_ghz, y=U_s1, mode="lines",
-        name=f"Mason U Step-1  [{_ft_lbl(None, fmax_s1)}]",
-        line=dict(color="#1f77b4", width=2.5, dash="dash")))
-    # Pre-ext override traces  (orange family)
-    fig.add_trace(go.Scatter(x=f_ghz, y=h21_pe, mode="lines",
-        name=f"|h21|² Pre-ext  [{_ft_lbl(fT_pe, None)}]",
-        line=dict(color="#e67e22", width=2.0)))
-    fig.add_trace(go.Scatter(x=f_ghz, y=U_pe, mode="lines",
-        name=f"Mason U Pre-ext  [{_ft_lbl(None, fmax_pe)}]",
-        line=dict(color="#e67e22", width=2.0, dash="dash")))
+    f_high_track = float(f_ghz[-1])
+    extrap_used  = False
+
+    def _add_meas(y_arr, name, color, symbol, gain_kind):
+        """Add a measured trace (markers+line) and a 20 dB/dec extrapolation if needed."""
+        nonlocal f_high_track, extrap_used
+        fig.add_trace(go.Scatter(
+            x=f_ghz, y=y_arr, mode="lines+markers", name=name,
+            line=dict(color=color, width=1.4),
+            marker=dict(symbol=symbol, size=6, color=color)))
+        f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, y_arr)
+        if f_ext is not None:
+            extrap_used = True
+            f_high_track = max(f_high_track, f0)
+            tag = f"{gain_kind}≈{f0:.1f} GHz"
+            fig.add_trace(go.Scatter(
+                x=f_ext, y=g_ext, mode="lines",
+                name=f"{name} extrap ({tag})",
+                line=dict(color=color, width=1.6, dash="dot"),
+                showlegend=False))
+            return f0
+        return None
+
+    # Step-1 traces (blue family)
+    fT_s1_x = _add_meas(h21_s1, f"|h21|² Step-1  [{_ft_lbl(fT_s1, None)}]",
+                        "#1f77b4", "circle", "fT")
+    fm_s1_x = _add_meas(U_s1,   f"Mason U Step-1  [{_ft_lbl(None, fmax_s1)}]",
+                        "#1f77b4", "square", "fmax")
+    # Pre-ext override traces (orange family)
+    fT_pe_x = _add_meas(h21_pe, f"|h21|² Pre-ext  [{_ft_lbl(fT_pe, None)}]",
+                        "#e67e22", "circle", "fT")
+    fm_pe_x = _add_meas(U_pe,   f"Mason U Pre-ext  [{_ft_lbl(None, fmax_pe)}]",
+                        "#e67e22", "square", "fmax")
 
     # 0 dB line
     fig.add_hline(y=0, line_color="#333", line_width=1.2,
                   annotation_text="0 dB", annotation_position="right",
                   annotation_font=dict(size=9))
 
-    # fT / fmax vertical markers
-    _vline_colors = {"fT_s1":"#1f77b4","fmax_s1":"#1f77b4",
-                     "fT_pe":"#e67e22","fmax_pe":"#e67e22"}
-    for lbl, val, col, dash in [
-        ("fT (Step-1)",   fT_s1,   "#1f77b4", "dot"),
-        ("fmax (Step-1)", fmax_s1, "#1f77b4", "dashdot"),
-        ("fT (pre-ext)",  fT_pe,   "#e67e22", "dot"),
-        ("fmax (pre-ext)",fmax_pe, "#e67e22", "dashdot"),
+    # fT / fmax vertical markers — prefer the in-band crossing, fall back to extrap result
+    for lbl, val_meas, val_ext, col, dash in [
+        ("fT (Step-1)",   fT_s1,   fT_s1_x, "#1f77b4", "dot"),
+        ("fmax (Step-1)", fmax_s1, fm_s1_x, "#1f77b4", "dashdot"),
+        ("fT (pre-ext)",  fT_pe,   fT_pe_x, "#e67e22", "dot"),
+        ("fmax (pre-ext)",fmax_pe, fm_pe_x, "#e67e22", "dashdot"),
     ]:
+        val = val_meas if val_meas is not None else val_ext
         if val is not None:
+            note = lbl if val_meas is not None else f"{lbl} (extrap)"
             fig.add_vline(x=val, line_color=col, line_dash=dash, line_width=1.5,
-                          annotation_text=f"{lbl}={val:.2f}",
+                          annotation_text=f"{note}={val:.2f}",
                           annotation_position="top left",
                           annotation_font=dict(size=8, color=col))
 
+    x_min = max(float(f_ghz[0]), 1e-2)
+    x_max = float(f_high_track) * 1.25 if extrap_used else float(f_ghz[-1])
     fig.update_layout(
         xaxis=dict(title="Frequency (GHz)", type="log",
+                   range=[np.log10(x_min), np.log10(x_max)],
                    showgrid=True, gridcolor="#ebebeb"),
         yaxis=dict(title="Gain (dB)", range=[0, 50],
                    showgrid=True, gridcolor="#ebebeb"),
@@ -414,10 +436,12 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
                     borderwidth=1, font=dict(size=9)),
         hovermode="x unified", margin=dict(l=55, r=20, t=40, b=50))
     st.plotly_chart(fig, width="stretch", key=f"bode_deemb_{fname}")
-    st.caption(
-        "**Step-1** = Open+Short de-embedded using Step 1a/1b extracted values.  \n"
-        "**Pre-ext** = same de-embedding but with Pre-Extraction Review overrides applied.  \n"
-        "Solid = |h21|²  (→ fT).   Dashed = Mason U  (→ fmax).   Y-axis fixed 0–50 dB.")
+    cap = ("**Step-1** = Open+Short de-embedded using Step 1a/1b extracted values.  \n"
+           "**Pre-ext** = same de-embedding but with Pre-Extraction Review overrides applied.  \n"
+           "○ = |h21|² (→ fT).   □ = Mason U (→ fmax).   Y-axis fixed 0–50 dB.")
+    if extrap_used:
+        cap += "   Dotted = 20 dB/dec extrapolation past the measured band."
+    st.caption(cap)
 
     # ── 4. S2P downloads ──────────────────────────────────────────────────────
     st.markdown("#### Download De-embedded S2P")
@@ -505,36 +529,257 @@ def _find_ft_fmax(f_ghz, h21_db, U_db):
     return _zero_cross(f_ghz, h21_db), _zero_cross(f_ghz, U_db)
 
 
+def extrap_20dbdec(f_ghz, gain_db, n_pts: int = 60):
+    """
+    20 dB/decade extrapolation of a gain trace beyond its highest measured frequency.
+
+    If `gain_db` is still above 0 at the last finite point, project the trace forward
+    along a -20 dB/dec slope (anchored at that last point) until it crosses 0 dB.
+
+    Returns
+    -------
+    (f_ext, g_ext, f_zero) :
+        f_ext   : ndarray  Frequencies (GHz) of the extrapolated segment, starting at
+                           the last measured point and ending where g_ext == 0.
+        g_ext   : ndarray  Corresponding gain values (dB).
+        f_zero  : float    The 0-dB crossing frequency (GHz) — i.e. fT or fmax.
+    or  (None, None, None) if the trace already crosses 0 dB inside the measured band
+        or if the data is unusable.
+    """
+    g = np.asarray(gain_db, dtype=float)
+    f = np.asarray(f_ghz, dtype=float)
+    m = np.isfinite(g) & np.isfinite(f) & (f > 0)
+    if not np.any(m):
+        return None, None, None
+    fv = f[m]; gv = g[m]
+    if gv[-1] <= 0:
+        return None, None, None
+    f_high = float(fv[-1]); g_high = float(gv[-1])
+    f_zero = f_high * 10.0 ** (g_high / 20.0)
+    if not np.isfinite(f_zero) or f_zero <= f_high:
+        return None, None, None
+    f_ext = np.logspace(np.log10(f_high), np.log10(f_zero), n_pts)
+    g_ext = g_high - 20.0 * np.log10(f_ext / f_high)
+    return f_ext, g_ext, f_zero
+
+
+
+def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
+                        key: str, height: int = 560):
+    """
+    Compact two-trace fT/fmax mini-plot for a single model.
+
+    Designed to sit beside the per-model Smith chart in a 2-column layout
+    (see `render_smith_with_ftfmax` in models/base_ui.py).  Shows |h21|² and
+    Mason U for both measured and modeled, draws markers on measurement,
+    dashed/long-dashed on the model, and adds a 20 dB/dec dotted extrapolation
+    when either trace is still above 0 dB at the highest measured frequency.
+    Auto-extends the x-axis past the projected fT / fmax.
+
+    The legend reports fT / fmax for measured and modeled (with "extrap"
+    annotation if those values came from the 20 dB/dec projection).
+    """
+    f_ghz = np.asarray(freq) * 1e-9
+    h21_m, U_m = _compute_h21_U(S_mea)
+    h21_s, U_s = _compute_h21_U(S_sim)
+
+    # In-band 0-dB crossings (None if the trace doesn't cross within the band)
+    fT_m_in,  fmax_m_in  = _find_ft_fmax(f_ghz, h21_m, U_m)
+    fT_s_in,  fmax_s_in  = _find_ft_fmax(f_ghz, h21_s, U_s)
+
+    fig = go.Figure()
+    f_high_track = float(f_ghz[-1])
+    extrap_used  = False
+
+    def _meas_label(name, in_val, ext_val):
+        if in_val is not None:
+            return f"{name} = {in_val:.1f} GHz"
+        if ext_val is not None:
+            return f"{name} ≈ {ext_val:.1f} GHz (extrap)"
+        return f"{name} = n/a"
+
+    # ── Measured |h21|² ───────────────────────────────────────────────────
+    f_ext, g_ext, fT_m_ext = extrap_20dbdec(f_ghz, h21_m)
+    if f_ext is not None:
+        extrap_used = True
+        f_high_track = max(f_high_track, fT_m_ext)
+    fig.add_trace(go.Scatter(
+        x=f_ghz, y=h21_m, mode="lines+markers",
+        name=f"|h21|² Meas. ({_meas_label('fT', fT_m_in, fT_m_ext)})",
+        line=dict(color="#1f77b4", width=1.4),
+        marker=dict(symbol="circle", size=6, color="#1f77b4")))
+    if f_ext is not None:
+        fig.add_trace(go.Scatter(
+            x=f_ext, y=g_ext, mode="lines",
+            name="|h21|² Meas. extrap",
+            line=dict(color="#1f77b4", width=1.4, dash="dot"),
+            showlegend=False))
+
+    # ── Measured Mason U ──────────────────────────────────────────────────
+    f_ext, g_ext, fmax_m_ext = extrap_20dbdec(f_ghz, U_m)
+    if f_ext is not None:
+        extrap_used = True
+        f_high_track = max(f_high_track, fmax_m_ext)
+    fig.add_trace(go.Scatter(
+        x=f_ghz, y=U_m, mode="lines+markers",
+        name=f"Mason U Meas. ({_meas_label('fmax', fmax_m_in, fmax_m_ext)})",
+        line=dict(color="#1f77b4", width=1.4),
+        marker=dict(symbol="square", size=6, color="#1f77b4")))
+    if f_ext is not None:
+        fig.add_trace(go.Scatter(
+            x=f_ext, y=g_ext, mode="lines",
+            name="Mason U Meas. extrap",
+            line=dict(color="#1f77b4", width=1.4, dash="dot"),
+            showlegend=False))
+
+    # ── Modeled |h21|² ────────────────────────────────────────────────────
+    f_ext, g_ext, fT_s_ext = extrap_20dbdec(f_ghz, h21_s)
+    if f_ext is not None:
+        extrap_used = True
+        f_high_track = max(f_high_track, fT_s_ext)
+    fig.add_trace(go.Scatter(
+        x=f_ghz, y=h21_s, mode="lines",
+        name=f"|h21|² Model ({_meas_label('fT', fT_s_in, fT_s_ext)})",
+        line=dict(color="#d62728", width=2.0, dash="dash")))
+    if f_ext is not None:
+        fig.add_trace(go.Scatter(
+            x=f_ext, y=g_ext, mode="lines",
+            name="|h21|² Model extrap",
+            line=dict(color="#d62728", width=2.0, dash="dot"),
+            showlegend=False))
+
+    # ── Modeled Mason U ───────────────────────────────────────────────────
+    f_ext, g_ext, fmax_s_ext = extrap_20dbdec(f_ghz, U_s)
+    if f_ext is not None:
+        extrap_used = True
+        f_high_track = max(f_high_track, fmax_s_ext)
+    fig.add_trace(go.Scatter(
+        x=f_ghz, y=U_s, mode="lines",
+        name=f"Mason U Model ({_meas_label('fmax', fmax_s_in, fmax_s_ext)})",
+        line=dict(color="#d62728", width=2.0, dash="longdash")))
+    if f_ext is not None:
+        fig.add_trace(go.Scatter(
+            x=f_ext, y=g_ext, mode="lines",
+            name="Mason U Model extrap",
+            line=dict(color="#d62728", width=2.0, dash="dot"),
+            showlegend=False))
+
+    fig.add_hline(y=0, line_color="#333", line_width=1.2,
+                  annotation_text="0 dB", annotation_position="right",
+                  annotation_font=dict(size=9))
+
+    x_min = max(float(f_ghz[0]), 1e-2)
+    x_max = float(f_high_track) * 1.25 if extrap_used else float(f_ghz[-1])
+    fig.update_layout(
+        title=dict(text=f"fT / fmax — {model_name}", font=dict(size=12)),
+        xaxis=dict(title="Frequency (GHz)", type="log",
+                   range=[np.log10(x_min), np.log10(x_max)],
+                   showgrid=True, gridcolor="#ebebeb"),
+        yaxis=dict(title="Gain (dB)", range=[0, 50],
+                   showgrid=True, gridcolor="#ebebeb"),
+        plot_bgcolor="white", paper_bgcolor="white", height=height,
+        legend=dict(x=0.0, y=-0.15, xanchor="left", yanchor="top",
+                    orientation="v",
+                    bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
+                    borderwidth=1, font=dict(size=9)),
+        hovermode="x unified",
+        margin=dict(l=55, r=20, t=40, b=180))
+    st.plotly_chart(fig, width="stretch", key=key)
+
 
 def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fname):
     """
     Bode plot: |h21|² and Mason U for measured + all simulated models.
 
+    Measured traces are drawn as markers (○ = h21, □ = Mason U), modeled traces
+    as dashed lines.  When |h21|² and/or U are still above 0 dB at the highest
+    measured frequency, a 20 dB/dec extrapolation (dotted, same colour) is added
+    so that fT / fmax remain visible.  The x-axis is auto-extended to fit the
+    farthest extrapolated 0-dB crossing.
+
     sim_results: {model_SHORT: S_sim_array}  (None values are skipped)
     """
-    f_ghz      = freq * 1e-9
+    f_ghz = freq * 1e-9
     h21_mea, U_mea = _compute_h21_U(S_raw)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=f_ghz, y=h21_mea, mode="lines",
-        name="|h21|² Meas.", line=dict(color="#1f77b4", width=2.5)))
-    fig.add_trace(go.Scatter(x=f_ghz, y=U_mea, mode="lines",
-        name="Mason U Meas.", line=dict(color="#1f77b4", width=2.5, dash="dash")))
 
-    palette = ["#d62728","#2ca02c","#9467bd","#8c564b","#e377c2"]
+    fig = go.Figure()
+    f_high_track = float(f_ghz[-1])  # Tracks the furthest x we need to show
+    extrap_used  = False             # Whether any trace required extrapolation
+
+    # ── Measured traces (markers + line) ──────────────────────────────────────
+    fig.add_trace(go.Scatter(
+        x=f_ghz, y=h21_mea, mode="lines+markers",
+        name="|h21|² Meas.",
+        line=dict(color="#1f77b4", width=1.4),
+        marker=dict(symbol="circle", size=6, color="#1f77b4")))
+    f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, h21_mea)
+    if f_ext is not None:
+        extrap_used = True
+        f_high_track = max(f_high_track, f0)
+        fig.add_trace(go.Scatter(
+            x=f_ext, y=g_ext, mode="lines",
+            name=f"|h21|² Meas. extrap (fT≈{f0:.1f} GHz)",
+            line=dict(color="#1f77b4", width=1.6, dash="dot")))
+
+    fig.add_trace(go.Scatter(
+        x=f_ghz, y=U_mea, mode="lines+markers",
+        name="Mason U Meas.",
+        line=dict(color="#1f77b4", width=1.4),
+        marker=dict(symbol="square", size=6, color="#1f77b4")))
+    f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, U_mea)
+    if f_ext is not None:
+        extrap_used = True
+        f_high_track = max(f_high_track, f0)
+        fig.add_trace(go.Scatter(
+            x=f_ext, y=g_ext, mode="lines",
+            name=f"Mason U Meas. extrap (fmax≈{f0:.1f} GHz)",
+            line=dict(color="#1f77b4", width=1.6, dash="dot")))
+
+    # ── Modeled traces (dashed lines, dotted continuation when extrapolated) ──
+    palette = ["#d62728", "#2ca02c", "#9467bd", "#8c564b", "#e377c2"]
     for (short, S_sim), col in zip(sim_results.items(), palette):
-        if S_sim is None: continue
+        if S_sim is None:
+            continue
         h21_s, U_s = _compute_h21_U(S_sim)
-        fig.add_trace(go.Scatter(x=f_ghz, y=h21_s, mode="lines",
-            name=f"|h21|² {short}", line=dict(color=col, width=2.0, dash="dash")))
-        fig.add_trace(go.Scatter(x=f_ghz, y=U_s, mode="lines",
-            name=f"Mason U {short}", line=dict(color=col, width=2.0, dash="longdash")))
+
+        fig.add_trace(go.Scatter(
+            x=f_ghz, y=h21_s, mode="lines",
+            name=f"|h21|² {short}",
+            line=dict(color=col, width=2.0, dash="dash")))
+        f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, h21_s)
+        if f_ext is not None:
+            extrap_used = True
+            f_high_track = max(f_high_track, f0)
+            fig.add_trace(go.Scatter(
+                x=f_ext, y=g_ext, mode="lines",
+                name=f"|h21|² {short} extrap (fT≈{f0:.1f} GHz)",
+                line=dict(color=col, width=2.0, dash="dot"),
+                showlegend=False))
+
+        fig.add_trace(go.Scatter(
+            x=f_ghz, y=U_s, mode="lines",
+            name=f"Mason U {short}",
+            line=dict(color=col, width=2.0, dash="longdash")))
+        f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, U_s)
+        if f_ext is not None:
+            extrap_used = True
+            f_high_track = max(f_high_track, f0)
+            fig.add_trace(go.Scatter(
+                x=f_ext, y=g_ext, mode="lines",
+                name=f"Mason U {short} extrap (fmax≈{f0:.1f} GHz)",
+                line=dict(color=col, width=2.0, dash="dot"),
+                showlegend=False))
 
     fig.add_hline(y=0, line_color="#333", line_width=1.2,
-                   annotation_text="0 dB", annotation_position="right",
-                   annotation_font=dict(size=9))
+                  annotation_text="0 dB", annotation_position="right",
+                  annotation_font=dict(size=9))
+
+    x_min = max(float(f_ghz[0]), 1e-2)
+    x_max = float(f_high_track) * 1.25 if extrap_used else float(f_ghz[-1])
     fig.update_layout(
         title="Gain vs Frequency — Measured vs Modeled",
         xaxis=dict(title="Frequency (GHz)", type="log",
+                   range=[np.log10(x_min), np.log10(x_max)],
                    showgrid=True, gridcolor="#ebebeb"),
         yaxis=dict(title="Gain (dB)", range=[0, 50],
                    showgrid=True, gridcolor="#ebebeb"),
@@ -542,9 +787,13 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
         legend=dict(x=1.01, y=1.0, xanchor="left", yanchor="top",
                     bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
-        hovermode="x unified", margin=dict(l=55,r=20,t=50,b=50))
+        hovermode="x unified", margin=dict(l=55, r=20, t=50, b=50))
     st.plotly_chart(fig, width="stretch", key=f"ftfmax_{fname}")
-    st.caption("Y-axis fixed 0–50 dB.")
+    cap = ("Measured: ○ = |h21|², □ = Mason U.   Modeled: dashed lines.   "
+           "Y-axis fixed 0–50 dB.")
+    if extrap_used:
+        cap += "   Dotted = 20 dB/dec extrapolation past the measured band."
+    st.caption(cap)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
