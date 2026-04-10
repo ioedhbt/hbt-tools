@@ -26,7 +26,7 @@ from .ssm_s2p          import (parse_s2p_bytes, interpolate_s2f,
                                 write_s2p, simulate_open, simulate_short)
 from .ssm_plots        import (render_open_plots, render_short_plots,
                                 render_deemb_preview, render_ft_fmax_overlay,
-                                render_rz12_section)
+                                render_rz12_section, render_open_collector_section)
 from .ssm_override     import render_unified_pre_override, make_topology_fig
 from .models           import REGISTRY, DEFAULT_SELECTION   # model registry
 from .models.base_ui   import render_interactive_param_groups
@@ -106,22 +106,24 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     # ── Decimation ────────────────────────────────────────────────────────────
     original_points = len(freq)
     freq_original   = freq.copy()
-    col_info, col_dec = st.columns([2, 1])
-    col_info.markdown(f"**Total data points:** {original_points}")
-    decimate_factor = col_dec.selectbox("Decimate by:", [1,2,4,8,16,32],
-                                         index=0, key=f"decimate_{fname}")
-    if decimate_factor > 1:
-        freq       = freq[::decimate_factor]
-        S_raw      = S_raw[::decimate_factor]
-        if open_data is not None:
-            f_o, S_o, z0_o = open_data
-            open_data  = (f_o[::decimate_factor], S_o[::decimate_factor], z0_o)
-        if short_data is not None:
-            f_s, S_s, z0_s = short_data
-            short_data = (f_s[::decimate_factor], S_s[::decimate_factor], z0_s)
-        st.success(f"✓ Using {len(freq)} points (every {decimate_factor}th from {original_points})")
+    with st.container(border=True):
+        st.caption("⚙️ Data Decimation")
+        col_info, col_dec = st.columns([2, 1])
+        col_info.markdown(f"**Total data points:** {original_points}")
+        decimate_factor = col_dec.selectbox("Decimate by:", [1,2,4,8,16,32],
+                                             index=0, key=f"decimate_{fname}")
+        if decimate_factor > 1:
+            freq       = freq[::decimate_factor]
+            S_raw      = S_raw[::decimate_factor]
+            if open_data is not None:
+                f_o, S_o, z0_o = open_data
+                open_data  = (f_o[::decimate_factor], S_o[::decimate_factor], z0_o)
+            if short_data is not None:
+                f_s, S_s, z0_s = short_data
+                short_data = (f_s[::decimate_factor], S_s[::decimate_factor], z0_s)
+            st.success(f"✓ Using {len(freq)} points (every {decimate_factor}th from {original_points})")
 
-    st.markdown("---")
+    st.divider()
     st.markdown("## 🔬 Small-Signal Model (SSM) Parameter Extraction")
     with st.expander("🖼️ Illustration", expanded=False):
         st.image(image="tools/SSM/de_embedding_illus.png")
@@ -137,187 +139,209 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                            help="Low-frequency points for Step 2/3 model extractions.")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # STEP 1a — Open dummy
+    # SECTION 1 — Pad capacitance and series inductance
     # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("---")
-    st.markdown("### 📌 Step 1a — Open Dummy: Pad Capacitances")
-    st.caption("Gao [3] §4.2.  Used to extract pad parasitic capacitances from open dummy. Bias-independent.")
-    # Formulas — shown here, implementation is in ssm_deembedding.step1a_open
-    c1, c2, c3 = st.columns(3)
-    with c1: st.latex(r"C_{pbe}=\mathrm{Im}(Y_{11}^{open}+Y_{12}^{open})/\omega")
-    with c2: st.latex(r"C_{pce}=\mathrm{Im}(Y_{22}^{open}+Y_{12}^{open})/\omega")
-    with c3: st.latex(r"C_{pbc}=-\mathrm{Im}(Y_{12}^{open})/\omega")
+    st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#3d52a022 0%,transparent 100%);"
+        "border-left:5px solid #3d52a0;padding:10px 16px;border-radius:0 8px 8px 0;"
+        "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
+        "1 — Pad Capacitance &amp; Series Inductance</span></div>",
+        unsafe_allow_html=True)
 
-    if has_open:
-        # ── extraction range ─────────────────────────────────────────────────
-        open_n0, open_n1, open_method, open_trim = _extract_ui(
-            fname, "open", freq, default_frac_lo=0.5, default_frac_hi=1.0)
+    with st.expander("📌 Open & Short Dummy De-embedding", expanded=False):
+        # ── Step 1a — Open dummy ──────────────────────────────────────────────
+        st.markdown(
+            "<div style='background:linear-gradient(90deg,#eef0f8 0%,transparent 100%);"
+            "border-left:4px solid #3d52a0;padding:8px 14px;border-radius:0 6px 6px 0;"
+            "margin-bottom:2px'><strong>📌 Open Dummy: Pad Capacitances</strong></div>",
+            unsafe_allow_html=True)
+        st.caption("Gao [3] §4.2.  Used to extract pad parasitic capacitances from open dummy. Bias-independent.")
+        # Formulas — shown here, implementation is in ssm_deembedding.step1a_open
+        c1, c2, c3 = st.columns(3)
+        with c1: st.latex(r"C_{pbe}=\mathrm{Im}(Y_{11}^{open}+Y_{12}^{open})/\omega")
+        with c2: st.latex(r"C_{pce}=\mathrm{Im}(Y_{22}^{open}+Y_{12}^{open})/\omega")
+        with c3: st.latex(r"C_{pbc}=-\mathrm{Im}(Y_{12}^{open})/\omega")
 
-        # ── calculation ──────────────────────────────────────────────────────
-        para_open_calc, open_arr = step1a_open(
-            open_data, open_n0, open_n1, open_method, open_trim)
-        st.dataframe(pd.DataFrame([
-            {"Parameter": k, "Value": f"{para_open_calc[k]*1e15:.4f}", "Unit": "fF", "Description": d}
-            for k, d in [("Cpbe","Pad B-E shunt cap"),
-                         ("Cpce","Pad C-E shunt cap"),
-                         ("Cpbc","Pad B-C shunt cap")]
-        ]), width="stretch", hide_index=True)
+        if has_open:
+            # ── extraction range ─────────────────────────────────────────────
+            open_n0, open_n1, open_method, open_trim = _extract_ui(
+                fname, "open", freq, default_frac_lo=0.5, default_frac_hi=1.0)
 
-        _OPEN_OV = [("Cpbe",1e15),("Cpce",1e15),("Cpbc",1e15)]
-        for dk, sc in _OPEN_OV:
-            sk = f"ov_{dk}_{fname}"
-            if sk not in st.session_state: st.session_state[sk] = para_open_calc[dk]*sc
-        with st.expander("✏️ Override Open Capacitances", expanded=False):
-            if st.button("↩️ Reset Caps", key=f"rst_caps_{fname}"):
-                for dk, sc in _OPEN_OV: st.session_state[f"ov_{dk}_{fname}"] = para_open_calc[dk]*sc
-                st.rerun()
-            for col_w, (dk, sc) in zip(st.columns(3), _OPEN_OV):
-                col_w.number_input(f"{dk} (fF)", key=f"ov_{dk}_{fname}", format="%.4f", step=0.1)
-        para_caps_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _OPEN_OV}
+            # ── calculation ──────────────────────────────────────────────────
+            para_open_calc, open_arr = step1a_open(
+                open_data, open_n0, open_n1, open_method, open_trim)
+            st.dataframe(pd.DataFrame([
+                {"Parameter": k, "Value": f"{para_open_calc[k]*1e15:.4f}", "Unit": "fF", "Description": d}
+                for k, d in [("Cpbe","Pad B-E shunt cap"),
+                             ("Cpce","Pad C-E shunt cap"),
+                             ("Cpbc","Pad B-C shunt cap")]
+            ]), width="stretch", hide_index=True)
 
-        open_mode_extra = render_open_plots(open_data, para_caps_ov, open_arr, fname)
-        for cap, (mode, extra) in open_mode_extra.items():
-            para_caps_ov[f"{cap}_mode"]  = mode
-            para_caps_ov[f"{cap}_extra"] = extra
-    else:
-        st.info("No Open dummy — Cpbe, Cpce, Cpbc defaulted to 0 fF.")
-        para_caps_ov = {
-            "Cpbe": 0.0, "Cpce": 0.0, "Cpbc": 0.0,
-            "Cpbe_mode": "None", "Cpbe_extra": 0.0,
-            "Cpce_mode": "None", "Cpce_extra": 0.0,
-            "Cpbc_mode": "None", "Cpbc_extra": 0.0,
-        }
+            _OPEN_OV = [("Cpbe",1e15),("Cpce",1e15),("Cpbc",1e15)]
+            for dk, sc in _OPEN_OV:
+                sk = f"ov_{dk}_{fname}"
+                if sk not in st.session_state: st.session_state[sk] = para_open_calc[dk]*sc
+            with st.expander("✏️ Override Open Capacitances", expanded=False):
+                if st.button("↩️ Reset Caps", key=f"rst_caps_{fname}"):
+                    for dk, sc in _OPEN_OV: st.session_state[f"ov_{dk}_{fname}"] = para_open_calc[dk]*sc
+                    st.rerun()
+                for col_w, (dk, sc) in zip(st.columns(3), _OPEN_OV):
+                    col_w.number_input(f"{dk} (fF)", key=f"ov_{dk}_{fname}", format="%.4f", step=0.1)
+            para_caps_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _OPEN_OV}
 
+            open_mode_extra = render_open_plots(open_data, para_caps_ov, open_arr, fname)
+            for cap, (mode, extra) in open_mode_extra.items():
+                para_caps_ov[f"{cap}_mode"]  = mode
+                para_caps_ov[f"{cap}_extra"] = extra
+        else:
+            st.info("No Open dummy — Cpbe, Cpce, Cpbc defaulted to 0 fF.")
+            para_caps_ov = {
+                "Cpbe": 0.0, "Cpce": 0.0, "Cpbc": 0.0,
+                "Cpbe_mode": "None", "Cpbe_extra": 0.0,
+                "Cpce_mode": "None", "Cpce_extra": 0.0,
+                "Cpbc_mode": "None", "Cpbc_extra": 0.0,
+            }
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # STEP 1b — Short dummy
-    # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("---")
-    st.markdown("### 📌 Step 1b — Short Dummy: Lead Inductances & Series Resistances")
-    st.caption("Gao [3] §4.2. Used to extract lead inductances and series resistance. However, series resistance is more accurately modeled by other methods (Cold, Z-parameter, open-collector).")
-    col_m2, _ = st.columns([1, 1])
-    if has_open:
-        open_sel    = col_m2.radio("Use open from:", ["measured","modelled"],
-                                    horizontal=True, key=f"osl_{fname}")
-        do_measured = (open_sel == "measured")
-    else:
-        col_m2.markdown("*Use open from:* ~~measured~~ / **modelled** *(no Open file)*")
-        do_measured = False
-    # Formulas — implementation is in ssm_deembedding.step1b_short
-    c1, c2, c3 = st.columns(3)
-    with c1: st.latex(r"R_e=\mathrm{Re}(Z_{12}^{corr})")
-    with c2: st.latex(r"R_b=\mathrm{Re}(Z_{11}^{corr}-Z_{12}^{corr})")
-    with c3: st.latex(r"R_c=\mathrm{Re}(Z_{22}^{corr}-Z_{21}^{corr})")
+        # ── Step 1b — Short dummy ─────────────────────────────────────────────
+        st.divider()
+        st.markdown(
+            "<div style='background:linear-gradient(90deg,#eef0f8 0%,transparent 100%);"
+            "border-left:4px solid #3d52a0;padding:8px 14px;border-radius:0 6px 6px 0;"
+            "margin-bottom:2px'><strong>📌 Short Dummy: Lead Inductances &amp; Series Resistances</strong></div>",
+            unsafe_allow_html=True)
+        st.caption("Gao [3] §4.2. Used to extract lead inductances and series resistance. However, series resistance is more accurately modeled by other methods (Cold, Z-parameter, open-collector).")
+        col_m2, _ = st.columns([1, 1])
+        if has_open:
+            open_sel    = col_m2.radio("Use open from:", ["measured","modelled"],
+                                        horizontal=True, key=f"osl_{fname}")
+            do_measured = (open_sel == "measured")
+        else:
+            col_m2.markdown("*Use open from:* ~~measured~~ / **modelled** *(no Open file)*")
+            do_measured = False
+        # Formulas — implementation is in ssm_deembedding.step1b_short
+        c1, c2, c3 = st.columns(3)
+        with c1: st.latex(r"R_e=\mathrm{Re}(Z_{12}^{corr})")
+        with c2: st.latex(r"R_b=\mathrm{Re}(Z_{11}^{corr}-Z_{12}^{corr})")
+        with c3: st.latex(r"R_c=\mathrm{Re}(Z_{22}^{corr}-Z_{21}^{corr})")
 
-    c1, c2, c3 = st.columns(3)
-    with c1: st.latex(r"L_e=\mathrm{Im}(Z_{12}^{corr})/\omega")
-    with c2: st.latex(r"L_b=\mathrm{Im}(Z_{11}^{corr}-Z_{12}^{corr})/\omega")
-    with c3: st.latex(r"L_c=\mathrm{Im}(Z_{22}^{corr}-Z_{21}^{corr})/\omega")
-    
-    if has_short:
-        # # ── extraction range ─────────────────────────────────────────────────
-        # short_n0, short_n1, short_method, short_trim = _extract_ui(
-        #     fname, "short", freq, default_frac_lo=0.0, default_frac_hi=0.2)
+        c1, c2, c3 = st.columns(3)
+        with c1: st.latex(r"L_e=\mathrm{Im}(Z_{12}^{corr})/\omega")
+        with c2: st.latex(r"L_b=\mathrm{Im}(Z_{11}^{corr}-Z_{12}^{corr})/\omega")
+        with c3: st.latex(r"L_c=\mathrm{Im}(Z_{22}^{corr}-Z_{21}^{corr})/\omega")
 
-        # # ── calculation ──────────────────────────────────────────────────────
-        # para_short_calc, short_arr = step1b_short(
-        #     short_data, open_data[0],
-        #     para_caps_ov["Cpbe"], para_caps_ov["Cpce"], para_caps_ov["Cpbc"],
-        #     open_data, n0=short_n0, n1=short_n1, method=short_method,
-        #     trim_pct=short_trim, measured_open=do_measured,
-        #     Cpbe_mode=para_caps_ov.get("Cpbe_mode","None"),
-        #     Cpbe_extra=para_caps_ov.get("Cpbe_extra",0.0),
-        #     Cpce_mode=para_caps_ov.get("Cpce_mode","None"),
-        #     Cpce_extra=para_caps_ov.get("Cpce_extra",0.0),
-        #     Cpbc_mode=para_caps_ov.get("Cpbc_mode","None"),
-        #     Cpbc_extra=para_caps_ov.get("Cpbc_extra",0.0),
-        # )
+        if has_short:
+            # ── extraction range ──────────────────────────────────────────────
+            short_n0, short_n1, short_method, short_trim = _extract_ui(
+                fname, "short", freq, default_frac_lo=0.0, default_frac_hi=0.2)
 
-        # ── extraction range ─────────────────────────────────────────────────────
-        short_n0, short_n1, short_method, short_trim = _extract_ui(
-            fname, "short", freq, default_frac_lo=0.0, default_frac_hi=0.2)
+            # ── calculation ───────────────────────────────────────────────────
+            para_short_calc, short_arr = step1b_short(
+                short_data, freq if open_data is None else open_data[0],
+                para_caps_ov["Cpbe"], para_caps_ov["Cpce"], para_caps_ov["Cpbc"],
+                open_data, n0=short_n0, n1=short_n1, method=short_method,
+                trim_pct=short_trim, measured_open=do_measured,
+                Cpbe_mode=para_caps_ov.get("Cpbe_mode","None"),
+                Cpbe_extra=para_caps_ov.get("Cpbe_extra",0.0),
+                Cpce_mode=para_caps_ov.get("Cpce_mode","None"),
+                Cpce_extra=para_caps_ov.get("Cpce_extra",0.0),
+                Cpbc_mode=para_caps_ov.get("Cpbc_mode","None"),
+                Cpbc_extra=para_caps_ov.get("Cpbc_extra",0.0),
+            )
+            for w in short_arr.get("warnings", []):
+                st.warning(w) if w.startswith("⚠️") else st.info(w)
+            st.dataframe(pd.DataFrame([
+                {"Parameter": lbl, "Value": f"{para_short_calc[dk]*sc:.4f}", "Unit": unit}
+                for dk, lbl, sc, unit in [
+                    ("Lb","Lb",1e12,"pH"),("Lc","Lc",1e12,"pH"),("Le","Le",1e12,"pH"),
+                    ("Rpb","Rb (Short)",1.0,"Ω"),("Rpc","Rc (Short)",1.0,"Ω"),("Rpe","Re (Short)",1.0,"Ω"),
+                ]
+            ]), width="stretch", hide_index=True)
 
-        # ── calculation ──────────────────────────────────────────────────────────
-        para_short_calc, short_arr = step1b_short(
-            short_data, freq if open_data is None else open_data[0],
-            para_caps_ov["Cpbe"], para_caps_ov["Cpce"], para_caps_ov["Cpbc"],
-            open_data, n0=short_n0, n1=short_n1, method=short_method,
-            trim_pct=short_trim, measured_open=do_measured,
-            Cpbe_mode=para_caps_ov.get("Cpbe_mode","None"),
-            Cpbe_extra=para_caps_ov.get("Cpbe_extra",0.0),
-            Cpce_mode=para_caps_ov.get("Cpce_mode","None"),
-            Cpce_extra=para_caps_ov.get("Cpce_extra",0.0),
-            Cpbc_mode=para_caps_ov.get("Cpbc_mode","None"),
-            Cpbc_extra=para_caps_ov.get("Cpbc_extra",0.0),
-        )
-        for w in short_arr.get("warnings", []):
-            st.warning(w) if w.startswith("⚠️") else st.info(w)
-        st.dataframe(pd.DataFrame([
-            {"Parameter": lbl, "Value": f"{para_short_calc[dk]*sc:.4f}", "Unit": unit}
-            for dk, lbl, sc, unit in [
-                ("Lb","Lb",1e12,"pH"),("Lc","Lc",1e12,"pH"),("Le","Le",1e12,"pH"),
-                ("Rpb","Rb (Short)",1.0,"Ω"),("Rpc","Rc (Short)",1.0,"Ω"),("Rpe","Re (Short)",1.0,"Ω"),
-            ]
-        ]), width="stretch", hide_index=True)
-
-        _SHORT_OV = [("Lb",1e12),("Lc",1e12),("Le",1e12),
-                    ("Rpb",1.0),("Rpc",1.0),("Rpe",1.0)]
-        # Re-init overrides if caps changed (would change Short extraction)
-        cap_hash = tuple(round(para_caps_ov[k]*1e18) for k in ["Cpbe","Cpce","Cpbc"])
-        if st.session_state.get(f"ov_cap_hash_{fname}") != cap_hash:
+            _SHORT_OV = [("Lb",1e12),("Lc",1e12),("Le",1e12),
+                        ("Rpb",1.0),("Rpc",1.0),("Rpe",1.0)]
+            # Re-init overrides if caps changed (would change Short extraction)
+            cap_hash = tuple(round(para_caps_ov[k]*1e18) for k in ["Cpbe","Cpce","Cpbc"])
+            if st.session_state.get(f"ov_cap_hash_{fname}") != cap_hash:
+                for dk, sc in _SHORT_OV:
+                    st.session_state[f"ov_{dk}_{fname}"] = para_short_calc[dk]*sc
+                st.session_state[f"ov_cap_hash_{fname}"] = cap_hash
             for dk, sc in _SHORT_OV:
-                st.session_state[f"ov_{dk}_{fname}"] = para_short_calc[dk]*sc
-            st.session_state[f"ov_cap_hash_{fname}"] = cap_hash
-        for dk, sc in _SHORT_OV:
-            sk = f"ov_{dk}_{fname}"
-            if sk not in st.session_state: st.session_state[sk] = para_short_calc[dk]*sc
-        with st.expander("✏️ Override Short Lead Values", expanded=False):
-            if st.button("↩️ Reset Short", key=f"rst_short_{fname}"):
-                for dk, sc in _SHORT_OV: st.session_state[f"ov_{dk}_{fname}"] = para_short_calc[dk]*sc
-                st.rerun()
-            for row_items in [_SHORT_OV[:3], _SHORT_OV[3:]]:
-                for col_w, (dk, sc) in zip(st.columns(3), row_items):
-                    unit = "pH" if sc==1e12 else "Ω"
-                    fmt  = "%.3f" if sc==1e12 else "%.4f"
-                    col_w.number_input(f"{dk} ({unit})", key=f"ov_{dk}_{fname}",
-                                    format=fmt, step=0.1 if sc==1e12 else 0.01)
-        para_short_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _SHORT_OV}
+                sk = f"ov_{dk}_{fname}"
+                if sk not in st.session_state: st.session_state[sk] = para_short_calc[dk]*sc
+            with st.expander("✏️ Override Short Lead Values", expanded=False):
+                if st.button("↩️ Reset Short", key=f"rst_short_{fname}"):
+                    for dk, sc in _SHORT_OV: st.session_state[f"ov_{dk}_{fname}"] = para_short_calc[dk]*sc
+                    st.rerun()
+                for row_items in [_SHORT_OV[:3], _SHORT_OV[3:]]:
+                    for col_w, (dk, sc) in zip(st.columns(3), row_items):
+                        unit = "pH" if sc==1e12 else "Ω"
+                        fmt  = "%.3f" if sc==1e12 else "%.4f"
+                        col_w.number_input(f"{dk} ({unit})", key=f"ov_{dk}_{fname}",
+                                        format=fmt, step=0.1 if sc==1e12 else 0.01)
+            para_short_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _SHORT_OV}
 
-        # Enhanced short plots — returns {Cpar_Lb, Cpar_Lc, Cpar_Le}
-        short_cpar = render_short_plots(short_arr, para_short_ov, fname)
-        para_short_ov.update(short_cpar)
-    else:
-        st.info("No Short dummy — Lb, Lc, Le, Rb, Rc, Re defaulted to 0.")
-        para_short_ov = {
-            "Lb": 0.0, "Lc": 0.0, "Le": 0.0,
-            "Rpb": 0.0, "Rpc": 0.0, "Rpe": 0.0,
-            "Cpar_Lb": 0.0, "Cpar_Lc": 0.0, "Cpar_Le": 0.0,
-        }
+            # Enhanced short plots — returns {Cpar_Lb, Cpar_Lc, Cpar_Le}
+            short_cpar = render_short_plots(short_arr, para_short_ov, fname)
+            para_short_ov.update(short_cpar)
+        else:
+            st.info("No Short dummy — Lb, Lc, Le, Rb, Rc, Re defaulted to 0.")
+            para_short_ov = {
+                "Lb": 0.0, "Lc": 0.0, "Le": 0.0,
+                "Rpb": 0.0, "Rpc": 0.0, "Rpe": 0.0,
+                "Cpar_Lb": 0.0, "Cpar_Lc": 0.0, "Cpar_Le": 0.0,
+            }
     para_step1 = {**para_caps_ov, **para_short_ov}
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Z-parameter method (multi-bias)
+    # SECTION 2 — Series or Access Resistance Extraction
     # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("---")
-    with st.expander("📈 Z Parameter Method — Extract Rbe and Re  *(Gao [3] Ch. 5.5.1)*",
-                     expanded=False):
+    # st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#0d737722 0%,transparent 100%);"
+        "border-left:5px solid #0d7377;padding:10px 16px;border-radius:0 8px 8px 0;"
+        "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
+        "2 — Series / Access Resistance Extraction</span></div>",
+        unsafe_allow_html=True)
+
+    # ── Z-parameter method ────────────────────────────────────────────────────
+    # st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
+        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>📈 Z-Parameter Method</strong> "
+        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.1)*</span></div>",
+        unsafe_allow_html=True)
+    with st.expander("Z-Parameter Method — Re(Z₁₂) vs 1/IE", expanded=False):
         render_rz12_section(all_data or {}, para_step1, fname)
     rz12_Re  = st.session_state.get(f"rz12_Re_{fname}")
     rz12_Rbe = st.session_state.get(f"rz12_Rbe_{fname}")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Cold-HBT
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Open-collector method ─────────────────────────────────────────────────
+    # st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
+        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>📈 Open-Collector Method</strong></div>",
+        unsafe_allow_html=True)
+    with st.expander("Open-Collector Method — Re(Zij) vs 1/IB", expanded=False):
+        render_open_collector_section(all_data or {}, para_step1, fname)
+
+    # ── Cold-HBT ──────────────────────────────────────────────────────────────
     cold_res = _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # S-parameter comparison
+    # SECTION 3 — De-embedded Preview
     # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("---")
+    st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#2e7d3222 0%,transparent 100%);"
+        "border-left:5px solid #2e7d32;padding:10px 16px;border-radius:0 8px 8px 0;"
+        "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
+        "3 — De-embedded Preview</span></div>",
+        unsafe_allow_html=True)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Unified pre-extraction override
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Unified pre-extraction override ───────────────────────────────────────
     para_eff = render_unified_pre_override(fname, para_step1, cold_res, rz12_Re)
     # Propagate extended open/short params
     for cap in ["Cpbe","Cpce","Cpbc"]:
@@ -326,16 +350,27 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     for ck in ["Cpar_Lb","Cpar_Lc","Cpar_Le"]:
         para_eff[ck] = para_short_ov.get(ck, 0.0)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # De-embedded DUT preview (Smith chart + Bode + S2P downloads)
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── De-embedded DUT preview (Gain + Smith + S2P downloads) ───────────────
     render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Model selection
+    # SECTION 4 — Intrinsic Model
     # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("---")
-    st.markdown("### 🔘 Model Selection")
+    st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#6a1b9a22 0%,transparent 100%);"
+        "border-left:5px solid #6a1b9a;padding:10px 16px;border-radius:0 8px 8px 0;"
+        "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
+        "4 — Intrinsic Model</span></div>",
+        unsafe_allow_html=True)
+
+    # ── Model selection ───────────────────────────────────────────────────────
+    # st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#f3e5f5 0%,transparent 100%);"
+        "border-left:4px solid #6a1b9a;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>🔘 Model Selection</strong></div>",
+        unsafe_allow_html=True)
     # One checkbox per registered model, default from DEFAULT_SELECTION
     model_cols = st.columns(len(REGISTRY))
     selected_models: list[str] = []
@@ -354,13 +389,19 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     # ══════════════════════════════════════════════════════════════════════════
     # Extraction loop — each selected model
     # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("---")
-    st.markdown("### 📌 Steps 2 & 3 — Model Extraction")
+    st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#f3e5f5 0%,transparent 100%);"
+        "border-left:4px solid #6a1b9a;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>📌 Steps 2 &amp; 3 — Model Extraction</strong></div>",
+        unsafe_allow_html=True)
 
     extract_results: dict[str, tuple] = {}   # short → (params, arrays)
 
-    for short in selected_models:
+    for i, short in enumerate(selected_models):
         ModelClass = REGISTRY[short]
+        if i > 0:
+            st.divider()
         st.markdown(f"#### {ModelClass.NAME}")
 
         # Show formulas then run extraction (co-located)
@@ -441,37 +482,51 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     # ══════════════════════════════════════════════════════════════════════════
     # Smith charts (per model — override + residual)
     # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("---")
-    st.markdown("### 📡 Measured vs Modeled S-Parameters")
+    st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#f3e5f5 0%,transparent 100%);"
+        "border-left:4px solid #6a1b9a;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>📡 Measured vs Modeled S-Parameters</strong></div>",
+        unsafe_allow_html=True)
     st.caption("Pad params auto-synced from pre-extraction override. "
                "Use expanders to fine-tune intrinsic/extrinsic values.")
 
     sim_results: dict[str, np.ndarray | None] = {}
-    for short in selected_models:
+    for j, short in enumerate(selected_models):
         ModelClass = REGISTRY[short]
+        if j > 0:
+            st.divider()
         st.markdown(f"#### {ModelClass.NAME}")
         S_sim = ModelClass.render_override_and_smith(
             fname, S_raw, freq, z0, para_eff, extract_results[short])
         sim_results[short] = S_sim
 
     # ══════════════════════════════════════════════════════════════════════════
-    # fT / fmax overlay  (only when ≥ 2 models — single-model is already
-    # shown beside its Smith chart up above, so an overlay would be redundant)
+    # SECTION 5 — Review
     # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#bf360c22 0%,transparent 100%);"
+        "border-left:5px solid #bf360c;padding:10px 16px;border-radius:0 8px 8px 0;"
+        "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
+        "5 — Review</span></div>",
+        unsafe_allow_html=True)
+
+    # ── fT / fmax overlay (≥2 models) ─────────────────────────────────────────
     _n_with_sim = sum(1 for v in sim_results.values() if v is not None)
     if _n_with_sim >= 2:
-        st.markdown("---")
-        st.markdown("### 📊 fT and fmax — Measured vs Modeled")
+        st.divider()
+        st.markdown(
+            "<div style='background:linear-gradient(90deg,#fbe9e7 0%,transparent 100%);"
+            "border-left:4px solid #bf360c;padding:8px 14px;border-radius:0 6px 6px 0;"
+            "margin-bottom:2px'><strong>📊 fT and fmax — Measured vs Modeled</strong></div>",
+            unsafe_allow_html=True)
         render_ft_fmax_overlay(S_raw, sim_results, freq, fname)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # S2P downloads
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── S2P downloads ─────────────────────────────────────────────────────────
     _render_s2p_downloads(fname, freq, z0, para_eff, sim_results)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # Parameter summary table
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Parameter summary table ───────────────────────────────────────────────
     _render_summary_table(fname, para_eff, cold_res, extract_results, REGISTRY)
 
 
@@ -481,8 +536,13 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
 
 def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
     """Cold-HBT extraction UI. Returns cold_res dict or None."""
-    st.markdown("---")
-    st.markdown("#### 🧊 Cold-HBT Extraction  *(Gao [3] Ch. 5.5.2)*")
+    # st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
+        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>🧊 Cold-HBT Extraction</strong> "
+        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.2)*</span></div>",
+        unsafe_allow_html=True)
     st.caption("Used to extract series/access resistances Re, Rb, Rc. Upload cut-off bias (Vce=0, Vbe≤0) S2P.")
     cold_file = st.file_uploader("Cold HBT S2P", type=["s2p"], key=f"cold_upload_{fname}")
     if cold_file is None:
@@ -669,7 +729,7 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
             # Both depend on Cex scalar. Arrays are recomputed live from Cex_scalar.
             # upstream_tag = Cex value → widget key changes when Cex changes
             #   → input resets to new median automatically.
-            st.markdown("---")
+            st.divider()
             st.markdown("**Step 3 — Cbc, Rbi**")
             st.caption("Depend on: Cex")
             up_cex = f"{Cex_scalar:.6e}"
@@ -695,7 +755,7 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
 
             # ── Step 4: Cbe ─────────────────────────────────────────────────
             # Depends on Cex, Cbc, Rbi scalars. Array recomputed live.
-            st.markdown("---")
+            st.divider()
             st.markdown("**Step 4 — Cbe**")
             st.caption("Depends on: Cex, Cbc, Rbi")
             up_s3 = f"{Cex_scalar:.6e}_{Cbc_scalar:.6e}_{Rbi_scalar:.6e}"
@@ -719,7 +779,7 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
 
             # ── Step 5: Rb, Rc, Re ──────────────────────────────────────────
             # Depend on Cex, Cbc, Rbi, Cbe scalars. Arrays recomputed live.
-            st.markdown("---")
+            st.divider()
             st.markdown("**Step 5 — Rb, Rc, Re**")
             st.caption("Depend on: Cex, Cbc, Rbi, Cbe")
             up_s4 = f"{up_s3}_{Cbe_scalar:.6e}"
@@ -810,7 +870,8 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
 
 
 def _render_cold_crosscheck(cold_res, extract_results, registry):
-    st.markdown("---"); st.markdown("**Cold-HBT cross-check:**")
+    st.divider()
+    st.markdown("**Cold-HBT cross-check:**")
     # Use first available model's Rbi/Cbe/Cbc
     first_params = next(iter(extract_results.values()))[0]
     rows = []
@@ -830,8 +891,12 @@ def _render_cold_crosscheck(cold_res, extract_results, registry):
 
 
 def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
-    st.markdown("---")
-    st.markdown("### 📥 Download Modeled S2P Files")
+    st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#fbe9e7 0%,transparent 100%);"
+        "border-left:4px solid #bf360c;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>📥 Download Modeled S2P Files</strong></div>",
+        unsafe_allow_html=True)
     st.caption(
         "Forward-simulate Open, Short, and final DUT model.  \n"
         "Files use Touchstone format: `# Hz S DB R 50`.  \n"
@@ -907,7 +972,12 @@ def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
 
 
 def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
-    st.markdown("---"); st.markdown("### 📋 Complete Parameter Summary")
+    st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#fbe9e7 0%,transparent 100%);"
+        "border-left:4px solid #bf360c;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>📋 Complete Parameter Summary</strong></div>",
+        unsafe_allow_html=True)
     st.caption("Values reflect the **current** state after any pre-extraction "
                "overrides, fine-tune Smith chart edits, and tuning sweeps.")
 

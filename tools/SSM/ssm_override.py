@@ -30,8 +30,12 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
     -------
     para_eff : dict   Effective pad parameters (SI units).
     """
-    st.markdown("---")
-    st.markdown("### ⚙️ Pre-Extraction Parameter Review")
+    # st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#e8f5e9 0%,transparent 100%);"
+        "border-left:4px solid #2e7d32;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>⚙️ Pre-Extraction Parameter Review</strong></div>",
+        unsafe_allow_html=True)
     st.caption(
         "All pad parameters feeding every model extraction.  \n"
         "For Rb/Rc/Re the source with the highest value is pre-selected.")
@@ -82,7 +86,7 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
             st.session_state[sk_val] = sources.get(st.session_state[sk_src],
                                                     list(sources.values())[0])
 
-    with st.expander("✏️ Inspect / override pad parameters", expanded=True):
+    with st.expander("✏️ Inspect / override pad parameters", expanded=False):
         if st.button("↩️ Reset all to defaults (highest source)",
                      key=f"preov_reset_{fname}"):
             for k in _cap_keys:

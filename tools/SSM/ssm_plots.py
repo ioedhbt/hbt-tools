@@ -306,8 +306,12 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
     from .ssm_s2p import write_s2p
     from .models.base_ui import smith_scale_controls
 
-    st.markdown("---")
-    st.markdown("### 📊 De-embedded DUT Preview")
+    # st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#e8f5e9 0%,transparent 100%);"
+        "border-left:4px solid #2e7d32;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>📊 De-embedded DUT Preview</strong></div>",
+        unsafe_allow_html=True)
 
     f_ghz = freq * 1e-9
 
@@ -318,20 +322,7 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
     Y_pareff = peel_parasitics(S_raw, freq, z0, para_eff)
     S_pareff = y_to_s_batch(Y_pareff, z0)
 
-    # ── 1. Smith chart: raw vs Step-1 de-embedded ─────────────────────────────
-    with st.expander("📐 S-Parameters: Raw vs De-embedded", expanded=False):
-        # st.markdown("#### S-Parameters: Raw vs De-embedded")
-        st.caption(
-            "Markers = raw DUT.  Dashed = after full Open+Short de-embedding "
-            "(Cpbe/Cpce/Cpbc + Lb/Lc/Le + Rb/Rc/Re, using Step 1a/1b values).")
-        sc = smith_scale_controls(fname, "deemb")
-        err = ssm_residual(S_raw, S_step1)
-        render_smith_chart(S_raw, S_step1,
-                        "Raw vs Step-1 De-embedded",
-                        err, sc,
-                        key=f"smith_deemb_{fname}")
-
-    # ── 2. Formula expander ───────────────────────────────────────────────────
+    # ── Formula expander (collapsible) ────────────────────────────────────────
     with st.expander("📐 De-embedding formulas", expanded=False):
         st.markdown(
             "**Full Open + Short de-embedding chain** *(Gao §4.2)*  \n"
@@ -351,10 +342,9 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
             r"where $Z_b = R_b + j\omega L_b$, etc. (optional: $C_{par}$ in parallel with each lead).")
         st.markdown(
             "**Output:** $Y_{ex1} = (Z_2)^{-1}$ — model input.  \n"
-            "**Smith chart above:** $Y_{ex1} \\to S_{deemb}$ plotted vs raw S.")
+            "**Smith chart (right):** $Y_{ex1} \\to S_{deemb}$ plotted vs raw S.")
 
-    # ── 3. Bode plot: h21² and Mason U for both de-embedding levels ───────────
-    st.markdown("#### Gain vs Frequency — Two De-embedding Levels")
+    # ── Bode plot: h21² and Mason U for both de-embedding levels ─────────────
     h21_s1, U_s1 = _compute_h21_U(S_step1)
     h21_pe, U_pe = _compute_h21_U(S_pareff)
 
@@ -435,16 +425,36 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
                     bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
         hovermode="x unified", margin=dict(l=55, r=20, t=40, b=50))
-    st.plotly_chart(fig, width="stretch", key=f"bode_deemb_{fname}")
     cap = ("**Step-1** = Open+Short de-embedded using Step 1a/1b extracted values.  \n"
            "**Pre-ext** = same de-embedding but with Pre-Extraction Review overrides applied.  \n"
            "○ = |h21|² (→ fT).   □ = Mason U (→ fmax).   Y-axis fixed 0–50 dB.")
     if extrap_used:
         cap += "   Dotted = 20 dB/dec extrapolation past the measured band."
-    st.caption(cap)
 
-    # ── 4. S2P downloads ──────────────────────────────────────────────────────
-    st.markdown("#### Download De-embedded S2P")
+    # ── Two-column layout: Gain (left) | Smith chart (right) ─────────────────
+    col_gain, col_smith = st.columns([3, 2])
+    with col_gain:
+        st.markdown("**Gain vs Frequency — Two De-embedding Levels**")
+        st.caption(cap)
+        st.plotly_chart(fig, width="stretch", key=f"bode_deemb_{fname}")
+    with col_smith:
+        st.markdown("**S-Parameters: Raw vs De-embedded**")
+        st.caption(
+            "Markers = raw DUT.  Dashed = after full Open+Short de-embedding "
+            "(Cpbe/Cpce/Cpbc + Lb/Lc/Le + Rb/Rc/Re, Step 1a/1b values).")
+        sc = smith_scale_controls(fname, "deemb")
+        err = ssm_residual(S_raw, S_step1)
+        render_smith_chart(S_raw, S_step1,
+                           "Raw vs Step-1 De-embedded",
+                           err, sc,
+                           key=f"smith_deemb_{fname}")
+
+    # ── S2P downloads ─────────────────────────────────────────────────────────
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#e8f5e9 0%,transparent 100%);"
+        "border-left:4px solid #2e7d32;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin:8px 0 2px 0'><strong>📥 Download De-embedded S2P</strong></div>",
+        unsafe_allow_html=True)
 
     def _rlc_params(p):
         d = {}
@@ -931,11 +941,13 @@ def render_rz12_section(all_data, para_eff, fname):
     else:
         st.session_state.pop(f"rz12_Re_{fname}", None)
         st.session_state.pop(f"rz12_Rbe_{fname}", None)
-    # ══════════════════════════════════════════════════════════════════════════
-    # Open-collector method
-    # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("---")
-    st.markdown("#### 📈 Open-Collector Method")
+
+
+def render_open_collector_section(all_data, para_eff, fname):
+    """
+    Open-collector method: Re(Zij) vs 1/IB linear extrapolation → Rb, Rc, Re.
+    Results written into session state as ocm_Rb/Rc/Re_{fname}.
+    """
     st.caption("Re(Z₁₁−Z₁₂) vs 1/IB → Rb,  Re(Z₂₂−Z₁₂) vs 1/IB → Rc,  Re(Z₁₂) vs 1/IB → Re")
     st.latex(r"\mathrm{Re}(Z_{11}-Z_{12})=R_b+f(I_B),\quad"
              r"\mathrm{Re}(Z_{22}-Z_{12})=R_c+f(I_B),\quad"
