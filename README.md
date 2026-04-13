@@ -8,12 +8,7 @@ A Streamlit-based web application for HBT (Heterojunction Bipolar Transistor) DC
 - Upload multi-bias S-parameter files (`.s2p`)
 - Automatic de-embedding (open/short structures)
 - Gain and stability metrics: |h₂₁|², Mason's U, K-factor
-- Small-signal model (SSM) extraction with multiple published models:
-  | Model | Reference |
-  |---|---|
-  | **Cheng T / π** | Cheng et al., *Microelectronics Journal* 121, 2022 |
-  | **Degachi π** | Degachi & Ghannouchi, *IEEE TED* 55(4), 2008 |
-  | **Xu CBC/Cπ** | Dvorak & Bolognesi, *IEEE MTT-S* 2003 |
+- Small-signal model (SSM) extraction with procedure from Cheng et al., *Microelectronics Journal* 121, 2022
 - Global parameter tuning with GPU acceleration (CUDA via CuPy)
 
 ### Gummel Analyzer (`IOED_Gummel_Analyzer.py`)
