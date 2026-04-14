@@ -673,13 +673,16 @@ _INT_PI_SPECS = [
 
 _ILLUS_DIR = _Path(__file__).parent / "illus_template"
 
+import platform
+ohm_sign = "Ω" if platform.system() == "Windows" else "Ohm"
+
 # Display units for each parameter key: (SI→display scale factor, base unit string)
 _PARAM_DISPLAY: dict[str, tuple] = {
     "Cpbe":   (1e15, "fF"),  "Cpce":  (1e15, "fF"),  "Cpbc":  (1e15, "fF"),
     "Lb":     (1e12, "pH"),  "Lc":    (1e12, "pH"),   "Le":    (1e12, "pH"),
-    "Rpb":    (1,    "Ω"),   "Rpc":   (1,    "Ω"),    "Rpe":   (1,    "Ω"),
+    "Rpb":    (1,    ohm_sign),   "Rpc":   (1,    ohm_sign),    "Rpe":   (1,    ohm_sign),
     "Cbex":   (1e15, "fF"),  "Cbcx":  (1e15, "fF"),
-    "Rbi":    (1,    "Ω"),   "Rbe":   (1,    "Ω"),
+    "Rbi":    (1,    ohm_sign),   "Rbe":   (1,    ohm_sign),
     "Cbe":    (1e15, "fF"),  "Cbc":   (1e15, "fF"),
     "Rbc":    (1e-3, "kΩ"),
     "alpha0": (1,    ""),
@@ -694,7 +697,7 @@ _UNIT_LADDER: dict[str, str] = {
     "pH": "nH",  "nH": "μH",
     "ps": "ns",  "ns": "μs",
     "mS": "S",
-    "Ω":  "kΩ",  "kΩ": "MΩ",  "MΩ": "GΩ",
+    f"{ohm_sign}":  f"k{ohm_sign}",  f"k{ohm_sign}": f"M{ohm_sign}",  f"M{ohm_sign}": f"G{ohm_sign}",
 }
 
 # Keys that get 3 decimal places instead of 2
