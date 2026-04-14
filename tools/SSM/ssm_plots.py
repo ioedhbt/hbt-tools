@@ -14,6 +14,7 @@ from .ssm_core        import open_elem_Y, s_to_y, y_to_z
 from .ssm_deembedding  import peel_parasitics
 from .ssm_s2p          import simulate_open
 from .models.base_ui   import render_smith_chart, ssm_residual
+from .ssm_chart_utils  import plotly_with_dl
 
 
 # ── Open element mode constants ───────────────────────────────────────────────
@@ -105,7 +106,7 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_cap.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_cap.update_yaxes(showgrid=True, gridcolor="#ebebeb", range=[0, 50])
-        st.plotly_chart(fig_cap, width="stretch", key=f"step1_cap_{fname}")
+        plotly_with_dl(fig_cap, key=f"step1_cap_{fname}", filename=f"open_cap_{fname}")
         st.caption("Flat line = pure C. Slope/resonance = inductive effect. Range fixed 0–50 fF.")
 
     # ── 3. Conductance plot (Series R indicator) ──────────────────────────────
@@ -135,7 +136,7 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_g.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_g.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-        st.plotly_chart(fig_g, width="stretch", key=f"step1_cond_{fname}")
+        plotly_with_dl(fig_g, key=f"step1_cond_{fname}", filename=f"open_conductance_{fname}")
         st.caption(
             "Pure C → Re(Y)=0.  "
             "Series R → Re(Y) = ω²RC² / (1+ω²R²C²) — rises then saturates.  \n"
@@ -161,7 +162,7 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_l.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_l.update_yaxes(showgrid=True, gridcolor="#ebebeb", range=[0, 50])
-        st.plotly_chart(fig_l, width="stretch", key=f"step1_lind_{fname}")
+        plotly_with_dl(fig_l, key=f"step1_lind_{fname}", filename=f"open_lind_{fname}")
         st.caption(
             "Parallel L model: Im(Y)/ω = C − 1/(ω²L).  "
             "A straight line with negative slope → L = −1/slope (SI).")
@@ -253,7 +254,7 @@ def render_short_plots(short_arr, para_short, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_ind.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_ind.update_yaxes(showgrid=True, gridcolor="#ebebeb", range=[0, 150])
-        st.plotly_chart(fig_ind, width="stretch", key=f"step1_ind_{fname}")
+        plotly_with_dl(fig_ind, key=f"step1_ind_{fname}", filename=f"short_inductances_{fname}")
         if any_neg:
             st.warning("One or more lead inductances are negative. Use Short Override to correct.")
         st.caption("Range fixed 0–150 pH.")
@@ -280,7 +281,7 @@ def render_short_plots(short_arr, para_short, fname=""):
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")
         fig_r.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_r.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-        st.plotly_chart(fig_r, width="stretch", key=f"step1_res_{fname}")
+        plotly_with_dl(fig_r, key=f"step1_res_{fname}", filename=f"short_resistances_{fname}")
         st.caption("Flat curve = clean extraction. Rising with frequency = skin effect or artefact.")
 
     return {"Cpar_Lb": cpar_Lb, "Cpar_Lc": cpar_Lc, "Cpar_Le": cpar_Le}
@@ -436,7 +437,7 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
     with col_gain:
         st.markdown("**Gain vs Frequency — Two De-embedding Levels**")
         st.caption(cap)
-        st.plotly_chart(fig, width="stretch", key=f"bode_deemb_{fname}")
+        plotly_with_dl(fig, key=f"bode_deemb_{fname}", filename=f"deemb_gain_{fname}")
     with col_smith:
         st.markdown("**S-Parameters: Raw vs De-embedded**")
         st.caption(
@@ -694,7 +695,7 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
                     borderwidth=1, font=dict(size=9)),
         hovermode="x unified",
         margin=dict(l=55, r=20, t=40, b=180))
-    st.plotly_chart(fig, width="stretch", key=key)
+    plotly_with_dl(fig, key=key, filename=key)
 
 
 def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fname):
@@ -798,7 +799,7 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
                     bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
         hovermode="x unified", margin=dict(l=55, r=20, t=50, b=50))
-    st.plotly_chart(fig, width="stretch", key=f"ftfmax_{fname}")
+    plotly_with_dl(fig, key=f"ftfmax_{fname}", filename=f"ftfmax_{fname}")
     cap = ("Measured: ○ = |h21|², □ = Mason U.   Modeled: dashed lines.   "
            "Y-axis fixed 0–50 dB.")
     if extrap_used:
@@ -812,9 +813,13 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
 
 def render_rz12_section(all_data, para_eff, fname):
     """
-    Z-parameter method (Re(Z12) vs 1/IE) and Open-collector method (Re(Zij) vs 1/IB).
+    Z-parameter method (Re(Z12) vs 1/IE).
     """
     st.markdown("#### 📈 Z-Parameter Method  *(Gao [3] Ch. 5.5.1)*")
+    st.caption("NOTE: This method is only valid when devices are biased in the active or linear region.")
+    st.caption("Valid for emitter access/series resistance (Re) extraction.")
+    st.caption("NOT Valid for analysis of files with varying VCB.")
+    st.caption("Drawback: Not suitable for Rb and Rc (Gao Table 5.3, pg. 145).")
     st.caption("Re(Z₁₂) = (ηkT/q)·(1/IE) + Re")
     st.latex(r"\mathrm{Re}(Z_{12})=\frac{\eta kT}{q}\cdot\frac{1}{I_E}+R_e")
 
@@ -917,7 +922,7 @@ def render_rz12_section(all_data, para_eff, fname):
                     bgcolor="rgba(255,255,255,0.9)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
         margin=dict(l=55,r=20,t=50,b=50))
-    st.plotly_chart(fig, width="stretch", key=f"rz12_{fname}")
+    plotly_with_dl(fig, key=f"rz12_{fname}", filename=f"rz12_{fname}")
 
     if Re_fit is not None:
         x = np.array([p[0] for p in points])
@@ -948,6 +953,9 @@ def render_open_collector_section(all_data, para_eff, fname):
     Open-collector method: Re(Zij) vs 1/IB linear extrapolation → Rb, Rc, Re.
     Results written into session state as ocm_Rb/Rc/Re_{fname}.
     """
+    st.caption("NOTE: This method is only valid when devices are biased with high base current (Ib ≈ 10 ~ 100mA). With high Ib, Ic is assumed to be 0.")
+    st.caption("Valid for base/emitter/collector access/series resistance (Rb, Re, Rc) extraction.")
+    st.caption("Drawback: Assumption that Rbi tends to 0 (Gao, Table 5.3, pg. 145)")
     st.caption("Re(Z₁₁−Z₁₂) vs 1/IB → Rb,  Re(Z₂₂−Z₁₂) vs 1/IB → Rc,  Re(Z₁₂) vs 1/IB → Re")
     st.latex(r"\mathrm{Re}(Z_{11}-Z_{12})=R_b+f(I_B),\quad"
              r"\mathrm{Re}(Z_{22}-Z_{12})=R_c+f(I_B),\quad"
@@ -1044,7 +1052,7 @@ def render_open_collector_section(all_data, para_eff, fname):
                     bgcolor="rgba(255,255,255,0.9)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
         margin=dict(l=55, r=20, t=50, b=50))
-    st.plotly_chart(fig_o, width="stretch", key=f"ocm_{fname}")
+    plotly_with_dl(fig_o, key=f"ocm_{fname}", filename=f"open_collector_{fname}")
 
     try:
         Rb_ocm = float(np.polyfit(xo, y1o, 1)[1])

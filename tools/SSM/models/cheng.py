@@ -9,6 +9,8 @@ Y_ex2, then diverge in Step 3.  Each is its own class so the registry and UI
 treat them independently, but shared logic lives in module-level helpers below.
 """
 from __future__ import annotations
+import os as _os
+from pathlib import Path as _Path
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -665,6 +667,206 @@ _INT_PI_SPECS = [
 ]
 
 
+# ════════════════════════════════════════════════════════════════════════════════
+# Topology illustration helpers
+# ════════════════════════════════════════════════════════════════════════════════
+
+_ILLUS_DIR = _Path(__file__).parent / "illus_template"
+
+# Display units for each parameter key: (SI→display scale factor, base unit string)
+_PARAM_DISPLAY: dict[str, tuple] = {
+    "Cpbe":   (1e15, "fF"),  "Cpce":  (1e15, "fF"),  "Cpbc":  (1e15, "fF"),
+    "Lb":     (1e12, "pH"),  "Lc":    (1e12, "pH"),   "Le":    (1e12, "pH"),
+    "Rpb":    (1,    "Ω"),   "Rpc":   (1,    "Ω"),    "Rpe":   (1,    "Ω"),
+    "Cbex":   (1e15, "fF"),  "Cbcx":  (1e15, "fF"),
+    "Rbi":    (1,    "Ω"),   "Rbe":   (1,    "Ω"),
+    "Cbe":    (1e15, "fF"),  "Cbc":   (1e15, "fF"),
+    "Rbc":    (1e-3, "kΩ"),
+    "alpha0": (1,    ""),
+    "tauB":   (1e12, "ps"),  "tauC":  (1e12, "ps"),
+    "Gm0":    (1e3,  "mS"),
+    "tau":    (1e12, "ps"),
+}
+
+# Unit ladder: when display value >= 1000, scale to the next prefix
+_UNIT_LADDER: dict[str, str] = {
+    "fF": "pF",  "pF": "nF",
+    "pH": "nH",  "nH": "μH",
+    "ps": "ns",  "ns": "μs",
+    "mS": "S",
+    "Ω":  "kΩ",  "kΩ": "MΩ",  "MΩ": "GΩ",
+}
+
+# Keys that get 3 decimal places instead of 2
+_3DP_PARAMS = {"alpha0", "Gm0"}
+
+# Pixel (x, y) anchor positions for overlaid value text — image is 1014 × 831 px.
+# Values are drawn centered on (x, y).  Positions are shared for pad/ext params;
+# intrinsic differs per topology.
+_COMMON_OVERLAY: dict[str, tuple[int, int]] = {
+    # Pad parasitics
+    "Cpbc": (485,  58),
+    "Cpbe": (100, 610),
+    "Cpce": (915, 610),
+
+    # Lead inductances
+    "Lb":   ( 118, 340),
+    "Le":  (510, 745),
+    "Lc":  (890, 340),
+    
+    # Access or series resistance
+    "Rpb": (247, 340),
+    "Rpe":  (510, 665),
+    "Rpc":  (762, 340),
+    
+    # External
+    "Cbex": (268, 502),
+    "Cbcx": (512, 160),
+
+    # Intrinsic base resistance
+    "Rbi": (390, 340),
+}
+
+_T_EXTRA_OVERLAY: dict[str, tuple[int, int]] = {
+    "Rbe":    (442, 515),
+    "Cbe":    (584, 557),
+    "Rbc":    (592, 340),
+    "Cbc":    (590, 250),
+    "alpha0": (623, 435),
+    "tauB":   (630, 462),
+    "tauC":   (630, 489),
+}
+
+_PI_EXTRA_OVERLAY: dict[str, tuple[int, int]] = {
+    "Rbe":  (442, 475),
+    "Cbe":  (590, 515),
+    "Cbc":  (590, 340),
+    "Gm0":  (785, 470),
+    "tau":  (785, 502),
+}
+
+_T_OVERLAY  = {**_COMMON_OVERLAY, **_T_EXTRA_OVERLAY}
+_PI_OVERLAY = {**_COMMON_OVERLAY, **_PI_EXTRA_OVERLAY}
+
+
+def _fmt_param(key: str, val_si: float) -> str:
+    """Format a parameter SI value for display on the topology illustration."""
+    if not np.isfinite(val_si):
+        return "—"
+    if key not in _PARAM_DISPLAY:
+        return f"{val_si:.3g}"
+    scale, unit = _PARAM_DISPLAY[key]
+    decimals = 3 if key in _3DP_PARAMS else 2
+    display = val_si * scale
+    while abs(display) >= 1000 and unit in _UNIT_LADDER:
+        display /= 1000
+        unit = _UNIT_LADDER[unit]
+    return f"{display:.{decimals}f} {unit}" if unit else f"{display:.{decimals}f}"
+
+
+def _load_font(size: int):
+    """Load a TrueType font at the given size, with Inter → Arial → fallback chain."""
+    from PIL import ImageFont
+    candidates = [
+        "Inter-Regular.ttf", "Inter.ttf",
+        "arial.ttf", "Arial.ttf",
+        "segoeui.ttf", "tahoma.ttf", "calibri.ttf",
+    ]
+    win_fonts = _os.path.join(_os.environ.get("WINDIR", "C:/Windows"), "Fonts")
+    dirs = [
+        win_fonts,
+        "/usr/share/fonts/truetype",
+        "/usr/share/fonts/truetype/liberation",
+        "/System/Library/Fonts",
+    ]
+    for name in candidates:
+        for d in dirs:
+            path = _os.path.join(d, name)
+            if _os.path.exists(path):
+                try:
+                    return ImageFont.truetype(path, size)
+                except Exception:
+                    pass
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> None:
+    """
+    Overlay live parameter values on the circuit schematic template PNG and display
+    it via st.image().  Called inside a Streamlit expander by render_override_and_smith.
+
+    Parameters
+    ----------
+    all_p    : dict — current (post Fine-tune) parameters in SI units.
+    topology : "T" for ChengT, "pi" for ChengPi.
+    fname    : file name tag used only as an image key for Streamlit.
+    """
+    import io
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        st.info("Install *pillow* to see the topology illustration.")
+        return
+
+    tpl_name = "ChengT_template.png" if topology == "T" else "ChengPi_template.png"
+    tpl_path = _ILLUS_DIR / tpl_name
+    if not tpl_path.exists():
+        st.warning(f"Template not found: {tpl_path}")
+        return
+
+    overlay = _T_OVERLAY if topology == "T" else _PI_OVERLAY
+
+    # Category colour sets (dark, readable on white)
+    _C_PAD = (180,  2,   2)   # red
+    _R_ACC = (175,  90,   5)   # orange
+    _C_EXT = (  0, 130,  55)   # green
+    _C_INT = ( 20,  95, 160)   # blue
+
+    _PAD_KEYS = {"Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le"}
+    _ACCESSRES_KEYS = {"Rpb", "Rpc", "Rpe"}
+    _EXT_KEYS = {"Cbex", "Cbcx"}
+
+    def _color(key: str) -> tuple:
+        if key in _PAD_KEYS:
+            return _C_PAD
+        if key in _ACCESSRES_KEYS:
+            return _R_ACC
+        if key in _EXT_KEYS:
+            return _C_EXT
+        return _C_INT
+
+    font = _load_font(18)
+
+    img  = Image.open(tpl_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    for key, (px, py) in overlay.items():
+        val_si = all_p.get(key)
+        if val_si is None:
+            continue
+        try:
+            text = _fmt_param(key, float(val_si))
+        except Exception:
+            continue
+        color = _color(key)
+        # White stroke for readability, then colored text on top
+        try:
+            draw.text((px, py), text, font=font, fill=color,
+                      anchor="mm", stroke_width=2, stroke_fill=(255, 255, 255))
+        except TypeError:
+            # Older PIL: manual halo
+            for dx, dy in [(-1,-1),(0,-1),(1,-1),(-1,0),(1,0),(-1,1),(0,1),(1,1)]:
+                draw.text((px+dx, py+dy), text, font=font, fill=(255, 255, 255))
+            draw.text((px, py), text, font=font, fill=color)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    st.image(buf.getvalue(), use_container_width=True)
+
+
 def _override_ui(fname, tK, calc_vals, int_specs, label):
     """Render the override expander for one Cheng topology."""
     all_specs = PAD_SPECS + _EXT_SPECS + int_specs
@@ -680,7 +882,8 @@ def _override_ui(fname, tK, calc_vals, int_specs, label):
         st.session_state[_sync_hash_key] = _sync_hash
 
     with st.expander(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters", expanded=False):
-        if st.button(f"↩️ Reset {label} to calculated", key=f"rst_sim_{tK}_{fname}"):
+        if st.button(f"↩️ Reset {label} to interactive section values",
+                     key=f"rst_sim_{tK}_{fname}"):
             for key, _, scale, *_ in all_specs:
                 st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
             st.rerun()
@@ -1026,6 +1229,9 @@ class ChengT(AbstractSSMModel):
         # Parameter Summary can read live values instead of extraction-time ones.
         st.session_state[f"current_p_{cls.SHORT}_{fname}"] = dict(all_p)
 
+        with st.expander("🖼️ Topology Illustration", expanded=False):
+            _render_topology_illustration(all_p, "T", fname)
+
         render_tuning_expander(cls, all_p, S_raw, freq, z0,
                                PAD_SPECS + _EXT_SPECS + _INT_T_SPECS, fname, cls.SHORT)
         _render_step2_plots(arrays, params, freq, fname, cls.NAME)
@@ -1279,6 +1485,9 @@ class ChengPi(AbstractSSMModel):
         # Persist the *current* (post-override) param dict so the Complete
         # Parameter Summary can read live values instead of extraction-time ones.
         st.session_state[f"current_p_{cls.SHORT}_{fname}"] = dict(all_p)
+
+        with st.expander("🖼️ Topology Illustration", expanded=False):
+            _render_topology_illustration(all_p, "pi", fname)
 
         render_tuning_expander(cls, all_p, S_raw, freq, z0,
                                PAD_SPECS + _EXT_SPECS + _INT_PI_SPECS, fname, cls.SHORT)

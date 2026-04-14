@@ -21,13 +21,15 @@ import streamlit as st
 
 # ── Internal modules ──────────────────────────────────────────────────────────
 from .ssm_core        import strict_freq_check, s_to_y
-from .ssm_deembedding  import step1a_open, step1b_short, peel_parasitics
+from .ssm_deembedding  import (step_open, step_short, peel_parasitics,_render_cold_hbt,
+                                render_rz12_section,
+                                render_open_collector_section)
 from .ssm_s2p          import (parse_s2p_bytes, interpolate_s2f,
                                 write_s2p, simulate_open, simulate_short)
 from .ssm_plots        import (render_open_plots, render_short_plots,
-                                render_deemb_preview, render_ft_fmax_overlay,
-                                render_rz12_section, render_open_collector_section)
-from .ssm_override     import render_unified_pre_override, make_topology_fig
+                                render_deemb_preview, render_ft_fmax_overlay)
+from .ssm_chart_utils  import plotly_with_dl
+from .ssm_override     import render_unified_pre_override
 from .models           import REGISTRY, DEFAULT_SELECTION   # model registry
 from .models.base_ui   import render_interactive_param_groups
 import matplotlib.pyplot as plt
@@ -157,7 +159,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             "margin-bottom:2px'><strong>📌 Open Dummy: Pad Capacitances</strong></div>",
             unsafe_allow_html=True)
         st.caption("Gao [3] §4.2.  Used to extract pad parasitic capacitances from open dummy. Bias-independent.")
-        # Formulas — shown here, implementation is in ssm_deembedding.step1a_open
+        # Formulas — shown here, implementation is in ssm_deembedding.step_open
         c1, c2, c3 = st.columns(3)
         with c1: st.latex(r"C_{pbe}=\mathrm{Im}(Y_{11}^{open}+Y_{12}^{open})/\omega")
         with c2: st.latex(r"C_{pce}=\mathrm{Im}(Y_{22}^{open}+Y_{12}^{open})/\omega")
@@ -169,7 +171,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                 fname, "open", freq, default_frac_lo=0.5, default_frac_hi=1.0)
 
             # ── calculation ──────────────────────────────────────────────────
-            para_open_calc, open_arr = step1a_open(
+            para_open_calc, open_arr = step_open(
                 open_data, open_n0, open_n1, open_method, open_trim)
             st.dataframe(pd.DataFrame([
                 {"Parameter": k, "Value": f"{para_open_calc[k]*1e15:.4f}", "Unit": "fF", "Description": d}
@@ -219,7 +221,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         else:
             col_m2.markdown("*Use open from:* ~~measured~~ / **modelled** *(no Open file)*")
             do_measured = False
-        # Formulas — implementation is in ssm_deembedding.step1b_short
+        # Formulas — implementation is in ssm_deembedding.step_short
         c1, c2, c3 = st.columns(3)
         with c1: st.latex(r"R_e=\mathrm{Re}(Z_{12}^{corr})")
         with c2: st.latex(r"R_b=\mathrm{Re}(Z_{11}^{corr}-Z_{12}^{corr})")
@@ -236,7 +238,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                 fname, "short", freq, default_frac_lo=0.0, default_frac_hi=0.2)
 
             # ── calculation ───────────────────────────────────────────────────
-            para_short_calc, short_arr = step1b_short(
+            para_short_calc, short_arr = step_short(
                 short_data, freq if open_data is None else open_data[0],
                 para_caps_ov["Cpbe"], para_caps_ov["Cpce"], para_caps_ov["Cpbc"],
                 open_data, n0=short_n0, n1=short_n1, method=short_method,
@@ -310,7 +312,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
         "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
         "margin-bottom:2px'><strong>📈 Z-Parameter Method</strong> "
-        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.1)*</span></div>",
+        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.1)*</span>"
+        " for Re </div>",
         unsafe_allow_html=True)
     with st.expander("Z-Parameter Method — Re(Z₁₂) vs 1/IE", expanded=False):
         render_rz12_section(all_data or {}, para_step1, fname)
@@ -322,13 +325,23 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     st.markdown(
         "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
         "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📈 Open-Collector Method</strong></div>",
+        "margin-bottom:2px'><strong>📈 Open-Collector Method</strong> "
+        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.3)*</span>"
+        " for Rb, Re, Rc </div>",
         unsafe_allow_html=True)
     with st.expander("Open-Collector Method — Re(Zij) vs 1/IB", expanded=False):
         render_open_collector_section(all_data or {}, para_step1, fname)
 
     # ── Cold-HBT ──────────────────────────────────────────────────────────────
-    cold_res = _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq)
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
+        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
+        "margin-bottom:2px'><strong>🧊 Cold-HBT Extraction</strong> "
+        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.2)*</span>"
+        " for Rb and Rc </div>",
+        unsafe_allow_html=True)
+    with st.expander("Cold-HBT Extraction", expanded=False):
+        cold_res = _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq)
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 3 — De-embedded Preview
@@ -457,29 +470,6 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         extract_results[short] = (params, arrays)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Cold-HBT cross-check
-    # ══════════════════════════════════════════════════════════════════════════
-    # if cold_res is not None and extract_results:
-    #     _render_cold_crosscheck(cold_res, extract_results, REGISTRY)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # Circuit schematics
-    # ══════════════════════════════════════════════════════════════════════════
-    # st.markdown("---")
-    # with st.expander("### 🔌 Circuit Topology Diagrams", expanded=False):
-    #     # st.markdown("")
-    #     for short in selected_models:
-    #         ModelClass = REGISTRY[short]
-    #         params, _  = extract_results[short]
-    #         st.markdown(f"**{ModelClass.NAME}**")
-    #         try:
-    #             fig_s = make_topology_fig({**para_eff, **params}, ModelClass.TOPOLOGY_CHAR)
-    #             st.pyplot(fig_s, width="stretch")
-    #             plt.close(fig_s)
-    #         except Exception as e:
-    #             st.error(f"Schematic error: {e}")
-
-    # ══════════════════════════════════════════════════════════════════════════
     # Smith charts (per model — override + residual)
     # ══════════════════════════════════════════════════════════════════════════
     st.divider()
@@ -533,362 +523,6 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
 # ════════════════════════════════════════════════════════════════════════════════
 # Private helpers (keep the main function readable)
 # ════════════════════════════════════════════════════════════════════════════════
-
-def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
-    """Cold-HBT extraction UI. Returns cold_res dict or None."""
-    # st.divider()
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
-        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>🧊 Cold-HBT Extraction</strong> "
-        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.2)*</span></div>",
-        unsafe_allow_html=True)
-    st.caption("Used to extract series/access resistances Re, Rb, Rc. Upload cut-off bias (Vce=0, Vbe≤0) S2P.")
-    cold_file = st.file_uploader("Cold HBT S2P", type=["s2p"], key=f"cold_upload_{fname}")
-    if cold_file is None:
-        return None
-    if open_data is None:
-        st.warning("Cold-HBT extraction requires an Open dummy file.")
-        return None
-
-    try:
-        from .ssm_core import y_to_z, z_to_y
-        f_c_raw, S_c_raw, z0_c = parse_s2p_bytes(cold_file.getvalue())
-        f_o, S_o, z0_o = open_data
-        # Interpolate if grids differ
-        if len(f_c_raw) != len(f_o) or not np.allclose(f_c_raw, f_o, rtol=1e-4):
-            f_c_use = f_o; S_c_use = interpolate_s2f(f_c_raw, S_c_raw, f_o)
-            st.info("Cold S2P interpolated to DUT grid.")
-        else:
-            f_c_use = f_c_raw; S_c_use = S_c_raw
-        omega_c = 2.0*np.pi*f_o; N_c = len(f_o)
-        Y_cold  = s_to_y(S_c_use, z0_c)
-        
-        # Open admittance (measured or modelled)
-        if do_measured:
-            Y_open_eff = s_to_y(S_o, z0_o)
-        else:
-            from .ssm_deembedding import build_Y_pad
-            Y_open_eff = np.zeros((N_c,2,2), dtype=complex)
-            for i, w in enumerate(omega_c):
-                Y_open_eff[i] = build_Y_pad(para_caps_ov, w)
-
-        # ── Cold-HBT extraction formulas [Gao §5.5.2] ────────────────────
-        Z_cor = y_to_z(Y_cold - Y_open_eff)
-
-        z12_choice = st.radio("Use for Z₁₂ in intermediate quantities:",
-                               ["Z12", "Z21"], horizontal=True,
-                               key=f"cold_z12sel_{fname}")
-        Z12_sel = Z_cor[:,0,1] if z12_choice == "Z12" else Z_cor[:,1,0]
-        A = np.imag(Z_cor[:,0,0] - Z12_sel)
-        B = np.imag(Z_cor[:,1,1] - Z12_sel)
-        C = np.real(Z12_sel)
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            disc    = A**2*B**2 + 4.0*A*B*C**2
-            D_arr   = np.where(np.abs(C)>1e-30,
-                               (A*B + np.sqrt(np.maximum(disc,0.0))) / (2.0*C**2), np.nan)
-            Cex_arr = np.where(np.isfinite(D_arr),
-                               -((C/B)**2) / (omega_c*A*((1.0+1.0/D_arr)**2+(C/B)**2)), np.nan)
-            CbcCex_arr = np.where(np.isfinite(D_arr),
-                                   -1.0/(omega_c*B*(1.0+A**2/(C**2*D_arr**2))), np.nan)
-            Cbc_arr = CbcCex_arr - Cex_arr
-            Rbi_arr = np.where(np.abs(omega_c*Cex_arr)>1e-40,
-                               D_arr/(omega_c*Cex_arr), np.nan)
-            num_cbe = Rbi_arr * Cex_arr
-            den_cbe = Cex_arr + Cbc_arr + 1j*omega_c*Rbi_arr*Cbc_arr*Cex_arr
-            Cbe_arr = np.where(np.abs(den_cbe)>1e-40,
-                               -1.0/(omega_c*np.imag(Z_cor[:,0,1]-num_cbe/den_cbe)), np.nan)
-            Zex_arr = np.where(np.abs(Cex_arr)>1e-40, 1.0/(1j*omega_c*Cex_arr), np.nan+0j)
-            Zbc_z   = np.where(np.abs(Cbc_arr)>1e-40, 1.0/(1j*omega_c*Cbc_arr), np.nan+0j)
-            Zbe_arr = np.where(np.abs(Cbe_arr)>1e-40, 1.0/(1j*omega_c*Cbe_arr), np.nan+0j)
-            denom_b = Zbc_z + Zex_arr + Rbi_arr
-            Rb_arr  = np.real((Z_cor[:,0,0]-Z12_sel) -
-                              np.where(np.abs(denom_b)>1e-40, Zex_arr*Rbi_arr/denom_b, np.nan+0j))
-            Rc_arr  = np.real((Z_cor[:,1,1]-Z12_sel) -
-                              np.where(np.abs(denom_b)>1e-40, Zbc_z*Zex_arr/denom_b, np.nan+0j))
-            Re_arr  = np.real(Z12_sel - Zbe_arr -
-                              np.where(np.abs(denom_b)>1e-40, Zbc_z*Rbi_arr/denom_b, np.nan+0j))
-
-        with st.expander("📊 Intermediate quantities A, B, C, D vs frequency", expanded=False):
-            st.markdown("**Definitions**")
-            st.latex(r"[Z_{cor}]=[Y_{cold}-Y_{open}]^{-1}")
-            st.latex(r"A=\mathrm{Im}(Z_{11}-Z_{12}),\quad B=\mathrm{Im}(Z_{22}-Z_{12}),\quad C=\mathrm{Re}(Z_{12})")
-            st.latex(r"D=\frac{AB+\sqrt{A^2B^2+4ABC^2}}{2C^2}")
-            f_GHz = f_o / 1e9
-            fig_abcd, axes_abcd = plt.subplots(2, 2, figsize=(10, 6), sharex=True)
-            for ax, arr_abcd, lbl in zip(
-                axes_abcd.flat,
-                [A, B, C, D_arr],
-                ["A = Im(Z₁₁−Z₁₂)", "B = Im(Z₂₂−Z₁₂)", "C = Re(Z₁₂)", "D"]
-            ):
-                ax.plot(f_GHz, arr_abcd, "b-", lw=1.5)
-                ax.axhline(0, color="k", lw=0.8, ls="--")
-                ax.set_ylabel(lbl)
-                ax.grid(True, lw=0.4)
-                ax.set_ylim(-500, 500)
-            for ax in axes_abcd[1]:
-                ax.set_xlabel("Frequency (GHz)")
-            fig_abcd.suptitle("Cold-HBT intermediate quantities", fontweight="bold")
-            plt.tight_layout()
-            st.pyplot(fig_abcd)
-            plt.close(fig_abcd)
-
-        with st.expander("📊 Extracted Parameters vs Frequency — Interactive", expanded=False):
-            f_ghz_c = f_o * 1e-9
-            f_min_v = float(f_ghz_c[0])
-            f_max_v = float(f_ghz_c[-1])
-            step_v  = max(round((f_max_v - f_min_v) / 100, 3), 0.001)
-
-            cold_res = {}
-
-            def _cold_plot(col_w, arr, res_key, label, scale, unit, formulas, upstream_tag=""):
-                """Render formula + slider + Plotly chart + number_input.
-                upstream_tag changes the widget key when an upstream scalar changes,
-                which resets this input to the new median automatically."""
-                for kind, content in formulas:
-                    if kind == "latex":
-                        col_w.latex(content)
-                    else:
-                        col_w.markdown(content)
-
-                sl_key = f"cold_pfp_sl_{res_key}_{fname}"
-                if sl_key not in st.session_state:
-                    st.session_state[sl_key] = (f_min_v, f_max_v)
-                f_lo, f_hi = col_w.slider(
-                    "Frequency range (GHz)",
-                    min_value=f_min_v, max_value=f_max_v,
-                    value=st.session_state[sl_key],
-                    step=step_v, format="%.2f",
-                    key=sl_key)
-                rng_tag = f"{f_lo:.3f}_{f_hi:.3f}"
-
-                mask     = (f_ghz_c >= f_lo) & (f_ghz_c <= f_hi)
-                f_plot   = f_ghz_c[mask]
-                raw      = np.abs(arr[mask]) if np.iscomplexobj(arr) else np.real(arr[mask])
-                arr_disp = raw * scale
-                fin      = raw[np.isfinite(raw)]
-                auto_SI  = abs(float(np.median(fin))) if len(fin) > 0 else 0.0
-                auto_disp = auto_SI * scale
-
-                inp_key   = f"cold_pfp_inp_{res_key}_{fname}_{rng_tag}_{upstream_tag}"
-                user_disp = float(st.session_state.get(inp_key, auto_disp))
-
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=f_plot, y=arr_disp, mode="lines", name=label,
-                    line=dict(color="#1f77b4", width=2)))
-                if np.isfinite(user_disp):
-                    fig.add_hline(
-                        y=user_disp,
-                        line=dict(color="#d62728", width=1.8, dash="dash"),
-                        annotation_text=f"{user_disp:.4g} {unit}",
-                        annotation_position="right",
-                        annotation_font=dict(size=9, color="#d62728"))
-                fig.update_layout(
-                    title=dict(text=label, font=dict(size=12)),
-                    xaxis_title="Frequency (GHz)",
-                    yaxis_title=f"{label} ({unit})" if unit else label,
-                    plot_bgcolor="white", paper_bgcolor="white", height=240,
-                    margin=dict(l=50, r=60, t=35, b=40),
-                    showlegend=False, hovermode="x unified")
-    
-                fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
-                _y_range = None
-                if np.isfinite(user_disp) and abs(user_disp) > 1e-30:
-                    _v5  = 5.0 * abs(user_disp)
-                    _fin = arr_disp[np.isfinite(arr_disp)]
-                    if len(_fin) > 0 and (_fin.max() > _v5 or _fin.min() < -_v5):
-                        _y_range = [-_v5, _v5]
-                fig.update_yaxes(showgrid=True, gridcolor="#ebebeb",
-                                 **({"range": _y_range} if _y_range is not None else {}))
-
-
-                col_w.plotly_chart(fig, width="stretch",
-                                   key=f"cold_pfp_{res_key}_{fname}")
-
-                actual_val = col_w.number_input(
-                    f"{label} ({unit})" if unit else label,
-                    value=float(auto_disp),
-                    format="%.5g",
-                    key=inp_key)
-                return abs(actual_val) / scale
-
-            # ── Step 2: Cex ─────────────────────────────────────────────────
-            # Depends only on A, B, C, D (all from Z_cor — no user-set upstream)
-            st.markdown("**Step 2 — Cex**")
-            st.caption("Depends on: A, B, C, D only")
-            col_cex, _ = st.columns(2)
-            Cex_scalar = _cold_plot(col_cex, Cex_arr, "Cex_cold", "Cex", 1e15, "fF", [
-                ("md",    "**Cex** [Gao §5.5.2]"),
-                ("latex", r"C_{ex}=-\frac{(C/B)^2}{\omega A\!\left[\left(1+\tfrac{1}{D}\right)^{\!2}+(C/B)^2\right]}"),
-            ])
-            cold_res["Cex_cold"] = Cex_scalar
-
-            # ── Step 3: Cbc, Rbi ────────────────────────────────────────────
-            # Both depend on Cex scalar. Arrays are recomputed live from Cex_scalar.
-            # upstream_tag = Cex value → widget key changes when Cex changes
-            #   → input resets to new median automatically.
-            st.divider()
-            st.markdown("**Step 3 — Cbc, Rbi**")
-            st.caption("Depend on: Cex")
-            up_cex = f"{Cex_scalar:.6e}"
-            with np.errstate(divide="ignore", invalid="ignore"):
-                Cbc_arr_live = CbcCex_arr - Cex_scalar
-                Rbi_arr_live = np.where(
-                    np.abs(omega_c * Cex_scalar) > 1e-40,
-                    D_arr / (omega_c * Cex_scalar), np.nan)
-
-            col_cbc, col_rbi = st.columns(2)
-            Cbc_scalar = _cold_plot(col_cbc, Cbc_arr_live, "Cbc_cold", "Cbc", 1e15, "fF", [
-                ("md",    "**Cbc** [Gao §5.5.2]"),
-                ("latex", r"C_{bc}+C_{ex}=-\frac{1}{\omega B\!\left[1+\dfrac{A^2}{C^2D^2}\right]}"),
-                ("latex", r"C_{bc}=\left(C_{bc}+C_{ex}\right)-C_{ex}"),
-            ], upstream_tag=up_cex)
-            cold_res["Cbc_cold"] = Cbc_scalar
-
-            Rbi_scalar = _cold_plot(col_rbi, Rbi_arr_live, "Rbi_cold", "Rbi", 1.0, "Ω", [
-                ("md",    "**Rbi** [Gao §5.5.2]"),
-                ("latex", r"R_{bi}=\frac{D}{\omega\,C_{ex}}"),
-            ], upstream_tag=up_cex)
-            cold_res["Rbi_cold"] = Rbi_scalar
-
-            # ── Step 4: Cbe ─────────────────────────────────────────────────
-            # Depends on Cex, Cbc, Rbi scalars. Array recomputed live.
-            st.divider()
-            st.markdown("**Step 4 — Cbe**")
-            st.caption("Depends on: Cex, Cbc, Rbi")
-            up_s3 = f"{Cex_scalar:.6e}_{Cbc_scalar:.6e}_{Rbi_scalar:.6e}"
-            with np.errstate(divide="ignore", invalid="ignore"):
-                num_cbe      = Rbi_scalar * Cex_scalar
-                den_cbe      = (Cex_scalar + Cbc_scalar
-                                + 1j * omega_c * Rbi_scalar * Cbc_scalar * Cex_scalar)
-                Cbe_arr_live = np.where(
-                    np.abs(den_cbe) > 1e-40,
-                    -1.0 / (omega_c * np.imag(Z_cor[:, 0, 1] - num_cbe / den_cbe)),
-                    np.nan)
-
-            col_cbe, _ = st.columns(2)
-            Cbe_scalar = _cold_plot(col_cbe, Cbe_arr_live, "Cbe_cold", "Cbe", 1e15, "fF", [
-                ("md",    "**Cbe** [Gao §5.5.2]"),
-                ("latex", r"C_{be}=\frac{-1}{\omega\,\mathrm{Im}\!\left("
-                          r"Z_{12}-\dfrac{R_{bi}C_{ex}}{C_{ex}+C_{bc}+j\omega R_{bi}C_{bc}C_{ex}}"
-                          r"\right)}"),
-            ], upstream_tag=up_s3)
-            cold_res["Cbe_cold"] = Cbe_scalar
-
-            # ── Step 5: Rb, Rc, Re ──────────────────────────────────────────
-            # Depend on Cex, Cbc, Rbi, Cbe scalars. Arrays recomputed live.
-            st.divider()
-            st.markdown("**Step 5 — Rb, Rc, Re**")
-            st.caption("Depend on: Cex, Cbc, Rbi, Cbe")
-            up_s4 = f"{up_s3}_{Cbe_scalar:.6e}"
-            with np.errstate(divide="ignore", invalid="ignore"):
-                Zex_l = 1.0 / (1j * omega_c * Cex_scalar)
-                Zbc_l = 1.0 / (1j * omega_c * Cbc_scalar)
-                Zbe_l = 1.0 / (1j * omega_c * Cbe_scalar)
-                den_l = Zbc_l + Zex_l + Rbi_scalar
-                Rb_arr_live = np.real(
-                    (Z_cor[:, 0, 0] - Z12_sel) -
-                    np.where(np.abs(den_l) > 1e-40, Zex_l * Rbi_scalar / den_l, np.nan + 0j))
-                Rc_arr_live = np.real(
-                    (Z_cor[:, 1, 1] - Z12_sel) -
-                    np.where(np.abs(den_l) > 1e-40, Zbc_l * Zex_l / den_l, np.nan + 0j))
-                Re_arr_live = np.real(
-                    Z12_sel - Zbe_l -
-                    np.where(np.abs(den_l) > 1e-40, Zbc_l * Rbi_scalar / den_l, np.nan + 0j))
-
-            col_rb, col_rc = st.columns(2)
-            Rb_scalar = _cold_plot(col_rb, Rb_arr_live, "Rb_cold", "Rb", 1.0, "Ω", [
-                ("md",    "**Rb** [Gao §5.5.2]"),
-                ("latex", r"R_{bx}=\mathrm{Re}\!\left(Z_{11}-Z_{12}"
-                          r"-\frac{Z_{ex}\,R_{bi}}{Z_{bc}+Z_{ex}+R_{bi}}\right)"),
-            ], upstream_tag=up_s4)
-            cold_res["Rb_cold"] = Rb_scalar
-
-            Rc_scalar = _cold_plot(col_rc, Rc_arr_live, "Rc_cold", "Rc", 1.0, "Ω", [
-                ("md",    "**Rc** [Gao §5.5.2]"),
-                ("latex", r"R_c=\mathrm{Re}\!\left(Z_{22}-Z_{12}"
-                          r"-\frac{Z_{bc}\,Z_{ex}}{Z_{bc}+Z_{ex}+R_{bi}}\right)"),
-            ], upstream_tag=up_s4)
-            cold_res["Rc_cold"] = Rc_scalar
-
-            col_re, _ = st.columns(2)
-            Re_scalar = _cold_plot(col_re, Re_arr_live, "Re_cold", "Re", 1.0, "Ω", [
-                ("md",    "**Re** [Gao §5.5.2]"),
-                ("latex", r"R_e=\mathrm{Re}\!\left(Z_{12}-Z_{be}"
-                          r"-\frac{Z_{bc}\,R_{bi}}{Z_{bc}+Z_{ex}+R_{bi}}\right)"),
-            ], upstream_tag=up_s4)
-            cold_res["Re_cold"] = Re_scalar
-
-        # ── Model fit verification plots ─────────────────────────────────────
-        with st.expander("📊 Cold-HBT Model Fit Verification", expanded=False):
-            st.caption(
-                "Measured Z_cor vs model reconstructed from extracted parameters.  \n"
-                "A good fit confirms the extracted values are self-consistent.")
-            f_GHz    = f_o / 1e9
-            Zex_m    = 1.0 / (1j * omega_c * cold_res["Cex_cold"])
-            Zbc_m    = 1.0 / (1j * omega_c * cold_res["Cbc_cold"])
-            Zbe_m    = 1.0 / (1j * omega_c * cold_res["Cbe_cold"])
-            denom_m  = Zbc_m + Zex_m + cold_res["Rbi_cold"]
-            Z11Z12_meas  = Z_cor[:, 0, 0] - Z_cor[:, 0, 1]
-            Z12_meas     = Z_cor[:, 0, 1]
-            Z22Z12_meas  = Z_cor[:, 1, 1] - Z_cor[:, 0, 1]
-            Z11Z12_model = Zex_m * cold_res["Rbi_cold"] / denom_m + cold_res["Rb_cold"]
-            Z12_model    = Zbc_m * cold_res["Rbi_cold"] / denom_m + Zbe_m + cold_res["Re_cold"]
-            Z22Z12_model = Zbc_m * Zex_m / denom_m + cold_res["Rc_cold"]
-            fig, axes = plt.subplots(3, 2, figsize=(10, 9), sharex=True)
-            plot_data = [
-                (Z11Z12_meas, Z11Z12_model, "Z11-Z12"),
-                (Z12_meas,    Z12_model,    "Z12"),
-                (Z22Z12_meas, Z22Z12_model, "Z22-Z12"),
-            ]
-            for row, (meas, model, lbl) in enumerate(plot_data):
-                for col, (part_fn, part_lbl) in enumerate(
-                        [(np.real, "Re"), (np.imag, "Im")]):
-                    ax = axes[row, col]
-                    ax.plot(f_GHz, part_fn(meas),  "b-",  lw=1.5, label="Measured")
-                    ax.plot(f_GHz, part_fn(model), "r--", lw=1.5, label="Model")
-                    ax.set_ylabel(f"{part_lbl}({lbl}) (Ω)")
-                    ax.legend(fontsize=7)
-                    ax.grid(True, lw=0.4)
-                    ax.set_ylim(-200, 200)
-                    if row == 0:
-                        ax.set_title(f"{part_lbl} part")
-            for ax in axes[-1]:
-                ax.set_xlabel("Frequency (GHz)")
-            fig.suptitle("Cold-HBT: Measured vs Model", fontweight="bold")
-            plt.tight_layout()
-            st.pyplot(fig)
-            plt.close(fig)
-
-        return cold_res
-    except Exception as e:
-        st.error(f"Cold-HBT failed: {e}")
-        return None
-
-
-
-def _render_cold_crosscheck(cold_res, extract_results, registry):
-    st.divider()
-    st.markdown("**Cold-HBT cross-check:**")
-    # Use first available model's Rbi/Cbe/Cbc
-    first_params = next(iter(extract_results.values()))[0]
-    rows = []
-    for sym, hot_key, cv_key, unit, sc in [
-        ("Rbi", "Rbi", "Rbi_cold", "Ω",  1.0),
-        ("Cbe", "Cbe", "Cbe_cold", "fF", 1e15),
-        ("Cbc", "Cbc", "Cbc_cold", "fF", 1e15),
-    ]:
-        hot = first_params.get(hot_key)
-        cv  = cold_res.get(cv_key)
-        hs  = f"{hot*sc:.4f}" if hot is not None else "—"
-        cs  = f"{cv*sc:.4f}"  if cv  is not None else "—"
-        try:    delta = f"{(cv-hot)*sc:+.4f}" if (hot and cv) else "—"
-        except: delta = "—"
-        rows.append({"Symbol":sym,"Hot (RF)":hs,"Cold-HBT":cs,"Δ":delta,"Unit":unit})
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-
 
 def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
     st.divider()

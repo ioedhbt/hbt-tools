@@ -7,7 +7,34 @@ they depend only on the pad/lead parameters, not on any intrinsic model.
 from __future__ import annotations
 import numpy as np
 from .ssm_core import open_elem_Y, short_lead_Z, y_to_s_single
-from .ssm_deembedding import build_Y_pad, build_Z_ser
+# from .ssm_deembedding import build_Y_pad, build_Z_ser
+
+def build_Y_pad(p: dict, w: float) -> np.ndarray:
+    """
+    2×2 admittance matrix for the three pad capacitors at angular freq w.
+    Accounts for extended element models stored in p (mode / extra keys).
+
+    Circuit:  Cpbe from B-node to GND,  Cpce from C-node to GND,
+              Cpbc from B-node to C-node.
+    """
+    Ypbe = open_elem_Y(p["Cpbe"], p.get("Cpbe_mode","None"), p.get("Cpbe_extra",0.0), w)
+    Ypce = open_elem_Y(p["Cpce"], p.get("Cpce_mode","None"), p.get("Cpce_extra",0.0), w)
+    Ypbc = open_elem_Y(p["Cpbc"], p.get("Cpbc_mode","None"), p.get("Cpbc_extra",0.0), w)
+    return np.array([[Ypbe+Ypbc, -Ypbc],
+                     [-Ypbc,  Ypce+Ypbc]])
+
+def build_Z_ser(p: dict, w: float) -> np.ndarray:
+    """
+    2×2 impedance matrix for the three series leads at angular freq w.
+    Accounts for optional parallel capacitance per lead (Cpar_Lb/Lc/Le).
+
+    Using port notation:  Z11 = Zb+Ze,  Z12=Z21 = Ze,  Z22 = Zc+Ze.
+    """
+    Zb = short_lead_Z(p["Rpb"], p["Lb"], p.get("Cpar_Lb", 0.0), w)
+    Zc = short_lead_Z(p["Rpc"], p["Lc"], p.get("Cpar_Lc", 0.0), w)
+    Ze = short_lead_Z(p["Rpe"], p["Le"], p.get("Cpar_Le", 0.0), w)
+    return np.array([[Zb+Ze, Ze],
+                     [Ze,    Zc+Ze]])
 
 
 # ── Touchstone write ──────────────────────────────────────────────────────────

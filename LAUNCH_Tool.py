@@ -30,6 +30,7 @@ REQUIRED = [
     ("matplotlib", "matplotlib"),
     ("openpyxl",   "openpyxl"),
     ("psutil",     "psutil"),
+    ("PIL",        "pillow"),
 ]
 
 # ── Resolve venv interpreter path (Windows vs. Unix) ─────────────────────────

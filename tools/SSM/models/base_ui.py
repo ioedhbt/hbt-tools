@@ -16,6 +16,7 @@ from io import BytesIO
 
 from ..ssm_core import extended_smith_grid, params_hash, s_to_y
 from ..ssm_deembedding import build_Y_pad_batch, build_Z_ser_batch
+from ..ssm_chart_utils import plotly_with_dl
 
 # Streamlit's "rerun current script" exception — raised when any st.* call
 # happens after the user has clicked a widget that triggers a re-run (e.g.
@@ -172,7 +173,7 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
         annotations=[dict(x=0.5, y=-0.08, xref="paper", yref="paper", showarrow=False,
                           text="● Measured (markers)  |  - - Modeled (dashed)",
                           font=dict(size=10, color="gray"), align="center")])
-    st.plotly_chart(fig, width="stretch", key=key)
+    plotly_with_dl(fig, key=key, filename=key)
 
 
 def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
@@ -444,8 +445,10 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                             margin=dict(l=50, r=20, t=35, b=40), showlegend=False)
                         fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
                         fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-                        col_w.plotly_chart(fig, width="stretch",
-                                           key=f"pfp_z_{zlabel}_{part_lbl}_{model_short}_{fname}")
+                        plotly_with_dl(fig,
+                                       key=f"pfp_z_{zlabel}_{part_lbl}_{model_short}_{fname}",
+                                       filename=f"pfp_z_{zlabel}_{part_lbl}_{model_short}_{fname}",
+                                       container=col_w)
 
                 prev_range = (f_lo, f_hi)
                 if g_idx < len(param_groups) - 1:
@@ -516,8 +519,8 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                                     font=dict(size=9)))
                     fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
                     fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-                    st.plotly_chart(fig, width="stretch",
-                                    key=f"pfp_fbi_{model_short}_{fname}")
+                    plotly_with_dl(fig, key=f"pfp_fbi_{model_short}_{fname}",
+                                   filename=f"pfp_fbi_{model_short}_{fname}")
 
                     Tbi_fit = float(np.sqrt(max(B0 / A0, 0.0))) if A0 > 1e-30 else 0.0
                     mc1, mc2, mc3 = st.columns(3)
@@ -597,8 +600,8 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                                     font=dict(size=9)))
                     fig.update_xaxes(showgrid=True, gridcolor="#ebebeb")
                     fig.update_yaxes(showgrid=True, gridcolor="#ebebeb")
-                    st.plotly_chart(fig, width="stretch",
-                                    key=f"pfp_f1_{model_short}_{fname}")
+                    plotly_with_dl(fig, key=f"pfp_f1_{model_short}_{fname}",
+                                   filename=f"pfp_f1_{model_short}_{fname}")
 
                     alpha   = 1.0 / A1 if A1 > 1e-30 else 0.0
                     Tbe_fit = float(np.sqrt(max(B1 / A1, 0.0))) if A1 > 1e-30 else 0.0
@@ -795,8 +798,10 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     fig.update_yaxes(showgrid=True, gridcolor="#ebebeb",
                                      **({"range": _y_range} if _y_range is not None else {}))
 
-                    col_w.plotly_chart(fig, width="stretch",
-                                       key=f"pfp_{model_short}_{arr_key}_{fname}")
+                    plotly_with_dl(fig,
+                                   key=f"pfp_{model_short}_{arr_key}_{fname}",
+                                   filename=f"pfp_{model_short}_{arr_key}_{fname}",
+                                   container=col_w)
 
                     # Number input — key includes rng_tag so it resets to new median on slider move
                     actual_val = col_w.number_input(
@@ -2276,5 +2281,5 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         legend=dict(orientation="h", y=1.12),
                         hovermode="x unified",
                     )
-                    st.plotly_chart(fig, width="stretch",
-                                   key=f"tune_sens_{topo_key}_{key}_{fname}")
+                    plotly_with_dl(fig, key=f"tune_sens_{topo_key}_{key}_{fname}",
+                                   filename=f"tune_sens_{topo_key}_{key}_{fname}")

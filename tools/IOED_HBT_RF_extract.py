@@ -1,5 +1,5 @@
 """
-hbt_rf_tool.py  — v4.1
+hbt_rf_tool.py  — v4.2
 ============================
 Main Streamlit application for HBT RF extraction.
 
@@ -26,9 +26,10 @@ from tools.SSM.ssm_plots     import extrap_20dbdec    # 20 dB/dec extrap helper
 if "rf_uploader_key" not in st.session_state:
     st.session_state["rf_uploader_key"] = 0
 
-st.title("📡 IOED HBT RF Extraction Tool (v4.1)")
+st.title("📡 IOED HBT RF Extraction Tool (v4.2)")
 
 with st.expander("Changelog", expanded=False):
+    st.caption("**v4.2**: Topology illustration, graph data download, code refactoring).")
     st.caption("**v4.1**: Cosmetic improvements).")
     st.caption("**v4.0**: Extraction tuning with CPU and GPU optimizations).")
 
