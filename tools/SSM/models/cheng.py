@@ -673,8 +673,13 @@ _INT_PI_SPECS = [
 
 _ILLUS_DIR = _Path(__file__).parent / "illus_template"
 
-import platform
-ohm_sign = "Ω" if platform.system() == "Windows" else "Ohm"
+def has_inter():
+    for name in ("Inter-Regular.ttf", "Inter.ttf"):
+        if _os.path.exists(name):
+            return True
+    return False
+
+ohm_sign = "Ω" if has_inter() else "Ohm"
 
 # Display units for each parameter key: (SI→display scale factor, base unit string)
 _PARAM_DISPLAY: dict[str, tuple] = {
