@@ -684,7 +684,7 @@ _PARAM_DISPLAY: dict[str, tuple] = {
     "Cbex":   (1e15, "fF"),  "Cbcx":  (1e15, "fF"),
     "Rbi":    (1,    ohm_sign),   "Rbe":   (1,    ohm_sign),
     "Cbe":    (1e15, "fF"),  "Cbc":   (1e15, "fF"),
-    "Rbc":    (1e-3, "kΩ"),
+    "Rbc":    (1e-3, f"k{ohm_sign}"),
     "alpha0": (1,    ""),
     "tauB":   (1e12, "ps"),  "tauC":  (1e12, "ps"),
     "Gm0":    (1e3,  "mS"),
@@ -697,7 +697,8 @@ _UNIT_LADDER: dict[str, str] = {
     "pH": "nH",  "nH": "μH",
     "ps": "ns",  "ns": "μs",
     "mS": "S",
-    f"{ohm_sign}":  f"k{ohm_sign}",  f"k{ohm_sign}": f"M{ohm_sign}",  f"M{ohm_sign}": f"G{ohm_sign}",
+    f"{ohm_sign}":  f"k{ohm_sign}",  f"k{ohm_sign}": f"M{ohm_sign}", 
+    f"M{ohm_sign}": f"G{ohm_sign}", f"G{ohm_sign}": f"T{ohm_sign}",
 }
 
 # Keys that get 3 decimal places instead of 2
