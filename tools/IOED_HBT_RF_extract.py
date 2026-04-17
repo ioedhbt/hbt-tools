@@ -67,6 +67,22 @@ def parse_s2p(content: str):
     return freq, S, z0
 
 
+def parse_csv(content: str, z0: float = 50.0):
+    """Parse VNA CSV export (RI format). Expects columns:
+    Frequency, Real(S11), Imag(S11), Real(S12), Imag(S12),
+    Real(S21), Imag(S21), Real(S22), Imag(S22).
+    Frequency must be in Hz."""
+    df = pd.read_csv(io.StringIO(content))
+    freq = df["Frequency"].values.astype(float)
+    n = len(freq)
+    S = np.zeros((n, 2, 2), dtype=complex)
+    S[:, 0, 0] = df["Real(S11)"].values + 1j * df["Imag(S11)"].values
+    S[:, 0, 1] = df["Real(S12)"].values + 1j * df["Imag(S12)"].values
+    S[:, 1, 0] = df["Real(S21)"].values + 1j * df["Imag(S21)"].values
+    S[:, 1, 1] = df["Real(S22)"].values + 1j * df["Imag(S22)"].values
+    return freq, S, z0
+
+
 def s_to_y(S, z0=50.0):
     s11,s12,s21,s22 = S[:,0,0],S[:,0,1],S[:,1,0],S[:,1,1]
     d = (1+s11)*(1+s22)-s12*s21
@@ -174,7 +190,10 @@ def extract_limit(freq_ghz, gain_db, plateau_arr, n_pts, f_min, f_max):
 
 def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t, n_pts, f_min, f_max):
     """Parse, de-embed, compute metrics, extract fT/fmax for one DUT file."""
-    freq,S_raw,z0 = parse_s2p(content)
+    if filename.lower().endswith(".csv"):
+        freq, S_raw, z0 = parse_csv(content)
+    else:
+        freq, S_raw, z0 = parse_s2p(content)
     Y_raw = s_to_y(S_raw,z0)
     df_raw = compute_metrics(Y_raw,freq)
     Y_fin,stages,d1_o,d1_s = Y_raw,[],None,None
@@ -209,7 +228,7 @@ def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t, n_pts, f_min, f
     fT_cr,fT_pl,ft_m    = extract_limit(f_arr,df_e["|h21|² (dB)"].values,  df_e["fT Plateau (GHz)"].values,  n_pts,f_min,f_max)
     fmU_cr,fmU_pl,fmU_m = extract_limit(f_arr,df_e["Mason U (dB)"].values,  df_e["fmax U Plateau (GHz)"].values,n_pts,f_min,f_max)
     fmM_cr,fmM_pl,fmM_m = extract_limit(f_arr,df_e["MAG/MSG (dB)"].values,  df_e["fmax MAG Plateau (GHz)"].values,n_pts,f_min,f_max)
-    stem=re.sub(r"\.s2p$","",filename,flags=re.IGNORECASE)
+    stem=re.sub(r"\.(s2p|csv)$","",filename,flags=re.IGNORECASE)
     m=re.search(r"[Vv][Cc][Ee][_\-]?([\d]+(?:p\d+)?)\s*[Vv]",stem)
     vce=float(m.group(1).replace("p",".")) if m else None
     m=re.search(r"[Ii][Bb][_\-]?([\d]+(?:p\d+)?)\s*([pnuUmM]?)[Aa]?",stem)
@@ -443,7 +462,7 @@ with st.sidebar:
 # ═════════════════════════════════════════════════════════════════════════════
 col_up1,col_up2=st.columns([4,1])
 with col_up1:
-    dut_files=st.file_uploader("Upload DUT .s2p files",type=["s2p"],
+    dut_files=st.file_uploader("Upload DUT .s2p / .csv files",type=["s2p","csv"],
                                accept_multiple_files=True,
                                key=st.session_state["rf_uploader_key"])
 with col_up2:
