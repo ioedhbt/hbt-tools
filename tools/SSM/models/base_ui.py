@@ -136,7 +136,8 @@ def _port_residuals_batch(S_mea, S_mod_batch, xp):
 
 _SMITH_COLORS = {"S11":"#1f77b4","S22":"#ff7f0e","S21":"#2ca02c","S12":"#d62728"}
 
-def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="smith"):
+def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="smith",
+                       show_title=True, meas_label="Meas.", sim_label="Model"):
     if scales is None:
         scales = {"S11":1.0,"S12":1.0,"S21":1.0,"S22":1.0}
     fig = go.Figure()
@@ -147,22 +148,18 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
         sm = S_mea[:,r,c]*sc; sk = S_sim[:,r,c]*sc
         sc_lbl = "" if abs(sc-1.0)<1e-9 else (f" ×{sc:.2g}" if sc>=1 else f" ÷{1/sc:.2g}")
         fig.add_trace(go.Scatter(x=sm.real, y=sm.imag, mode="markers",
-                                  name=f"{name}{sc_lbl} Meas.",
+                                  name=f"{name}{sc_lbl} {meas_label}",
                                   marker=dict(color=col, size=5, symbol="circle"),
-                                  hovertemplate=f"{name} Meas.<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
+                                  hovertemplate=f"{name} {meas_label}<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
         fig.add_trace(go.Scatter(x=sk.real, y=sk.imag, mode="lines",
-                                  name=f"{name}{sc_lbl} Model",
+                                  name=f"{name}{sc_lbl} {sim_label}",
                                   line=dict(color=col, width=2.0, dash="dash"),
-                                  hovertemplate=f"{name} Model<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
+                                  hovertemplate=f"{name} {sim_label}<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
     port_res = _port_residuals(S_mea, S_sim)
-    # title_line1 = f"Measured vs Modeled — {model_name}   (Total Residual: {error_pct:.2f}%)"
-    # title_line2 = (f"S11: {port_res['S11']:.2f}%   S12: {port_res['S12']:.2f}%   "
-    #                f"S21: {port_res['S21']:.2f}%   S22: {port_res['S22']:.2f}%")
-    # st.markdown(title_line1)
-    # st.markdown(title_line2)
+    title_cfg = (dict(text=f"Smith Chart - {model_name}", font=dict(size=12))
+                 if show_title else None)
     fig.update_layout(
-        # title=f"{title_line1}<br><sup>{title_line2}</sup>",
-        title=f"Smith Chart - {model_name}",
+        title=title_cfg,
         xaxis=dict(title="Re(Γ)", range=[-1.1,1.1], scaleanchor="y", scaleratio=1,
                    showgrid=False, zeroline=False),
         yaxis=dict(title="Im(Γ)", range=[-1.1,1.1], showgrid=False, zeroline=False),
@@ -171,7 +168,7 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
         legend=dict(x=1.02, y=1.0, xanchor="left"),
         hovermode="closest",
         annotations=[dict(x=0.5, y=-0.08, xref="paper", yref="paper", showarrow=False,
-                          text="● Measured (markers)  |  - - Modeled (dashed)",
+                          text=f"● {meas_label} (markers)  |  - - {sim_label} (dashed)",
                           font=dict(size=10, color="gray"), align="center")])
     plotly_with_dl(fig, key=key, filename=key)
 
@@ -311,9 +308,15 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
             cand_SI = cand_disp / float(cbex_scale)
 
             # Mask: use the Cbcx group's slider range if the user has set it,
-            # otherwise the full freq range.  The Cbcx group is the NEXT group
-            # after the Cbex group (g_idx + 1), so its slider key mirrors ours.
-            cbcx_sl_key = f"pfp_sl_{model_short}_{g_idx + 1}_{fname}"
+            # otherwise the full freq range.  Find the Cbcx group by searching
+            # param_groups for one whose params reference "Cbcx_arr" (was
+            # `g_idx + 1` but Ccex now sits between Cbex and Cbcx for ChengT).
+            cbcx_g_idx = next(
+                (i for i, g in enumerate(param_groups)
+                 if any(spec[0] == "Cbcx_arr" for spec in g.get("params", []))),
+                g_idx + 1,
+            )
+            cbcx_sl_key = f"pfp_sl_{model_short}_{cbcx_g_idx}_{fname}"
             cbcx_range = st.session_state.get(cbcx_sl_key, (f_min_v, f_max_v))
             try:
                 f_lo_cbcx, f_hi_cbcx = float(cbcx_range[0]), float(cbcx_range[1])
@@ -649,12 +652,22 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     if _changed:
                         try:
                             _new_p, _new_a = reextract_fn(params_out, g_idx, live_arrays)
+                            _processed_pk = {
+                                spec[1]
+                                for gi in range(g_idx + 1)
+                                for spec in param_groups[gi]["params"]
+                            }
+                            _processed_ak = {
+                                spec[0]
+                                for gi in range(g_idx + 1)
+                                for spec in param_groups[gi]["params"]
+                            }
                             for _k, _v in _new_p.items():
-                                if _k not in _grp_pk:
+                                if _k not in _processed_pk:
                                     live_params[_k] = _v
                                     params_out[_k]  = _v
                             for _k, _v in _new_a.items():
-                                if _k not in _grp_ak:
+                                if _k not in _processed_ak:
                                     live_arrays[_k] = _v
                         except Exception:
                             pass
@@ -849,13 +862,26 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                 if _any_changed:
                     try:
                         _new_p, _new_a = reextract_fn(params_out, g_idx, live_arrays)
-                        # Update live state for downstream groups only
+                        # Only overwrite params/arrays from groups not yet processed.
+                        # Protecting all groups 0..g_idx prevents a downstream
+                        # re-extraction (e.g. tauB change) from clobbering user
+                        # overrides set in earlier groups (e.g. Rbi, Rbe, …).
+                        _processed_param_keys = {
+                            spec[1]
+                            for gi in range(g_idx + 1)
+                            for spec in param_groups[gi]["params"]
+                        }
+                        _processed_arr_keys = {
+                            spec[0]
+                            for gi in range(g_idx + 1)
+                            for spec in param_groups[gi]["params"]
+                        }
                         for _k, _v in _new_p.items():
-                            if _k not in _grp_param_keys:
+                            if _k not in _processed_param_keys:
                                 live_params[_k] = _v
                                 params_out[_k]  = _v
                         for _k, _v in _new_a.items():
-                            if _k not in _grp_arr_keys:
+                            if _k not in _processed_arr_keys:
                                 live_arrays[_k] = _v
                     except Exception:
                         pass  # silently ignore re-extraction failures
@@ -1155,7 +1181,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # (smaller than the full inner block), thanks to N-D broadcasting.
             _PAD_CAP_KEYS = ("Cpbe", "Cpce", "Cpbc")
             _SER_LEAD_KEYS = ("Rpb", "Rpc", "Rpe", "Lb", "Lc", "Le")
-            _CHENG_EXTR_KEYS = ("Cbex", "Cbcx")
+            _CHENG_EXTR_KEYS = ("Cbex", "Cbcx", "Ccex")
             # Cheng-T intrinsic sub-expression groups: each is pre-bakeable
             # whenever *none* of its inputs are swept.
             _T_ZBE_KEYS   = ("Rbe", "Cbe")
@@ -1188,8 +1214,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             if not (set(_CHENG_EXTR_KEYS) & swept_set):
                 _Cbex_c = float(static_p.get("Cbex", 0.0))
                 _Cbcx_c = float(static_p.get("Cbcx", 0.0))
+                _Ccex_c = float(static_p.get("Ccex", 0.0))
                 static_cache_fp64["Y_extr"] = (1j * omega_dev * _Cbex_c,
-                                               1j * omega_dev * _Cbcx_c)
+                                               1j * omega_dev * _Cbcx_c,
+                                               1j * omega_dev * _Ccex_c)
                 _cached_msgs.append("Y_extr")
 
             # ── Cheng-specific intrinsic sub-expression caches ──────────────

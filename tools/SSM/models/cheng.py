@@ -73,9 +73,10 @@ def _sweep_cbex_stds_cheng(Y_ex1, freq, cbex_SI_array, mask):
 
 def _step2_T(Y_ex1, freq, n_low):
     """
-    Cheng [Eqs. 13, 22] — Extract Cbex (T variant) and Cbcx.
+    Cheng [Eqs. 13, 22] — Extract Cbex, Ccex (T variant) and Cbcx.
 
     Cbex_T = Im(Y11 + Y12) / ω  [Eq. 13]
+    Ccex   = Im(Y22 + Y21) / ω   (collector-side analogue, peeled from Y_ex2[1,1])
 
     Cbcx = −[Im(Yms)·Re(YL) − Re(Yms)·Im(YL)] / [ω · denominator]  [Eq. 22]
     where  Yms = Y12+Y22,  YL = det(Y_ex2),  Ytot = sum(Yij)
@@ -86,10 +87,15 @@ def _step2_T(Y_ex1, freq, n_low):
     Cbex_arr = np.imag(Y_ex1[:,0,0] + Y_ex1[:,0,1]) / omega
     Cbex = abs(safe_median(Cbex_arr, n_low))
 
-    # Peel Cbex to get Y_ex2
+    # Ccex from low-frequency Im(Y22+Y21)/ω (mirrors Cbex on the collector side)
+    Ccex_arr = np.imag(Y_ex1[:,1,1] + Y_ex1[:,1,0]) / omega
+    Ccex = abs(safe_median(Ccex_arr, n_low))
+
+    # Peel Cbex (Y11) and Ccex (Y22) to get Y_ex2
     Y_ex2 = Y_ex1.copy()
     for i, w in enumerate(omega): # at all frequency
-        Y_ex2[i,0,0] -= 1j*w*Cbex # only the Y11
+        Y_ex2[i,0,0] -= 1j*w*Cbex
+        Y_ex2[i,1,1] -= 1j*w*Ccex
 
     Yms   = Y_ex2[:,0,1] + Y_ex2[:,1,1] # eq 21
     YL    = Y_ex2[:,0,0]*Y_ex2[:,1,1] - Y_ex2[:,0,1]*Y_ex2[:,1,0] # eq 18
@@ -101,8 +107,9 @@ def _step2_T(Y_ex1, freq, n_low):
         Cbcx_arr = -np.where(np.abs(den) > 1e-40, num/(omega*den), np.nan)
     n0, n1 = len(freq)//4, 3*len(freq)//4
     Cbcx = abs(safe_median(Cbcx_arr[n0:n1]))
-    return ({"Cbex": Cbex, "Cbcx": Cbcx},
-            {"Cbex_arr": Cbex_arr, "Cbcx_arr": Cbcx_arr, "Y_ex2": Y_ex2})
+    return ({"Cbex": Cbex, "Ccex": Ccex, "Cbcx": Cbcx},
+            {"Cbex_arr": Cbex_arr, "Ccex_arr": Ccex_arr,
+             "Cbcx_arr": Cbcx_arr, "Y_ex2": Y_ex2})
 
 
 def _step2_pi(Y_ex1, freq, n_low):
@@ -262,9 +269,11 @@ def _sim_wrap(Y_int_fn, p, freq, z0):
         Y_in  = Y_int_fn(p, w)
         Ybcx  = 1j*w*p["Cbcx"]
         Ybex  = 1j*w*p["Cbex"]
+        Ycex  = 1j*w*p.get("Ccex", 0.0)
         Y_ex  = (Y_in
                  + Ybcx*np.array([[1,-1],[-1,1]])
-                 + Ybex*np.array([[1, 0],[ 0,0]]))
+                 + Ybex*np.array([[1, 0],[ 0,0]])
+                 + Ycex*np.array([[0, 0],[ 0,1]]))
         Z_ser = build_Z_ser(p, w)
         try:    Y_tot = np.linalg.inv(np.linalg.inv(Y_ex) + Z_ser)
         except: Y_tot = np.zeros((2,2), dtype=complex)
@@ -286,15 +295,16 @@ def _sim_wrap_vec(Y_int_vec_fn, p, freq, z0, xp):
     # Intrinsic admittance (N, 2, 2)
     Y_in = Y_int_vec_fn(p, omega, xp)
 
-    # Extrinsic caps: Cbcx and Cbex
-    Ybcx = 1j * omega * p["Cbcx"]      # (N,)
-    Ybex = 1j * omega * p["Cbex"]      # (N,)
+    # Extrinsic caps: Cbcx, Cbex, and Ccex (Ccex defaults to 0 for π topology)
+    Ybcx = 1j * omega * p["Cbcx"]              # (N,)
+    Ybex = 1j * omega * p["Cbex"]              # (N,)
+    Ycex = 1j * omega * p.get("Ccex", 0.0)     # (N,)
 
     Y_ex = Y_in.copy()
     Y_ex[:, 0, 0] += Ybcx + Ybex
     Y_ex[:, 0, 1] -= Ybcx
     Y_ex[:, 1, 0] -= Ybcx
-    Y_ex[:, 1, 1] += Ybcx
+    Y_ex[:, 1, 1] += Ybcx + Ycex
 
     # Series-lead impedance (N, 2, 2)
     Z_ser = build_Z_ser_vec(p, omega, xp)
@@ -431,21 +441,29 @@ def _sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None):
     # Intrinsic Y matrix as 4 (B, N) planes — no (B, N, 2, 2) tensor yet
     yi00, yi01, yi10, yi11 = Y_int_batch_fn(p, omega, B, N, xp, cache)
 
-    # Extrinsic caps (broadcastable to (B, N)) — cache-aware
+    # Extrinsic caps (broadcastable to (B, N)) — cache-aware.
+    # Older caches stored a 2-tuple (Ybex, Ybcx); new ones store (Ybex, Ybcx, Ycex).
     if cache is not None and "Y_extr" in cache:
-        Ybex, Ybcx = cache["Y_extr"]
+        _yextr = cache["Y_extr"]
+        if len(_yextr) == 3:
+            Ybex, Ybcx, Ycex = _yextr
+        else:
+            Ybex, Ybcx = _yextr
+            Ycex = xp.asarray(0.0, dtype=cdtype)
     else:
         Cbcx = _b1(p, "Cbcx", 0.0, xp, rdtype)
         Cbex = _b1(p, "Cbex", 0.0, xp, rdtype)
+        Ccex = _b1(p, "Ccex", 0.0, xp, rdtype)
         jw   = J * omega
         Ybcx = jw * Cbcx
         Ybex = jw * Cbex
+        Ycex = jw * Ccex
 
     # Y_ex = Y_in + extrinsic-cap network (additions on the four planes)
     ye00 = yi00 + Ybcx + Ybex
     ye01 = yi01 - Ybcx
     ye10 = yi10 - Ybcx
-    ye11 = yi11 + Ybcx
+    ye11 = yi11 + Ybcx + Ycex
 
     # Z_ex = inv(Y_ex)  — analytic 2×2
     inv_det_e = 1.0 / (ye00 * ye11 - ye01 * ye10)
@@ -645,8 +663,12 @@ def _Y_int_Pi_batch(p, omega, B, N, xp, cache=None):
 
 _EXT_SPECS = [
     ("Cbex","Cbex",1e15,"fF","%.4f",0.1),
+    ("Ccex","Ccex",1e15,"fF","%.4f",0.1),
     ("Cbcx","Cbcx",1e15,"fF","%.4f",0.1),
 ]
+# Per-topology extrinsic specs — π topology has no Ccex term.
+_EXT_T_SPECS  = _EXT_SPECS
+_EXT_PI_SPECS = [s for s in _EXT_SPECS if s[0] != "Ccex"]
 _INT_T_SPECS = [
     ("Rbi",   "Rbi", 1.0, "Ω",  "%.4f", 0.1),
     ("Rbe",   "Rbe", 1.0, "Ω",  "%.3f", 1.0),
@@ -686,7 +708,7 @@ _PARAM_DISPLAY: dict[str, tuple] = {
     "Cpbe":   (1e15, "fF"),  "Cpce":  (1e15, "fF"),  "Cpbc":  (1e15, "fF"),
     "Lb":     (1e12, "pH"),  "Lc":    (1e12, "pH"),   "Le":    (1e12, "pH"),
     "Rpb":    (1,    ohm_sign),   "Rpc":   (1,    ohm_sign),    "Rpe":   (1,    ohm_sign),
-    "Cbex":   (1e15, "fF"),  "Cbcx":  (1e15, "fF"),
+    "Cbex":   (1e15, "fF"),  "Ccex":  (1e15, "fF"),  "Cbcx":  (1e15, "fF"),
     "Rbi":    (1,    ohm_sign),   "Rbe":   (1,    ohm_sign),
     "Cbe":    (1e15, "fF"),  "Cbc":   (1e15, "fF"),
     "Rbc":    (1e-3, f"k{ohm_sign}"),
@@ -725,11 +747,12 @@ _COMMON_OVERLAY: dict[str, tuple[int, int]] = {
     
     # Access or series resistance
     "Rpb": (247, 340),
-    "Rpe":  (510, 665),
-    "Rpc":  (762, 340),
+    "Rpe": (520, 665),
+    "Rpc": (762, 340),
     
     # External
     "Cbex": (268, 502),
+    "Ccex": (756, 502),
     "Cbcx": (512, 160),
 
     # Intrinsic base resistance
@@ -737,21 +760,21 @@ _COMMON_OVERLAY: dict[str, tuple[int, int]] = {
 }
 
 _T_EXTRA_OVERLAY: dict[str, tuple[int, int]] = {
-    "Rbe":    (442, 515),
+    "Rbe":    (455, 515),
     "Cbe":    (584, 557),
     "Rbc":    (592, 340),
     "Cbc":    (590, 250),
-    "alpha0": (623, 435),
-    "tauB":   (630, 462),
-    "tauC":   (630, 489),
+    "alpha0": (603, 433),
+    "tauB":   (610, 458),
+    "tauC":   (610, 485),
 }
 
 _PI_EXTRA_OVERLAY: dict[str, tuple[int, int]] = {
     "Rbe":  (442, 475),
     "Cbe":  (590, 515),
     "Cbc":  (590, 340),
-    "Gm0":  (785, 470),
-    "tau":  (785, 502),
+    "Gm0":  (805, 470),
+    "tau":  (805, 502),
 }
 
 _T_OVERLAY  = {**_COMMON_OVERLAY, **_T_EXTRA_OVERLAY}
@@ -836,7 +859,7 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> Non
 
     _PAD_KEYS = {"Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le"}
     _ACCESSRES_KEYS = {"Rpb", "Rpc", "Rpe"}
-    _EXT_KEYS = {"Cbex", "Cbcx"}
+    _EXT_KEYS = {"Cbex", "Ccex", "Cbcx"}
 
     def _color(key: str) -> tuple:
         if key in _PAD_KEYS:
@@ -876,17 +899,17 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> Non
     st.image(buf.getvalue(), use_container_width=True)
 
 
-def _override_ui(fname, tK, calc_vals, int_specs, label):
+def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS):
     """Render the override expander for one Cheng topology."""
-    all_specs = PAD_SPECS + _EXT_SPECS + int_specs
+    all_specs = PAD_SPECS + ext_specs + int_specs
     sync_pad_from_preov(fname, tK, calc_vals)
-    
-    _int_keys = [k for k, *_ in _EXT_SPECS + int_specs]
+
+    _int_keys = [k for k, *_ in ext_specs + int_specs]
     _sync_hash_key = f"sim_synchash_{tK}_{fname}"
     _sync_hash = params_hash({k: str(round(float(calc_vals.get(k, 0.0)), 15))
                             for k in _int_keys})
     if st.session_state.get(_sync_hash_key) != _sync_hash:
-        for key, _, scale, *_ in _EXT_SPECS + int_specs:
+        for key, _, scale, *_ in ext_specs + int_specs:
             st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
         st.session_state[_sync_hash_key] = _sync_hash
 
@@ -905,7 +928,7 @@ def _override_ui(fname, tK, calc_vals, int_specs, label):
                                    key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
 
         st.markdown("**Extrinsic Caps**")
-        for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(2), _EXT_SPECS):
+        for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(ext_specs)), ext_specs):
             col_w.number_input(f"{lbl} ({unit})", key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
 
         st.markdown("**Intrinsic**")
@@ -963,9 +986,18 @@ class ChengT(AbstractSSMModel):
             ],
         },
         {
-            "label":      "Step 2 — Cbcx  (from Y_ex2 after peeling Cbex)",
+            "label":      "Step 2 — Ccex  (from Im(Y₂₂+Y₂₁)/ω, low-freq range)",
+            "params":     [("Ccex_arr", "Ccex", "Ccex", 1e15, "fF")],
+            "depends_on": [],
+            "formulas": [
+                ("markdown", "**Collector-side analogue of Eq. 13:**"),
+                ("latex", r"C_{cex}=\frac{\mathrm{Im}(Y_{22}+Y_{21})}{\omega}\big|_{\omega\to0}"),
+            ],
+        },
+        {
+            "label":      "Step 2 — Cbcx  (from Y_ex2 after peeling Cbex and Ccex)",
             "params":     [("Cbcx_arr", "Cbcx", "Cbcx", 1e15, "fF")],
-            "depends_on": ["Cbex"],
+            "depends_on": ["Cbex", "Ccex"],
             "formulas": [
                 ("markdown", "**[Eq. 22]:**"),
                 ("latex", r"C_{bcx}=-\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)-\mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega[\mathrm{Re}(Y_{ms})\mathrm{Re}(Y_{tot})+\mathrm{Im}(Y_{tot})\mathrm{Im}(Y_{ms})]}"),
@@ -982,7 +1014,7 @@ class ChengT(AbstractSSMModel):
                 ("Cbc",   "Cbc",    "Cbc (low frequency range)",  1e15, "fF"),
                 ("alpha", "alpha0", "α (low frequency range)",    1.0,  ""),
             ],
-            "depends_on": ["Cbex", "Cbcx"],
+            "depends_on": ["Cbex", "Ccex", "Cbcx"],
             "use_first_params": {"Rbc", "Cbc", "alpha0"},
             "formulas": [
                 ("markdown", "**[Eq. 16]:**"),
@@ -1083,20 +1115,25 @@ class ChengT(AbstractSSMModel):
         """
         Re-derive all downstream parameters when an upstream group is overridden.
           changed_group_idx=0 (Cbex changed)  → recompute Y_ex2, Cbcx, all Step 3
-          changed_group_idx=1 (Cbcx changed)  → keep Y_ex2 from overrides["Cbex"],
+          changed_group_idx=1 (Ccex changed)  → recompute Y_ex2, Cbcx, all Step 3
+          changed_group_idx=2 (Cbcx changed)  → keep Y_ex2 from overrides["Cbex"]/[Ccex],
                                                  use overrides["Cbcx"], re-run Step 3
-          changed_group_idx=2 (α₀ changed)   → recompute τB and τC arrays
-          changed_group_idx=3 (τB changed)   → recompute τC array only
+          changed_group_idx=3 (α₀ changed)   → recompute τB and τC arrays
+          changed_group_idx=4 (τB changed)   → recompute τC array only
         """
         omega = 2.0 * np.pi * freq
 
-        # ── Always recompute Y_ex2 from current Cbex ────────────────────────
+        # ── Always recompute Y_ex2 from current Cbex and Ccex ───────────────
         Cbex_arr = np.imag(Y_ex1[:, 0, 0] + Y_ex1[:, 0, 1]) / omega
         Cbex = float(overrides.get("Cbex") or abs(safe_median(Cbex_arr, n_low)))
+
+        Ccex_arr = np.imag(Y_ex1[:, 1, 1] + Y_ex1[:, 1, 0]) / omega
+        Ccex = float(overrides.get("Ccex") or abs(safe_median(Ccex_arr, n_low)))
 
         Y_ex2 = Y_ex1.copy()
         for i, w in enumerate(omega):
             Y_ex2[i, 0, 0] -= 1j * w * Cbex
+            Y_ex2[i, 1, 1] -= 1j * w * Ccex
 
         # ── Recompute Cbcx_arr from new Y_ex2 ────────────────────────────────
         Yms  = Y_ex2[:, 0, 1] + Y_ex2[:, 1, 1]
@@ -1109,8 +1146,8 @@ class ChengT(AbstractSSMModel):
         n0c, n1c = len(freq) // 4, 3 * len(freq) // 4
         Cbcx_recomp = abs(safe_median(Cbcx_arr[n0c:n1c]))
 
-        # Use user-overridden Cbcx only when the user explicitly changed Group 1
-        Cbcx = float(overrides["Cbcx"]) if (changed_group_idx >= 1
+        # Use user-overridden Cbcx only when the user explicitly changed Group 2
+        Cbcx = float(overrides["Cbcx"]) if (changed_group_idx >= 2
                                              and "Cbcx" in overrides) else Cbcx_recomp
 
         # ── Re-run Step 3 ─────────────────────────────────────────────────────
@@ -1119,7 +1156,7 @@ class ChengT(AbstractSSMModel):
         # ── Handle within-Step-3 overrides (α₀ → τB → τC) ───────────────────
         alpha_arr = arr_int["alpha"]   # complex, per-frequency
 
-        if changed_group_idx >= 2 and "alpha0" in overrides:
+        if changed_group_idx >= 3 and "alpha0" in overrides:
             alpha0_ov = float(overrides["alpha0"])
             U_arr     = (alpha0_ov / (np.abs(alpha_arr) + 1e-30)) ** 2
             tauB_arr  = np.sqrt(np.maximum(U_arr - 1.0, 0.0)) / omega
@@ -1133,7 +1170,7 @@ class ChengT(AbstractSSMModel):
             arr_int["tauB"] = tauB_arr;  res_int["tauB"] = tauB_ov
             arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
 
-        elif changed_group_idx >= 3 and "tauB" in overrides:
+        elif changed_group_idx >= 4 and "tauB" in overrides:
             alpha0_cur = float(overrides.get("alpha0", res_int["alpha0"]))
             U_arr      = (alpha0_cur / (np.abs(alpha_arr) + 1e-30)) ** 2
             tauB_ov    = float(overrides["tauB"])
@@ -1145,9 +1182,10 @@ class ChengT(AbstractSSMModel):
             tauC_ov = safe_median(tauC_arr[n_low:])
             arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
 
-        new_params = {"Cbex": Cbex, "Cbcx": Cbcx, **res_int}
+        new_params = {"Cbex": Cbex, "Ccex": Ccex, "Cbcx": Cbcx, **res_int}
         new_arrays = {
             "Cbex_arr": Cbex_arr,
+            "Ccex_arr": Ccex_arr,
             "Cbcx_arr": Cbcx_arr,
             "Y_ex2":    Y_ex2,
             **arr_int,
@@ -1159,6 +1197,7 @@ class ChengT(AbstractSSMModel):
         ri = params
         rows = [
             ("Cbex", f"{ri['Cbex']*1e15:.4f}", "fF"),   # Step 2 — extracted first
+            ("Ccex", f"{ri.get('Ccex', 0.0)*1e15:.4f}", "fF"),  # Step 2 — collector side
             ("Cbcx", f"{ri['Cbcx']*1e15:.4f}", "fF"),   # Step 2
             ("Rbi",  f"{ri['Rbi']:.4f}",        "Ω"),   # Step 3
             ("Rbe",  f"{ri['Rbe']:.4f}" if ri['Rbe']<1000 else f"{ri['Rbe']*1e-3:.4f}k", "Ω"),
@@ -1175,9 +1214,10 @@ class ChengT(AbstractSSMModel):
                      width="stretch", hide_index=True)
 
         with st.expander("📐 Full formula trace — T-topology (Cheng 2022)", expanded=False):
-            st.markdown("**Dependency chain:** Y_ex1 → peel Cbex → Y_ex2 → peel Cbcx → Z_in → intrinsic")
+            st.markdown("**Dependency chain:** Y_ex1 → peel Cbex,Ccex → Y_ex2 → peel Cbcx → Z_in → intrinsic")
             st.markdown("**Step 2** *(input: Y_ex1)*")
             st.latex(r"[Eq.13]\;C_{bex}^T=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}\big|_{\omega\to0}")
+            st.latex(r"C_{cex}=\frac{\mathrm{Im}(Y_{22}+Y_{21})}{\omega}\big|_{\omega\to0}")
             st.latex(r"[Eq.22]\;C_{bcx}=-\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)"
                      r"-\mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega"
                      r"[\mathrm{Re}(Y_{ms})\mathrm{Re}(Y_{tot})+\mathrm{Im}(Y_{tot})\mathrm{Im}(Y_{ms})]}")
@@ -1193,7 +1233,8 @@ class ChengT(AbstractSSMModel):
             st.latex(r"[Z_{in}^{sim}]=\begin{bmatrix}R_{bi}+Z_{be}&Z_{be}\\"
                      r"Z_{be}-\alpha Z_{bc}&(1-\alpha)Z_{bc}+Z_{be}\end{bmatrix}")
             st.latex(r"[Y_{ex}]=[Z_{in}]^{-1}+j\omega C_{bcx}\begin{pmatrix}1&-1\\-1&1\end{pmatrix}"
-                     r"+j\omega C_{bex}\begin{pmatrix}1&0\\0&0\end{pmatrix}")
+                     r"+j\omega C_{bex}\begin{pmatrix}1&0\\0&0\end{pmatrix}"
+                     r"+j\omega C_{cex}\begin{pmatrix}0&0\\0&1\end{pmatrix}")
             st.latex(r"[Y_{tot}]=([Y_{ex}]^{-1}+[Z_{ser}])^{-1}\;,\quad "
                      r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
 
@@ -1202,7 +1243,8 @@ class ChengT(AbstractSSMModel):
                                   para_eff, extract_result, **kwargs):
         params, arrays = extract_result
         calc_vals = {**para_eff, **params}
-        all_p = _override_ui(fname, cls.SHORT, calc_vals, _INT_T_SPECS, cls.NAME)
+        all_p = _override_ui(fname, cls.SHORT, calc_vals, _INT_T_SPECS, cls.NAME,
+                             ext_specs=_EXT_T_SPECS)
 
         # Cached simulation
         cache_key  = f"sim_result_{cls.SHORT}_{fname}"
@@ -1242,7 +1284,7 @@ class ChengT(AbstractSSMModel):
             _render_topology_illustration(all_p, "T", fname)
 
         render_tuning_expander(cls, all_p, S_raw, freq, z0,
-                               PAD_SPECS + _EXT_SPECS + _INT_T_SPECS, fname, cls.SHORT)
+                               PAD_SPECS + _EXT_T_SPECS + _INT_T_SPECS, fname, cls.SHORT)
         _render_step2_plots(arrays, params, freq, fname, cls.NAME)
         return S_sim
 
@@ -1460,7 +1502,8 @@ class ChengPi(AbstractSSMModel):
                                   para_eff, extract_result, **kwargs):
         params, arrays = extract_result
         calc_vals = {**para_eff, **params}
-        all_p = _override_ui(fname, cls.SHORT, calc_vals, _INT_PI_SPECS, cls.NAME)
+        all_p = _override_ui(fname, cls.SHORT, calc_vals, _INT_PI_SPECS, cls.NAME,
+                             ext_specs=_EXT_PI_SPECS)
 
         cache_key = f"sim_result_{cls.SHORT}_{fname}"
         hash_key  = f"sim_phash_{cls.SHORT}_{fname}"
@@ -1499,7 +1542,7 @@ class ChengPi(AbstractSSMModel):
             _render_topology_illustration(all_p, "pi", fname)
 
         render_tuning_expander(cls, all_p, S_raw, freq, z0,
-                               PAD_SPECS + _EXT_SPECS + _INT_PI_SPECS, fname, cls.SHORT)
+                               PAD_SPECS + _EXT_PI_SPECS + _INT_PI_SPECS, fname, cls.SHORT)
         _render_step2_plots(arrays, params, freq, fname, cls.NAME)
         return S_sim
 

@@ -59,6 +59,10 @@ def detect_cuda_major():
     Either source is sufficient; nvcc is preferred as it reflects the actual
     runtime used to build CuPy wheels.
     """
+    # macOS has no NVIDIA CUDA support — skip detection entirely.
+    if sys.platform == "darwin":
+        return None
+
     # nvcc --version output: "Cuda compilation tools, release 12.4, V12.4.99"
     out = _run_silent(["nvcc", "--version"])
     m = re.search(r"release\s+(\d+)\.(\d+)", out)
@@ -103,22 +107,42 @@ def recreate_venv():
         print(f"Removing broken virtual environment at {VENV_DIR} ...")
 
         def _force_remove(func, path, _exc):
-            # Clear read-only flag then retry — common on Windows/OneDrive.
+            # Clear read-only flag then retry — common on Windows/OneDrive,
+            # harmless on POSIX where files usually aren't read-only.
             try:
                 os.chmod(path, stat.S_IWRITE)
                 func(path)
             except Exception:
                 pass  # best-effort; rmtree will surface any real failure
 
-        shutil.rmtree(str(VENV_DIR), onexc=_force_remove)
+        # `onexc` is Python 3.12+; `onerror` is the older equivalent.
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(str(VENV_DIR), onexc=_force_remove)
+        else:
+            shutil.rmtree(str(VENV_DIR), onerror=_force_remove)
     print(f"Creating fresh virtual environment at {VENV_DIR} ...")
-    run([sys.executable, "-m", "venv", str(VENV_DIR)])
+    try:
+        run([sys.executable, "-m", "venv", str(VENV_DIR)])
+    except subprocess.CalledProcessError:
+        if sys.platform.startswith("linux"):
+            print("\nERROR: Failed to create virtual environment.")
+            print("On Debian/Ubuntu you may need to install the venv package:")
+            print(f"    sudo apt install python3-venv  python{sys.version_info.major}.{sys.version_info.minor}-venv")
+        raise
     print("Virtual environment created.")
 
 
 def create_venv():
     print(f"Creating virtual environment at {VENV_DIR} ...")
-    run([sys.executable, "-m", "venv", str(VENV_DIR)])
+    try:
+        run([sys.executable, "-m", "venv", str(VENV_DIR)])
+    except subprocess.CalledProcessError:
+        # On Debian/Ubuntu the venv module ships in a separate apt package.
+        if sys.platform.startswith("linux"):
+            print("\nERROR: Failed to create virtual environment.")
+            print("On Debian/Ubuntu you may need to install the venv package:")
+            print(f"    sudo apt install python3-venv  python{sys.version_info.major}.{sys.version_info.minor}-venv")
+        raise
     print("Virtual environment created.")
 
 
@@ -143,11 +167,24 @@ def check_missing(packages):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def _pause_if_interactive(msg="Press Enter to exit..."):
+    """Block on user input only when stdin is a TTY.
+
+    On macOS/Linux double-click launches there is no controlling terminal,
+    so reading stdin would raise EOFError and obscure the real error.
+    """
+    try:
+        if sys.stdin and sys.stdin.isatty():
+            input(msg)
+    except (EOFError, OSError):
+        pass
+
+
 def main():
     if not APP_FILE.exists():
         print(f"ERROR: Cannot find {APP_FILE.name} in {ROOT}")
         print("Make sure LAUNCH_Tool.py and IOED_Tool_Web.py are in the same folder.")
-        input("Press Enter to exit...")
+        _pause_if_interactive()
         sys.exit(1)
 
     # ── Detect CUDA and build the full package list ───────────────────────────

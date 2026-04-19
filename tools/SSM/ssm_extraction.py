@@ -455,6 +455,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                 cold_res=cold_res, cold_param_map=_cold_map,
                 reextract_fn=_reextract_fn,
                 cbex_sweep_fn=_cbex_sweep_fn)
+            # st.write("DEBUG params after interactive:", {k: v for k, v in params.items() if k in ["Rbi","Rbe","Cbe","Rbc","Cbc","alpha0","tauB","tauC"]})
 
         # Results table — shows values after interactive slider/override
         ModelClass.render_results_table(params)

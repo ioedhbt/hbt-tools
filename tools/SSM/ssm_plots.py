@@ -345,10 +345,15 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
             "**Output:** $Y_{ex1} = (Z_2)^{-1}$ — model input.  \n"
             "**Smith chart (right):** $Y_{ex1} \\to S_{deemb}$ plotted vs raw S.")
 
-    # ── Bode plot: h21² and Mason U for both de-embedding levels ─────────────
-    h21_s1, U_s1 = _compute_h21_U(S_step1)
-    h21_pe, U_pe = _compute_h21_U(S_pareff)
+    # ── Bode plot: h21² and Mason U for raw + both de-embedding levels ───────
+    h21_raw, U_raw = _compute_h21_U(S_raw)
+    h21_s1,  U_s1  = _compute_h21_U(S_step1)
+    h21_pe,  U_pe  = _compute_h21_U(S_pareff)
+    
+    # st.write("diff raw vs step1:", float(np.max(np.abs(h21_raw - h21_s1))), "dB")
+    # st.write("para_step1:", para_step1)
 
+    fT_raw,  fmax_raw  = _find_ft_fmax(f_ghz, h21_raw, U_raw)
     fT_s1,   fmax_s1   = _find_ft_fmax(f_ghz, h21_s1, U_s1)
     fT_pe,   fmax_pe   = _find_ft_fmax(f_ghz, h21_pe, U_pe)
 
@@ -382,15 +387,20 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
             return f0
         return None
 
-    # Step-1 traces (blue family)
-    fT_s1_x = _add_meas(h21_s1, f"|h21|² Step-1  [{_ft_lbl(fT_s1, None)}]",
+    # Raw traces (green family) — no de-embedding
+    fT_raw_x = _add_meas(h21_raw, f"|h21|² Raw  [{_ft_lbl(fT_raw, None)}]",
+                         "#2ca02c", "circle", "fT")
+    fm_raw_x = _add_meas(U_raw,   f"Mason U Raw  [{_ft_lbl(None, fmax_raw)}]",
+                         "#2ca02c", "square", "fmax")
+    # Open/Short de-embedding traces (blue family)
+    fT_s1_x = _add_meas(h21_s1, f"|h21|² Open/Short deembedding  [{_ft_lbl(fT_s1, None)}]",
                         "#1f77b4", "circle", "fT")
-    fm_s1_x = _add_meas(U_s1,   f"Mason U Step-1  [{_ft_lbl(None, fmax_s1)}]",
+    fm_s1_x = _add_meas(U_s1,   f"Mason U Open/Short deembedding  [{_ft_lbl(None, fmax_s1)}]",
                         "#1f77b4", "square", "fmax")
-    # Pre-ext override traces (orange family)
-    fT_pe_x = _add_meas(h21_pe, f"|h21|² Pre-ext  [{_ft_lbl(fT_pe, None)}]",
+    # Full de-embedding traces (orange family) — pre-ext override applied
+    fT_pe_x = _add_meas(h21_pe, f"|h21|² Full deembedding  [{_ft_lbl(fT_pe, None)}]",
                         "#e67e22", "circle", "fT")
-    fm_pe_x = _add_meas(U_pe,   f"Mason U Pre-ext  [{_ft_lbl(None, fmax_pe)}]",
+    fm_pe_x = _add_meas(U_pe,   f"Mason U Full deembedding  [{_ft_lbl(None, fmax_pe)}]",
                         "#e67e22", "square", "fmax")
 
     # 0 dB line
@@ -400,10 +410,12 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
 
     # fT / fmax vertical markers — prefer the in-band crossing, fall back to extrap result
     for lbl, val_meas, val_ext, col, dash in [
-        ("fT (Step-1)",   fT_s1,   fT_s1_x, "#1f77b4", "dot"),
-        ("fmax (Step-1)", fmax_s1, fm_s1_x, "#1f77b4", "dashdot"),
-        ("fT (pre-ext)",  fT_pe,   fT_pe_x, "#e67e22", "dot"),
-        ("fmax (pre-ext)",fmax_pe, fm_pe_x, "#e67e22", "dashdot"),
+        ("fT (Raw)",      fT_raw,  fT_raw_x, "#2ca02c", "dot"),
+        ("fmax (Raw)",    fmax_raw, fm_raw_x, "#2ca02c", "dashdot"),
+        ("fT (O/S)",      fT_s1,   fT_s1_x, "#1f77b4", "dot"),
+        ("fmax (O/S)",    fmax_s1, fm_s1_x, "#1f77b4", "dashdot"),
+        ("fT (Full)",     fT_pe,   fT_pe_x, "#e67e22", "dot"),
+        ("fmax (Full)",   fmax_pe, fm_pe_x, "#e67e22", "dashdot"),
     ]:
         val = val_meas if val_meas is not None else val_ext
         if val is not None:
@@ -421,34 +433,40 @@ def render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname):
                    showgrid=True, gridcolor="#ebebeb"),
         yaxis=dict(title="Gain (dB)", range=[0, 50],
                    showgrid=True, gridcolor="#ebebeb"),
-        plot_bgcolor="white", paper_bgcolor="white", height=450,
-        legend=dict(x=1.01, y=1.0, xanchor="left", yanchor="top",
+        plot_bgcolor="white", paper_bgcolor="white", height=560,
+        legend=dict(orientation="h", x=0.5, y=-0.22,
+                    xanchor="center", yanchor="top",
                     bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
-        hovermode="x unified", margin=dict(l=55, r=20, t=40, b=50))
-    cap = ("**Step-1** = Open+Short de-embedded using Step 1a/1b extracted values.  \n"
-           "**Pre-ext** = same de-embedding but with Pre-Extraction Review overrides applied.  \n"
-           "○ = |h21|² (→ fT).   □ = Mason U (→ fmax).   Y-axis fixed 0–50 dB.")
-    if extrap_used:
-        cap += "   Dotted = 20 dB/dec extrapolation past the measured band."
+        hovermode="x unified", margin=dict(l=55, r=20, t=40, b=160))
+
+    # ── Shared explanation on top of both plots ──────────────────────────────
+    st.markdown(
+        "**Raw** = measured DUT (no de-embedding).  \n"
+        "**Open/Short deembedding** = Open+Short parasitics removed using Step 1a/1b "
+        "extracted values (Cpbe/Cpce/Cpbc + Lb/Lc/Le + Rb/Rc/Re).  \n"
+        "**Full deembedding** = same Open+Short chain with Pre-Extraction Review "
+        "overrides applied on top.  \n"
+        "○ = |h21|² (→ fT).   □ = Mason U (→ fmax).   Y-axis fixed 0–50 dB."
+        + ("   Dotted = 20 dB/dec extrapolation past the measured band."
+           if extrap_used else ""))
 
     # ── Two-column layout: Gain (left) | Smith chart (right) ─────────────────
-    col_gain, col_smith = st.columns([3, 2])
+    sc = smith_scale_controls(fname, "deemb")
+    col_gain, col_smith = st.columns([1, 1])
     with col_gain:
-        st.markdown("**Gain vs Frequency — Two De-embedding Levels**")
-        st.caption(cap)
+        st.markdown("**Gain vs Frequency — Raw, Open/Short, Full De-embedding**")
         plotly_with_dl(fig, key=f"bode_deemb_{fname}", filename=f"deemb_gain_{fname}")
     with col_smith:
-        st.markdown("**S-Parameters: Raw vs De-embedded**")
-        st.caption(
-            "Markers = raw DUT.  Dashed = after full Open+Short de-embedding "
-            "(Cpbe/Cpce/Cpbc + Lb/Lc/Le + Rb/Rc/Re, Step 1a/1b values).")
-        sc = smith_scale_controls(fname, "deemb")
-        err = ssm_residual(S_raw, S_step1)
-        render_smith_chart(S_raw, S_step1,
-                           "Raw vs Step-1 De-embedded",
+        st.markdown("**S-Parameters: Raw vs Full Deembedding**")
+        err = ssm_residual(S_raw, S_pareff)
+        render_smith_chart(S_raw, S_pareff,
+                           "Raw vs Full Deembedding",
                            err, sc,
-                           key=f"smith_deemb_{fname}")
+                           key=f"smith_deemb_{fname}",
+                           show_title=False,
+                           meas_label="Measured",
+                           sim_label="Deembedded")
 
     # ── S2P downloads ─────────────────────────────────────────────────────────
     st.markdown(
