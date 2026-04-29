@@ -73,10 +73,9 @@ def _sweep_cbex_stds_cheng(Y_ex1, freq, cbex_SI_array, mask):
 
 def _step2_T(Y_ex1, freq, n_low):
     """
-    Cheng [Eqs. 13, 22] — Extract Cbex, Ccex (T variant) and Cbcx.
+    Cheng [Eqs. 13, 22] — Extract Cbex and Cbcx.
 
     Cbex_T = Im(Y11 + Y12) / ω  [Eq. 13]
-    Ccex   = Im(Y22 + Y21) / ω   (collector-side analogue, peeled from Y_ex2[1,1])
 
     Cbcx = −[Im(Yms)·Re(YL) − Re(Yms)·Im(YL)] / [ω · denominator]  [Eq. 22]
     where  Yms = Y12+Y22,  YL = det(Y_ex2),  Ytot = sum(Yij)
@@ -87,15 +86,11 @@ def _step2_T(Y_ex1, freq, n_low):
     Cbex_arr = np.imag(Y_ex1[:,0,0] + Y_ex1[:,0,1]) / omega
     Cbex = abs(safe_median(Cbex_arr, n_low))
 
-    # Ccex from low-frequency Im(Y22+Y21)/ω (mirrors Cbex on the collector side)
-    Ccex_arr = np.imag(Y_ex1[:,1,1] + Y_ex1[:,1,0]) / omega
-    Ccex = abs(safe_median(Ccex_arr, n_low))
 
-    # Peel Cbex (Y11) and Ccex (Y22) to get Y_ex2
+    # Peel Cbex (Y11) (Y22) to get Y_ex2
     Y_ex2 = Y_ex1.copy()
     for i, w in enumerate(omega): # at all frequency
         Y_ex2[i,0,0] -= 1j*w*Cbex
-        Y_ex2[i,1,1] -= 1j*w*Ccex
 
     Yms   = Y_ex2[:,0,1] + Y_ex2[:,1,1] # eq 21
     YL    = Y_ex2[:,0,0]*Y_ex2[:,1,1] - Y_ex2[:,0,1]*Y_ex2[:,1,0] # eq 18
@@ -107,9 +102,9 @@ def _step2_T(Y_ex1, freq, n_low):
         Cbcx_arr = -np.where(np.abs(den) > 1e-40, num/(omega*den), np.nan)
     n0, n1 = len(freq)//4, 3*len(freq)//4
     Cbcx = abs(safe_median(Cbcx_arr[n0:n1]))
-    return ({"Cbex": Cbex, "Ccex": Ccex, "Cbcx": Cbcx},
-            {"Cbex_arr": Cbex_arr, "Ccex_arr": Ccex_arr,
-             "Cbcx_arr": Cbcx_arr, "Y_ex2": Y_ex2})
+    return ({"Cbex": Cbex, "Cbcx": Cbcx},
+            {"Cbex_arr": Cbex_arr, "Cbcx_arr": Cbcx_arr,
+            "Y_ex2": Y_ex2})
 
 
 def _step2_pi(Y_ex1, freq, n_low):
@@ -269,11 +264,9 @@ def _sim_wrap(Y_int_fn, p, freq, z0):
         Y_in  = Y_int_fn(p, w)
         Ybcx  = 1j*w*p["Cbcx"]
         Ybex  = 1j*w*p["Cbex"]
-        Ycex  = 1j*w*p.get("Ccex", 0.0)
         Y_ex  = (Y_in
                  + Ybcx*np.array([[1,-1],[-1,1]])
-                 + Ybex*np.array([[1, 0],[ 0,0]])
-                 + Ycex*np.array([[0, 0],[ 0,1]]))
+                 + Ybex*np.array([[1, 0],[ 0,0]]))
         Z_ser = build_Z_ser(p, w)
         try:    Y_tot = np.linalg.inv(np.linalg.inv(Y_ex) + Z_ser)
         except: Y_tot = np.zeros((2,2), dtype=complex)
@@ -295,16 +288,15 @@ def _sim_wrap_vec(Y_int_vec_fn, p, freq, z0, xp):
     # Intrinsic admittance (N, 2, 2)
     Y_in = Y_int_vec_fn(p, omega, xp)
 
-    # Extrinsic caps: Cbcx, Cbex, and Ccex (Ccex defaults to 0 for π topology)
+    # Extrinsic caps: Cbcx, Cbex
     Ybcx = 1j * omega * p["Cbcx"]              # (N,)
     Ybex = 1j * omega * p["Cbex"]              # (N,)
-    Ycex = 1j * omega * p.get("Ccex", 0.0)     # (N,)
 
     Y_ex = Y_in.copy()
     Y_ex[:, 0, 0] += Ybcx + Ybex
     Y_ex[:, 0, 1] -= Ybcx
     Y_ex[:, 1, 0] -= Ybcx
-    Y_ex[:, 1, 1] += Ybcx + Ycex
+    Y_ex[:, 1, 1] += Ybcx
 
     # Series-lead impedance (N, 2, 2)
     Z_ser = build_Z_ser_vec(p, omega, xp)
@@ -442,28 +434,25 @@ def _sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None):
     yi00, yi01, yi10, yi11 = Y_int_batch_fn(p, omega, B, N, xp, cache)
 
     # Extrinsic caps (broadcastable to (B, N)) — cache-aware.
-    # Older caches stored a 2-tuple (Ybex, Ybcx); new ones store (Ybex, Ybcx, Ycex).
+    # Older caches stored a 2-tuple (Ybex, Ybcx); new ones store (Ybex, Ybcx).
     if cache is not None and "Y_extr" in cache:
         _yextr = cache["Y_extr"]
         if len(_yextr) == 3:
-            Ybex, Ybcx, Ycex = _yextr
+            Ybex, Ybcx = _yextr
         else:
             Ybex, Ybcx = _yextr
-            Ycex = xp.asarray(0.0, dtype=cdtype)
     else:
         Cbcx = _b1(p, "Cbcx", 0.0, xp, rdtype)
         Cbex = _b1(p, "Cbex", 0.0, xp, rdtype)
-        Ccex = _b1(p, "Ccex", 0.0, xp, rdtype)
         jw   = J * omega
         Ybcx = jw * Cbcx
         Ybex = jw * Cbex
-        Ycex = jw * Ccex
 
     # Y_ex = Y_in + extrinsic-cap network (additions on the four planes)
     ye00 = yi00 + Ybcx + Ybex
     ye01 = yi01 - Ybcx
     ye10 = yi10 - Ybcx
-    ye11 = yi11 + Ybcx + Ycex
+    ye11 = yi11 + Ybcx
 
     # Z_ex = inv(Y_ex)  — analytic 2×2
     inv_det_e = 1.0 / (ye00 * ye11 - ye01 * ye10)
@@ -663,12 +652,11 @@ def _Y_int_Pi_batch(p, omega, B, N, xp, cache=None):
 
 _EXT_SPECS = [
     ("Cbex","Cbex",1e15,"fF","%.4f",0.1),
-    ("Ccex","Ccex",1e15,"fF","%.4f",0.1),
     ("Cbcx","Cbcx",1e15,"fF","%.4f",0.1),
 ]
-# Per-topology extrinsic specs — π topology has no Ccex term.
+# Per-topology extrinsic specs
 _EXT_T_SPECS  = _EXT_SPECS
-_EXT_PI_SPECS = [s for s in _EXT_SPECS if s[0] != "Ccex"]
+_EXT_PI_SPECS = _EXT_SPECS
 _INT_T_SPECS = [
     ("Rbi",   "Rbi", 1.0, "Ω",  "%.4f", 0.1),
     ("Rbe",   "Rbe", 1.0, "Ω",  "%.3f", 1.0),
@@ -694,12 +682,42 @@ _INT_PI_SPECS = [
 # ════════════════════════════════════════════════════════════════════════════════
 
 _ILLUS_DIR = _Path(__file__).parent / "illus_template"
+_FONT_CACHE_DIR = _Path(__file__).parent / "fonts"
+_INTER_DOWNLOAD_URLS = (
+    "https://github.com/google/fonts/raw/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
+    "https://github.com/rsms/inter/raw/master/docs/font-files/Inter-Regular.ttf",
+)
+
+def _try_download_inter():
+    """Attempt to download Inter once and cache it. Returns the cached path or None."""
+    target = _FONT_CACHE_DIR / "Inter-Regular.ttf"
+    if target.exists():
+        return target
+    try:
+        _FONT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        import urllib.request
+        for url in _INTER_DOWNLOAD_URLS:
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = resp.read()
+                if data and len(data) > 10_000:
+                    target.write_bytes(data)
+                    return target
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
 
 def has_inter():
     for name in ("Inter-Regular.ttf", "Inter.ttf"):
         if _os.path.exists(name):
             return True
-    return False
+    cached = _FONT_CACHE_DIR / "Inter-Regular.ttf"
+    if cached.exists():
+        return True
+    return _try_download_inter() is not None
 
 ohm_sign = "Ω" if has_inter() else "Ohm"
 
@@ -708,7 +726,7 @@ _PARAM_DISPLAY: dict[str, tuple] = {
     "Cpbe":   (1e15, "fF"),  "Cpce":  (1e15, "fF"),  "Cpbc":  (1e15, "fF"),
     "Lb":     (1e12, "pH"),  "Lc":    (1e12, "pH"),   "Le":    (1e12, "pH"),
     "Rpb":    (1,    ohm_sign),   "Rpc":   (1,    ohm_sign),    "Rpe":   (1,    ohm_sign),
-    "Cbex":   (1e15, "fF"),  "Ccex":  (1e15, "fF"),  "Cbcx":  (1e15, "fF"),
+    "Cbex":   (1e15, "fF"),  "Cbcx":  (1e15, "fF"),
     "Rbi":    (1,    ohm_sign),   "Rbe":   (1,    ohm_sign),
     "Cbe":    (1e15, "fF"),  "Cbc":   (1e15, "fF"),
     "Rbc":    (1e-3, f"k{ohm_sign}"),
@@ -741,7 +759,7 @@ _COMMON_OVERLAY: dict[str, tuple[int, int]] = {
     "Cpce": (915, 610),
 
     # Lead inductances
-    "Lb":   ( 118, 340),
+    "Lb":  (118, 340),
     "Le":  (510, 745),
     "Lc":  (890, 340),
     
@@ -752,7 +770,6 @@ _COMMON_OVERLAY: dict[str, tuple[int, int]] = {
     
     # External
     "Cbex": (268, 502),
-    "Ccex": (756, 502),
     "Cbcx": (512, 160),
 
     # Intrinsic base resistance
@@ -806,6 +823,7 @@ def _load_font(size: int):
     ]
     win_fonts = _os.path.join(_os.environ.get("WINDIR", "C:/Windows"), "Fonts")
     dirs = [
+        str(_FONT_CACHE_DIR),
         win_fonts,
         "/usr/share/fonts/truetype",
         "/usr/share/fonts/truetype/liberation",
@@ -843,7 +861,19 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> Non
         st.info("Install *pillow* to see the topology illustration.")
         return
 
-    tpl_name = "ChengT_template.png" if topology == "T" else "ChengPi_template.png"
+    _PARASITIC_KEYS = ("Cpce", "Cpbe", "Cpbc", "Lb", "Le", "Lc")
+    def _is_zero(key):
+        v = all_p.get(key)
+        try:
+            return v is None or float(v) == 0.0
+        except Exception:
+            return False
+    no_parasitics = all(_is_zero(k) for k in _PARASITIC_KEYS)
+
+    if no_parasitics:
+        tpl_name = "ChengT_template_noparasitics.png" if topology == "T" else "ChengPi_template_noparasitics.png"
+    else:
+        tpl_name = "ChengT_template.png" if topology == "T" else "ChengPi_template.png"
     tpl_path = _ILLUS_DIR / tpl_name
     if not tpl_path.exists():
         st.warning(f"Template not found: {tpl_path}")
@@ -859,7 +889,7 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> Non
 
     _PAD_KEYS = {"Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le"}
     _ACCESSRES_KEYS = {"Rpb", "Rpc", "Rpe"}
-    _EXT_KEYS = {"Cbex", "Ccex", "Cbcx"}
+    _EXT_KEYS = {"Cbex", "Cbcx"}
 
     def _color(key: str) -> tuple:
         if key in _PAD_KEYS:
@@ -876,6 +906,8 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> Non
     draw = ImageDraw.Draw(img)
 
     for key, (px, py) in overlay.items():
+        if no_parasitics and key in _PARASITIC_KEYS:
+            continue
         val_si = all_p.get(key)
         if val_si is None:
             continue
@@ -986,18 +1018,9 @@ class ChengT(AbstractSSMModel):
             ],
         },
         {
-            "label":      "Step 2 — Ccex  (from Im(Y₂₂+Y₂₁)/ω, low-freq range)",
-            "params":     [("Ccex_arr", "Ccex", "Ccex", 1e15, "fF")],
-            "depends_on": [],
-            "formulas": [
-                ("markdown", "**Collector-side analogue of Eq. 13:**"),
-                ("latex", r"C_{cex}=\frac{\mathrm{Im}(Y_{22}+Y_{21})}{\omega}\big|_{\omega\to0}"),
-            ],
-        },
-        {
-            "label":      "Step 2 — Cbcx  (from Y_ex2 after peeling Cbex and Ccex)",
+            "label":      "Step 2 — Cbcx  (from Y_ex2 after peeling Cbex)",
             "params":     [("Cbcx_arr", "Cbcx", "Cbcx", 1e15, "fF")],
-            "depends_on": ["Cbex", "Ccex"],
+            "depends_on": ["Cbex"],
             "formulas": [
                 ("markdown", "**[Eq. 22]:**"),
                 ("latex", r"C_{bcx}=-\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)-\mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega[\mathrm{Re}(Y_{ms})\mathrm{Re}(Y_{tot})+\mathrm{Im}(Y_{tot})\mathrm{Im}(Y_{ms})]}"),
@@ -1014,7 +1037,7 @@ class ChengT(AbstractSSMModel):
                 ("Cbc",   "Cbc",    "Cbc (low frequency range)",  1e15, "fF"),
                 ("alpha", "alpha0", "α (low frequency range)",    1.0,  ""),
             ],
-            "depends_on": ["Cbex", "Ccex", "Cbcx"],
+            "depends_on": ["Cbex", "Cbcx"],
             "use_first_params": {"Rbc", "Cbc", "alpha0"},
             "formulas": [
                 ("markdown", "**[Eq. 16]:**"),
@@ -1115,25 +1138,20 @@ class ChengT(AbstractSSMModel):
         """
         Re-derive all downstream parameters when an upstream group is overridden.
           changed_group_idx=0 (Cbex changed)  → recompute Y_ex2, Cbcx, all Step 3
-          changed_group_idx=1 (Ccex changed)  → recompute Y_ex2, Cbcx, all Step 3
-          changed_group_idx=2 (Cbcx changed)  → keep Y_ex2 from overrides["Cbex"]/[Ccex],
+          changed_group_idx=2 (Cbcx changed)  → keep Y_ex2 from overrides["Cbex"],
                                                  use overrides["Cbcx"], re-run Step 3
           changed_group_idx=3 (α₀ changed)   → recompute τB and τC arrays
           changed_group_idx=4 (τB changed)   → recompute τC array only
         """
         omega = 2.0 * np.pi * freq
 
-        # ── Always recompute Y_ex2 from current Cbex and Ccex ───────────────
+        # ── Always recompute Y_ex2 from current Cbex ───────────────
         Cbex_arr = np.imag(Y_ex1[:, 0, 0] + Y_ex1[:, 0, 1]) / omega
         Cbex = float(overrides.get("Cbex") or abs(safe_median(Cbex_arr, n_low)))
-
-        Ccex_arr = np.imag(Y_ex1[:, 1, 1] + Y_ex1[:, 1, 0]) / omega
-        Ccex = float(overrides.get("Ccex") or abs(safe_median(Ccex_arr, n_low)))
 
         Y_ex2 = Y_ex1.copy()
         for i, w in enumerate(omega):
             Y_ex2[i, 0, 0] -= 1j * w * Cbex
-            Y_ex2[i, 1, 1] -= 1j * w * Ccex
 
         # ── Recompute Cbcx_arr from new Y_ex2 ────────────────────────────────
         Yms  = Y_ex2[:, 0, 1] + Y_ex2[:, 1, 1]
@@ -1182,10 +1200,9 @@ class ChengT(AbstractSSMModel):
             tauC_ov = safe_median(tauC_arr[n_low:])
             arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
 
-        new_params = {"Cbex": Cbex, "Ccex": Ccex, "Cbcx": Cbcx, **res_int}
+        new_params = {"Cbex": Cbex, "Cbcx": Cbcx, **res_int}
         new_arrays = {
             "Cbex_arr": Cbex_arr,
-            "Ccex_arr": Ccex_arr,
             "Cbcx_arr": Cbcx_arr,
             "Y_ex2":    Y_ex2,
             **arr_int,
@@ -1197,7 +1214,6 @@ class ChengT(AbstractSSMModel):
         ri = params
         rows = [
             ("Cbex", f"{ri['Cbex']*1e15:.4f}", "fF"),   # Step 2 — extracted first
-            ("Ccex", f"{ri.get('Ccex', 0.0)*1e15:.4f}", "fF"),  # Step 2 — collector side
             ("Cbcx", f"{ri['Cbcx']*1e15:.4f}", "fF"),   # Step 2
             ("Rbi",  f"{ri['Rbi']:.4f}",        "Ω"),   # Step 3
             ("Rbe",  f"{ri['Rbe']:.4f}" if ri['Rbe']<1000 else f"{ri['Rbe']*1e-3:.4f}k", "Ω"),
@@ -1214,10 +1230,9 @@ class ChengT(AbstractSSMModel):
                      width="stretch", hide_index=True)
 
         with st.expander("📐 Full formula trace — T-topology (Cheng 2022)", expanded=False):
-            st.markdown("**Dependency chain:** Y_ex1 → peel Cbex,Ccex → Y_ex2 → peel Cbcx → Z_in → intrinsic")
+            st.markdown("**Dependency chain:** Y_ex1 → peel Cbex → Y_ex2 → peel Cbcx → Z_in → intrinsic")
             st.markdown("**Step 2** *(input: Y_ex1)*")
             st.latex(r"[Eq.13]\;C_{bex}^T=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}\big|_{\omega\to0}")
-            st.latex(r"C_{cex}=\frac{\mathrm{Im}(Y_{22}+Y_{21})}{\omega}\big|_{\omega\to0}")
             st.latex(r"[Eq.22]\;C_{bcx}=-\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)"
                      r"-\mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega"
                      r"[\mathrm{Re}(Y_{ms})\mathrm{Re}(Y_{tot})+\mathrm{Im}(Y_{tot})\mathrm{Im}(Y_{ms})]}")
@@ -1233,8 +1248,7 @@ class ChengT(AbstractSSMModel):
             st.latex(r"[Z_{in}^{sim}]=\begin{bmatrix}R_{bi}+Z_{be}&Z_{be}\\"
                      r"Z_{be}-\alpha Z_{bc}&(1-\alpha)Z_{bc}+Z_{be}\end{bmatrix}")
             st.latex(r"[Y_{ex}]=[Z_{in}]^{-1}+j\omega C_{bcx}\begin{pmatrix}1&-1\\-1&1\end{pmatrix}"
-                     r"+j\omega C_{bex}\begin{pmatrix}1&0\\0&0\end{pmatrix}"
-                     r"+j\omega C_{cex}\begin{pmatrix}0&0\\0&1\end{pmatrix}")
+                     r"+j\omega C_{bex}\begin{pmatrix}1&0\\0&0\end{pmatrix}")
             st.latex(r"[Y_{tot}]=([Y_{ex}]^{-1}+[Z_{ser}])^{-1}\;,\quad "
                      r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
 
@@ -1282,6 +1296,10 @@ class ChengT(AbstractSSMModel):
 
         with st.expander("🖼️ Topology Illustration", expanded=False):
             _render_topology_illustration(all_p, "T", fname)
+
+        with st.expander("📐 Plot Smith chart with matplotlib", expanded=False):
+            from ..ssm_plots import render_matplotlib_smith
+            render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT)
 
         render_tuning_expander(cls, all_p, S_raw, freq, z0,
                                PAD_SPECS + _EXT_T_SPECS + _INT_T_SPECS, fname, cls.SHORT)
@@ -1483,20 +1501,6 @@ class ChengPi(AbstractSSMModel):
         st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
                      width="stretch", hide_index=True)
 
-    # @classmethod
-    # def render_formula_trace(cls):
-    #     with st.expander("📐 Full formula trace — π-topology (Cheng 2022 / Zhang 2015)", expanded=False):
-    #         st.markdown("**Step 2** *(input: Y_ex1)*")
-    #         st.latex(r"[Eqs.26–28]\;B=Y_{12}+Y_{22},\;C=Y_{11}+Y_{21},\;"
-    #                  r"C_{bex}^\pi=\frac{\mathrm{Re}(B)\mathrm{Re}(C)+\mathrm{Im}(B)\mathrm{Im}(C)}{\omega\,\mathrm{Im}(B)}")
-    #         st.markdown("**Step 3** *(input: Y_ex2, Cbcx — same Z-matrix peel as T)*")
-    #         st.latex(r"g_m=(Z_{12}-Z_{21})/(Z_{bc}Z_{12})\;\Rightarrow\;G_{m0}=|g_m|,\;\tau=-\angle g_m/\omega")
-    #         st.markdown("**Forward simulation** *(inside → outside)*")
-    #         st.latex(r"[Y_{core}]=\begin{bmatrix}Y_{be}+Y_{bc}&-Y_{bc}\\g_m-Y_{bc}&Y_{bc}\end{bmatrix},\;"
-    #                  r"[Z_{in}^{sim}]=[Y_{core}]^{-1}+\begin{bmatrix}R_{bi}&0\\0&0\end{bmatrix}")
-    #         st.latex(r"[Y_{tot}]=([Y_{ex}]^{-1}+[Z_{ser}])^{-1},\;"
-    #                  r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
-
     @classmethod
     def render_override_and_smith(cls, fname, S_raw, freq, z0,
                                   para_eff, extract_result, **kwargs):
@@ -1540,6 +1544,10 @@ class ChengPi(AbstractSSMModel):
 
         with st.expander("🖼️ Topology Illustration", expanded=False):
             _render_topology_illustration(all_p, "pi", fname)
+
+        with st.expander("📐 Plot Smith chart with matplotlib", expanded=False):
+            from ..ssm_plots import render_matplotlib_smith
+            render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT)
 
         render_tuning_expander(cls, all_p, S_raw, freq, z0,
                                PAD_SPECS + _EXT_PI_SPECS + _INT_PI_SPECS, fname, cls.SHORT)

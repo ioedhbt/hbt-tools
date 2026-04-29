@@ -1,5 +1,5 @@
 """
-hbt_rf_tool.py  — v4.3
+hbt_rf_tool.py  — v4.4
 ============================
 Main Streamlit application for HBT RF extraction.
 
@@ -21,6 +21,7 @@ from datetime import datetime
 
 from tools.SSM.ssm_extraction import render_ssm_tab   # ← SSM module (Cheng 2022)
 from tools.SSM.ssm_plots     import extrap_20dbdec    # 20 dB/dec extrap helper
+from tools.batch_deembedding import render_batch_deembedding_tab
 
 # ─────────────────────────────────────────────────────────────────────────────
 if "rf_uploader_key" not in st.session_state:
@@ -29,6 +30,7 @@ if "rf_uploader_key" not in st.session_state:
 st.title("📡 IOED HBT RF Extraction Tool (v4.3)")
 
 with st.expander("Changelog", expanded=False):
+    st.caption("**v4.4**: Added optimized tuning strategies, added smith chart with matplotlib, removed Ccex from Cheng's T, improved user usability.")
     st.caption("**v4.3**: Added other OS support for launcher, added Ccex term for Cheng's T, fixed topology illustration for Pi, fixed some plotting.")
     st.caption("**v4.2**: Topology illustration, graph data download, code refactoring).")
     st.caption("**v4.1**: Cosmetic improvements).")
@@ -521,7 +523,7 @@ xr,yr=(freq_min,freq_max),(db_min,db_max)
 # ═════════════════════════════════════════════════════════════════════════════
 #  TABS
 # ═════════════════════════════════════════════════════════════════════════════
-tab_ov,tab_ind,tab_sum=st.tabs(["📊 Overlay","📁 Individual","📋 Summary"])
+tab_ov,tab_ind,tab_sum,tab_bd=st.tabs(["📊 Overlay","📁 Individual","📋 Summary","🧰 Batch De-embed"])
 
 with tab_ov:
     st.markdown("### 📊 Bode Plot Overlay")
@@ -670,3 +672,22 @@ with tab_sum:
             st.download_button("📦 ZIP (CSV)",data=zbuf.getvalue(),
                                file_name=f"RF_Extraction_{date}.zip",
                                mime="application/zip",use_container_width=True)
+
+with tab_bd:
+    render_batch_deembedding_tab(
+        all_data=all_data,
+        open_data=s2o,
+        short_data=s2s,
+        ui=dict(
+            freq_min=freq_min, freq_max=freq_max,
+            db_min=db_min, db_max=db_max, n_pts=n_pts,
+            sh21=sh21, su=su, smag=smag,
+            smith_f_min=smith_f_min, smith_f_max=smith_f_max, smith_max_r=smith_max_r,
+            toggles={"S11":show_s11,"S22":show_s22,"S21":show_s21,"S12":show_s12},
+            scales ={"S11":scale_s11,"S22":scale_s22,"S21":scale_s21,"S12":scale_s12},
+        ),
+        helpers=dict(
+            y_to_s=y_to_s, compute_metrics=compute_metrics, extract_limit=extract_limit,
+            make_bode=make_bode, make_smith=make_smith, card=_card, PALETTE=PALETTE,
+        ),
+    )

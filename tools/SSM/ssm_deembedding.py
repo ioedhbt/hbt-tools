@@ -565,40 +565,103 @@ def render_open_collector_section(all_data, para_eff, fname):
 # Cold-HBT extraction
 # ════════════════════════════════════════════════════════════════════════════════
 
-def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
-    """Cold-HBT extraction UI. Returns cold_res dict or None."""
+def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
+                       re_zparam=None):
+    """Cold-HBT extraction UI. Returns cold_res dict or None.
+
+    Per Gao §5.5.2, Z_cor must have pad caps, series inductances, and Re
+    removed before A/B/C/D are computed. Missing pieces default to 0 and
+    are flagged in the UI.
+    """
 
     st.caption("Used to extract series/access resistances Rb, Rc. Upload cut-off bias (Vce=0, Vbe≤0) S2P 'cold'.")
     st.caption("Drawback: High-frequency measurement (Gao, Table 5.3, pg. 145)")
     cold_file = st.file_uploader("Cold HBT S2P", type=["s2p"], key=f"cold_upload_{fname}")
     if cold_file is None:
         return None
-    if open_data is None:
-        st.warning("Cold-HBT extraction requires an Open dummy file.")
-        return None
+
+    # ── Pull parasitics that should be stripped before extraction ─────────
+    Cpbe = float(para_step1.get("Cpbe", 0.0))
+    Cpce = float(para_step1.get("Cpce", 0.0))
+    Cpbc = float(para_step1.get("Cpbc", 0.0))
+    Lb   = float(para_step1.get("Lb",   0.0))
+    Lc   = float(para_step1.get("Lc",   0.0))
+    Le   = float(para_step1.get("Le",   0.0))
+    Re_v = float(re_zparam) if re_zparam is not None else 0.0
+
+    has_open  = open_data is not None
+    has_short = (Lb != 0.0) or (Lc != 0.0) or (Le != 0.0)
+    has_re    = re_zparam is not None
+
+    st.markdown("**Parasitics being subtracted from Z_cor**")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if has_open:
+            st.markdown(
+                f"<small><b>Pad caps (Open)</b><br>"
+                f"Cpbe = {Cpbe*1e15:.3f} fF<br>"
+                f"Cpce = {Cpce*1e15:.3f} fF<br>"
+                f"Cpbc = {Cpbc*1e15:.3f} fF</small>",
+                unsafe_allow_html=True)
+        else:
+            st.markdown("<small><b>Pad caps (Open)</b><br>"
+                        "⚠️ no Open file — using 0 fF</small>",
+                        unsafe_allow_html=True)
+    with c2:
+        if has_short:
+            st.markdown(
+                f"<small><b>Series L (Short)</b><br>"
+                f"Lb = {Lb*1e12:.3f} pH<br>"
+                f"Lc = {Lc*1e12:.3f} pH<br>"
+                f"Le = {Le*1e12:.3f} pH</small>",
+                unsafe_allow_html=True)
+        else:
+            st.markdown("<small><b>Series L (Short)</b><br>"
+                        "⚠️ no Short file — using 0 pH</small>",
+                        unsafe_allow_html=True)
+    with c3:
+        if has_re:
+            st.markdown(
+                f"<small><b>Re (Z-param)</b><br>"
+                f"Re = {Re_v:.4f} Ω</small>",
+                unsafe_allow_html=True)
+        else:
+            st.markdown("<small><b>Re (Z-param)</b><br>"
+                        "⚠️ Z-param fit unavailable — using 0 Ω</small>",
+                        unsafe_allow_html=True)
 
     try:
         f_c_raw, S_c_raw, z0_c = parse_s2p_bytes(cold_file.getvalue())
-        f_o, S_o, z0_o = open_data
-        # Interpolate if grids differ
-        if len(f_c_raw) != len(f_o) or not np.allclose(f_c_raw, f_o, rtol=1e-4):
-            f_c_use = f_o; S_c_use = interpolate_s2f(f_c_raw, S_c_raw, f_o)
-            st.info("Cold S2P interpolated to DUT grid.")
+        if has_open:
+            f_o, S_o, z0_o = open_data
+            f_grid = f_o
+            if len(f_c_raw) != len(f_o) or not np.allclose(f_c_raw, f_o, rtol=1e-4):
+                S_c_use = interpolate_s2f(f_c_raw, S_c_raw, f_o)
+                st.info("Cold S2P interpolated to Open grid.")
+            else:
+                S_c_use = S_c_raw
         else:
-            f_c_use = f_c_raw; S_c_use = S_c_raw
-        omega_c = 2.0*np.pi*f_o; N_c = len(f_o)
+            f_grid  = f_c_raw
+            S_c_use = S_c_raw
+        omega_c = 2.0*np.pi*f_grid; N_c = len(f_grid)
         Y_cold  = s_to_y(S_c_use, z0_c)
 
-        # Open admittance (measured or modelled)
-        if do_measured:
+        # Open admittance (measured or modelled). When no open file is
+        # provided, all pad caps are 0 → Y_open_eff = 0.
+        if has_open and do_measured:
             Y_open_eff = s_to_y(S_o, z0_o)
         else:
             Y_open_eff = np.zeros((N_c,2,2), dtype=complex)
             for i, w in enumerate(omega_c):
-                Y_open_eff[i] = build_Y_pad(para_caps_ov, w)
+                Y_open_eff[i] = build_Y_pad(para_step1, w)
 
         # ── Cold-HBT extraction formulas [Gao §5.5.2] ────────────────────
+        # Z_cor = (cold − pad) − (series-L T-network) − Re·1
         Z_cor = y_to_z(Y_cold - Y_open_eff)
+        Z_cor[:,0,0] -= 1j*omega_c*(Lb + Le) + Re_v
+        Z_cor[:,1,1] -= 1j*omega_c*(Lc + Le) + Re_v
+        Z_cor[:,0,1] -= 1j*omega_c*Le        + Re_v
+        Z_cor[:,1,0] -= 1j*omega_c*Le        + Re_v
 
         z12_choice = st.radio("Use for Z₁₂ in intermediate quantities:",
                                ["Z12", "Z21"], horizontal=True,
@@ -618,28 +681,20 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
                                    -1.0/(omega_c*B*(1.0+A**2/(C**2*D_arr**2))), np.nan)
             Cbc_arr = CbcCex_arr - Cex_arr
             Rbi_arr = np.where(np.abs(omega_c*Cex_arr)>1e-40,
-                               D_arr/(omega_c*Cex_arr), np.nan)
-            num_cbe = Rbi_arr * Cex_arr
-            den_cbe = Cex_arr + Cbc_arr + 1j*omega_c*Rbi_arr*Cbc_arr*Cex_arr
-            Cbe_arr = np.where(np.abs(den_cbe)>1e-40,
-                               -1.0/(omega_c*np.imag(Z_cor[:,0,1]-num_cbe/den_cbe)), np.nan)
-            Zex_arr = np.where(np.abs(Cex_arr)>1e-40, 1.0/(1j*omega_c*Cex_arr), np.nan+0j)
-            Zbc_z   = np.where(np.abs(Cbc_arr)>1e-40, 1.0/(1j*omega_c*Cbc_arr), np.nan+0j)
-            Zbe_arr = np.where(np.abs(Cbe_arr)>1e-40, 1.0/(1j*omega_c*Cbe_arr), np.nan+0j)
-            denom_b = Zbc_z + Zex_arr + Rbi_arr
+                               -D_arr/(omega_c*Cex_arr), np.nan)
+            den_rb  = Cex_arr + Cbc_arr + 1j*omega_c*Rbi_arr*Cbc_arr*Cex_arr
+            den_rc  = 1j*omega_c*(Cex_arr + Cbc_arr) - (omega_c**2)*Rbi_arr*Cbc_arr*Cex_arr
             Rb_arr  = np.real((Z_cor[:,0,0]-Z12_sel) -
-                              np.where(np.abs(denom_b)>1e-40, Zex_arr*Rbi_arr/denom_b, np.nan+0j))
+                              np.where(np.abs(den_rb)>1e-40, Rbi_arr*Cbc_arr/den_rb, np.nan+0j))
             Rc_arr  = np.real((Z_cor[:,1,1]-Z12_sel) -
-                              np.where(np.abs(denom_b)>1e-40, Zbc_z*Zex_arr/denom_b, np.nan+0j))
-            Re_arr  = np.real(Z12_sel - Zbe_arr -
-                              np.where(np.abs(denom_b)>1e-40, Zbc_z*Rbi_arr/denom_b, np.nan+0j))
+                              np.where(np.abs(den_rc)>1e-40, 1.0/den_rc, np.nan+0j))
 
         with st.expander("📊 Intermediate quantities A, B, C, D vs frequency", expanded=False):
             st.markdown("**Definitions**")
             st.latex(r"[Z_{cor}]=[Y_{cold}-Y_{open}]^{-1}")
             st.latex(r"A=\mathrm{Im}(Z_{11}-Z_{12}),\quad B=\mathrm{Im}(Z_{22}-Z_{12}),\quad C=\mathrm{Re}(Z_{12})")
             st.latex(r"D=\frac{AB+\sqrt{A^2B^2+4ABC^2}}{2C^2}")
-            f_GHz = f_o / 1e9
+            f_GHz = f_grid / 1e9
             fig_abcd, axes_abcd = plt.subplots(2, 2, figsize=(10, 6), sharex=True)
             for ax, arr_abcd, lbl in zip(
                 axes_abcd.flat,
@@ -659,7 +714,7 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
             plt.close(fig_abcd)
 
         with st.expander("📊 Extracted Parameters vs Frequency — Interactive", expanded=False):
-            f_ghz_c = f_o * 1e-9
+            f_ghz_c = f_grid * 1e-9
             f_min_v = float(f_ghz_c[0])
             f_max_v = float(f_ghz_c[-1])
             step_v  = max(round((f_max_v - f_min_v) / 100, 3), 0.001)
@@ -692,7 +747,7 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
                 raw      = np.abs(arr[mask]) if np.iscomplexobj(arr) else np.real(arr[mask])
                 arr_disp = raw * scale
                 fin      = raw[np.isfinite(raw)]
-                auto_SI  = abs(float(np.median(fin))) if len(fin) > 0 else 0.0
+                auto_SI  = abs(float(fin[-1])) if len(fin) > 0 else 0.0
                 auto_disp = auto_SI * scale
 
                 inp_key   = f"cold_pfp_inp_{res_key}_{fname}_{rng_tag}_{upstream_tag}"
@@ -761,7 +816,7 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
                 Cbc_arr_live = CbcCex_arr - Cex_scalar
                 Rbi_arr_live = np.where(
                     np.abs(omega_c * Cex_scalar) > 1e-40,
-                    D_arr / (omega_c * Cex_scalar), np.nan)
+                    -D_arr / (omega_c * Cex_scalar), np.nan)
 
             col_cbc, col_rbi = st.columns(2)
             Cbc_scalar = _cold_plot(col_cbc, Cbc_arr_live, "Cbc_cold", "Cbc", 1e15, "fF", [
@@ -773,7 +828,7 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
 
             Rbi_scalar = _cold_plot(col_rbi, Rbi_arr_live, "Rbi_cold", "Rbi", 1.0, "Ω", [
                 ("md",    "**Rbi** [Gao §5.5.2]"),
-                ("latex", r"R_{bi}=\frac{D}{\omega\,C_{ex}}"),
+                ("latex", r"R_{bi}=-\frac{D}{\omega\,C_{ex}}"),
             ], upstream_tag=up_cex)
             cold_res["Rbi_cold"] = Rbi_scalar
 
@@ -789,68 +844,59 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
                                 + 1j * omega_c * Rbi_scalar * Cbc_scalar * Cex_scalar)
                 Cbe_arr_live = np.where(
                     np.abs(den_cbe) > 1e-40,
-                    -1.0 / (omega_c * np.imag(Z_cor[:, 0, 1] - num_cbe / den_cbe)),
+                    1.0 / (omega_c * np.imag(Z_cor[:, 0, 1] - num_cbe / den_cbe)),
                     np.nan)
 
             col_cbe, _ = st.columns(2)
             Cbe_scalar = _cold_plot(col_cbe, Cbe_arr_live, "Cbe_cold", "Cbe", 1e15, "fF", [
                 ("md",    "**Cbe** [Gao §5.5.2]"),
-                ("latex", r"C_{be}=\frac{-1}{\omega\,\mathrm{Im}\!\left("
+                ("latex", r"C_{be}=\frac{1}{\omega\,\mathrm{Im}\!\left("
                           r"Z_{12}-\dfrac{R_{bi}C_{ex}}{C_{ex}+C_{bc}+j\omega R_{bi}C_{bc}C_{ex}}"
                           r"\right)}"),
             ], upstream_tag=up_s3)
             cold_res["Cbe_cold"] = Cbe_scalar
 
-            # ── Step 5: Rb, Rc, Re ──────────────────────────────────────────
-            # Depend on Cex, Cbc, Rbi, Cbe scalars. Arrays recomputed live.
+            # ── Step 5: Rb, Rc ──────────────────────────────────────────────
+            # Depend on Cex, Cbc, Rbi scalars. Arrays recomputed live.
             st.divider()
-            st.markdown("**Step 5 — Rb, Rc, Re**")
-            st.caption("Depend on: Cex, Cbc, Rbi, Cbe")
-            up_s4 = f"{up_s3}_{Cbe_scalar:.6e}"
+            st.markdown("**Step 5 — Rb, Rc**")
+            st.caption("Depend on: Cex, Cbc, Rbi")
             with np.errstate(divide="ignore", invalid="ignore"):
-                Zex_l = 1.0 / (1j * omega_c * Cex_scalar)
-                Zbc_l = 1.0 / (1j * omega_c * Cbc_scalar)
-                Zbe_l = 1.0 / (1j * omega_c * Cbe_scalar)
-                den_l = Zbc_l + Zex_l + Rbi_scalar
+                den_rb_l = (Cex_scalar + Cbc_scalar
+                            + 1j * omega_c * Rbi_scalar * Cbc_scalar * Cex_scalar)
+                den_rc_l = (1j * omega_c * (Cex_scalar + Cbc_scalar)
+                            - (omega_c ** 2) * Rbi_scalar * Cbc_scalar * Cex_scalar)
                 Rb_arr_live = np.real(
                     (Z_cor[:, 0, 0] - Z12_sel) -
-                    np.where(np.abs(den_l) > 1e-40, Zex_l * Rbi_scalar / den_l, np.nan + 0j))
+                    np.where(np.abs(den_rb_l) > 1e-40,
+                             Rbi_scalar * Cbc_scalar / den_rb_l, np.nan + 0j))
                 Rc_arr_live = np.real(
                     (Z_cor[:, 1, 1] - Z12_sel) -
-                    np.where(np.abs(den_l) > 1e-40, Zbc_l * Zex_l / den_l, np.nan + 0j))
-                Re_arr_live = np.real(
-                    Z12_sel - Zbe_l -
-                    np.where(np.abs(den_l) > 1e-40, Zbc_l * Rbi_scalar / den_l, np.nan + 0j))
+                    np.where(np.abs(den_rc_l) > 1e-40, 1.0 / den_rc_l, np.nan + 0j))
 
             col_rb, col_rc = st.columns(2)
             Rb_scalar = _cold_plot(col_rb, Rb_arr_live, "Rb_cold", "Rb", 1.0, "Ω", [
                 ("md",    "**Rb** [Gao §5.5.2]"),
                 ("latex", r"R_{bx}=\mathrm{Re}\!\left(Z_{11}-Z_{12}"
-                          r"-\frac{Z_{ex}\,R_{bi}}{Z_{bc}+Z_{ex}+R_{bi}}\right)"),
-            ], upstream_tag=up_s4)
+                          r"-\frac{R_{bi}\,C_{bc}}"
+                          r"{C_{ex}+C_{bc}+j\omega R_{bi}C_{bc}C_{ex}}\right)"),
+            ], upstream_tag=up_s3)
             cold_res["Rb_cold"] = Rb_scalar
 
             Rc_scalar = _cold_plot(col_rc, Rc_arr_live, "Rc_cold", "Rc", 1.0, "Ω", [
                 ("md",    "**Rc** [Gao §5.5.2]"),
                 ("latex", r"R_c=\mathrm{Re}\!\left(Z_{22}-Z_{12}"
-                          r"-\frac{Z_{bc}\,Z_{ex}}{Z_{bc}+Z_{ex}+R_{bi}}\right)"),
-            ], upstream_tag=up_s4)
+                          r"-\frac{1}{j\omega(C_{ex}+C_{bc})"
+                          r"-\omega^{2}R_{bi}C_{bc}C_{ex}}\right)"),
+            ], upstream_tag=up_s3)
             cold_res["Rc_cold"] = Rc_scalar
-
-            col_re, _ = st.columns(2)
-            Re_scalar = _cold_plot(col_re, Re_arr_live, "Re_cold", "Re", 1.0, "Ω", [
-                ("md",    "**Re** [Gao §5.5.2]"),
-                ("latex", r"R_e=\mathrm{Re}\!\left(Z_{12}-Z_{be}"
-                          r"-\frac{Z_{bc}\,R_{bi}}{Z_{bc}+Z_{ex}+R_{bi}}\right)"),
-            ], upstream_tag=up_s4)
-            cold_res["Re_cold"] = Re_scalar
 
         # ── Model fit verification plots ─────────────────────────────────────
         with st.expander("📊 Cold-HBT Model Fit Verification", expanded=False):
             st.caption(
                 "Measured Z_cor vs model reconstructed from extracted parameters.  \n"
                 "A good fit confirms the extracted values are self-consistent.")
-            f_GHz    = f_o / 1e9
+            f_GHz    = f_grid / 1e9
             Zex_m    = 1.0 / (1j * omega_c * cold_res["Cex_cold"])
             Zbc_m    = 1.0 / (1j * omega_c * cold_res["Cbc_cold"])
             Zbe_m    = 1.0 / (1j * omega_c * cold_res["Cbe_cold"])
@@ -858,9 +904,16 @@ def _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq):
             Z11Z12_meas  = Z_cor[:, 0, 0] - Z_cor[:, 0, 1]
             Z12_meas     = Z_cor[:, 0, 1]
             Z22Z12_meas  = Z_cor[:, 1, 1] - Z_cor[:, 0, 1]
-            Z11Z12_model = Zex_m * cold_res["Rbi_cold"] / denom_m + cold_res["Rb_cold"]
-            Z12_model    = Zbc_m * cold_res["Rbi_cold"] / denom_m + Zbe_m + cold_res["Re_cold"]
-            Z22Z12_model = Zbc_m * Zex_m / denom_m + cold_res["Rc_cold"]
+            den_rb_m = (cold_res["Cex_cold"] + cold_res["Cbc_cold"]
+                        + 1j * omega_c * cold_res["Rbi_cold"]
+                        * cold_res["Cbc_cold"] * cold_res["Cex_cold"])
+            den_rc_m = (1j * omega_c * (cold_res["Cex_cold"] + cold_res["Cbc_cold"])
+                        - (omega_c ** 2) * cold_res["Rbi_cold"]
+                        * cold_res["Cbc_cold"] * cold_res["Cex_cold"])
+            Z11Z12_model = (cold_res["Rbi_cold"] * cold_res["Cbc_cold"] / den_rb_m
+                            + cold_res["Rb_cold"])
+            Z12_model    = Zbc_m * cold_res["Rbi_cold"] / denom_m + Zbe_m
+            Z22Z12_model = 1.0 / den_rc_m + cold_res["Rc_cold"]
             fig, axes = plt.subplots(3, 2, figsize=(10, 9), sharex=True)
             plot_data = [
                 (Z11Z12_meas, Z11Z12_model, "Z11-Z12"),

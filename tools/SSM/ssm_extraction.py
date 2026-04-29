@@ -27,7 +27,9 @@ from .ssm_deembedding  import (step_open, step_short, peel_parasitics,_render_co
 from .ssm_s2p          import (parse_s2p_bytes, interpolate_s2f,
                                 write_s2p, simulate_open, simulate_short)
 from .ssm_plots        import (render_open_plots, render_short_plots,
-                                render_deemb_preview, render_ft_fmax_overlay)
+                                render_os_deemb_preview,
+                                render_intrinsic_preview,
+                                render_ft_fmax_overlay)
 from .ssm_chart_utils  import plotly_with_dl
 from .ssm_override     import render_unified_pre_override
 from .models           import REGISTRY, DEFAULT_SELECTION   # model registry
@@ -130,12 +132,6 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     with st.expander("🖼️ Illustration", expanded=False):
         st.image(image="tools/SSM/de_embedding_illus.png")
 
-    with st.expander("ℹ️ Model notation", expanded=False):
-        st.markdown(
-            "Rb=Rpb, Rc=Rpc, Re=Rpe — same pad resistance, different naming contexts.  \n"
-            "Open extra elements (Parallel L / Series L / Series R) affect "
-            "de-embedding and all forward simulations.")
-
     col_nl, _ = st.columns([1, 3])
     n_low = col_nl.slider("Model low-freq pts", 3, 40, 10, key=f"nlow_{fname}",
                            help="Low-frequency points for Step 2/3 model extractions.")
@@ -192,10 +188,31 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                     col_w.number_input(f"{dk} (fF)", key=f"ov_{dk}_{fname}", format="%.4f", step=0.1)
             para_caps_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _OPEN_OV}
 
-            open_mode_extra = render_open_plots(open_data, para_caps_ov, open_arr, fname)
-            for cap, (mode, extra) in open_mode_extra.items():
-                para_caps_ov[f"{cap}_mode"]  = mode
-                para_caps_ov[f"{cap}_extra"] = extra
+            # open_mode_extra = render_open_plots(open_data, para_caps_ov, open_arr, fname)
+            # for cap, (mode, extra) in open_mode_extra.items():
+            #     para_caps_ov[f"{cap}_mode"]  = mode
+            #     para_caps_ov[f"{cap}_extra"] = extra
+
+            # ── Modeled Open dummy S2P download ──────────────────────────────
+            S_open_sim_s1 = simulate_open(para_caps_ov, freq, z0)
+            _open_hdr = {}
+            for k in ["Cpbe","Cpce","Cpbc"]:
+                _open_hdr[k] = f"{para_caps_ov.get(k,0)*1e15:.4f} fF"
+                _mode = para_caps_ov.get(f"{k}_mode","None")
+                if _mode != "None":
+                    _extra = para_caps_ov.get(f"{k}_extra", 0.0)
+                    _u = "pH" if "L" in _mode else "Ω"
+                    _s = 1e12 if "L" in _mode else 1.0
+                    _open_hdr[f"{k}_extra"] = f"{_mode}: {_extra*_s:.4f} {_u}"
+            st.download_button(
+                "📥 model_open_*.s2p",
+                data=write_s2p(freq, S_open_sim_s1,
+                               title=f"Open dummy — {Path(fname).stem}",
+                               params=_open_hdr),
+                file_name=f"model_open_{Path(fname).stem}.s2p",
+                mime="text/plain",
+                key=f"dl_open_s1_{fname}", width="stretch")
+            st.caption("Forward-simulated Open dummy from extracted/overridden Cpbe/Cpce/Cpbc.")
         else:
             st.info("No Open dummy — Cpbe, Cpce, Cpbc defaulted to 0 fF.")
             para_caps_ov = {
@@ -284,8 +301,28 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             para_short_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _SHORT_OV}
 
             # Enhanced short plots — returns {Cpar_Lb, Cpar_Lc, Cpar_Le}
-            short_cpar = render_short_plots(short_arr, para_short_ov, fname)
-            para_short_ov.update(short_cpar)
+            render_short_plots(short_arr, para_short_ov, fname)
+
+            # ── Modeled Short dummy S2P download ─────────────────────────────
+            _p_short = {**para_caps_ov, **para_short_ov}
+            S_short_sim_s1 = simulate_short(_p_short, freq, z0)
+            _short_hdr = {}
+            for k in ["Rpb","Rpc","Rpe"]:
+                _short_hdr[{"Rpb":"Rb","Rpc":"Rc","Rpe":"Re"}[k]] = f"{_p_short.get(k,0):.4f} Ω"
+            for k in ["Lb","Lc","Le"]:
+                _short_hdr[k] = f"{_p_short.get(k,0)*1e12:.4f} pH"
+            for k in ["Cpar_Lb","Cpar_Lc","Cpar_Le"]:
+                v = _p_short.get(k, 0.0)
+                if v > 0: _short_hdr[k] = f"{v*1e15:.4f} fF"
+            st.download_button(
+                "📥 model_short_*.s2p",
+                data=write_s2p(freq, S_short_sim_s1,
+                               title=f"Short dummy — {Path(fname).stem}",
+                               params=_short_hdr),
+                file_name=f"model_short_{Path(fname).stem}.s2p",
+                mime="text/plain",
+                key=f"dl_short_s1_{fname}", width="stretch")
+            st.caption("Forward-simulated Short dummy: Y_pad + inv(Z_ser) — terminals shorted.")
         else:
             st.info("No Short dummy — Lb, Lc, Le, Rb, Rc, Re defaulted to 0.")
             para_short_ov = {
@@ -296,18 +333,30 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     para_step1 = {**para_caps_ov, **para_short_ov}
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SECTION 2 — Series or Access Resistance Extraction
+    # SECTION 2 — De-embedded Preview (Open/Short calibration only)
     # ══════════════════════════════════════════════════════════════════════════
-    # st.divider()
+    st.divider()
+    st.markdown(
+        "<div style='background:linear-gradient(90deg,#2e7d3222 0%,transparent 100%);"
+        "border-left:5px solid #2e7d32;padding:10px 16px;border-radius:0 8px 8px 0;"
+        "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
+        "2 — De-embedded Preview</span></div>",
+        unsafe_allow_html=True)
+
+    S_step1 = render_os_deemb_preview(S_raw, freq, z0, para_step1, fname)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 3 — Series or Access Resistance Extraction (+ Intrinsic preview)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
     st.markdown(
         "<div style='background:linear-gradient(90deg,#0d737722 0%,transparent 100%);"
         "border-left:5px solid #0d7377;padding:10px 16px;border-radius:0 8px 8px 0;"
         "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
-        "2 — Series / Access Resistance Extraction</span></div>",
+        "3 — Series / Access Resistance Extraction</span></div>",
         unsafe_allow_html=True)
 
     # ── Z-parameter method ────────────────────────────────────────────────────
-    # st.divider()
     st.markdown(
         "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
         "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
@@ -321,7 +370,6 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     rz12_Rbe = st.session_state.get(f"rz12_Rbe_{fname}")
 
     # ── Open-collector method ─────────────────────────────────────────────────
-    # st.divider()
     st.markdown(
         "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
         "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
@@ -341,20 +389,10 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         " for Rb and Rc </div>",
         unsafe_allow_html=True)
     with st.expander("Cold-HBT Extraction", expanded=False):
-        cold_res = _render_cold_hbt(fname, open_data, para_caps_ov, do_measured, freq)
+        cold_res = _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
+                                     re_zparam=rz12_Re)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # SECTION 3 — De-embedded Preview
-    # ══════════════════════════════════════════════════════════════════════════
-    st.divider()
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#2e7d3222 0%,transparent 100%);"
-        "border-left:5px solid #2e7d32;padding:10px 16px;border-radius:0 8px 8px 0;"
-        "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
-        "3 — De-embedded Preview</span></div>",
-        unsafe_allow_html=True)
-
-    # ── Unified pre-extraction override ───────────────────────────────────────
+    # ── Unified pre-extraction override (resolves Rb/Rc/Re sources) ──────────
     para_eff = render_unified_pre_override(fname, para_step1, cold_res, rz12_Re)
     # Propagate extended open/short params
     for cap in ["Cpbe","Cpce","Cpbc"]:
@@ -363,8 +401,9 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     for ck in ["Cpar_Lb","Cpar_Lc","Cpar_Le"]:
         para_eff[ck] = para_short_ov.get(ck, 0.0)
 
-    # ── De-embedded DUT preview (Gain + Smith + S2P downloads) ───────────────
-    render_deemb_preview(S_raw, freq, z0, para_step1, para_eff, fname)
+    # ── Intrinsic preview (OS de-embedded vs Intrinsic + s2p download) ───────
+    render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname,
+                              S_step1=S_step1)
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 4 — Intrinsic Model
@@ -530,57 +569,16 @@ def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
     st.markdown(
         "<div style='background:linear-gradient(90deg,#fbe9e7 0%,transparent 100%);"
         "border-left:4px solid #bf360c;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📥 Download Modeled S2P Files</strong></div>",
+        "margin-bottom:2px'><strong>📥 Download Modeled DUT S2P</strong></div>",
         unsafe_allow_html=True)
     st.caption(
-        "Forward-simulate Open, Short, and final DUT model.  \n"
+        "Forward-simulate the final DUT model.  \n"
         "Files use Touchstone format: `# Hz S DB R 50`.  \n"
-        "Header `!` comment lines list all parameter values used.")
-    col_d1, col_d2, col_d3 = st.columns(3)
-
-    # ── Open ─────────────────────────────────────────────────────────────────
-    with col_d1:
-        st.markdown("**Modeled Open dummy**")
-        S_open_sim  = simulate_open(para_eff, freq, z0)
-        open_params = {}
-        for k in ["Cpbe","Cpce","Cpbc"]:
-            open_params[k] = f"{para_eff.get(k,0)*1e15:.4f} fF"
-            mode = para_eff.get(f"{k}_mode","None")
-            if mode != "None":
-                extra = para_eff.get(f"{k}_extra", 0.0)
-                unit_e = "pH" if "L" in mode else "Ω"
-                sc_e   = 1e12 if "L" in mode else 1.0
-                open_params[f"{k}_extra"] = f"{mode}: {extra*sc_e:.4f} {unit_e}"
-        st.download_button("📥 Open.s2p",
-            data=write_s2p(freq, S_open_sim,
-                           title=f"Open dummy — {Path(fname).stem}",
-                           params=open_params),
-            file_name=f"model_open_{Path(fname).stem}.s2p", mime="text/plain",
-            key=f"dl_open_{fname}", width="stretch")
-        st.caption("Y_pad only — no series leads.")
-
-    # ── Short ────────────────────────────────────────────────────────────────
-    with col_d2:
-        st.markdown("**Modeled Short dummy**")
-        S_short_sim  = simulate_short(para_eff, freq, z0)
-        short_params = {}
-        for k in ["Rpb","Rpc","Rpe"]:
-            short_params[{"Rpb":"Rb","Rpc":"Rc","Rpe":"Re"}[k]] = f"{para_eff.get(k,0):.4f} Ω"
-        for k in ["Lb","Lc","Le"]:
-            short_params[k] = f"{para_eff.get(k,0)*1e12:.4f} pH"
-        for k in ["Cpar_Lb","Cpar_Lc","Cpar_Le"]:
-            v = para_eff.get(k, 0.0)
-            if v > 0: short_params[k] = f"{v*1e15:.4f} fF"
-        st.download_button("📥 Short.s2p",
-            data=write_s2p(freq, S_short_sim,
-                           title=f"Short dummy — {Path(fname).stem}",
-                           params=short_params),
-            file_name=f"model_short_{Path(fname).stem}.s2p", mime="text/plain",
-            key=f"dl_short_{fname}", width="stretch")
-        st.caption("Y_pad + inv(Z_ser) — terminals shorted.")
+        "Header `!` comment lines list all parameter values used.  \n"
+        "(Open and Short dummy downloads have moved to Section 1.)")
 
     # ── DUT ──────────────────────────────────────────────────────────────────
-    with col_d3:
+    with st.container():
         st.markdown("**Modeled DUT S-parameters**")
         avail = {short: S for short, S in sim_results.items() if S is not None}
         if avail:
@@ -660,7 +658,7 @@ def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
     # Cold-HBT
     if cold_res:
         for sym, key, sc, unit in [
-            ("Rb (Cold)","Rb_cold",1,"Ω"),("Rc (Cold)","Rc_cold",1,"Ω"),("Re (Cold)","Re_cold",1,"Ω"),
+            ("Rb (Cold)","Rb_cold",1,"Ω"),("Rc (Cold)","Rc_cold",1,"Ω"),
             ("Rbi (cold)","Rbi_cold",1,"Ω"),("Cbe (cold)","Cbe_cold",1e15,"fF"),
             ("Cbc (cold)","Cbc_cold",1e15,"fF"),("Cex","Cex_cold",1e15,"fF"),
         ]:

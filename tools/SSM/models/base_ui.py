@@ -1031,15 +1031,61 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             st.caption(f"CUDA {_CUDA_VER} detected — GPU acceleration available")
 
         # ── Calculate buttons ───────────────────────────────────────────
+        st.caption(
+            "ℹ️ **Calculate Residuals (all)** evaluates **every** combination "
+            "in the sweep grid above and ranks the top-100 results by lowest "
+            "**total** residual.")
         _btn_cols = st.columns([1, 1] if _HAS_CUDA else [1])
         cpu_clicked = _btn_cols[0].button(
-            "🧮 Calculate Residuals",
+            "🧮 Calculate Residuals (all)",
             key=f"tune_calc_{topo_key}_{fname}")
         cuda_clicked = (
             _HAS_CUDA
             and _btn_cols[1].button(
-                "⚡ Calculate with CUDA",
+                "⚡ Calculate (all) with CUDA",
                 key=f"tune_calc_cuda_{topo_key}_{fname}"))
+
+        # ── Optimized recursive bisection buttons ──────────────────────
+        st.caption(
+            "🎯 **Calculate Residuals (optimized)** repeatedly subsamples 5 "
+            "evenly-spaced values per swept parameter (e.g. min=1, step=1, "
+            "max=100 → 1, 25, 50, 75, 100), picks the 2 combos with the "
+            "lowest total residual, then narrows the search box to those "
+            "two values and recurses. Iteration stops once a brute-force "
+            "sweep at the user's chosen step would fit ≤ 5,000,000 combos, "
+            "and that final refinement is run as the closing pass.")
+        _opt_cols = st.columns([1, 1] if _HAS_CUDA else [1])
+        opt_cpu_clicked = _opt_cols[0].button(
+            "🎯 Calculate Residuals (optimized)",
+            key=f"tune_calc_opt_{topo_key}_{fname}")
+        opt_cuda_clicked = (
+            _HAS_CUDA
+            and _opt_cols[1].button(
+                "⚡ Optimized with CUDA",
+                key=f"tune_calc_opt_cuda_{topo_key}_{fname}"))
+
+        # ── Prioritize (sort by chosen S-parameter) ────────────────────
+        st.caption(
+            "🥇 **Prioritize** runs the same full-grid sweep but ranks results "
+            "by the residual of a single chosen S-parameter instead of the "
+            "total.")
+        _prio_top = st.columns([1, 3])
+        _prio_top[0].markdown("**Prioritize:**")
+        prio_metric = _prio_top[1].radio(
+            "Prioritize sort metric",
+            ["S11", "S12", "S21", "S22"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key=f"tune_prio_metric_{topo_key}_{fname}")
+        _prio_btn = st.columns([1, 1] if _HAS_CUDA else [1])
+        prio_cpu_clicked = _prio_btn[0].button(
+            "🥇 Calculate (Prioritized)",
+            key=f"tune_calc_prio_{topo_key}_{fname}")
+        prio_cuda_clicked = (
+            _HAS_CUDA
+            and _prio_btn[1].button(
+                "⚡ Prioritized with CUDA",
+                key=f"tune_calc_prio_cuda_{topo_key}_{fname}"))
 
         # ── Helper: format a "best result" markdown line including all params ──
         def _best_summary_md(best_row, label="Best so far"):
@@ -1060,8 +1106,25 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 head += "  \n<small>" + ", ".join(parts) + "</small>"
             return head
 
-        if cpu_clicked or cuda_clicked:
-            use_cuda = bool(cuda_clicked)
+        def _run_one_sweep(*, use_cuda: bool,
+                            sweep_lists_override: dict | None = None,
+                            sort_metric: str = "Total",
+                            phase_label: str = "",
+                            phase_suffix: str = ""):
+            """Run one full parameter-sweep pass.
+
+            sweep_lists_override : dict[str, np.ndarray] | None
+                When provided, overrides the per-row sweep arrays for the listed
+                keys. Other rows fall back to their checkbox/min/step/max state.
+            sort_metric : "Total" | "S11" | "S12" | "S21" | "S22"
+                Selects the residual metric used to rank the top-K results.
+                Total residual / per-port residuals are still recorded for
+                every kept combo regardless of choice.
+            phase_label / phase_suffix
+                phase_label is shown in the progress text; phase_suffix is
+                appended to the Stop-button key so multi-pass runs (e.g.
+                Optimized) don't clash on a duplicate Streamlit widget key.
+            """
             xp = _cp if use_cuda else np
             has_batch = hasattr(model_cls, "simulate_batch")
             _mode_label = "CUDA" if use_cuda else "CPU"
@@ -1079,7 +1142,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 sweep_scales.append(row["scale"])
                 sweep_labels.append(row["label"])
                 sweep_units.append(row["unit"])
-                if row["enabled"]:
+                if sweep_lists_override and row["key"] in sweep_lists_override:
+                    sweep_lists.append(np.asarray(
+                        sweep_lists_override[row["key"]], dtype=np.float64))
+                elif row["enabled"]:
                     sweep_lists.append(np.asarray(row["sweep"], dtype=np.float64))
                 else:
                     sweep_lists.append(np.array(
@@ -1517,7 +1583,9 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # ── UI placeholders ────────────────────────────────────────────
             ui_cols = st.columns([5, 1])
             with ui_cols[0]:
-                progress = st.progress(0, text=f"Tuning ({_mode_label})…")
+                _prog_lbl = f"Tuning {phase_label} ({_mode_label})…" if phase_label \
+                            else f"Tuning ({_mode_label})…"
+                progress = st.progress(0, text=_prog_lbl)
             with ui_cols[1]:
                 stop_box = st.empty()
             best_box = st.empty()      # live "best so far" line
@@ -1525,7 +1593,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # The Stop button works by triggering a Streamlit re-run on click;
             # the next st.* call inside the loop raises RerunException, which
             # we catch and turn into a clean cancellation.  No on_click needed.
-            stop_key = f"tune_stop_{topo_key}_{fname}"
+            stop_key = f"tune_stop_{topo_key}_{fname}{phase_suffix}"
             stop_box.button(
                 "⏹ Stop",
                 key=stop_key,
@@ -1819,6 +1887,9 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         # without forcing a host-side .all() check (no sync).
                         BIG = 1.0e308
                         cur_total = xp.where(xp.isfinite(cur_total), cur_total, BIG)
+                        # Per-port residuals are also the sort key in
+                        # "Prioritize" mode, so clamp NaN/inf there too.
+                        cur_4 = xp.where(xp.isfinite(cur_4), cur_4, BIG)
 
                         # ── Build display values for swept params ───────────
                         # Decompose flat index → multi-axis index using
@@ -1852,11 +1923,21 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             scratch_swept[TOP_K:total_in] = cur_swept
 
                         view_res = scratch_res[:total_in]
-                        idx = xp.argpartition(view_res, TOP_K)[:TOP_K]
-                        idx = idx[xp.argsort(view_res[idx])]
+                        view_4   = scratch_4[:total_in]
+                        # When prioritizing one S-parameter, sort by that
+                        # column instead of the total residual. We still keep
+                        # `top_res` = total so the displayed "Total Residual"
+                        # column stays meaningful.
+                        if sort_metric == "Total":
+                            sort_view = view_res
+                        else:
+                            _smap = {"S11": 0, "S12": 1, "S21": 2, "S22": 3}
+                            sort_view = view_4[:, _smap[sort_metric]]
+                        idx = xp.argpartition(sort_view, TOP_K)[:TOP_K]
+                        idx = idx[xp.argsort(sort_view[idx])]
 
                         top_res[:] = view_res[idx]
-                        top_4[:]   = scratch_4[:total_in][idx]
+                        top_4[:]   = view_4[idx]
                         if n_swept_dims > 0:
                             top_swept[:] = scratch_swept[:total_in][idx]
 
@@ -1996,9 +2077,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         elapsed = now - _t_start
                         rate = processed / elapsed if elapsed > 0 else 0.0
                         eta = (n_total - processed) / rate if rate > 0 else 0.0
+                        _phase_str = f" {phase_label}" if phase_label else ""
                         progress.progress(
                             min(1.0, processed / max(n_total, 1)),
-                            text=(f"Tuning ({_mode_label})… "
+                            text=(f"Tuning{_phase_str} ({_mode_label})… "
                                   f"{processed:,}/{n_total:,} combos  "
                                   f"({rate:,.0f}/s, ETA {eta:.1f}s)  "
                                   f"slab={B_inner:,}  ({last_chunk_ms:.1f} ms/iter)"))
@@ -2127,8 +2209,16 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             [res_rk["S11"], res_rk["S12"],
                              res_rk["S21"], res_rk["S22"]], axis=1)
 
-                        # Re-sort by fp64 residuals
-                        order_dev = xp.argsort(tot_rk)
+                        # Re-sort by fp64 residuals — match sort_metric chosen
+                        # for the main loop so Prioritize keeps its ranking.
+                        if sort_metric == "Total":
+                            sort_rk = tot_rk
+                        else:
+                            _smap = {"S11": 0, "S12": 1, "S21": 2, "S22": 3}
+                            _col  = _smap[sort_metric]
+                            sort_rk = xp.where(xp.isfinite(s4_rk[:, _col]),
+                                                s4_rk[:, _col], 1.0e308)
+                        order_dev = xp.argsort(sort_rk)
                         tot_rk_s  = tot_rk[order_dev]
                         s4_rk_s   = s4_rk[order_dev]
 
@@ -2181,6 +2271,203 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             except Exception:
                 pass
             _release_gpu_memory()
+
+        # ── Helper: column-name lookup for a tuning_specs row ──────────
+        def _col_name(row):
+            return f"{row['label']} ({row['unit']})" if row["unit"] else row["label"]
+
+        # ── Dispatch ────────────────────────────────────────────────────
+        if cpu_clicked or cuda_clicked:
+            _run_one_sweep(use_cuda=bool(cuda_clicked), sort_metric="Total")
+        elif opt_cpu_clicked or opt_cuda_clicked:
+            # Recursive bisection: each iteration subsamples N_SUB evenly-
+            # spaced points per swept parameter inside the current range, runs
+            # the sweep, picks the top-2, and narrows the range to between
+            # those two values.  Recursion stops once a final refinement at
+            # the user's chosen step fits inside MAX_FINAL combos — that
+            # final refinement is then run as the closing pass.
+            #
+            # N_SUB adapts to the dimensionality so per-iter cost stays
+            # tractable: 5^13 ≈ 1.2 B combos is unreasonable, but 3^13 ≈
+            # 1.6 M is fine and the box still narrows (just by ½ per iter
+            # instead of ¼).  We pick the largest N_SUB ∈ {3, 4, 5} whose
+            # full grid fits MAX_PER_ITER.
+            _use_cuda      = bool(opt_cuda_clicked)
+            MAX_FINAL      = 5_000_000
+            # Per-iter cap: GPU can absorb ~100M combos in seconds, CPU
+            # struggles past ~10M.  Both still drop to N_SUB=3 for very
+            # high-dim sweeps — that's expected and still cheap.
+            MAX_PER_ITER   = 100_000_000 if _use_cuda else 10_000_000
+            # 3-point bisection halves the box per iter; 5-point quarters
+            # it.  Going from a width of ~1 to ~1e-4 takes 14 iters at 3
+            # points, 7 iters at 5 points — bumped to 30 to leave headroom.
+            MAX_ITERS      = 30
+
+            current_ranges = {}   # key -> (lo, hi) — search box this iter
+            user_steps     = {}   # key -> float    — step from the row UI
+            rows_by_key    = {}
+            for row in param_rows:
+                if not row["enabled"]:
+                    continue
+                full = np.asarray(row["sweep"], dtype=np.float64)
+                if len(full) == 0:
+                    continue
+                current_ranges[row["key"]] = (float(full[0]), float(full[-1]))
+                kp = f"tune_{topo_key}_{row['key']}_{fname}"
+                user_steps[row["key"]] = (
+                    float(st.session_state.get(f"{kp}_step", 0.0)) or 0.0)
+                rows_by_key[row["key"]] = row
+
+            if not current_ranges:
+                st.warning("Optimized mode needs at least one parameter with "
+                           "the **Sweep** checkbox enabled.")
+            else:
+                # Adaptive N_SUB — largest in {3,4,5} that fits MAX_PER_ITER.
+                # If even 3^N exceeds the budget we still use 3 and warn.
+                _n_swept = len(current_ranges)
+                N_SUB = 3
+                for _cand in (5, 4, 3):
+                    if (_cand ** _n_swept) <= MAX_PER_ITER:
+                        N_SUB = _cand
+                        break
+                _per_iter = N_SUB ** _n_swept
+                if N_SUB == 3 and _per_iter > MAX_PER_ITER:
+                    st.warning(
+                        f"3-point subsample of {_n_swept} swept params is "
+                        f"{_per_iter:,} combos — over the {MAX_PER_ITER:,} "
+                        "per-iter target. The run will still proceed but "
+                        "each iteration will be slow. Consider sweeping "
+                        "fewer parameters at once.")
+                else:
+                    st.caption(
+                        f"🎯 N_SUB = **{N_SUB}** points/param "
+                        f"({_per_iter:,} combos per iter for {_n_swept} "
+                        "swept params)")
+                def _estimate_final_combos(ranges, steps):
+                    """How many combos would a brute-force sweep of these
+                    ranges at the user's steps generate?"""
+                    n = 1
+                    for k, (lo, hi) in ranges.items():
+                        step = steps.get(k, 0.0)
+                        if step <= 0 or abs(hi - lo) < 1e-15:
+                            pts = 1
+                        else:
+                            pts = max(1, int(round(abs(hi - lo) / step)) + 1)
+                        n *= pts
+                    return n
+
+                # Short-circuit: if the user's full grid already fits the
+                # final-refine budget, skip the subsample iterations and run
+                # the brute force directly. No point doing 5^N subsampling
+                # when we could just sweep everything.
+                _initial_full = _estimate_final_combos(current_ranges, user_steps)
+                _stop_recursion = False
+                _final_iter_idx = None
+                _skip_recursion = (_initial_full <= MAX_FINAL)
+                if _skip_recursion:
+                    st.caption(
+                        f"🎯 Full sweep is already **{_initial_full:,}** "
+                        f"combos ≤ {MAX_FINAL:,} — skipping subsample, "
+                        "running brute force at the user step directly.")
+                    _final_iter_idx = 0
+                    iter_idx = 0
+                # The recursion loop only runs when we actually need it.
+                # Wrapped in `if not _skip_recursion` rather than `else:` so
+                # the existing for-else block keeps working at its original
+                # indentation.
+                _do_loop = not _skip_recursion
+                _loop_converged = False  # set True on any clean break
+                for iter_idx in range(1, MAX_ITERS + 1) if _do_loop else range(0):
+                    # Build 5-sample lists within the current ranges
+                    sub = {}
+                    for k, (lo, hi) in current_ranges.items():
+                        if abs(hi - lo) < 1e-15:
+                            sub[k] = np.array([lo], dtype=np.float64)
+                        else:
+                            sub[k] = np.linspace(lo, hi, N_SUB)
+
+                    est_final = _estimate_final_combos(current_ranges, user_steps)
+                    st.caption(
+                        f"🎯 Optimized iter {iter_idx} — current final-refine "
+                        f"estimate: **{est_final:,}** combos "
+                        f"(target ≤ {MAX_FINAL:,})")
+
+                    _run_one_sweep(
+                        use_cuda=_use_cuda, sweep_lists_override=sub,
+                        sort_metric="Total",
+                        phase_label=f"Iter {iter_idx} (subsample {N_SUB})",
+                        phase_suffix=f"_optP{iter_idx}")
+
+                    _df = st.session_state.get(f"tune_df_{topo_key}_{fname}")
+                    if _df is None or len(_df) < 2:
+                        st.warning(
+                            f"Iteration {iter_idx} produced fewer than 2 "
+                            "valid combos — cannot narrow further.")
+                        _stop_recursion = True
+                        _loop_converged = True
+                        break
+
+                    # Narrow to the box between the top-2 combos
+                    new_ranges = {}
+                    for k, (lo_old, hi_old) in current_ranges.items():
+                        col = _col_name(rows_by_key[k])
+                        if col not in _df.columns:
+                            new_ranges[k] = (lo_old, hi_old)
+                            continue
+                        v0 = float(_df.iloc[0][col])
+                        v1 = float(_df.iloc[1][col])
+                        new_ranges[k] = (min(v0, v1), max(v0, v1))
+
+                    # Bail if the box can't shrink anymore (guards against
+                    # the corner case where the top-2 are identical).
+                    if all(abs(new_ranges[k][1] - new_ranges[k][0]) < 1e-15
+                           for k in new_ranges):
+                        current_ranges = new_ranges
+                        _final_iter_idx = iter_idx
+                        _loop_converged = True
+                        break
+
+                    current_ranges = new_ranges
+
+                    # Done once the final brute-force fits the budget
+                    if _estimate_final_combos(current_ranges, user_steps) \
+                            <= MAX_FINAL:
+                        _final_iter_idx = iter_idx
+                        _loop_converged = True
+                        break
+                # for-else replaced by explicit flag so the warning only
+                # fires when the loop actually ran *and* didn't converge.
+                if _do_loop and not _loop_converged:
+                    st.warning(
+                        f"Reached MAX_ITERS={MAX_ITERS} without converging "
+                        f"under {MAX_FINAL:,} combos — running the final "
+                        "refinement on the last narrowed range anyway.")
+
+                # ── Closing pass: brute-force at the user's step ─────────
+                if not _stop_recursion:
+                    final_lists = {}
+                    for k, (lo, hi) in current_ranges.items():
+                        step = user_steps.get(k, 0.0)
+                        if step <= 0 or abs(hi - lo) < 1e-15:
+                            final_lists[k] = np.array([lo], dtype=np.float64)
+                        else:
+                            final_lists[k] = _make_sweep_values(lo, hi, step)
+                    final_total = 1
+                    for arr in final_lists.values():
+                        final_total *= len(arr)
+                    st.caption(
+                        f"🎯 Final refine — running **{final_total:,}** "
+                        "combos at user-defined step.")
+                    _run_one_sweep(
+                        use_cuda=_use_cuda, sweep_lists_override=final_lists,
+                        sort_metric="Total",
+                        phase_label=f"Final refine ({final_total:,} combos)",
+                        phase_suffix="_optFinal")
+        elif prio_cpu_clicked or prio_cuda_clicked:
+            _run_one_sweep(use_cuda=bool(prio_cuda_clicked),
+                            sort_metric=str(prio_metric),
+                            phase_label=f"Prioritize {prio_metric}",
+                            phase_suffix=f"_prio{prio_metric}")
 
         # Display results if available
         df = st.session_state.get(f"tune_df_{topo_key}_{fname}")
@@ -2260,6 +2547,16 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     sweep_step = float(st.session_state.get(f"{kp}_step", 0))
                     sweep_max = float(st.session_state.get(f"{kp}_max", 0))
                     sweep_vals = _make_sweep_values(sweep_min, sweep_max, sweep_step)
+
+                    # Cap the sensitivity chart at 50 points — when the
+                    # user-defined sweep is denser, drop to 50 evenly-spaced
+                    # samples (always keeping the endpoints).
+                    SENS_MAX_PTS = 50
+                    if len(sweep_vals) > SENS_MAX_PTS:
+                        idxs = np.linspace(0, len(sweep_vals) - 1,
+                                            SENS_MAX_PTS).round().astype(int)
+                        idxs = np.unique(idxs)
+                        sweep_vals = sweep_vals[idxs]
 
                     if len(sweep_vals) < 2:
                         continue  # nothing to plot for a single point
