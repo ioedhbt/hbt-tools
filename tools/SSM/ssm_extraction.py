@@ -20,17 +20,18 @@ import pandas as pd
 import streamlit as st
 
 # ── Internal modules ──────────────────────────────────────────────────────────
-from .ssm_core        import strict_freq_check, s_to_y
-from .ssm_deembedding  import (step_open, step_short, peel_parasitics,_render_cold_hbt,
+from .helpers          import (strict_freq_check, s_to_y,
+                                step_open, step_short, peel_parasitics,
+                                parse_s2p_bytes, interpolate_s2f,
+                                write_s2p, simulate_open, simulate_short,
+                                plotly_with_dl)
+from .ssm_deembedding  import (_render_cold_hbt,
                                 render_rz12_section,
                                 render_open_collector_section)
-from .ssm_s2p          import (parse_s2p_bytes, interpolate_s2f,
-                                write_s2p, simulate_open, simulate_short)
 from .ssm_plots        import (render_open_plots, render_short_plots,
                                 render_os_deemb_preview,
                                 render_intrinsic_preview,
                                 render_ft_fmax_overlay)
-from .ssm_chart_utils  import plotly_with_dl
 from .ssm_override     import render_unified_pre_override
 from .models           import REGISTRY, DEFAULT_SELECTION   # model registry
 from .models.base_ui   import render_interactive_param_groups
@@ -356,41 +357,45 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         "3 — Series / Access Resistance Extraction</span></div>",
         unsafe_allow_html=True)
 
-    # ── Z-parameter method ────────────────────────────────────────────────────
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
-        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📈 Z-Parameter Method</strong> "
-        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.1)*</span>"
-        " for Re </div>",
-        unsafe_allow_html=True)
-    with st.expander("Z-Parameter Method — Re(Z₁₂) vs 1/IE", expanded=False):
-        render_rz12_section(all_data or {}, para_step1, fname)
-    rz12_Re  = st.session_state.get(f"rz12_Re_{fname}")
-    rz12_Rbe = st.session_state.get(f"rz12_Rbe_{fname}")
 
-    # ── Open-collector method ─────────────────────────────────────────────────
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
-        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📈 Open-Collector Method</strong> "
-        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.3)*</span>"
-        " for Rb, Re, Rc </div>",
-        unsafe_allow_html=True)
-    with st.expander("Open-Collector Method — Re(Zij) vs 1/IB", expanded=False):
-        render_open_collector_section(all_data or {}, para_step1, fname)
+    with st.expander("Access Resistance Extraction", expanded=False):
 
-    # ── Cold-HBT ──────────────────────────────────────────────────────────────
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
-        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>🧊 Cold-HBT Extraction</strong> "
-        "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.2)*</span>"
-        " for Rb and Rc </div>",
-        unsafe_allow_html=True)
-    with st.expander("Cold-HBT Extraction", expanded=False):
-        cold_res = _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
-                                     re_zparam=rz12_Re)
+        # ── Z-parameter method ────────────────────────────────────────────────────
+        st.markdown(
+            "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
+            "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
+            "margin-bottom:2px'><strong>📈 Z-Parameter Method</strong> "
+            "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.1)*</span>"
+            " for Re </div>",
+            unsafe_allow_html=True)
+        with st.expander("Z-Parameter Method — Re(Z₁₂) vs 1/IE", expanded=False):
+            render_rz12_section(all_data or {}, para_step1, fname)
+        rz12_Re  = st.session_state.get(f"rz12_Re_{fname}")
+        rz12_Rbe = st.session_state.get(f"rz12_Rbe_{fname}")
+        
+        # ── Cold-HBT ──────────────────────────────────────────────────────────────
+        st.markdown(
+            "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
+            "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
+            "margin-bottom:2px'><strong>🧊 Cold-HBT Extraction</strong> "
+            "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.2)*</span>"
+            " for Rb and Rc </div>",
+            unsafe_allow_html=True)
+        with st.expander("Cold-HBT Extraction", expanded=False):
+            cold_res = _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
+                                        re_zparam=rz12_Re)
+
+        # ── Open-collector method ─────────────────────────────────────────────────
+        st.markdown(
+            "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
+            "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
+            "margin-bottom:2px'><strong>📈 Open-Collector Method</strong> "
+            "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.3)*</span>"
+            " for Rb, Re, Rc </div>",
+            unsafe_allow_html=True)
+        with st.expander("Open-Collector Method — Re(Zij) vs 1/IB", expanded=False):
+            render_open_collector_section(all_data or {}, para_step1, fname)
+
 
     # ── Unified pre-extraction override (resolves Rb/Rc/Re sources) ──────────
     para_eff = render_unified_pre_override(fname, para_step1, cold_res, rz12_Re)

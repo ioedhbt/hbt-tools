@@ -40,10 +40,10 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
-from ..ssm_core        import (y_to_z, y_to_s_single, y_to_s_vec,
-                                safe_median, params_hash,
-                                extended_smith_grid)
-from ..ssm_deembedding  import (build_Y_pad, build_Z_ser,
+from ..helpers          import (y_to_z, y_to_s_single, y_to_s_vec,
+                                 safe_median, params_hash,
+                                 extended_smith_grid,
+                                 build_Y_pad, build_Z_ser,
                                  build_Y_pad_vec, build_Z_ser_vec,
                                  build_Y_pad_batch, build_Z_ser_batch)
 from .base_ui           import (smith_scale_controls,

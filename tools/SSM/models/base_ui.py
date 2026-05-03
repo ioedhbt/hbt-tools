@@ -14,9 +14,9 @@ from concurrent.futures import ThreadPoolExecutor, FIRST_COMPLETED, wait
 from itertools import product as iterproduct
 from io import BytesIO
 
-from ..ssm_core import extended_smith_grid, params_hash, s_to_y
-from ..ssm_deembedding import build_Y_pad_batch, build_Z_ser_batch
-from ..ssm_chart_utils import plotly_with_dl
+from ..helpers import (extended_smith_grid, params_hash, s_to_y,
+                        build_Y_pad_batch, build_Z_ser_batch,
+                        plotly_with_dl)
 
 # Streamlit's "rerun current script" exception — raised when any st.* call
 # happens after the user has clicked a widget that triggers a re-run (e.g.
@@ -1087,6 +1087,80 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 "⚡ Prioritized with CUDA",
                 key=f"tune_calc_prio_cuda_{topo_key}_{fname}"))
 
+        # ── Minimize deviation (peak-to-peak filter) ────────────────────
+        st.caption(
+            "🎚️ **Minimize deviation** runs the full-grid sweep but discards "
+            "combos whose per-port residuals are unbalanced (peak-to-peak "
+            "spread > threshold).  Surviving balanced combos are then ranked "
+            "by lowest total residual.  Optionally also drop combos where "
+            "any single port residual exceeds a quality floor.")
+        _bal_inputs = st.columns([1, 1, 2])
+        bal_dev_threshold = _bal_inputs[0].number_input(
+            "Max per-port deviation (%)",
+            min_value=0.0, max_value=100.0,
+            value=float(st.session_state.get(
+                f"tune_bal_dev_{topo_key}_{fname}", 3.0)),
+            step=0.5, format="%.2f",
+            key=f"tune_bal_dev_{topo_key}_{fname}",
+            help="Max allowed |max(S11,S12,S21,S22) − min(...)| residual "
+                 "spread (in %).  Smaller = more balanced.")
+        _bal_use_res = _bal_inputs[1].checkbox(
+            "Use residual cap",
+            value=False,
+            key=f"tune_bal_use_res_{topo_key}_{fname}")
+        bal_res_threshold = _bal_inputs[2].number_input(
+            "Max per-port residual (%)",
+            min_value=0.0, max_value=100.0,
+            value=float(st.session_state.get(
+                f"tune_bal_res_{topo_key}_{fname}", 5.0)),
+            step=0.5, format="%.2f",
+            key=f"tune_bal_res_{topo_key}_{fname}",
+            disabled=(not _bal_use_res),
+            help="Quality floor — drop combos where any port's residual "
+                 "exceeds this.")
+        _bal_btn = st.columns([1, 1] if _HAS_CUDA else [1])
+        bal_cpu_clicked = _bal_btn[0].button(
+            "🎚️ Minimize deviation",
+            key=f"tune_calc_bal_{topo_key}_{fname}")
+        bal_cuda_clicked = (
+            _HAS_CUDA
+            and _bal_btn[1].button(
+                "⚡ Minimize deviation with CUDA",
+                key=f"tune_calc_bal_cuda_{topo_key}_{fname}"))
+
+        # # ── Auto (Nelder-Mead) ──────────────────────────────────────────
+        # st.caption(
+        #     "🤖 **Auto (Nelder-Mead)** seeds the simplex from the current "
+        #     "parameter values, expands/contracts adaptively (large moves when "
+        #     "residual is high, small moves when low), and converges to a "
+        #     "local minimum within the **Min/Max** boxes above.  Cheap, "
+        #     "gradient-free, and respects the Stop button.  Most useful as a "
+        #     "polish step after a coarse grid sweep.")
+        # _auto_inputs = st.columns([1, 1, 2])
+        # auto_max_iter = int(_auto_inputs[0].number_input(
+        #     "Max iterations",
+        #     min_value=10, max_value=10_000,
+        #     value=int(st.session_state.get(
+        #         f"tune_auto_iter_{topo_key}_{fname}", 200)),
+        #     step=10,
+        #     key=f"tune_auto_iter_{topo_key}_{fname}",
+        #     help="Nelder-Mead iteration cap (function evals ≈ iters × (n+1))."))
+        # auto_restart = _auto_inputs[1].checkbox(
+        #     "Random restart on collapse",
+        #     value=True,
+        #     key=f"tune_auto_restart_{topo_key}_{fname}",
+        #     help="If the simplex shrinks below tol before convergence, "
+        #          "perturb x0 and run a second pass.")
+        # _auto_btn = _auto_inputs[2].columns([1, 1] if _HAS_CUDA else [1])
+        # auto_cpu_clicked = _auto_btn[0].button(
+        #     "🤖 Auto (Nelder-Mead)",
+        #     key=f"tune_calc_auto_{topo_key}_{fname}")
+        # auto_cuda_clicked = (
+        #     _HAS_CUDA
+        #     and _auto_btn[1].button(
+        #         "⚡ Auto with CUDA",
+        #         key=f"tune_calc_auto_cuda_{topo_key}_{fname}"))
+
         # ── Helper: format a "best result" markdown line including all params ──
         def _best_summary_md(best_row, label="Best so far"):
             head = (f"**{label} — Total: {best_row['Total Residual (%)']:.2f}%  |  "
@@ -1110,7 +1184,9 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             sweep_lists_override: dict | None = None,
                             sort_metric: str = "Total",
                             phase_label: str = "",
-                            phase_suffix: str = ""):
+                            phase_suffix: str = "",
+                            dev_threshold: float | None = None,
+                            res_threshold: float | None = None):
             """Run one full parameter-sweep pass.
 
             sweep_lists_override : dict[str, np.ndarray] | None
@@ -1124,6 +1200,15 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 phase_label is shown in the progress text; phase_suffix is
                 appended to the Stop-button key so multi-pass runs (e.g.
                 Optimized) don't clash on a duplicate Streamlit widget key.
+            dev_threshold : float | None
+                Max allowed peak-to-peak (max-min) per-port residual deviation
+                in %.  Combos exceeding this are pushed to the bottom of the
+                ranking — surviving combos are ranked normally by sort_metric.
+                Used by the "Minimize deviation" button to pick the lowest
+                total residual *among balanced* combinations.
+            res_threshold : float | None
+                Max allowed per-port residual in %.  Combos with any port
+                exceeding this are pushed to the bottom of the ranking.
             """
             xp = _cp if use_cuda else np
             has_batch = hasattr(model_cls, "simulate_batch")
@@ -1247,7 +1332,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # (smaller than the full inner block), thanks to N-D broadcasting.
             _PAD_CAP_KEYS = ("Cpbe", "Cpce", "Cpbc")
             _SER_LEAD_KEYS = ("Rpb", "Rpc", "Rpe", "Lb", "Lc", "Le")
-            _CHENG_EXTR_KEYS = ("Cbex", "Cbcx", "Ccex")
+            _CHENG_EXTR_KEYS = ("Cbex", "Cbcx")
             # Cheng-T intrinsic sub-expression groups: each is pre-bakeable
             # whenever *none* of its inputs are swept.
             _T_ZBE_KEYS   = ("Rbe", "Cbe")
@@ -1280,10 +1365,8 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             if not (set(_CHENG_EXTR_KEYS) & swept_set):
                 _Cbex_c = float(static_p.get("Cbex", 0.0))
                 _Cbcx_c = float(static_p.get("Cbcx", 0.0))
-                _Ccex_c = float(static_p.get("Ccex", 0.0))
                 static_cache_fp64["Y_extr"] = (1j * omega_dev * _Cbex_c,
-                                               1j * omega_dev * _Cbcx_c,
-                                               1j * omega_dev * _Ccex_c)
+                                               1j * omega_dev * _Cbcx_c)
                 _cached_msgs.append("Y_extr")
 
             # ── Cheng-specific intrinsic sub-expression caches ──────────────
@@ -1891,6 +1974,22 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         # "Prioritize" mode, so clamp NaN/inf there too.
                         cur_4 = xp.where(xp.isfinite(cur_4), cur_4, BIG)
 
+                        # ── Balance / quality filters ───────────────────────
+                        # Push unbalanced or poor-residual combos to the
+                        # bottom of the ranking by clamping their sort key
+                        # to BIG.  Balanced survivors are then sorted normally
+                        # → "lowest total among balanced".
+                        if dev_threshold is not None:
+                            _dev = cur_4.max(axis=1) - cur_4.min(axis=1)
+                            cur_total = xp.where(_dev > dev_threshold, BIG, cur_total)
+                            cur_4 = xp.where(
+                                _dev[:, None] > dev_threshold, BIG, cur_4)
+                        if res_threshold is not None:
+                            _peak = cur_4.max(axis=1)
+                            cur_total = xp.where(_peak > res_threshold, BIG, cur_total)
+                            cur_4 = xp.where(
+                                _peak[:, None] > res_threshold, BIG, cur_4)
+
                         # ── Build display values for swept params ───────────
                         # Decompose flat index → multi-axis index using
                         # row-major strides over `inner_shape`, then look up
@@ -2272,6 +2371,286 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 pass
             _release_gpu_memory()
 
+        # ── Nelder-Mead "Auto" tuning ──────────────────────────────────
+        def _run_nelder_mead(*, max_iter: int, restart: bool,
+                             use_cuda: bool = False):
+            """Local-search optimisation using scipy's adaptive Nelder-Mead.
+
+            x is in *display units* so the simplex moves at comparable
+            magnitudes across mixed parameters (fF / pH / Ω).  Bounds come
+            from the per-row Min/Max boxes; the seed is the current
+            parameter value clipped into bounds.
+
+            When ``use_cuda`` is True and CuPy is available, each objective
+            evaluation uses ``simulate_vec(xp=cupy)`` and computes residuals
+            on the GPU, with a single host sync per eval to read the scalar
+            total back.  Helps when N_freq is large enough that the GPU
+            outruns CPU even at batch=1.
+
+            Top-K accumulator and session-state layout match _run_one_sweep
+            so the existing display / "Use best values" button work
+            unchanged.
+            """
+            try:
+                from scipy.optimize import minimize as _nm_minimize
+            except ImportError:
+                st.error(
+                    "scipy is required for Nelder-Mead Auto tuning. "
+                    "Install with `pip install scipy`.")
+                return
+
+            import pandas as pd
+
+            # Only enabled rows participate in optimisation; constants stay put.
+            swept_rows = [r for r in param_rows if r["enabled"]]
+            if not swept_rows:
+                st.warning(
+                    "Auto needs at least one parameter with the **Sweep** "
+                    "checkbox enabled.")
+                return
+
+            sweep_keys_nm   = [r["key"]   for r in swept_rows]
+            sweep_scales_nm = [r["scale"] for r in swept_rows]
+
+            # Seed + bounds in display units.
+            x0_disp = []
+            bounds  = []
+            for r in swept_rows:
+                cur  = float(all_p.get(r["key"], 0.0)) * r["scale"]
+                arr  = np.asarray(r["sweep"], dtype=np.float64)
+                lo   = float(np.min(arr))
+                hi   = float(np.max(arr))
+                if hi <= lo:
+                    hi = lo + max(abs(lo), 1.0) * 0.5  # avoid degenerate box
+                cur  = max(lo, min(hi, cur))
+                x0_disp.append(cur)
+                bounds.append((lo, hi))
+            x0      = np.asarray(x0_disp, dtype=np.float64)
+            lo_arr  = np.asarray([b[0] for b in bounds], dtype=np.float64)
+            hi_arr  = np.asarray([b[1] for b in bounds], dtype=np.float64)
+
+            TOP_K = 100
+            col_names = [
+                "Total Residual (%)", "S11 (%)", "S12 (%)", "S21 (%)", "S22 (%)"]
+            for r in param_rows:
+                u   = r["unit"]
+                lbl = r["label"]
+                col_names.append(f"{lbl} ({u})" if u else lbl)
+            sess_key = f"tune_df_{topo_key}_{fname}"
+
+            # Top-K kept on host as a small max-heap-like sorted list.
+            top_rows: list[list[float]] = []
+            n_eval   = [0]
+
+            def _push_topk(row: list[float]):
+                # Keep top-K by total residual.  Linear insert is fine — TOP_K
+                # is 100 and Nelder-Mead does <~10k evals total.
+                if len(top_rows) < TOP_K:
+                    top_rows.append(row)
+                    top_rows.sort(key=lambda r: r[0])
+                    return
+                if row[0] < top_rows[-1][0]:
+                    top_rows[-1] = row
+                    top_rows.sort(key=lambda r: r[0])
+
+            use_vec = hasattr(model_cls, "simulate_vec")
+
+            # ── CUDA hot path setup ───────────────────────────────────
+            # When use_cuda is requested we move S_raw to device once and
+            # run residuals there, doing a single .item() per eval to pull
+            # the scalar total back to host for scipy.
+            xp_dev = _cp if (use_cuda and _HAS_CUDA and use_vec) else np
+            if use_cuda and not _HAS_CUDA:
+                st.warning("CUDA not available — falling back to CPU.")
+            elif use_cuda and not use_vec:
+                st.warning(
+                    f"{model_cls.__name__} has no simulate_vec — "
+                    "CUDA path needs it; falling back to CPU.")
+            S_mea_dev = xp_dev.asarray(S_raw)
+            _den_dev  = xp_dev.sum(xp_dev.abs(S_mea_dev) ** 2, axis=0)  # (2,2)
+
+            def _residuals_dev(S_sim_dev):
+                """Return (total, s11, s12, s21, s22) as Python floats.
+                One host sync per call when xp_dev is cupy."""
+                diff = S_mea_dev - S_sim_dev                            # (N,2,2)
+                num  = xp_dev.sum(xp_dev.abs(diff) ** 2, axis=0)        # (2,2)
+                den_s = xp_dev.where(_den_dev > 0, _den_dev, 1.0)
+                val   = xp_dev.sqrt(num / den_s) * 100.0
+                val   = xp_dev.where(_den_dev > 0, val, 0.0)
+                s11 = val[0, 0]; s12 = val[0, 1]
+                s21 = val[1, 0]; s22 = val[1, 1]
+                tot = (s11 + s12 + s21 + s22) * 0.25
+                if xp_dev is np:
+                    return (float(tot), float(s11), float(s12),
+                            float(s21), float(s22))
+                # Single fused host sync — pulls all five scalars in one shot.
+                arr = xp_dev.stack([tot, s11, s12, s21, s22])
+                arr_h = _cp.asnumpy(arr)
+                return (float(arr_h[0]), float(arr_h[1]), float(arr_h[2]),
+                        float(arr_h[3]), float(arr_h[4]))
+
+            def _objective(x_disp):
+                # Hard-clip into bounds — scipy NM with bounds usually stays
+                # inside but the simplex initialisation can poke out by a hair.
+                x_disp = np.minimum(np.maximum(x_disp, lo_arr), hi_arr)
+                p = dict(all_p)
+                for k, sc, v in zip(sweep_keys_nm, sweep_scales_nm, x_disp):
+                    p[k] = float(v) / float(sc)
+                try:
+                    if use_vec:
+                        S_sim = model_cls.simulate_vec(p, freq, z0, xp=xp_dev)
+                    else:
+                        S_sim = model_cls.simulate(p, freq, z0)
+                except Exception:
+                    return 1.0e8
+                if S_sim is None:
+                    return 1.0e8
+                if xp_dev is np:
+                    r = _port_residuals(S_raw, S_sim)
+                    r_tot, r_s11, r_s12, r_s21, r_s22 = (
+                        r["Total"], r["S11"], r["S12"], r["S21"], r["S22"])
+                else:
+                    r_tot, r_s11, r_s12, r_s21, r_s22 = _residuals_dev(S_sim)
+                if not np.isfinite(r_tot):
+                    return 1.0e8
+                # Repack to dict shape used downstream (top-K row build)
+                r = {"Total": r_tot, "S11": r_s11, "S12": r_s12,
+                     "S21": r_s21, "S22": r_s22}
+                # Build the (5 + n_params) row in the same column order as the
+                # full-sweep dataframe.
+                row = [r["Total"], r["S11"], r["S12"], r["S21"], r["S22"]]
+                x_dict = dict(zip(sweep_keys_nm, x_disp))
+                for pr in param_rows:
+                    k = pr["key"]
+                    if k in x_dict:
+                        row.append(float(x_dict[k]))
+                    else:
+                        row.append(float(all_p.get(k, 0.0)) * pr["scale"])
+                _push_topk(row)
+                n_eval[0] += 1
+                return float(r["Total"])
+
+            # ── UI placeholders (mirror the sweep UI) ─────────────────
+            ui_cols = st.columns([5, 1])
+            with ui_cols[0]:
+                progress = st.progress(0, text="Auto (Nelder-Mead)…")
+            with ui_cols[1]:
+                stop_box = st.empty()
+            best_box = st.empty()
+            stop_key = f"tune_stop_{topo_key}_{fname}_nm"
+            stop_box.button(
+                "⏹ Stop", key=stop_key, type="secondary",
+                help="Stop the calculation. Best results so far are kept.")
+
+            # NM does roughly maxiter * (n+1) evals worst case.
+            ev_budget = max(1, max_iter * (len(x0) + 1))
+
+            def _persist_now():
+                if not top_rows:
+                    return
+                df = pd.DataFrame(top_rows, columns=col_names)
+                st.session_state[sess_key] = df
+
+            def _callback(xk, *args, **kwargs):
+                # Periodic progress + best-so-far card.  Streamlit's Stop
+                # button works by raising RerunException on any st.* call,
+                # so calling progress.progress() here also gives us a clean
+                # cancellation point.
+                if top_rows:
+                    best_series = pd.Series(top_rows[0], index=col_names)
+                    best_box.markdown(
+                        _best_summary_md(best_series, label="Best so far"),
+                        unsafe_allow_html=True,
+                    )
+                if top_rows:
+                    _txt = (f"Auto (Nelder-Mead)… {n_eval[0]} evals  "
+                            f"(best Total: {top_rows[0][0]:.3f}%)")
+                else:
+                    _txt = f"Auto (Nelder-Mead)… {n_eval[0]} evals"
+                progress.progress(min(1.0, n_eval[0] / ev_budget), text=_txt)
+                _persist_now()
+
+            cancelled = False
+            options = {
+                "maxiter":  int(max_iter),
+                "maxfev":   int(max_iter) * (len(x0) + 1),
+                "xatol":    1e-6,
+                "fatol":    1e-4,
+                "adaptive": True,
+            }
+
+            try:
+                _nm_minimize(
+                    _objective, x0,
+                    method="Nelder-Mead",
+                    bounds=bounds,
+                    callback=_callback,
+                    options=options,
+                )
+                if restart and len(top_rows) > 0:
+                    # Random perturbation around current best (10% of box width
+                    # per axis) for a single second pass — catches premature
+                    # simplex collapse without doubling cost.
+                    best_disp = np.asarray(top_rows[0][5:5 + len(param_rows)],
+                                           dtype=np.float64)
+                    # Pull just the swept components out of best_disp
+                    swept_idx = [i for i, pr in enumerate(param_rows)
+                                 if pr["enabled"]]
+                    x_seed = np.asarray(
+                        [best_disp[i] for i in swept_idx], dtype=np.float64)
+                    rng = np.random.default_rng(0)
+                    span = hi_arr - lo_arr
+                    x_seed = np.clip(
+                        x_seed + rng.uniform(-0.1, 0.1, size=x_seed.shape) * span,
+                        lo_arr, hi_arr)
+                    _nm_minimize(
+                        _objective, x_seed,
+                        method="Nelder-Mead",
+                        bounds=bounds,
+                        callback=_callback,
+                        options=options,
+                    )
+            except BaseException as exc:
+                _is_rerun = (_RerunException is not None
+                             and isinstance(exc, _RerunException))
+                _is_stop  = (_StopException is not None
+                             and isinstance(exc, _StopException))
+                _name = type(exc).__name__
+                if _is_rerun or _is_stop or _name in (
+                        "RerunException", "StopException"):
+                    cancelled = True
+                    _persist_now()
+                    # Drop device buffers before re-raising so the next
+                    # rerun starts from a clean pool.
+                    if xp_dev is not np:
+                        try:
+                            S_mea_dev = None
+                            _cp.cuda.runtime.deviceSynchronize()
+                            gc.collect()
+                            _cp.get_default_memory_pool().free_all_blocks()
+                        except Exception:
+                            pass
+                    raise
+                st.error(f"Nelder-Mead failed: {exc!r}")
+            finally:
+                _persist_now()
+                if xp_dev is not np:
+                    try:
+                        S_mea_dev = None
+                        gc.collect()
+                        _cp.get_default_memory_pool().free_all_blocks()
+                    except Exception:
+                        pass
+
+            progress.empty()
+            best_box.empty()
+            stop_box.empty()
+            if not cancelled and top_rows:
+                _mode = "CUDA" if xp_dev is not np else "CPU"
+                st.success(
+                    f"Auto tuning done ({_mode}) — {n_eval[0]} evals, "
+                    f"best Total = {top_rows[0][0]:.3f}%")
+
         # ── Helper: column-name lookup for a tuning_specs row ──────────
         def _col_name(row):
             return f"{row['label']} ({row['unit']})" if row["unit"] else row["label"]
@@ -2399,15 +2778,22 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         phase_suffix=f"_optP{iter_idx}")
 
                     _df = st.session_state.get(f"tune_df_{topo_key}_{fname}")
-                    if _df is None or len(_df) < 2:
+                    if _df is None or len(_df) == 0:
+                        # No finite residuals — abandon bisection but
+                        # still run the closing pass on current_ranges so
+                        # the user gets a brute-force result.
                         st.warning(
-                            f"Iteration {iter_idx} produced fewer than 2 "
-                            "valid combos — cannot narrow further.")
-                        _stop_recursion = True
+                            f"Iteration {iter_idx} produced no finite "
+                            "residuals — running the final refinement on "
+                            "the current range without further narrowing.")
+                        _final_iter_idx = iter_idx
                         _loop_converged = True
                         break
 
-                    # Narrow to the box between the top-2 combos
+                    # Narrow to the box between the top-2 combos.  With
+                    # only one survivor, centre a quarter-width box on it
+                    # so the optimised pass keeps making progress.
+                    single = len(_df) < 2
                     new_ranges = {}
                     for k, (lo_old, hi_old) in current_ranges.items():
                         col = _col_name(rows_by_key[k])
@@ -2415,8 +2801,13 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             new_ranges[k] = (lo_old, hi_old)
                             continue
                         v0 = float(_df.iloc[0][col])
-                        v1 = float(_df.iloc[1][col])
-                        new_ranges[k] = (min(v0, v1), max(v0, v1))
+                        if single:
+                            half_w = abs(hi_old - lo_old) * 0.25
+                            new_ranges[k] = (max(lo_old, v0 - half_w),
+                                             min(hi_old, v0 + half_w))
+                        else:
+                            v1 = float(_df.iloc[1][col])
+                            new_ranges[k] = (min(v0, v1), max(v0, v1))
 
                     # Bail if the box can't shrink anymore (guards against
                     # the corner case where the top-2 are identical).
@@ -2468,6 +2859,22 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             sort_metric=str(prio_metric),
                             phase_label=f"Prioritize {prio_metric}",
                             phase_suffix=f"_prio{prio_metric}")
+        elif bal_cpu_clicked or bal_cuda_clicked:
+            _res_thr = float(bal_res_threshold) if _bal_use_res else None
+            _run_one_sweep(
+                use_cuda=bool(bal_cuda_clicked),
+                sort_metric="Total",
+                phase_label=f"Balance ≤{bal_dev_threshold:.2f}%",
+                phase_suffix="_bal",
+                dev_threshold=float(bal_dev_threshold),
+                res_threshold=_res_thr,
+            )
+        # elif auto_cpu_clicked or auto_cuda_clicked:
+        #     _run_nelder_mead(
+        #         max_iter=int(auto_max_iter),
+        #         restart=bool(auto_restart),
+        #         use_cuda=bool(auto_cuda_clicked),
+        #     )
 
         # Display results if available
         df = st.session_state.get(f"tune_df_{topo_key}_{fname}")

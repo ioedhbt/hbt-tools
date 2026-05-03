@@ -1,7 +1,7 @@
 """
-ssm_core.py — Shared RF math utilities and low-level element helpers.
+helpers/rf_math.py — Pure RF math utilities (no Streamlit, no plotting).
 
-All functions are pure numpy (no Streamlit). Import from every other SSM module.
+(Was previously tools/SSM/ssm_core.py — that file has been deleted.)
 """
 from __future__ import annotations
 import hashlib, json
@@ -20,6 +20,7 @@ def s_to_y(S, z0=50.0):
     Y[:,1,1] = ((1+s11)*(1-s22)+s12*s21) / (d*z0)
     return Y
 
+
 def _inv2(M):
     out = np.zeros_like(M)
     for i in range(len(M)):
@@ -30,10 +31,12 @@ def _inv2(M):
 y_to_z = _inv2   # Z = Y⁻¹
 z_to_y = _inv2   # Y = Z⁻¹
 
+
 def y_to_s_single(Y, z0=50.0):
     Yn = Y * z0; I = np.eye(2)
     try:    return np.dot(I - Yn, np.linalg.inv(I + Yn))
     except: return np.full((2,2), np.nan+0j)
+
 
 def y_to_s_batch(Y, z0=50.0):
     S = np.zeros_like(Y); I = np.eye(2)
@@ -78,8 +81,6 @@ def y_to_s_vec(Y, z0=50.0, xp=None):
     s10 = (-yn10) * i00 + n11 * i10
     s11 = (-yn10) * i01 + n11 * i11
 
-    # Stack the four planes back into a (..., 2, 2) result with no scatter
-    # writes (avoids 4 extra kernel launches that xp.empty + assign would do).
     return xp.stack(
         [xp.stack([s00, s01], axis=-1),
          xp.stack([s10, s11], axis=-1)],
@@ -147,6 +148,7 @@ def safe_median(arr, n=None):
     a = a[np.isfinite(a)]
     return float(np.median(a)) if len(a) > 0 else 0.0
 
+
 def strict_freq_check(f_dut, f_dummy, label):
     if len(f_dut) != len(f_dummy) or not np.allclose(f_dut, f_dummy, rtol=1e-5):
         raise ValueError(f"DUT and {label} frequency grids differ.")
@@ -172,7 +174,8 @@ def open_elem_Y(C, mode, extra, w):
         return 1j*w*C / denom
     if mode == "Series R" and extra > 0:
         return 1j*w*C / (1.0 + 1j*w*extra*C)
-    return 1j*w*C   # pure cap (default)
+    return 1j*w*C
+
 
 def short_lead_Z(R, L, Cpar, w):
     """
@@ -231,4 +234,3 @@ def params_hash(p: dict) -> str:
         ).hexdigest()
     except Exception:
         return ""
-

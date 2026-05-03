@@ -15,11 +15,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from ..ssm_core       import (y_to_z, z_to_y, y_to_s_single, y_to_s_vec,
-                               inv2x2, mm2x2,
-                               safe_median, params_hash,
-                               extended_smith_grid)
-from ..ssm_deembedding import (build_Y_pad, build_Z_ser,
+from ..helpers         import (y_to_z, z_to_y, y_to_s_single, y_to_s_vec,
+                                inv2x2, mm2x2,
+                                safe_median, params_hash,
+                                extended_smith_grid,
+                                build_Y_pad, build_Z_ser,
                                 build_Y_pad_vec, build_Z_ser_vec,
                                 build_Y_pad_batch, build_Z_ser_batch)
 from .base_ui         import (smith_scale_controls,
@@ -434,13 +434,8 @@ def _sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None):
     yi00, yi01, yi10, yi11 = Y_int_batch_fn(p, omega, B, N, xp, cache)
 
     # Extrinsic caps (broadcastable to (B, N)) — cache-aware.
-    # Older caches stored a 2-tuple (Ybex, Ybcx); new ones store (Ybex, Ybcx).
     if cache is not None and "Y_extr" in cache:
-        _yextr = cache["Y_extr"]
-        if len(_yextr) == 3:
-            Ybex, Ybcx = _yextr
-        else:
-            Ybex, Ybcx = _yextr
+        Ybex, Ybcx = cache["Y_extr"][:2]
     else:
         Cbcx = _b1(p, "Cbcx", 0.0, xp, rdtype)
         Cbex = _b1(p, "Cbex", 0.0, xp, rdtype)
@@ -749,10 +744,11 @@ _UNIT_LADDER: dict[str, str] = {
 # Keys that get 3 decimal places instead of 2
 _3DP_PARAMS = {"alpha0", "Gm0"}
 
-# Pixel (x, y) anchor positions for overlaid value text — image is 1014 × 831 px.
-# Values are drawn centered on (x, y).  Positions are shared for pad/ext params;
-# intrinsic differs per topology.
-_COMMON_OVERLAY: dict[str, tuple[int, int]] = {
+# Pixel (x, y[, anchor]) positions for overlaid value text — image is 1014 × 831 px.
+# anchor is a PIL anchor string (default "mm"). First char: l/m/r = horizontal align
+# (left/center/right). Second char: t/m/b = vertical align (top/middle/bottom).
+# Positions are shared for pad/ext params; intrinsic differs per topology.
+_COMMON_OVERLAY: dict[str, tuple] = {
     # Pad parasitics
     "Cpbc": (485,  58),
     "Cpbe": (100, 610),
@@ -762,36 +758,36 @@ _COMMON_OVERLAY: dict[str, tuple[int, int]] = {
     "Lb":  (118, 340),
     "Le":  (510, 745),
     "Lc":  (890, 340),
-    
+
     # Access or series resistance
     "Rpb": (247, 340),
-    "Rpe": (520, 665),
+    "Rpe": (475, 665, "lm"),
     "Rpc": (762, 340),
-    
+
     # External
-    "Cbex": (268, 502),
+    "Cbex": (300, 502, "rm"),
     "Cbcx": (512, 160),
 
     # Intrinsic base resistance
     "Rbi": (390, 340),
 }
 
-_T_EXTRA_OVERLAY: dict[str, tuple[int, int]] = {
-    "Rbe":    (455, 515),
-    "Cbe":    (584, 557),
+_T_EXTRA_OVERLAY: dict[str, tuple] = {
+    "Rbe":    (408, 515, "lm"),
+    "Cbe":    (545, 557, "lm"),
     "Rbc":    (592, 340),
     "Cbc":    (590, 250),
-    "alpha0": (603, 433),
-    "tauB":   (610, 458),
-    "tauC":   (610, 485),
+    "alpha0": (582, 433, "lm"),
+    "tauB":   (582, 458, "lm"),
+    "tauC":   (582, 485, "lm"),
 }
 
-_PI_EXTRA_OVERLAY: dict[str, tuple[int, int]] = {
-    "Rbe":  (442, 475),
-    "Cbe":  (590, 515),
+_PI_EXTRA_OVERLAY: dict[str, tuple] = {
+    "Rbe":  (408, 475, "lm"),
+    "Cbe":  (550, 515, "lm"),
     "Cbc":  (590, 340),
-    "Gm0":  (805, 470),
-    "tau":  (805, 502),
+    "Gm0":  (770, 470, "lm"),
+    "tau":  (770, 502, "lm"),
 }
 
 _T_OVERLAY  = {**_COMMON_OVERLAY, **_T_EXTRA_OVERLAY}
@@ -810,7 +806,11 @@ def _fmt_param(key: str, val_si: float) -> str:
     while abs(display) >= 1000 and unit in _UNIT_LADDER:
         display /= 1000
         unit = _UNIT_LADDER[unit]
-    return f"{display:.{decimals}f} {unit}" if unit else f"{display:.{decimals}f}"
+    if abs(display - round(display)) < 0.005:
+        text = f"{int(round(display))}"
+    else:
+        text = f"{display:.{decimals}f}"
+    return f"{text} {unit}" if unit else text
 
 
 def _load_font(size: int):
@@ -905,7 +905,7 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> Non
     img  = Image.open(tpl_path).convert("RGB")
     draw = ImageDraw.Draw(img)
 
-    for key, (px, py) in overlay.items():
+    for key, pos in overlay.items():
         if no_parasitics and key in _PARASITIC_KEYS:
             continue
         val_si = all_p.get(key)
@@ -915,13 +915,15 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> Non
             text = _fmt_param(key, float(val_si))
         except Exception:
             continue
+        px, py, *rest = pos
+        anchor = rest[0] if rest else "mm"
         color = _color(key)
         # White stroke for readability, then colored text on top
         try:
             draw.text((px, py), text, font=font, fill=color,
-                      anchor="mm", stroke_width=2, stroke_fill=(255, 255, 255))
+                      anchor=anchor, stroke_width=2, stroke_fill=(255, 255, 255))
         except TypeError:
-            # Older PIL: manual halo
+            # Older PIL: manual halo (no anchor support)
             for dx, dy in [(-1,-1),(0,-1),(1,-1),(-1,0),(1,0),(-1,1),(0,1),(1,1)]:
                 draw.text((px+dx, py+dy), text, font=font, fill=(255, 255, 255))
             draw.text((px, py), text, font=font, fill=color)

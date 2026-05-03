@@ -1,13 +1,26 @@
 """
-ssm_s2p.py — Touchstone .s2p file I/O and forward simulation of dummy structures.
+helpers/s2p_io.py — Touchstone .s2p / VNA CSV parsing and writing,
+plus forward simulators for Open and Short dummy structures.
 
-Forward simulators for Open and Short are here (not inside any model) because
-they depend only on the pad/lead parameters, not on any intrinsic model.
+Consolidates:
+  - ssm_s2p.py   (build_Y_pad, build_Z_ser, write_s2p, parse_s2p_bytes,
+                  interpolate_s2f, simulate_open, simulate_short)
+  - IOED_HBT_RF_extract.py  (parse_s2p [str], parse_csv, _load_cal)
+
+`parse_s2p` accepts either str or bytes; `parse_s2p_bytes` is kept as a
+backwards-compatibility alias for existing imports.
 """
 from __future__ import annotations
+import io
+from typing import Union
+
 import numpy as np
-from .ssm_core import open_elem_Y, short_lead_Z, y_to_s_single
-# from .ssm_deembedding import build_Y_pad, build_Z_ser
+import pandas as pd
+
+from .rf_math import open_elem_Y, short_lead_Z, y_to_s_single
+
+
+# ── Pad / lead matrix builders (per-frequency, used by simulators) ───────────
 
 def build_Y_pad(p: dict, w: float) -> np.ndarray:
     """
@@ -22,6 +35,7 @@ def build_Y_pad(p: dict, w: float) -> np.ndarray:
     Ypbc = open_elem_Y(p["Cpbc"], p.get("Cpbc_mode","None"), p.get("Cpbc_extra",0.0), w)
     return np.array([[Ypbe+Ypbc, -Ypbc],
                      [-Ypbc,  Ypce+Ypbc]])
+
 
 def build_Z_ser(p: dict, w: float) -> np.ndarray:
     """
@@ -67,13 +81,16 @@ def write_s2p(freq_hz: np.ndarray, S: np.ndarray,
 
 # ── Touchstone read ───────────────────────────────────────────────────────────
 
-def parse_s2p_bytes(raw: bytes):
+def parse_s2p(content: Union[str, bytes]):
     """
-    Parse a .s2p file from raw bytes.
+    Parse a .s2p file. Accepts either str or bytes.
     Returns (freq_hz, S[N,2,2], z0).
+
     Handles MA, DB, RI formats; Hz/kHz/MHz/GHz frequency units.
     """
-    content = raw.decode("utf-8", errors="ignore")
+    if isinstance(content, (bytes, bytearray)):
+        content = content.decode("utf-8", errors="ignore")
+
     freq_unit, fmt, z0 = "hz", "ma", 50.0
     data_lines = []
 
@@ -109,6 +126,27 @@ def parse_s2p_bytes(raw: bytes):
     return freq, S, z0
 
 
+def parse_s2p_bytes(raw: bytes):
+    """Backwards-compatibility alias — same as `parse_s2p(raw)`."""
+    return parse_s2p(raw)
+
+
+def parse_csv(content: str, z0: float = 50.0):
+    """Parse VNA CSV export (RI format). Expects columns:
+    Frequency, Real(S11), Imag(S11), Real(S12), Imag(S12),
+    Real(S21), Imag(S21), Real(S22), Imag(S22).
+    Frequency must be in Hz."""
+    df = pd.read_csv(io.StringIO(content))
+    freq = df["Frequency"].values.astype(float)
+    n = len(freq)
+    S = np.zeros((n, 2, 2), dtype=complex)
+    S[:, 0, 0] = df["Real(S11)"].values + 1j * df["Imag(S11)"].values
+    S[:, 0, 1] = df["Real(S12)"].values + 1j * df["Imag(S12)"].values
+    S[:, 1, 0] = df["Real(S21)"].values + 1j * df["Imag(S21)"].values
+    S[:, 1, 1] = df["Real(S22)"].values + 1j * df["Imag(S22)"].values
+    return freq, S, z0
+
+
 def interpolate_s2f(f_src, S_src, f_tgt):
     """Interpolate S-parameter array from f_src grid to f_tgt grid."""
     S_out = np.zeros((len(f_tgt), 2, 2), dtype=complex)
@@ -118,6 +156,25 @@ def interpolate_s2f(f_src, S_src, f_tgt):
             S_out[:,r,c] = (np.interp(f_tgt, f_src, s.real) +
                             1j*np.interp(f_tgt, f_src, s.imag))
     return S_out
+
+
+# ── Streamlit-aware loader ────────────────────────────────────────────────────
+
+def load_cal(fobj):
+    """Load a calibration .s2p uploaded via Streamlit (`st.file_uploader`).
+
+    Returns (freq, S, z0) on success; None if `fobj` is None or if parsing
+    fails (in which case an error is shown in the sidebar).
+    """
+    if fobj is None:
+        return None
+    try:
+        return parse_s2p(fobj.getvalue().decode("utf-8", errors="ignore"))
+    except Exception as e:
+        # Imported lazily so this module stays importable in non-Streamlit contexts
+        import streamlit as st
+        st.sidebar.error(f"Parse failed {fobj.name}: {e}")
+        return None
 
 
 # ── Forward simulators for dummy structures ───────────────────────────────────

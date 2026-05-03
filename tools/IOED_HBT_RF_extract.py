@@ -20,16 +20,26 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from tools.SSM.ssm_extraction import render_ssm_tab   # ← SSM module (Cheng 2022)
-from tools.SSM.ssm_plots     import extrap_20dbdec    # 20 dB/dec extrap helper
-from tools.batch_deembedding import render_batch_deembedding_tab
+from tools.SSM.ssm_plots      import render_matplotlib_smith
+from tools.batch_deembedding  import render_batch_deembedding_tab
+from tools.SSM.helpers        import (
+    parse_s2p, parse_csv,
+    s_to_y, y_to_s_batch as y_to_s,
+    strict_freq_check,
+    deembed_open_short, deembed_thru_half,
+    compute_metrics, extract_limit,
+    PALETTE, darken, bode_layout, make_smith, make_bode, make_plateau,
+    metric_card, build_excel, load_cal,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 if "rf_uploader_key" not in st.session_state:
     st.session_state["rf_uploader_key"] = 0
 
-st.title("📡 IOED HBT RF Extraction Tool (v4.3)")
+st.title("📡 IOED HBT RF Extraction Tool (v4.5)")
 
 with st.expander("Changelog", expanded=False):
+    st.caption("**v4.5**: Code refactoring and minor improvements.")
     st.caption("**v4.4**: Added optimized tuning strategies, added smith chart with matplotlib, removed Ccex from Cheng's T, improved user usability.")
     st.caption("**v4.3**: Added other OS support for launcher, added Ccex term for Cheng's T, fixed topology illustration for Pi, fixed some plotting.")
     st.caption("**v4.2**: Topology illustration, graph data download, code refactoring).")
@@ -37,159 +47,9 @@ with st.expander("Changelog", expanded=False):
     st.caption("**v4.0**: Extraction tuning with CPU and GPU optimizations).")
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  CORE RF UTILITIES
+#  CORE RF UTILITIES — moved to tools/SSM/helpers/ (rf_math, s2p_io,
+#  deembed_math, metrics). See helpers/INDEX.md for the catalog.
 # ═════════════════════════════════════════════════════════════════════════════
-
-def parse_s2p(content: str):
-    freq_unit, fmt, z0, data_lines = "hz", "ma", 50.0, []
-    for line in content.splitlines():
-        s = line.strip()
-        if not s or s.startswith("!"): continue
-        if s.startswith("#"):
-            parts = s[1:].lower().split()
-            for i, p in enumerate(parts):
-                if p in ("hz","khz","mhz","ghz"): freq_unit = p
-                elif p in ("ma","db","ri"): fmt = p
-                elif p == "r" and i+1 < len(parts):
-                    try: z0 = float(parts[i+1])
-                    except: pass
-            continue
-        data_lines.append(s)
-    vals = np.array([float(x) for x in " ".join(data_lines).split()])
-    n = len(vals) // 9
-    vals = vals[:n*9].reshape(n, 9)
-    freq = vals[:,0]*{"hz":1.0,"khz":1e3,"mhz":1e6,"ghz":1e9}[freq_unit]
-    def to_c(ca, cb):
-        a, b = vals[:,ca], vals[:,cb]
-        if fmt == "db": return 10**(a/20.0)*np.exp(1j*np.deg2rad(b))
-        if fmt == "ma": return a*np.exp(1j*np.deg2rad(b))
-        return a + 1j*b
-    S = np.zeros((n,2,2), dtype=complex)
-    for (r,c),(ca,cb) in zip([(0,0),(1,0),(0,1),(1,1)],[(1,2),(3,4),(5,6),(7,8)]):
-        S[:,r,c] = to_c(ca, cb)
-    return freq, S, z0
-
-
-def parse_csv(content: str, z0: float = 50.0):
-    """Parse VNA CSV export (RI format). Expects columns:
-    Frequency, Real(S11), Imag(S11), Real(S12), Imag(S12),
-    Real(S21), Imag(S21), Real(S22), Imag(S22).
-    Frequency must be in Hz."""
-    df = pd.read_csv(io.StringIO(content))
-    freq = df["Frequency"].values.astype(float)
-    n = len(freq)
-    S = np.zeros((n, 2, 2), dtype=complex)
-    S[:, 0, 0] = df["Real(S11)"].values + 1j * df["Imag(S11)"].values
-    S[:, 0, 1] = df["Real(S12)"].values + 1j * df["Imag(S12)"].values
-    S[:, 1, 0] = df["Real(S21)"].values + 1j * df["Imag(S21)"].values
-    S[:, 1, 1] = df["Real(S22)"].values + 1j * df["Imag(S22)"].values
-    return freq, S, z0
-
-
-def s_to_y(S, z0=50.0):
-    s11,s12,s21,s22 = S[:,0,0],S[:,0,1],S[:,1,0],S[:,1,1]
-    d = (1+s11)*(1+s22)-s12*s21
-    Y = np.zeros_like(S)
-    Y[:,0,0] = ((1-s11)*(1+s22)+s12*s21)/(d*z0)
-    Y[:,0,1] = -2.0*s12/(d*z0)
-    Y[:,1,0] = -2.0*s21/(d*z0)
-    Y[:,1,1] = ((1+s11)*(1-s22)+s12*s21)/(d*z0)
-    return Y
-
-
-def y_to_s(Y, z0=50.0):
-    S = np.zeros_like(Y)
-    I = np.eye(2)
-    for i in range(len(Y)):
-        yn = Y[i]*z0
-        try: S[i] = np.dot(I-yn, np.linalg.inv(I+yn))
-        except: S[i] = np.full((2,2), np.nan+0j)
-    return S
-
-
-def _inv2(M):
-    out = np.zeros_like(M)
-    for i in range(len(M)):
-        try: out[i] = np.linalg.inv(M[i])
-        except: out[i] = np.full((2,2), np.nan+0j)
-    return out
-
-y_to_z = z_to_y = _inv2
-
-
-def deembed_open_short(Y_dut, Y_open, Y_short):
-    """Standard open-short de-embedding (Gao 2015 §4.2). Verified correct."""
-    return z_to_y(y_to_z(Y_dut - Y_open) - y_to_z(Y_short - Y_open))
-
-
-def deembed_thru_half(Y_dut, Y_thru_deemb):
-    """THRU/2 half-impedance subtraction. Verified correct."""
-    return z_to_y(y_to_z(Y_dut) - 0.5*y_to_z(Y_thru_deemb))
-
-
-def strict_freq_check(f_dut, f_dummy, dummy_name):
-    if len(f_dut) != len(f_dummy) or not np.allclose(f_dut, f_dummy, rtol=1e-5):
-        raise ValueError(f"DUT and {dummy_name} frequency grids differ.")
-
-
-def compute_metrics(Y, freq_hz):
-    f = freq_hz*1e-9
-    y11,y12,y21,y22 = Y[:,0,0],Y[:,0,1],Y[:,1,0],Y[:,1,1]
-    with np.errstate(divide="ignore", invalid="ignore"):
-        h21 = -y21/y11
-        num_u = np.abs(y21-y12)**2
-        den_u = 4.0*(y11.real*y22.real - y12.real*y21.real)
-        U = np.where(den_u>0, num_u/den_u, np.nan)
-        num_k = 2.0*y11.real*y22.real-(y12*y21).real
-        K = num_k/(np.abs(y12*y21)+1e-60)
-        MSG = np.abs(y21)/(np.abs(y12)+1e-30)
-        MAG = MSG*(K-np.sqrt(np.clip(K**2-1.0,0,None)))
-        MAG_MSG = np.where(K>1.0, MAG, MSG)
-    return pd.DataFrame({
-        "Freq (GHz)":f, "|h21|² (dB)":10*np.log10(np.abs(h21)**2+1e-30),
-        "Mason U (dB)":10*np.log10(np.abs(U)+1e-30),
-        "MAG/MSG (dB)":10*np.log10(np.abs(MAG_MSG)+1e-30),
-        "K Factor":K, "fT Plateau (GHz)":f*np.abs(h21),
-        "fmax U Plateau (GHz)":f*np.sqrt(np.abs(U)),
-        "fmax MAG Plateau (GHz)":f*np.sqrt(np.abs(MAG_MSG)),
-    })
-
-
-def extract_limit(freq_ghz, gain_db, plateau_arr, n_pts, f_min, f_max):
-    vm = (freq_ghz>=f_min)&(freq_ghz<=f_max)&~np.isnan(gain_db)
-    if not np.any(vm): return np.nan, np.nan, "No Data"
-    f_v,g_v,p_v,N = freq_ghz[vm],gain_db[vm],plateau_arr[vm],vm.sum()
-    if np.nanmax(g_v)<=0: return np.nan, np.nan, "No Gain"
-    above = g_v>=0
-    crossings = np.where(above[:-1]&~above[1:])[0]
-    genuine_idx = None
-    for idx in crossings[::-1]:
-        cnt=0
-        for j in range(idx,-1,-1):
-            if above[j]: cnt+=1
-            else: break
-        if cnt<10: continue
-        if max(0,idx-cnt+1)>int(0.80*N) and cnt<20: continue
-        genuine_idx=idx; break
-    if genuine_idx is None:
-        if np.median(g_v)>0:
-            v_plat=np.nanmax(p_v) if not np.isnan(p_v).all() else np.nan
-            n_use,v_extrap=min(n_pts,len(f_v)),np.nan
-            if len(f_v[-n_use:])>=2:
-                with np.errstate(all="ignore"):
-                    m,c=np.polyfit(np.log10(f_v[-n_use:]),g_v[-n_use:],1)
-                    if m<0: v_extrap=10**(-c/m)
-            return v_extrap,v_plat,"Extrap & Plat."
-        return np.nan,np.nan,"No Gain"
-    idx=genuine_idx
-    s,e=max(0,idx-n_pts//2+1),min(N,idx+n_pts//2+1+(n_pts%2))
-    if (e-s)<2: s,e=max(0,idx),min(N,idx+2)
-    with np.errstate(all="ignore"):
-        v_cross=np.polyval(np.polyfit(g_v[s:e],f_v[s:e],min(2,e-s-1)),0.0)
-        if v_cross<=0 or v_cross<f_v[s] or v_cross>f_v[e-1]:
-            v_cross=f_v[idx]+(0-g_v[idx])*(f_v[idx+1]-f_v[idx])/(g_v[idx+1]-g_v[idx])
-    return v_cross,np.nan,"0dB Cross"
-
 
 def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t, n_pts, f_min, f_max):
     """Parse, de-embed, compute metrics, extract fT/fmax for one DUT file."""
@@ -245,179 +105,10 @@ def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t, n_pts, f_min, f
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  PLOTTING UTILITIES
+#  PLOTTING UTILITIES — moved to tools/SSM/helpers/plotly_plots.py
+#  (PALETTE, darken, bode_layout, make_smith, make_bode, make_plateau)
+#  and tools/SSM/helpers/chart_export.py (build_excel, metric_card, load_cal).
 # ═════════════════════════════════════════════════════════════════════════════
-PALETTE=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd",
-         "#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"]
-
-def _darken(c):
-    try:
-        h=c.lstrip("#"); r,g,b=int(h[0:2],16),int(h[2:4],16),int(h[4:6],16)
-        return f"#{max(0,r-45):02x}{max(0,g-45):02x}{max(0,b-45):02x}"
-    except: return c
-
-def _layout(title,ytitle,yr,xr):
-    return dict(
-        title=dict(text=title,font=dict(size=13)),
-        xaxis=dict(title="Frequency (GHz)",type="log",
-                   range=[np.log10(max(xr[0],1e-4)),np.log10(xr[1])],
-                   showgrid=True,gridcolor="#ebebeb",minor_showgrid=True),
-        yaxis=dict(title=ytitle,range=list(yr),showgrid=True,gridcolor="#ebebeb"),
-        legend=dict(x=1.0,y=1.0,xanchor="left",yanchor="top",
-                    bgcolor="rgba(255,255,255,0.88)",bordercolor="#ccc",borderwidth=1),
-        plot_bgcolor="white",paper_bgcolor="white",height=500,
-        margin=dict(l=55,r=25,t=45,b=50),hovermode="x unified",template="plotly_white")
-
-def _extended_smith_grid(max_r=1.0):
-    traces=[]; t=np.linspace(0,2*np.pi,500)
-    sk=dict(mode="lines",showlegend=False,hoverinfo="skip")
-    for ro in np.arange(1.0,max_r+0.5,1.0):
-        lw_=1.6 if ro==1.0 else 0.9
-        col="rgba(60,60,60,0.85)" if ro==1.0 else "rgba(170,170,170,0.6)"
-        traces.append(go.Scatter(x=np.cos(t)*ro,y=np.sin(t)*ro,
-                                 line=dict(color=col,width=lw_),**sk))
-    traces.append(go.Scatter(x=[-max_r,max_r],y=[0.,0.],
-                             line=dict(color="rgba(100,100,100,0.6)",width=0.8),**sk))
-    gray="rgba(155,155,155,0.5)"
-    for r in [0.0,0.2,0.5,1.0,2.0,5.0]:
-        cx_=r/(r+1); rad=1.0/(r+1)
-        xc=cx_+rad*np.cos(t); yc=rad*np.sin(t)
-        mg=np.sqrt(xc**2+yc**2); xc[mg>max_r]=np.nan; yc[mg>max_r]=np.nan
-        traces.append(go.Scatter(x=xc,y=yc,line=dict(color=gray,width=0.8),**sk))
-    for x in [0.2,0.5,1.0,2.0,5.0]:
-        for sign in [1,-1]:
-            xv=sign*x; rad_x=abs(1.0/xv)
-            xc=1.0+rad_x*np.cos(t); yc=(1.0/xv)+rad_x*np.sin(t)
-            mg=np.sqrt(xc**2+yc**2); xc[mg>max_r]=np.nan; yc[mg>max_r]=np.nan
-            traces.append(go.Scatter(x=xc,y=yc,line=dict(color=gray,width=0.8),**sk))
-    return traces
-
-def make_smith(S,f_array,f_min,f_max,toggles,scales,title,max_r=1.0):
-    mask=(f_array>=f_min)&(f_array<=f_max)
-    S_p=S[mask].copy(); f_p=f_array[mask]
-    fig=go.Figure()
-    for tr in _extended_smith_grid(max_r): fig.add_trace(tr)
-    for key,(r,c),color,dash in [("S11",(0,0),"#1f77b4","solid"),("S22",(1,1),"#ff7f0e","dash"),
-                                  ("S21",(1,0),"#2ca02c","dot"),("S12",(0,1),"#d62728","dashdot")]:
-        if not toggles.get(key,False): continue
-        sv=S_p[:,r,c]*scales.get(key,1.0); sv[np.abs(sv)>max_r]=np.nan+1j*np.nan
-        sc=scales.get(key,1.0)
-        lbl=f"{key} ({f_min:.2g}–{f_max:.2g} GHz)" if sc==1 else f"{key} ×{sc:g}"
-        hov=[f"f={fv:.3f} GHz<br>Re={rv:.4f}<br>Im={iv:.4f}"
-             for fv,rv,iv in zip(f_p,sv.real,sv.imag)]
-        fig.add_trace(go.Scatter(x=sv.real,y=sv.imag,mode="lines",
-                                 line=dict(color=color,width=2.2,dash=dash),
-                                 name=lbl,text=hov,hoverinfo="text"))
-    lim=max_r*1.05
-    fig.update_layout(
-        title=dict(text=f"Smith Chart — {title}",font=dict(size=13)),
-        xaxis=dict(title="Re(Γ)",range=[-lim,lim],showgrid=False,zeroline=False,
-                   scaleanchor="y",scaleratio=1),
-        yaxis=dict(title="Im(Γ)",range=[-lim,lim],showgrid=False,zeroline=False),
-        plot_bgcolor="white",paper_bgcolor="white",height=540,
-        margin=dict(l=50,r=30,t=50,b=50),
-        legend=dict(x=1.02,y=1.0,xanchor="left",yanchor="top",
-                    bgcolor="rgba(255,255,255,0.92)",bordercolor="#ccc",borderwidth=1),
-        hovermode="closest")
-    return fig
-
-def make_bode(df,title,xr,yr,sh21,su,smag,color):
-    """
-    Individual Bode plot.
-
-    Measured traces use markers (○ for |h21|², □ for Mason U, ◇ for MAG/MSG).
-    If |h21|² and/or Mason U are still above 0 dB at the highest measured
-    frequency, a 20 dB/dec extrapolation (dotted) is appended and the x-axis
-    is auto-extended past the projected fT/fmax crossing.
-    """
-    fig=go.Figure(); f=df["Freq (GHz)"].values
-    hov="Freq:%{x:.4f}GHz<br>Gain:%{y:.4f}dB<extra></extra>"
-
-    f_high_track = float(f[-1]) if len(f) else float(xr[1])
-    extrap_used  = False
-
-    def _add_extrap(y_vals, color_, kind):
-        """Append a dotted 20 dB/dec extrapolation, return new f_high if any."""
-        nonlocal f_high_track, extrap_used
-        f_ext, g_ext, f0 = extrap_20dbdec(f, y_vals)
-        if f_ext is None:
-            return
-        extrap_used  = True
-        f_high_track = max(f_high_track, f0)
-        fig.add_trace(go.Scatter(
-            x=f_ext, y=g_ext, mode="lines",
-            name=f"{kind} extrap (≈{f0:.1f} GHz)",
-            line=dict(color=color_, width=1.6, dash="dot"),
-            hovertemplate=hov, showlegend=False))
-
-    if sh21:
-        y = df["|h21|² (dB)"].values
-        fig.add_trace(go.Scatter(
-            x=f, y=y, name="|h21|²", mode="lines+markers",
-            line=dict(color=color, width=1.4),
-            marker=dict(symbol="circle", size=6, color=color),
-            hovertemplate=hov))
-        _add_extrap(y, color, "fT")
-    if su:
-        y = df["Mason U (dB)"].values
-        col_u = _darken(color)
-        fig.add_trace(go.Scatter(
-            x=f, y=y, name="Mason U", mode="lines+markers",
-            line=dict(color=col_u, width=1.4),
-            marker=dict(symbol="square", size=6, color=col_u),
-            hovertemplate=hov))
-        _add_extrap(y, col_u, "fmax(U)")
-    if smag:
-        y = df["MAG/MSG (dB)"].values
-        fig.add_trace(go.Scatter(
-            x=f, y=y, name="MAG/MSG", mode="lines+markers",
-            line=dict(color="#2ca02c", width=1.4),
-            marker=dict(symbol="diamond", size=6, color="#2ca02c"),
-            hovertemplate=hov))
-
-    fig.add_hline(y=0,line_dash="dash",line_color="black")
-
-    # Auto-extend x-range if extrapolation pushes past xr[1]
-    xr_eff = (xr[0], max(float(xr[1]), float(f_high_track) * 1.25)) if extrap_used else xr
-    fig.update_layout(**_layout(f"Bode — {title}","Gain (dB)",yr,xr_eff))
-    return fig
-
-def make_plateau(df,res,title,xr,sh21,su,smag,color):
-    cols=[]
-    if sh21: cols+=df["fT Plateau (GHz)"].tolist()
-    if su:   cols+=df["fmax U Plateau (GHz)"].tolist()
-    arr=np.array([v for v in cols if np.isfinite(v) and v>0])
-    ym=float(np.quantile(arr,0.97))*1.3 if len(arr) else 100
-    hov="Freq:%{x:.4f}GHz<br>GBP:%{y:.4f}GHz<extra></extra>"
-    fig=go.Figure()
-    if sh21: fig.add_trace(go.Scatter(x=df["Freq (GHz)"],y=df["fT Plateau (GHz)"],name="fT",line=dict(color=color,width=2.5),hovertemplate=hov))
-    if su:   fig.add_trace(go.Scatter(x=df["Freq (GHz)"],y=df["fmax U Plateau (GHz)"],name="fmax(U)",line=dict(color=_darken(color),width=2.5,dash="dash"),hovertemplate=hov))
-    if smag: fig.add_trace(go.Scatter(x=df["Freq (GHz)"],y=df["fmax MAG Plateau (GHz)"],name="fmax(MAG)",line=dict(color="#2ca02c",width=2,dash="dot"),hovertemplate=hov))
-    fig.update_layout(**_layout(f"Plateau — {title}","GBP (GHz)",[0,ym],xr)); return fig
-
-def _card(col,title,val,sub,color="#4A90D9"):
-    col.markdown(
-        f'<div style="padding:10px 14px;border-radius:8px;border-left:4px solid {color};'
-        f'background:#f7f9fc;min-height:70px;margin-bottom:10px;">'
-        f'<div style="font-size:0.74rem;color:#666;">{title}</div>'
-        f'<div style="font-size:1.15rem;font-weight:700;color:#1a2e4a;">{val}</div>'
-        f'<div style="font-size:0.70rem;color:#888;margin-top:1px;">{sub}</div></div>',
-        unsafe_allow_html=True)
-
-def build_excel(summary_df,all_data):
-    buf=io.BytesIO()
-    with pd.ExcelWriter(buf,engine="openpyxl") as w:
-        summary_df.to_excel(w,sheet_name="Summary",index=False)
-        for k,v in all_data.items():
-            df_p=v["df_fin"] if v["df_fin"] is not None else v["df_raw"]
-            base=re.sub(r"[:\\/*?\[\]]","_",Path(k).stem)[:28]
-            df_p.to_excel(w,sheet_name=base,index=False)
-    return buf.getvalue()
-
-def _load_cal(fobj):
-    if fobj is None: return None
-    try: return parse_s2p(fobj.getvalue().decode("utf-8",errors="ignore"))
-    except Exception as e: st.sidebar.error(f"Parse failed {fobj.name}: {e}"); return None
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -476,11 +167,11 @@ with col_up2:
         st.session_state.pop("rf_prev_uploaded",None)
         st.rerun()
 
-s1o=_load_cal(f1o) if sw1 else None
-s1s=_load_cal(f1s) if sw1 else None
-s2o=_load_cal(f2o) if sw2 else None   # passed to render_ssm_tab
-s2s=_load_cal(f2s) if sw2 else None   # passed to render_ssm_tab
-s3t=_load_cal(f3t) if sw3 else None
+s1o=load_cal(f1o) if sw1 else None
+s1s=load_cal(f1s) if sw1 else None
+s2o=load_cal(f2o) if sw2 else None   # passed to render_ssm_tab
+s2s=load_cal(f2s) if sw2 else None   # passed to render_ssm_tab
+s3t=load_cal(f3t) if sw3 else None
 
 all_data,errors={},{}
 if dut_files:
@@ -538,10 +229,10 @@ with tab_ov:
                                             name=f"|h21|² raw–{lbl}",line=dict(color=c,width=1.2,dash="dot"),
                                             opacity=0.35,hovertemplate=hov))
             if sh21: f_bode.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["|h21|² (dB)"],name=f"|h21|²–{lbl}",line=dict(color=c,width=2.5),hovertemplate=hov))
-            if su:   f_bode.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["Mason U (dB)"],name=f"U–{lbl}",line=dict(color=_darken(c),width=2.5,dash="dash"),hovertemplate=hov))
+            if su:   f_bode.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["Mason U (dB)"],name=f"U–{lbl}",line=dict(color=darken(c),width=2.5,dash="dash"),hovertemplate=hov))
             if smag: f_bode.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["MAG/MSG (dB)"],name=f"MAG–{lbl}",line=dict(color=c,width=2,dash="dot"),opacity=0.7,hovertemplate=hov))
     f_bode.add_hline(y=0,line_dash="dash",line_color="black")
-    f_bode.update_layout(**_layout("Overlay — Bode Plot","Gain (dB)",yr,xr)); f_bode.update_layout(height=550)
+    f_bode.update_layout(**bode_layout("Overlay — Bode Plot","Gain (dB)",yr,xr)); f_bode.update_layout(height=550)
     st.plotly_chart(f_bode,use_container_width=True)
 
     st.markdown("### 📊 Plateau Plot Overlay")
@@ -555,11 +246,11 @@ with tab_ov:
                 f_plat.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["fT Plateau (GHz)"],name=f"fT–{lbl}",line=dict(color=c,width=2.5),hovertemplate=hov))
                 all_v+=df_p["fT Plateau (GHz)"].dropna().tolist()
             if su:
-                f_plat.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["fmax U Plateau (GHz)"],name=f"fmax(U)–{lbl}",line=dict(color=_darken(c),width=2.5,dash="dash"),hovertemplate=hov))
+                f_plat.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["fmax U Plateau (GHz)"],name=f"fmax(U)–{lbl}",line=dict(color=darken(c),width=2.5,dash="dash"),hovertemplate=hov))
                 all_v+=df_p["fmax U Plateau (GHz)"].dropna().tolist()
     arr=np.array([v for v in all_v if np.isfinite(v) and v>0])
     ym=float(np.quantile(arr,0.97))*1.3 if len(arr) else 100
-    f_plat.update_layout(**_layout("Overlay — Plateau","GBP (GHz)",[0,ym],xr)); f_plat.update_layout(height=550)
+    f_plat.update_layout(**bode_layout("Overlay — Plateau","GBP (GHz)",[0,ym],xr)); f_plat.update_layout(height=550)
     st.plotly_chart(f_plat,use_container_width=True)
 
 with tab_ind:
@@ -581,12 +272,12 @@ with tab_ind:
 
             with stab:
                 c1,c2,c3,c4,c5=st.columns(5)
-                _card(c1,"De-embedding",d["De-embedding"],"mode","#888")
-                _card(c2,"fT (GHz)",_fc(d["fT Cross/Extrap (GHz)"],d["fT Plateau (GHz)"],d["fT Method"]),d["fT Method"])
-                _card(c3,"fmax U",_fc(d["fmax U Cross/Extrap (GHz)"],d["fmax U Plateau (GHz)"],d["fmax U Method"]),d["fmax U Method"],"#d62728")
-                _card(c4,"fmax MAG",_fc(d["fmax MAG Cross/Extrap (GHz)"],d["fmax MAG Plateau (GHz)"],d["fmax MAG Method"]),d["fmax MAG Method"],"#2ca02c")
-                if d["Vce (V)"] is not None:  _card(c5,"Vce",f"{d['Vce (V)']} V","bias","#9467bd")
-                elif d["Ib (A)"] is not None: _card(c5,"Ib",f"{d['Ib (A)']*1e6:.1f} µA","bias","#9467bd")
+                metric_card(c1,"De-embedding",d["De-embedding"],"mode","#888")
+                metric_card(c2,"fT (GHz)",_fc(d["fT Cross/Extrap (GHz)"],d["fT Plateau (GHz)"],d["fT Method"]),d["fT Method"])
+                metric_card(c3,"fmax U",_fc(d["fmax U Cross/Extrap (GHz)"],d["fmax U Plateau (GHz)"],d["fmax U Method"]),d["fmax U Method"],"#d62728")
+                metric_card(c4,"fmax MAG",_fc(d["fmax MAG Cross/Extrap (GHz)"],d["fmax MAG Plateau (GHz)"],d["fmax MAG Method"]),d["fmax MAG Method"],"#2ca02c")
+                if d["Vce (V)"] is not None:  metric_card(c5,"Vce",f"{d['Vce (V)']} V","bias","#9467bd")
+                elif d["Ib (A)"] is not None: metric_card(c5,"Ib",f"{d['Ib (A)']*1e6:.1f} µA","bias","#9467bd")
 
                 toggles={"S11":show_s11,"S22":show_s22,"S21":show_s21,"S12":show_s12}
                 scales ={"S11":scale_s11,"S22":scale_s22,"S21":scale_s21,"S12":scale_s12}
@@ -594,9 +285,22 @@ with tab_ind:
                 ta,tb,tc,td=st.tabs(["Bode Plot","Plateau Plot","Smith Chart","🔬 SSM Extraction"])
                 with ta: st.plotly_chart(make_bode(df_p,Path(n).stem,xr,yr,sh21,su,smag,c),use_container_width=True)
                 with tb: st.plotly_chart(make_plateau(df_p,d,Path(n).stem,xr,sh21,su,smag,c),use_container_width=True)
-                with tc: st.plotly_chart(make_smith(d["S_fin"],df_p["Freq (GHz)"].values,
-                                                    smith_f_min,smith_f_max,toggles,scales,
-                                                    Path(n).stem,max_r=smith_max_r),use_container_width=True)
+                with tc:
+                    smith_sub_plotly, smith_sub_mpl = st.tabs(
+                        ["Plotly", "Matplotlib"])
+                    with smith_sub_plotly:
+                        st.plotly_chart(make_smith(
+                            d["S_fin"], df_p["Freq (GHz)"].values,
+                            smith_f_min, smith_f_max, toggles, scales,
+                            Path(n).stem, max_r=smith_max_r),
+                            use_container_width=True)
+                    with smith_sub_mpl:
+                        render_matplotlib_smith(
+                            fname=n, topo_key="meas",
+                            sets=[{"S": d["S_fin"], "label": Path(n).stem,
+                                   "kind": "line", "style": "solid"}],
+                            default_multiplier=1.0,
+                        )
                 with td:
                     # Gate key unique per file
                     run_key = f"ssm_run_{n}"
@@ -688,6 +392,6 @@ with tab_bd:
         ),
         helpers=dict(
             y_to_s=y_to_s, compute_metrics=compute_metrics, extract_limit=extract_limit,
-            make_bode=make_bode, make_smith=make_smith, card=_card, PALETTE=PALETTE,
+            make_bode=make_bode, make_smith=make_smith, card=metric_card, PALETTE=PALETTE,
         ),
     )

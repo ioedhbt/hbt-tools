@@ -19,8 +19,7 @@ import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
 
-from tools.SSM.ssm_deembedding import step_open, step_short, peel_parasitics
-from tools.SSM.ssm_s2p          import write_s2p
+from tools.SSM.helpers import step_open, step_short, peel_parasitics, write_s2p
 
 
 # ── Plot helpers ──────────────────────────────────────────────────────────────

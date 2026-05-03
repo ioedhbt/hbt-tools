@@ -15,7 +15,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from ..ssm_core   import y_to_z, safe_median, params_hash
+from ..helpers    import y_to_z, safe_median, params_hash
 from .base_ui     import PAD_SPECS
 from . import AbstractSSMModel
 

@@ -1,15 +1,22 @@
 """
-ssm_chart_utils.py — Shared chart helpers for the SSM extraction UI.
+helpers/chart_export.py — Excel export, Streamlit chart wrapper, metric tile.
 
-Kept in a separate module so both ssm_plots.py and models/base_ui.py can import
-it without introducing circular dependencies.
+Consolidates:
+  - ssm_chart_utils.py        (fig_to_excel_bytes, plotly_with_dl, _EXCEL_MIME,
+                               and the internal _axis_text/_is_smith/etc.)
+  - IOED_HBT_RF_extract.py    (build_excel, _card → renamed to metric_card)
 """
 from __future__ import annotations
 import io
 import re
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+
+EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -48,7 +55,6 @@ def _smith_col_name(trace_name: str) -> str:
         if "mod" in low:
             return f"{sparam}_mod"
         return sparam
-    # Fallback: strip trailing punctuation, replace spaces
     return re.sub(r"\s+", "_", trace_name.strip(" .")).lower()
 
 
@@ -83,7 +89,7 @@ def _freq_sheet_name(x_lbl: str, x_arr: np.ndarray) -> str:
     elif "freq" in lbl_low or "hz" in lbl_low:
         lo_ghz, hi_ghz = lo / 1e9, hi / 1e9
     else:
-        return "Data"   # not a frequency axis
+        return "Data"
 
     def _lbl(v: float) -> str:
         if v < 1.0:
@@ -123,14 +129,13 @@ def _collect_traces(fig):
         if len(xa) < 3 or len(ya) < 3:
             continue
         name = (getattr(trace, "name", None) or f"Trace{len(out)}")
-        # Strip Plotly HTML tags that sometimes appear in trace names
         name = re.sub(r"<[^>]+>", "", name)
         out.append((name, xa, ya))
     return out
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# Excel export
+# Excel export — single Plotly figure
 # ════════════════════════════════════════════════════════════════════════════════
 
 def fig_to_excel_bytes(fig) -> bytes | None:
@@ -163,7 +168,6 @@ def fig_to_excel_bytes(fig) -> bytes | None:
 
     buf = io.BytesIO()
 
-    # ── Smith chart: one sheet, re/im column pairs ────────────────────────────
     if _is_smith(fig):
         max_len = max(len(x) for _, x, _ in traces)
 
@@ -182,7 +186,6 @@ def fig_to_excel_bytes(fig) -> bytes | None:
             pd.DataFrame(data).to_excel(writer, sheet_name="Smith", index=False)
         return buf.getvalue()
 
-    # ── Normal plots ──────────────────────────────────────────────────────────
     lengths = [len(x) for _, x, _ in traces]
     all_same_len = len(set(lengths)) == 1
 
@@ -219,9 +222,6 @@ def fig_to_excel_bytes(fig) -> bytes | None:
 # Drop-in plotly_chart wrapper
 # ════════════════════════════════════════════════════════════════════════════════
 
-_EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-
 def plotly_with_dl(
     fig,
     key: str,
@@ -255,6 +255,49 @@ def plotly_with_dl(
         label="⬇ xlsx",
         data=xl,
         file_name=f"{filename or key}.xlsx",
-        mime=_EXCEL_MIME,
+        mime=EXCEL_MIME,
         key=f"dl_xl_{key}",
     )
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Multi-DUT workbook export (was IOED's `build_excel`)
+# ════════════════════════════════════════════════════════════════════════════════
+
+def build_excel(summary_df: pd.DataFrame, all_data: dict) -> bytes:
+    """Build a multi-sheet workbook: a 'Summary' sheet plus one sheet per DUT.
+
+    `all_data` is the IOED dict-of-dicts keyed by filename. Each entry must
+    contain at least `df_raw` and optionally `df_fin` (de-embedded). The
+    de-embedded DataFrame is used when present, otherwise the raw one.
+
+    Sheet names are derived from the file stem with characters illegal in
+    Excel sheet names replaced by underscores, capped at 28 characters.
+    """
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as w:
+        summary_df.to_excel(w, sheet_name="Summary", index=False)
+        for k, v in all_data.items():
+            df_p = v["df_fin"] if v["df_fin"] is not None else v["df_raw"]
+            base = re.sub(r"[:\\/*?\[\]]", "_", Path(k).stem)[:28]
+            df_p.to_excel(w, sheet_name=base, index=False)
+    return buf.getvalue()
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Streamlit metric tile (was IOED's `_card`)
+# ════════════════════════════════════════════════════════════════════════════════
+
+def metric_card(col, title: str, val, sub: str, color: str = "#4A90D9"):
+    """Render a styled HTML metric tile inside a Streamlit column.
+
+    Used by the IOED Individual tab and by the batch de-embedding tab to
+    show fT/fmax cards in a uniform style.
+    """
+    col.markdown(
+        f'<div style="padding:10px 14px;border-radius:8px;border-left:4px solid {color};'
+        f'background:#f7f9fc;min-height:70px;margin-bottom:10px;">'
+        f'<div style="font-size:0.74rem;color:#666;">{title}</div>'
+        f'<div style="font-size:1.15rem;font-weight:700;color:#1a2e4a;">{val}</div>'
+        f'<div style="font-size:0.70rem;color:#888;margin-top:1px;">{sub}</div></div>',
+        unsafe_allow_html=True)
