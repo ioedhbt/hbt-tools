@@ -23,7 +23,8 @@ from .helpers import (s_to_y, y_to_z, z_to_y,
                       parse_s2p_bytes, interpolate_s2f,
                       build_Y_pad,
                       peel_parasitics,
-                      plotly_with_dl)
+                      plotly_with_dl,
+                      quickset_buttons, apply_pending)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -300,12 +301,16 @@ def render_open_collector_section(all_data, para_eff, fname):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
-                       re_zparam=None):
+                       re_zparam=None, open_arr=None, short_arr=None):
     """Cold-HBT extraction UI. Returns cold_res dict or None.
 
     Per Gao §5.5.2, Z_cor must have pad caps, series inductances, and Re
     removed before A/B/C/D are computed. Missing pieces default to 0 and
     are flagged in the UI.
+
+    open_arr / short_arr (optional) are the per-frequency arrays from
+    step_open / step_short — when supplied, the parasitic override inputs
+    grow quickset buttons (mean / median / low f / high f / default).
     """
 
     st.caption("Used to extract series/access resistances Rb, Rc. Upload cut-off bias (Vce=0, Vbe≤0) S2P 'cold'.")
@@ -328,20 +333,42 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
     has_re    = re_zparam is not None
 
     st.markdown("**Parasitics being subtracted from Z_cor** (editable — defaults to extracted values)")
+
+    def _cold_input(container, label, key, init_disp, fmt, step,
+                    arr_si=None, scale=1.0, unit=""):
+        """number_input + quickset buttons (below) for one Cold-HBT parasitic.
+
+        Returns the user's displayed value (in display units).
+        """
+        apply_pending(key)
+        if key not in st.session_state:
+            st.session_state[key] = float(init_disp)
+        container.number_input(label, key=key, format=fmt, step=step)
+        arr_disp = (np.asarray(arr_si) * scale) if arr_si is not None else None
+        quickset_buttons(container=container,
+                          key_prefix=key, target_key=key,
+                          arr_disp=arr_disp,
+                          default_disp=float(init_disp),
+                          unit=unit, fmt="%.4g", layout="below")
+        return float(st.session_state[key])
+
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("<small><b>Pad caps (Open)</b></small>", unsafe_allow_html=True)
         if not has_open:
             st.caption("⚠️ no Open file — defaulting to 0 fF")
-        Cpce_in = st.number_input("Cpce (fF)", value=float(Cpce*1e15),
-                                  format="%.3f", step=0.1,
-                                  key=f"cold_Cpce_in_{fname}")
-        Cpbe_in = st.number_input("Cpbe (fF)", value=float(Cpbe*1e15),
-                                  format="%.3f", step=0.1,
-                                  key=f"cold_Cpbe_in_{fname}")
-        Cpbc_in = st.number_input("Cpbc (fF)", value=float(Cpbc*1e15),
-                                  format="%.3f", step=0.1,
-                                  key=f"cold_Cpbc_in_{fname}")
+        Cpce_in = _cold_input(c1, "Cpce (fF)", f"cold_Cpce_in_{fname}",
+                              Cpce*1e15, "%.3f", 0.1,
+                              arr_si=(open_arr or {}).get("Cpce"),
+                              scale=1e15, unit="fF")
+        Cpbe_in = _cold_input(c1, "Cpbe (fF)", f"cold_Cpbe_in_{fname}",
+                              Cpbe*1e15, "%.3f", 0.1,
+                              arr_si=(open_arr or {}).get("Cpbe"),
+                              scale=1e15, unit="fF")
+        Cpbc_in = _cold_input(c1, "Cpbc (fF)", f"cold_Cpbc_in_{fname}",
+                              Cpbc*1e15, "%.3f", 0.1,
+                              arr_si=(open_arr or {}).get("Cpbc"),
+                              scale=1e15, unit="fF")
         Cpce = Cpce_in * 1e-15
         Cpbe = Cpbe_in * 1e-15
         Cpbc = Cpbc_in * 1e-15
@@ -349,15 +376,18 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
         st.markdown("<small><b>Series L (Short)</b></small>", unsafe_allow_html=True)
         if not has_short:
             st.caption("⚠️ no Short file — defaulting to 0 pH")
-        Lb_in = st.number_input("Lb (pH)", value=float(Lb*1e12),
-                                format="%.3f", step=0.1,
-                                key=f"cold_Lb_in_{fname}")
-        Le_in = st.number_input("Le (pH)", value=float(Le*1e12),
-                                format="%.3f", step=0.1,
-                                key=f"cold_Le_in_{fname}")
-        Lc_in = st.number_input("Lc (pH)", value=float(Lc*1e12),
-                                format="%.3f", step=0.1,
-                                key=f"cold_Lc_in_{fname}")
+        Lb_in = _cold_input(c2, "Lb (pH)", f"cold_Lb_in_{fname}",
+                            Lb*1e12, "%.3f", 0.1,
+                            arr_si=(short_arr or {}).get("Lb"),
+                            scale=1e12, unit="pH")
+        Le_in = _cold_input(c2, "Le (pH)", f"cold_Le_in_{fname}",
+                            Le*1e12, "%.3f", 0.1,
+                            arr_si=(short_arr or {}).get("Le"),
+                            scale=1e12, unit="pH")
+        Lc_in = _cold_input(c2, "Lc (pH)", f"cold_Lc_in_{fname}",
+                            Lc*1e12, "%.3f", 0.1,
+                            arr_si=(short_arr or {}).get("Lc"),
+                            scale=1e12, unit="pH")
         Lb = Lb_in * 1e-12
         Le = Le_in * 1e-12
         Lc = Lc_in * 1e-12
@@ -365,6 +395,7 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
         st.markdown("<small><b>Re (Z-param)</b></small>", unsafe_allow_html=True)
         if not has_re:
             st.caption("⚠️ Z-param fit unavailable — defaulting to 0 Ω")
+        # No per-frequency array for Re here → quickset is skipped (scalar fit).
         Re_v = st.number_input("Re (Ω)", value=float(Re_v),
                                format="%.4f", step=0.01,
                                key=f"cold_Re_in_{fname}")

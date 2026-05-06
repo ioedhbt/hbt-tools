@@ -19,7 +19,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 
-from tools.SSM.ssm_extraction import render_ssm_tab   # ← SSM module (Cheng 2022)
+from tools.SSM.main_ssm_extraction import render_ssm_tab   # ← SSM module (Cheng 2022)
 from tools.SSM.ssm_plots      import render_matplotlib_smith
 from tools.batch_deembedding  import render_batch_deembedding_tab
 from tools.SSM.helpers        import (
@@ -36,9 +36,10 @@ from tools.SSM.helpers        import (
 if "rf_uploader_key" not in st.session_state:
     st.session_state["rf_uploader_key"] = 0
 
-st.title("📡 IOED HBT RF Extraction Tool (v4.5)")
+st.title("📡 IOED HBT RF Extraction Tool (v4.6 update)")
 
 with st.expander("Changelog", expanded=False):
+    st.caption("**v4.6**: Refactored SSM module into modular structure (main_ssm_extraction + ssm_access_resistance + helpers/widgets), added quickset buttons (mean/median/low-f/high-f) to interactive parameter inputs, added Modeled/Measured Open-Short source selector for batch de-embedding, frequency-axis x-axis for short dummy lead-inductance plots, Linux/macOS launcher instructions.")
     st.caption("**v4.5**: Code refactoring and minor improvements.")
     st.caption("**v4.4**: Added optimized tuning strategies, added smith chart with matplotlib, removed Ccex from Cheng's T, improved user usability.")
     st.caption("**v4.3**: Added other OS support for launcher, added Ccex term for Cheng's T, fixed topology illustration for Pi, fixed some plotting.")

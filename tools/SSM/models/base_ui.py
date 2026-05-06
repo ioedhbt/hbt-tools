@@ -16,7 +16,8 @@ from io import BytesIO
 
 from ..helpers import (extended_smith_grid, params_hash, s_to_y,
                         build_Y_pad_batch, build_Z_ser_batch,
-                        plotly_with_dl)
+                        plotly_with_dl,
+                        quickset_buttons, apply_pending)
 
 # Streamlit's "rerun current script" exception — raised when any st.* call
 # happens after the user has clicked a widget that triggers a re-run (e.g.
@@ -767,6 +768,8 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     pending_key = f"pfp_pending_{model_short}_{param_key}_{fname}"
                     if pending_key in st.session_state:
                         st.session_state[inp_key] = st.session_state.pop(pending_key)
+                    # Same for quickset-button writes
+                    apply_pending(inp_key)
 
                     user_disp = float(st.session_state.get(inp_key, auto_disp))
                     user_SI   = user_disp / scale
@@ -822,6 +825,15 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                         value=float(auto_disp),
                         format="%.5g",
                         key=inp_key)
+
+                    # Quickset buttons row beneath the input (Step 3 layout)
+                    quickset_buttons(container=col_w,
+                                      key_prefix=inp_key,
+                                      target_key=inp_key,
+                                      arr_disp=arr_plot,
+                                      default_disp=auto_disp,
+                                      unit=unit,
+                                      fmt="%.4g", layout="below")
 
                     params_out[param_key] = actual_val / scale
 

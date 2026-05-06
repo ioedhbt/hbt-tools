@@ -1,0 +1,1 @@
+- Add buttons for parameter extraction, like "mean = x" (x being the value if mean is used), "median = x", "low freq = x", "high freq = x". Use the default like now.

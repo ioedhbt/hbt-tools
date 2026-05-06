@@ -19,7 +19,8 @@ import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
 
-from tools.SSM.helpers import step_open, step_short, peel_parasitics, write_s2p
+from tools.SSM.helpers import (step_open, step_short, peel_parasitics, write_s2p,
+                                deembed_open_short, s_to_y, plotly_with_dl)
 
 
 # ── Plot helpers ──────────────────────────────────────────────────────────────
@@ -43,7 +44,8 @@ def _cap_vs_f_fig(arrays_open, freq):
     fig.update_layout(
         title=dict(text="Pad Capacitance vs Frequency (Open dummy)", font=dict(size=13)),
         xaxis=dict(title="Frequency (GHz)", showgrid=True, gridcolor="#ebebeb"),
-        yaxis=dict(title="Capacitance (fF)", showgrid=True, gridcolor="#ebebeb"),
+        yaxis=dict(title="Capacitance (fF)", range=[0, 30],
+                   showgrid=True, gridcolor="#ebebeb"),
         plot_bgcolor="white", paper_bgcolor="white", height=380,
         legend=dict(x=0.99, y=0.99, xanchor="right", yanchor="top",
                     bgcolor="rgba(255,255,255,0.88)", bordercolor="#ccc", borderwidth=1),
@@ -70,7 +72,8 @@ def _ind_vs_f_fig(arrays_short, freq):
     fig.update_layout(
         title=dict(text="Lead Inductance vs Frequency (Short dummy)", font=dict(size=13)),
         xaxis=dict(title="Frequency (GHz)", showgrid=True, gridcolor="#ebebeb"),
-        yaxis=dict(title="Inductance (pH)", showgrid=True, gridcolor="#ebebeb"),
+        yaxis=dict(title="Inductance (pH)", range=[0, 100],
+                   showgrid=True, gridcolor="#ebebeb"),
         plot_bgcolor="white", paper_bgcolor="white", height=380,
         legend=dict(x=0.99, y=0.99, xanchor="right", yanchor="top",
                     bgcolor="rgba(255,255,255,0.88)", bordercolor="#ccc", borderwidth=1),
@@ -155,8 +158,10 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
     f_open  = open_data[0]  if open_data  is not None else next(iter(all_data.values()))["freq"]
     f_short = short_data[0] if short_data is not None else next(iter(all_data.values()))["freq"]
     cc, cl = st.columns(2)
-    cc.plotly_chart(_cap_vs_f_fig(arrays_open,  f_open),  use_container_width=True)
-    cl.plotly_chart(_ind_vs_f_fig(arrays_short, f_short), use_container_width=True)
+    plotly_with_dl(_cap_vs_f_fig(arrays_open,  f_open),
+                   key="bd_cap_vs_f", filename="batch_open_cap_vs_f", container=cc)
+    plotly_with_dl(_ind_vs_f_fig(arrays_short, f_short),
+                   key="bd_ind_vs_f", filename="batch_short_ind_vs_f", container=cl)
 
     # ── 3. Override section ───────────────────────────────────────────────────
     head_l, head_r = st.columns([4, 1])
@@ -191,12 +196,75 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
         Rpb=Rb, Rpc=Rc, Rpe=Re,
     )
 
-    # ── 4. Apply de-embedding to every DUT file ───────────────────────────────
+    # ── 4. Open / Short source selector ───────────────────────────────────────
+    st.markdown("#### De-embedding source")
+    st.caption(
+        "**Modeled** uses the override values above to build analytical pad/lead "
+        "matrices and subtract them. **Measured** subtracts the raw Open/Short "
+        "S-parameters directly (Gao §4.2 open-short). Measured falls back to "
+        "Modeled automatically when the corresponding dummy file is missing.")
+    src_o, src_s = st.columns(2)
+    open_mode  = src_o.radio("Open source",  ["Modeled", "Measured"],
+                              horizontal=True, key="bd_open_src",
+                              disabled=(open_data is None),
+                              help=("Upload an Open dummy to enable Measured."
+                                    if open_data is None else None))
+    short_mode = src_s.radio("Short source", ["Modeled", "Measured"],
+                              horizontal=True, key="bd_short_src",
+                              disabled=(short_data is None),
+                              help=("Upload a Short dummy to enable Measured."
+                                    if short_data is None else None))
+    use_meas_open  = (open_mode  == "Measured") and (open_data  is not None)
+    use_meas_short = (short_mode == "Measured") and (short_data is not None)
+
+    # Pre-compute Y_open / Y_short on the DUT frequency grid where needed.
+    Y_open_meas = Y_short_meas = None
+    if use_meas_open:
+        f_o, S_o, z0_o = open_data
+        Y_open_meas = s_to_y(S_o, z0_o)
+    if use_meas_short:
+        f_s, S_s, z0_s = short_data
+        Y_short_meas = s_to_y(S_s, z0_s)
+
+    # ── 5. Apply de-embedding to every DUT file ───────────────────────────────
     bd_results = {}
     bd_errors  = {}
     for name, d in all_data.items():
         try:
-            Y_de  = peel_parasitics(d["S_raw"], d["freq"], d["z0"], p_eff)
+            if use_meas_open and use_meas_short:
+                # Both sides measured: pure Open-Short subtraction (Gao §4.2)
+                if (len(d["freq"]) != len(open_data[0])
+                        or not np.allclose(d["freq"], open_data[0], rtol=1e-5)
+                        or len(d["freq"]) != len(short_data[0])
+                        or not np.allclose(d["freq"], short_data[0], rtol=1e-5)):
+                    raise ValueError("DUT frequency grid does not match Open/Short.")
+                Y_dut = s_to_y(d["S_raw"], d["z0"])
+                Y_de  = deembed_open_short(Y_dut, Y_open_meas, Y_short_meas)
+            elif use_meas_open and not use_meas_short:
+                # Open from measurement, Short from model
+                Y_dut = s_to_y(d["S_raw"], d["z0"])
+                Y_after_open = Y_dut - Y_open_meas
+                # Re-use peel_parasitics' Short half by passing zeroed pad caps
+                p_short_only = {**p_eff,
+                                "Cpbe": 0.0, "Cpce": 0.0, "Cpbc": 0.0}
+                # Build a virtual "post-Open" S so peel_parasitics applies only Short
+                # (peel does Y_dut - Y_pad first; with Y_pad=0 this is a no-op)
+                from tools.SSM.helpers import y_to_s_batch as _y2s
+                S_after_open = _y2s(Y_after_open, d["z0"])
+                Y_de = peel_parasitics(S_after_open, d["freq"], d["z0"], p_short_only)
+            elif use_meas_short and not use_meas_open:
+                # Open from model, Short from measurement (rare, but supported)
+                p_open_only = {**p_eff,
+                               "Lb": 0.0, "Lc": 0.0, "Le": 0.0,
+                               "Rpb": 0.0, "Rpc": 0.0, "Rpe": 0.0}
+                Y_after_open = peel_parasitics(d["S_raw"], d["freq"], d["z0"], p_open_only)
+                # Subtract measured Y_short (already Open-corrected by Gao convention
+                # ⇒ users supplying Short S2P should ensure it includes pads)
+                from tools.SSM.helpers import z_to_y, y_to_z
+                Y_de = z_to_y(y_to_z(Y_after_open) - y_to_z(Y_short_meas - (Y_open_meas if Y_open_meas is not None else 0)))
+            else:
+                # Both modeled (original behaviour)
+                Y_de  = peel_parasitics(d["S_raw"], d["freq"], d["z0"], p_eff)
             S_de  = y_to_s(Y_de, d["z0"])
             df_de = compute_metrics(Y_de, d["freq"])
             f_arr = df_de["Freq (GHz)"].values
@@ -248,7 +316,9 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
         c = PALETTE[file_names.index(name) % len(PALETTE)]
         with stab:
             k1, k2, k3, k4 = st.columns(4)
-            card(k1, "De-embedding", "Batch (Modeled O/S)", "mode", "#888")
+            mode_lbl = (f"Open: {open_mode if open_data is not None else 'Modeled'} · "
+                        f"Short: {short_mode if short_data is not None else 'Modeled'}")
+            card(k1, "De-embedding", mode_lbl, "mode", "#888")
             card(k2, "fT (GHz)",
                  _fc(r["fT_cr"],  r["fT_pl"],  r["fT_m"]),  r["fT_m"])
             card(k3, "fmax U",

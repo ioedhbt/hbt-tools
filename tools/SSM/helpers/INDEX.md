@@ -86,6 +86,13 @@ The submodule paths below are for jump-to-definition only.
 > currently in `RF_simulator.py::_build_smith` / `_build_bode`. For now they match the IOED
 > signatures verbatim.
 
+## `widgets.py` — Streamlit input widgets
+
+| Function | Purpose |
+|----------|---------|
+| `quickset_buttons(container, key_prefix, target_key, arr_disp, default_disp, fmt, layout)` | Row of one-click buttons (mean/median/low f/high f/default) that overwrite a paired number_input via a pending session-state key + rerun. |
+| `apply_pending(target_key)` | Call **before** the paired `number_input` to promote any pending quickset value into the widget's state. |
+
 ## `chart_export.py` — Excel export & Streamlit UI helpers
 
 | Function | Purpose |

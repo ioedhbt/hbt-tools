@@ -192,13 +192,20 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
 # Short dummy plots
 # ════════════════════════════════════════════════════════════════════════════════
 
-def render_short_plots(short_arr, para_short, fname=""):
+def render_short_plots(short_arr, para_short, fname="", freq=None):
     """
-    Render Lead inductances vs frequency  [0–150 pH, fixed] for Short dummy diagnostics 
+    Render Lead inductances vs frequency [0–150 pH, fixed] for Short dummy diagnostics.
 
+    Parameters
+    ----------
+    short_arr  : dict from step_short — must contain Lb, Lc, Le arrays.
+    para_short : dict of scalar fitted values (used as horizontal reference lines).
+    fname      : Streamlit widget-key suffix.
+    freq       : Hz array matching the Lb/Lc/Le sample positions. When provided
+                 the x-axis is plotted in GHz (downloads as L vs freq, not point
+                 index). When None the legacy point-index axis is used.
     """
 
-    # ── 2. Inductance plot ────────────────────────────────────────────────────
     with st.expander("📊 Short — Lead Inductances vs Frequency", expanded=True):
         fig_ind = go.Figure(); any_neg = False
         for key, lbl, col in [("Lb","Lb","#8e44ad"),
@@ -207,17 +214,26 @@ def render_short_plots(short_arr, para_short, fname=""):
             arr_pH = short_arr[key] * 1e12
             val_pH = para_short[key] * 1e12
             if val_pH < 0: any_neg = True
-            idx = np.arange(len(arr_pH))
-            fig_ind.add_trace(go.Scatter(x=idx, y=arr_pH,
-                name=f"{lbl} (per-freq)", line=dict(color=col, width=2), mode="lines"))
-            fig_ind.add_trace(go.Scatter(x=[0, len(arr_pH)-1], y=[val_pH, val_pH],
+            if freq is not None:
+                xv = np.asarray(freq) * 1e-9
+                hov = (f"{lbl}=%{{y:.4f}} pH<br>"
+                       f"f=%{{x:.3f}} GHz<extra></extra>")
+            else:
+                xv = np.arange(len(arr_pH))
+                hov = f"{lbl}=%{{y:.4f}} pH<extra></extra>"
+            fig_ind.add_trace(go.Scatter(x=xv, y=arr_pH,
+                name=f"{lbl} (per-freq)",
+                line=dict(color=col, width=2), mode="lines",
+                hovertemplate=hov))
+            fig_ind.add_trace(go.Scatter(x=[xv[0], xv[-1]], y=[val_pH, val_pH],
                 name=f"{lbl}={val_pH:.2f} pH",
                 line=dict(color=col, width=1.8, dash="dash"), mode="lines"))
         fig_ind.add_hline(y=0, line_color="#333", line_width=1.2,
                            annotation_text="0 pH", annotation_position="left",
                            annotation_font=dict(size=9, color="#333"))
+        x_title = "Frequency (GHz)" if freq is not None else "Point index"
         fig_ind.update_layout(title="Lead Inductances",
-            xaxis_title="Point index", yaxis_title="Inductance (pH)",
+            xaxis_title=x_title, yaxis_title="Inductance (pH)",
             plot_bgcolor="white", paper_bgcolor="white", height=360,
             legend=dict(x=1.02, y=1.0, xanchor="left", font=dict(size=9)),
             margin=dict(l=55,r=10,t=40,b=45), hovermode="x unified")

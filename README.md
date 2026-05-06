@@ -34,6 +34,14 @@ The parameter tuning engine supports CUDA (NVIDIA GPU) for massive-parallel comb
 
 ## Quick Start
 
-Requires **Python 3.9+** (no other pre-installation needed).
+Requires **Python 3.9+**, and optionally CUDA 12 or CUDA 13.
 
 In Windows, double click ```LAUNCH_Tool.py``` to start the UI.
+
+On Linux or macOS, open a terminal in the project directory and run:
+
+```bash
+python3 LAUNCH_Tool.py
+```
+
+If `python3` is not found, install Python 3.9+ from your package manager (e.g. `sudo apt install python3 python3-venv` on Debian/Ubuntu, or `brew install python` on macOS). The launcher will create a local virtual environment at `.hbttools/` and install all required packages on first run.

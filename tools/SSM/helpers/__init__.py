@@ -88,3 +88,9 @@ from .chart_export import (
     metric_card,
     EXCEL_MIME,
 )
+
+# ── widgets ──────────────────────────────────────────────────────────────────
+from .widgets import (
+    quickset_buttons,
+    apply_pending,
+)

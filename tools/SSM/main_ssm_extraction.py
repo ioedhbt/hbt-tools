@@ -24,8 +24,9 @@ from .helpers          import (strict_freq_check, s_to_y,
                                 step_open, step_short, peel_parasitics,
                                 parse_s2p_bytes, interpolate_s2f,
                                 write_s2p, simulate_open, simulate_short,
-                                plotly_with_dl)
-from .ssm_deembedding  import (_render_cold_hbt,
+                                plotly_with_dl,
+                                quickset_buttons, apply_pending)
+from .ssm_access_resistance  import (_render_cold_hbt,
                                 render_rz12_section,
                                 render_open_collector_section)
 from .ssm_plots        import (render_open_plots, render_short_plots,
@@ -186,7 +187,17 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                     for dk, sc in _OPEN_OV: st.session_state[f"ov_{dk}_{fname}"] = para_open_calc[dk]*sc
                     st.rerun()
                 for col_w, (dk, sc) in zip(st.columns(3), _OPEN_OV):
-                    col_w.number_input(f"{dk} (fF)", key=f"ov_{dk}_{fname}", format="%.4f", step=0.1)
+                    sk = f"ov_{dk}_{fname}"
+                    apply_pending(sk)
+                    col_w.number_input(f"{dk} (fF)", key=sk, format="%.4f", step=0.1)
+                    arr_disp = np.asarray(open_arr[dk]) * sc
+                    quickset_buttons(container=col_w,
+                                      key_prefix=sk,
+                                      target_key=sk,
+                                      arr_disp=arr_disp,
+                                      default_disp=para_open_calc[dk]*sc,
+                                      unit="fF",
+                                      fmt="%.4g", layout="below")
             para_caps_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _OPEN_OV}
 
             # open_mode_extra = render_open_plots(open_data, para_caps_ov, open_arr, fname)
@@ -297,12 +308,22 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                     for col_w, (dk, sc) in zip(st.columns(3), row_items):
                         unit = "pH" if sc==1e12 else "Ω"
                         fmt  = "%.3f" if sc==1e12 else "%.4f"
-                        col_w.number_input(f"{dk} ({unit})", key=f"ov_{dk}_{fname}",
-                                        format=fmt, step=0.1 if sc==1e12 else 0.01)
+                        sk   = f"ov_{dk}_{fname}"
+                        apply_pending(sk)
+                        col_w.number_input(f"{dk} ({unit})", key=sk,
+                                            format=fmt, step=0.1 if sc==1e12 else 0.01)
+                        arr_disp = np.asarray(short_arr[dk]) * sc
+                        quickset_buttons(container=col_w,
+                                          key_prefix=sk,
+                                          target_key=sk,
+                                          arr_disp=arr_disp,
+                                          default_disp=para_short_calc[dk]*sc,
+                                          unit=unit,
+                                          fmt="%.4g", layout="below")
             para_short_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc for dk, sc in _SHORT_OV}
 
             # Enhanced short plots — returns {Cpar_Lb, Cpar_Lc, Cpar_Le}
-            render_short_plots(short_arr, para_short_ov, fname)
+            render_short_plots(short_arr, para_short_ov, fname, freq=freq)
 
             # ── Modeled Short dummy S2P download ─────────────────────────────
             _p_short = {**para_caps_ov, **para_short_ov}
@@ -383,7 +404,9 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             unsafe_allow_html=True)
         with st.expander("Cold-HBT Extraction", expanded=False):
             cold_res = _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
-                                        re_zparam=rz12_Re)
+                                        re_zparam=rz12_Re,
+                                        open_arr=(open_arr if has_open else None),
+                                        short_arr=(short_arr if has_short else None))
 
         # ── Open-collector method ─────────────────────────────────────────────────
         st.markdown(
