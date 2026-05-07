@@ -148,11 +148,11 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
         col = _SMITH_COLORS[name]; sc = scales.get(name, 1.0)
         sm = S_mea[:,r,c]*sc; sk = S_sim[:,r,c]*sc
         sc_lbl = "" if abs(sc-1.0)<1e-9 else (f" ×{sc:.2g}" if sc>=1 else f" ÷{1/sc:.2g}")
-        fig.add_trace(go.Scatter(x=sm.real, y=sm.imag, mode="markers",
+        fig.add_trace(go.Scattergl(x=sm.real, y=sm.imag, mode="markers",
                                   name=f"{name}{sc_lbl} {meas_label}",
                                   marker=dict(color=col, size=5, symbol="circle"),
                                   hovertemplate=f"{name} {meas_label}<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
-        fig.add_trace(go.Scatter(x=sk.real, y=sk.imag, mode="lines",
+        fig.add_trace(go.Scattergl(x=sk.real, y=sk.imag, mode="lines",
                                   name=f"{name}{sc_lbl} {sim_label}",
                                   line=dict(color=col, width=2.0, dash="dash"),
                                   hovertemplate=f"{name} {sim_label}<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
@@ -438,7 +438,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     for col_w, part_fn, part_lbl in [(c1, np.real, "Re"),
                                                       (c2, np.imag, "Im")]:
                         fig = go.Figure()
-                        fig.add_trace(go.Scatter(
+                        fig.add_trace(go.Scattergl(
                             x=f_plot, y=part_fn(zarr[mask]), mode="lines",
                             line=dict(color="#1f77b4", width=2)))
                         fig.update_layout(
@@ -502,15 +502,15 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                                   & (Fbi_arr > 0))
                     win_mask   = valid_mask & (f_ghz <= f_hi_fbi)
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(
+                    fig.add_trace(go.Scattergl(
                         x=omega2[valid_mask], y=Fbi_arr[valid_mask], mode="markers",
                         name="All data", marker=dict(size=4, color="#aec7e8")))
-                    fig.add_trace(go.Scatter(
+                    fig.add_trace(go.Scattergl(
                         x=omega2[win_mask], y=Fbi_arr[win_mask], mode="markers",
                         name="Fit window", marker=dict(size=6, color="#1f77b4")))
                     if A0 > 1e-30 and win_mask.any():
                         xf = np.linspace(0, float(omega2[win_mask].max()) * 1.1, 200)
-                        fig.add_trace(go.Scatter(
+                        fig.add_trace(go.Scattergl(
                             x=xf, y=A0 + B0 * xf, mode="lines",
                             name=f"Fit  A₀={A0:.3e}  B₀={B0:.3e}",
                             line=dict(color="#d62728", dash="dash", width=2)))
@@ -583,15 +583,15 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                                   & (F1_arr > 0))
                     win_mask   = valid_mask & (f_ghz <= f_hi_f1)
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(
+                    fig.add_trace(go.Scattergl(
                         x=omega2[valid_mask], y=F1_arr[valid_mask], mode="markers",
                         name="All data", marker=dict(size=4, color="#aec7e8")))
-                    fig.add_trace(go.Scatter(
+                    fig.add_trace(go.Scattergl(
                         x=omega2[win_mask], y=F1_arr[win_mask], mode="markers",
                         name="Fit window", marker=dict(size=6, color="#1f77b4")))
                     if A1 > 1e-30 and win_mask.any():
                         xf = np.linspace(0, float(omega2[win_mask].max()) * 1.1, 200)
-                        fig.add_trace(go.Scatter(
+                        fig.add_trace(go.Scattergl(
                             x=xf, y=A1 + B1 * xf, mode="lines",
                             name=f"Fit  A={A1:.3e}  B={B1:.3e}",
                             line=dict(color="#d62728", dash="dash", width=2)))
@@ -776,7 +776,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
 
                     ylabel = f"{label} ({unit})" if unit else label
                     fig = go.Figure()
-                    fig.add_trace(go.Scatter(
+                    fig.add_trace(go.Scattergl(
                         x=f_plot, y=arr_plot, mode="lines", name=label,
                         line=dict(color="#1f77b4", width=2)))
                     if np.isfinite(user_disp):
@@ -786,17 +786,22 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                             annotation_text=f"{user_disp:.4g} {unit}",
                             annotation_position="right",
                             annotation_font=dict(size=9, color="#d62728"))
+                    # Cold-section value (computed once — used for both the
+                    # plot annotation and the "cold = …" quickset button).
+                    _cold_disp = None
                     if cold_res is not None and cold_param_map is not None:
                         _ck = cold_param_map.get(param_key)
                         if _ck and _ck in cold_res:
-                            _cold_disp = float(cold_res[_ck]) * scale
-                            if np.isfinite(_cold_disp):
-                                fig.add_hline(
-                                    y=_cold_disp,
-                                    line=dict(color="#2ca02c", width=1.5, dash="dot"),
-                                    annotation_text=f"Cold: {_cold_disp:.4g} {unit}",
-                                    annotation_position="left",
-                                    annotation_font=dict(size=9, color="#2ca02c"))
+                            _v = float(cold_res[_ck]) * scale
+                            if np.isfinite(_v):
+                                _cold_disp = _v
+                    if _cold_disp is not None:
+                        fig.add_hline(
+                            y=_cold_disp,
+                            line=dict(color="#2ca02c", width=1.5, dash="dot"),
+                            annotation_text=f"Cold: {_cold_disp:.4g} {unit}",
+                            annotation_position="left",
+                            annotation_font=dict(size=9, color="#2ca02c"))
                     fig.update_layout(
                         title=dict(text=label, font=dict(size=12)),
                         xaxis_title="Frequency (GHz)", yaxis_title=ylabel,
@@ -826,12 +831,15 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                         format="%.5g",
                         key=inp_key)
 
-                    # Quickset buttons row beneath the input (Step 3 layout)
+                    # Quickset buttons row beneath the input (Step 3 layout).
+                    # cold_disp surfaces beside "default" when the parameter
+                    # has a value extracted in the Cold-HBT section.
                     quickset_buttons(container=col_w,
                                       key_prefix=inp_key,
                                       target_key=inp_key,
                                       arr_disp=arr_plot,
                                       default_disp=auto_disp,
+                                      cold_disp=_cold_disp,
                                       unit=unit,
                                       fmt="%.4g", layout="below")
 
@@ -1700,8 +1708,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
 
             # ── Persistent device buffers for the top-K accumulator ─────────
             # Inf placeholders ensure new finite values always displace them.
+            # top_4 must also start at inf — Prioritize sorts by view_4[:, _smap[sort_metric]],
+            # so zero placeholders would otherwise out-rank every real residual and the
+            # "Best so far" panel would stay empty for the entire sweep.
             top_res    = xp.full(TOP_K, xp.inf, dtype=xp.float64)
-            top_4      = xp.zeros((TOP_K, 4),       dtype=xp.float64)
+            top_4      = xp.full((TOP_K, 4), xp.inf, dtype=xp.float64)
             top_swept  = xp.zeros((TOP_K, max(n_swept, 1)), dtype=xp.float64)
 
             # ── Pre-allocated scratch buffers for the merge step ────────────
@@ -1712,9 +1723,17 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             scratch_4     = xp.empty((SCRATCH, 4), dtype=xp.float64)
             scratch_swept = xp.empty((SCRATCH, max(n_swept, 1)), dtype=xp.float64)
 
+            # Threshold used to distinguish "real residual" from the BIG=1e308
+            # clamp the inner loop assigns to combos that fail the
+            # deviation / residual filters or produced NaN/inf simulations.
+            # Real residuals are percentages (typically 0.01–1000); 1e100 is a
+            # comfortable separator below BIG and above any plausible value.
+            _VALID_RES_MAX = 1.0e100
+
             def _sync_topk_host():
                 """Pull the top-K state to host as a (n, 5+n_params) numpy array.
-                Drops inf placeholders. Constants are filled from sweep_lists.
+                Drops inf placeholders and BIG-clamped (filter-rejected) rows.
+                Constants are filled from sweep_lists.
                 """
                 if use_cuda:
                     tr = _cp.asnumpy(top_res)
@@ -1726,7 +1745,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     t4 = np.asarray(top_4)
                     ts = np.asarray(top_swept) if n_swept > 0 else \
                          np.zeros((TOP_K, 0), dtype=np.float64)
-                valid = np.isfinite(tr)
+                valid = np.isfinite(tr) & (tr < _VALID_RES_MAX)
                 n = int(valid.sum())
                 if n == 0:
                     return None
@@ -2204,6 +2223,14 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             )
                             # Persist every tick so a later crash leaves a result
                             st.session_state[sess_key] = _topk_to_df(top_arr_host)
+                        elif dev_threshold is not None or res_threshold is not None:
+                            # All combos so far failed the deviation/residual
+                            # filters — surface this so the user can widen
+                            # thresholds instead of staring at a blank panel.
+                            best_box.markdown(
+                                "*No combos have passed the deviation/residual "
+                                "filters yet — consider widening the thresholds "
+                                "if this persists.*")
                         last_ui = now
 
                     _sys.stdout.write(
@@ -2274,10 +2301,25 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 _persist_topk()
 
             progress.empty()
-            best_box.empty()
             stop_box.empty()
 
-            n_kept = 0 if top_res is None else int(xp.sum(xp.isfinite(top_res)).item())
+            n_kept = (0 if top_res is None
+                      else int(xp.sum(xp.isfinite(top_res)
+                                       & (top_res < _VALID_RES_MAX)).item()))
+
+            # Keep a warning visible if a deviation/residual sweep rejected
+            # everything; otherwise clear the live "best so far" line because
+            # the persistent results table will render the final ranking.
+            if (n_kept == 0
+                    and (dev_threshold is not None or res_threshold is not None)):
+                best_box.warning(
+                    "No combos passed the deviation/residual filters. "
+                    "Widen the thresholds and re-run.")
+                # Clear any stale prior-sweep results so the table below
+                # doesn't misleadingly show data from a different setting.
+                st.session_state.pop(sess_key, None)
+            else:
+                best_box.empty()
             print(f"\n[tune] done   processed={'?' if cancelled else f'{n_total:,}'}  "
                   f"top={n_kept}  in {_time.time()-_t_start:.2f}s", flush=True)
 
@@ -3010,7 +3052,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     fig = go.Figure()
                     for sp_name, y_data in [("S11", res_s11), ("S12", res_s12),
                                             ("S21", res_s21), ("S22", res_s22)]:
-                        fig.add_trace(go.Scatter(
+                        fig.add_trace(go.Scattergl(
                             x=sweep_vals, y=y_data, mode="lines+markers",
                             name=sp_name,
                             line=dict(color=_sp_colors[sp_name], width=2),

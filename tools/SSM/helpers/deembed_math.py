@@ -19,6 +19,16 @@ from .rf_math import (s_to_y, y_to_z, z_to_y,
                       open_elem_Y, short_lead_Z)
 from .s2p_io  import build_Y_pad, build_Z_ser
 
+# Optional Streamlit memoisation. Falls back to a no-op decorator outside a
+# Streamlit run so the helpers stay importable in tests / scripts.
+try:
+    import streamlit as _st
+    def _cache_data(**kwargs):
+        return _st.cache_data(show_spinner=False, **kwargs)
+except Exception:
+    def _cache_data(**kwargs):
+        return lambda f: f
+
 
 # ── Aggregation helper ────────────────────────────────────────────────────────
 
@@ -151,6 +161,7 @@ def build_Z_ser_batch(p, omega, B, N, xp):
 
 # ── Step 1a — Open dummy → pad capacitances ───────────────────────────────────
 
+@_cache_data(max_entries=64)
 def step_open(open_data, n0=None, n1=None, method="Median", trim_pct=20):
     """
     Extract pad shunt capacitances from Open dummy.
@@ -194,6 +205,7 @@ def step_open(open_data, n0=None, n1=None, method="Median", trim_pct=20):
 
 # ── Step 1b — Short dummy → lead inductances & series resistances ──────────────
 
+@_cache_data(max_entries=64)
 def step_short(short_data, freq, Cpbe, Cpce, Cpbc,
                  open_data=None, n0=None, n1=None, method="Median", trim_pct=20,
                  measured_open=True,
@@ -229,13 +241,13 @@ def step_short(short_data, freq, Cpbe, Cpce, Cpbc,
         _, S_o, z0_o = open_data
         Y_open_eff = s_to_y(S_o, z0_o)
     else:
-        Y_open_eff = np.zeros((N,2,2), dtype=complex)
-        for i, w in enumerate(omega):
-            Ypbe = open_elem_Y(Cpbe, Cpbe_mode, Cpbe_extra, w)
-            Ypce = open_elem_Y(Cpce, Cpce_mode, Cpce_extra, w)
-            Ypbc = open_elem_Y(Cpbc, Cpbc_mode, Cpbc_extra, w)
-            Y_open_eff[i] = np.array([[Ypbe+Ypbc, -Ypbc],
-                                       [-Ypbc, Ypce+Ypbc]])
+        # Vectorised modelled-open: use build_Y_pad_vec on the full omega array
+        Y_open_eff = build_Y_pad_vec(
+            dict(Cpbe=Cpbe, Cpce=Cpce, Cpbc=Cpbc,
+                 Cpbe_mode=Cpbe_mode, Cpbe_extra=Cpbe_extra,
+                 Cpce_mode=Cpce_mode, Cpce_extra=Cpce_extra,
+                 Cpbc_mode=Cpbc_mode, Cpbc_extra=Cpbc_extra),
+            omega, np)
 
     Z_corr = y_to_z(Y_s - Y_open_eff)
     Rpe_arr = np.real(Z_corr[:,0,1])
@@ -268,6 +280,7 @@ def step_short(short_data, freq, Cpbe, Cpce, Cpbc,
 
 # ── Pad peeling (used by all models) ──────────────────────────────────────────
 
+@_cache_data(max_entries=256)
 def peel_parasitics(S_raw, freq, z0, p: dict) -> np.ndarray:
     """
     Remove Open+Short pad parasitics from DUT S-parameters.
@@ -279,16 +292,12 @@ def peel_parasitics(S_raw, freq, z0, p: dict) -> np.ndarray:
     omega = 2.0*np.pi*freq
     Y_dut = s_to_y(S_raw, z0)
 
-    # 1. Build and subtract pad shunt admittance (Open de-embedding)
-    Y_pad = np.zeros((len(freq),2,2), dtype=complex)
-    for i, w in enumerate(omega):
-        Y_pad[i] = build_Y_pad(p, w)
-    Z1 = y_to_z(Y_dut - Y_pad)
+    # 1. Vectorised pad shunt admittance (Open de-embedding)
+    Y_pad = build_Y_pad_vec(p, omega, np)
+    Z1    = y_to_z(Y_dut - Y_pad)
 
-    # 2. Build and subtract series lead impedance (Short de-embedding)
-    Z_ser = np.zeros((len(freq),2,2), dtype=complex)
-    for i, w in enumerate(omega):
-        Z_ser[i] = build_Z_ser(p, w)
+    # 2. Vectorised series-lead impedance (Short de-embedding)
+    Z_ser = build_Z_ser_vec(p, omega, np)
 
     return z_to_y(Z1 - Z_ser)   # → Y_ex1
 

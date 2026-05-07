@@ -32,6 +32,7 @@ REQUIRED = [
     ("psutil",     "psutil"),
     ("PIL",        "pillow"),
     ("scipy",      "scipy"),
+    ("gdstk",      "gdstk"),
 ]
 
 # ── Resolve venv interpreter path (Windows vs. Unix) ─────────────────────────

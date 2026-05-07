@@ -90,7 +90,7 @@ def make_smith(S, f_array, f_min, f_max, toggles, scales, title, max_r=1.0):
                else f"{key} ×{sc:g}")
         hov = [f"f={fv:.3f} GHz<br>Re={rv:.4f}<br>Im={iv:.4f}"
                for fv, rv, iv in zip(f_p, sv.real, sv.imag)]
-        fig.add_trace(go.Scatter(x=sv.real, y=sv.imag, mode="lines",
+        fig.add_trace(go.Scattergl(x=sv.real, y=sv.imag, mode="lines",
                                  line=dict(color=color, width=2.2, dash=dash),
                                  name=lbl, text=hov, hoverinfo="text"))
     lim = max_r * 1.05
@@ -132,7 +132,7 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color):
             return
         extrap_used  = True
         f_high_track = max(f_high_track, f0)
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines",
             name=f"{kind} extrap (≈{f0:.1f} GHz)",
             line=dict(color=color_, width=1.6, dash="dot"),
@@ -140,7 +140,7 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color):
 
     if sh21:
         y = df["|h21|² (dB)"].values
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f, y=y, name="|h21|²", mode="lines+markers",
             line=dict(color=color, width=1.4),
             marker=dict(symbol="circle", size=6, color=color),
@@ -149,7 +149,7 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color):
     if su:
         y = df["Mason U (dB)"].values
         col_u = darken(color)
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f, y=y, name="Mason U", mode="lines+markers",
             line=dict(color=col_u, width=1.4),
             marker=dict(symbol="square", size=6, color=col_u),
@@ -157,7 +157,7 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color):
         _add_extrap(y, col_u, "fmax(U)")
     if smag:
         y = df["MAG/MSG (dB)"].values
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f, y=y, name="MAG/MSG", mode="lines+markers",
             line=dict(color="#2ca02c", width=1.4),
             marker=dict(symbol="diamond", size=6, color="#2ca02c"),
@@ -187,16 +187,16 @@ def make_plateau(df, res, title, xr, sh21, su, smag, color):
     hov = "Freq:%{x:.4f}GHz<br>GBP:%{y:.4f}GHz<extra></extra>"
     fig = go.Figure()
     if sh21:
-        fig.add_trace(go.Scatter(x=df["Freq (GHz)"], y=df["fT Plateau (GHz)"],
+        fig.add_trace(go.Scattergl(x=df["Freq (GHz)"], y=df["fT Plateau (GHz)"],
                                  name="fT", line=dict(color=color, width=2.5),
                                  hovertemplate=hov))
     if su:
-        fig.add_trace(go.Scatter(x=df["Freq (GHz)"], y=df["fmax U Plateau (GHz)"],
+        fig.add_trace(go.Scattergl(x=df["Freq (GHz)"], y=df["fmax U Plateau (GHz)"],
                                  name="fmax(U)",
                                  line=dict(color=darken(color), width=2.5, dash="dash"),
                                  hovertemplate=hov))
     if smag:
-        fig.add_trace(go.Scatter(x=df["Freq (GHz)"], y=df["fmax MAG Plateau (GHz)"],
+        fig.add_trace(go.Scattergl(x=df["Freq (GHz)"], y=df["fmax MAG Plateau (GHz)"],
                                  name="fmax(MAG)",
                                  line=dict(color="#2ca02c", width=2, dash="dot"),
                                  hovertemplate=hov))

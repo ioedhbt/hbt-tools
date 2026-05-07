@@ -74,8 +74,23 @@ def render_rz12_section(all_data, para_eff, fname):
                     ["","File","IE (mA)","Re(Z₁₂) (Ω)","Rbe*"]):
         h.markdown(f"<small><b>{t}</b></small>", unsafe_allow_html=True)
 
-    points = []; all_rez12 = []; Re_ref = para_eff.get("Rpe", 0.0)
+    rez12_cache = {}
     for fn, d in all_data.items():
+        try:
+            idx    = int(np.argmin(np.abs(d["freq"]*1e-9 - f_extract)))
+            Y_ex1f = peel_parasitics(d["S_raw"], d["freq"], d["z0"], para_eff)
+            rez12_cache[fn] = (float(y_to_z(Y_ex1f)[idx,0,1].real), None)
+        except Exception as ex:
+            rez12_cache[fn] = (None, str(ex))
+
+    sorted_fns = sorted(
+        all_data.keys(),
+        key=lambda fn: rez12_cache[fn][0] if rez12_cache[fn][1] is None else float("-inf"),
+        reverse=True)
+
+    points = []; all_rez12 = []; Re_ref = para_eff.get("Rpe", 0.0)
+    for fn in sorted_fns:
+        d = all_data[fn]
         c0,c1,c2,c3,c4 = st.columns([0.3,2.3,1.2,1.4,1.4])
         use = c0.checkbox("", key=f"rz12_use_{fn}__{fname}", value=st.session_state[f"rz12_use_{fn}"],
                            label_visibility="collapsed")
@@ -87,16 +102,14 @@ def render_rz12_section(all_data, para_eff, fname):
                               value=float(st.session_state[f"rz12_Ie_{fn}"]),
                               label_visibility="collapsed")
         st.session_state[f"rz12_Ie_{fn}"] = Ie
-        try:
-            idx    = int(np.argmin(np.abs(d["freq"]*1e-9 - f_extract)))
-            Y_ex1f = peel_parasitics(d["S_raw"], d["freq"], d["z0"], para_eff)
-            ReZ12  = float(y_to_z(Y_ex1f)[idx,0,1].real)
+        ReZ12, err = rez12_cache[fn]
+        if err is None:
             c3.markdown(f"**{ReZ12:.4f}**")
             c4.markdown(f"<small>{ReZ12-Re_ref:.4f}</small>", unsafe_allow_html=True)
             all_rez12.append((ReZ12, Path(fn).stem))
             if Ie > 0: points.append((1.0/(Ie*1e-3), ReZ12, Path(fn).stem))
-        except Exception as ex:
-            c3.markdown(f"*err:{ex}*")
+        else:
+            c3.markdown(f"*err:{err}*")
 
     if not all_rez12:
         st.caption("Enable files above to begin."); return
@@ -107,14 +120,14 @@ def render_rz12_section(all_data, para_eff, fname):
         x = np.array([p[0] for p in points])
         y = np.array([p[1] for p in points])
         lbl = [p[2] for p in points]
-        fig.add_trace(go.Scatter(x=x, y=y, mode="markers+text", text=lbl,
+        fig.add_trace(go.Scattergl(x=x, y=y, mode="markers+text", text=lbl,
             textposition="top center", name="Re(Z₁₂)",
             marker=dict(size=11, color="#1f77b4", line=dict(color="#0d4a7a", width=1.5))))
     else:
         # No Ie entered yet — show Re(Z₁₂) values on y-axis at x=0
         y0 = np.array([p[0] for p in all_rez12])
         lbl0 = [p[1] for p in all_rez12]
-        fig.add_trace(go.Scatter(x=np.zeros(len(y0)), y=y0, mode="markers+text", text=lbl0,
+        fig.add_trace(go.Scattergl(x=np.zeros(len(y0)), y=y0, mode="markers+text", text=lbl0,
             textposition="top right", name="Re(Z₁₂) (no IE yet)",
             marker=dict(size=11, symbol="circle-open", color="#1f77b4",
                         line=dict(color="#0d4a7a", width=1.5))))
@@ -128,10 +141,10 @@ def render_rz12_section(all_data, para_eff, fname):
             eta = slope / (1.381e-23 * 300 / 1.602e-19)
             x_fit = np.linspace(0, max(x)*1.08, 200)
             y_fit = slope*x_fit + Re_fit
-            fig.add_trace(go.Scatter(x=x_fit, y=y_fit, mode="lines",
+            fig.add_trace(go.Scattergl(x=x_fit, y=y_fit, mode="lines",
                 name=f"Fit Re={Re_fit:.4f} Ω  η={eta:.3f}",
                 line=dict(color="#d62728", width=2, dash="dash")))
-            fig.add_trace(go.Scatter(x=[0], y=[Re_fit], mode="markers",
+            fig.add_trace(go.Scattergl(x=[0], y=[Re_fit], mode="markers",
                 name=f"Re={Re_fit:.4f} Ω",
                 marker=dict(size=14, symbol="star", color="#d62728")))
         except Exception as ex:
@@ -254,15 +267,15 @@ def render_open_collector_section(all_data, para_eff, fname):
     ]:
         try:
             sl, ic = np.polyfit(xo, y_arr, 1)
-            fig_o.add_trace(go.Scatter(
+            fig_o.add_trace(go.Scattergl(
                 x=xo, y=y_arr, mode="markers+text", text=lblo,
                 textposition="top center", name=name,
                 marker=dict(size=10, color=color)))
-            fig_o.add_trace(go.Scatter(
+            fig_o.add_trace(go.Scattergl(
                 x=x_fit_o, y=sl * x_fit_o + ic, mode="lines",
                 name=f"{name.split('→')[1].strip()} intercept={ic:.4f} Ω",
                 line=dict(color=color, width=1.5, dash="dash")))
-            fig_o.add_trace(go.Scatter(
+            fig_o.add_trace(go.Scattergl(
                 x=[0], y=[ic], mode="markers",
                 marker=dict(size=12, symbol="star", color=color),
                 name=f"intercept {ic:.4f} Ω", showlegend=False))
@@ -526,10 +539,16 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
                 auto_disp = auto_SI * scale
 
                 inp_key   = f"cold_pfp_inp_{res_key}_{fname}_{rng_tag}_{upstream_tag}"
+                # Promote any pending quickset-button write into the input's
+                # state key BEFORE the number_input is created, otherwise
+                # Streamlit raises "session_state ... cannot be modified
+                # after widget".  Also lets user_disp (used for the hline
+                # annotation below) reflect the new value on this rerun.
+                apply_pending(inp_key)
                 user_disp = float(st.session_state.get(inp_key, auto_disp))
 
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(
+                fig.add_trace(go.Scattergl(
                     x=f_plot, y=arr_disp, mode="lines", name=label,
                     line=dict(color="#1f77b4", width=2)))
                 if np.isfinite(user_disp):
@@ -566,6 +585,17 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
                     value=float(auto_disp),
                     format="%.5g",
                     key=inp_key)
+
+                # Quickset buttons row beneath the input — same UX as the
+                # parasitic inputs above and the model-extraction sliders.
+                # cold_disp is intentionally omitted: this IS the cold section.
+                quickset_buttons(container=col_w,
+                                  key_prefix=inp_key,
+                                  target_key=inp_key,
+                                  arr_disp=arr_disp,
+                                  default_disp=auto_disp,
+                                  unit=unit,
+                                  fmt="%.4g", layout="below")
                 return abs(actual_val) / scale
 
             # ── Step 2: Cex ─────────────────────────────────────────────────

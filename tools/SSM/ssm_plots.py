@@ -87,17 +87,17 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
             val_fF = para_caps[key] * 1e15
             mode, extra = _get_mode_extra(key)
             # Measured trace
-            fig_cap.add_trace(go.Scatter(x=f_ghz, y=arr_fF,
+            fig_cap.add_trace(go.Scattergl(x=f_ghz, y=arr_fF,
                 name=f"{lbl} (meas.)", line=dict(color=col, width=2), mode="lines"))
             # Median dashed line
-            fig_cap.add_trace(go.Scatter(x=[f_ghz[0], f_ghz[-1]], y=[val_fF, val_fF],
+            fig_cap.add_trace(go.Scattergl(x=[f_ghz[0], f_ghz[-1]], y=[val_fF, val_fF],
                 name=f"{lbl}={val_fF:.3f} fF", line=dict(color=col, width=1.8, dash="dash"), mode="lines"))
             # Modelled effective C overlay (when extra element chosen)
             if mode != "None":
                 # See ssm_core.open_elem_Y for the formula
                 Y_mod_arr = np.array([open_elem_Y(para_caps[key], mode, extra, w) for w in omega])
                 Ceff_fF   = np.imag(Y_mod_arr) / omega * 1e15
-                fig_cap.add_trace(go.Scatter(x=f_ghz, y=Ceff_fF,
+                fig_cap.add_trace(go.Scattergl(x=f_ghz, y=Ceff_fF,
                     name=f"{lbl} model ({mode})", line=dict(color=col, width=2, dash="dot"), mode="lines"))
         fig_cap.update_layout(title="Pad Capacitances — Im(Y)/ω",
             xaxis_title="Frequency (GHz)", yaxis_title="Cap (fF)",
@@ -118,13 +118,13 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
                                ("Cpbc","Gpbc","#2ca02c")]:
             arr_mS = open_arr[f"G{key[1:]}"] * 1e3   # Gpbe/Gpce/Gpbc keys
             mode, extra = _get_mode_extra(key)
-            fig_g.add_trace(go.Scatter(x=f_ghz, y=arr_mS,
+            fig_g.add_trace(go.Scattergl(x=f_ghz, y=arr_mS,
                 name=f"{lbl} (meas.)", line=dict(color=col, width=2), mode="lines"))
             if mode == "Series R" and extra > 0:
                 # Re[Y_series_R] = ω²RC² / (1+ω²R²C²)  → see ssm_core.open_elem_Y
                 G_mod = np.array([np.real(open_elem_Y(para_caps[key], mode, extra, w))*1e3
                                   for w in omega])
-                fig_g.add_trace(go.Scatter(x=f_ghz, y=G_mod,
+                fig_g.add_trace(go.Scattergl(x=f_ghz, y=G_mod,
                     name=f"{lbl} model (R={extra:.3f} Ω)",
                     line=dict(color=col, width=2, dash="dot"), mode="lines"))
         fig_g.add_hline(y=0, line_color="#aaa", line_width=1)
@@ -150,7 +150,7 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
                                ("Cpce","Cpce","#ff7f0e"),
                                ("Cpbc","Cpbc","#2ca02c")]:
             Ceff = open_arr[key]  # Im(Y)/ω already stored per-frequency
-            fig_l.add_trace(go.Scatter(
+            fig_l.add_trace(go.Scattergl(
                 x=one_over_omega2*1e-18, y=Ceff*1e15, name=lbl,
                 line=dict(color=col, width=2), mode="lines",
                 hovertemplate="1/ω²=%{x:.4f}×10¹⁸<br>Im(Y)/ω=%{y:.3f} fF<extra></extra>"))
@@ -221,11 +221,11 @@ def render_short_plots(short_arr, para_short, fname="", freq=None):
             else:
                 xv = np.arange(len(arr_pH))
                 hov = f"{lbl}=%{{y:.4f}} pH<extra></extra>"
-            fig_ind.add_trace(go.Scatter(x=xv, y=arr_pH,
+            fig_ind.add_trace(go.Scattergl(x=xv, y=arr_pH,
                 name=f"{lbl} (per-freq)",
                 line=dict(color=col, width=2), mode="lines",
                 hovertemplate=hov))
-            fig_ind.add_trace(go.Scatter(x=[xv[0], xv[-1]], y=[val_pH, val_pH],
+            fig_ind.add_trace(go.Scattergl(x=[xv[0], xv[-1]], y=[val_pH, val_pH],
                 name=f"{lbl}={val_pH:.2f} pH",
                 line=dict(color=col, width=1.8, dash="dash"), mode="lines"))
         fig_ind.add_hline(y=0, line_color="#333", line_width=1.2,
@@ -305,14 +305,14 @@ def _compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix,
         f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, y_arr)
         ext_val = f0 if f_ext is not None else None
         legend_name = name_fmt.format(lbl=_meas_lbl(kind, in_val, ext_val))
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ghz, y=y_arr, mode="lines+markers", name=legend_name,
             line=dict(color=color, width=1.4),
             marker=dict(symbol=symbol, size=6, color=color)))
         if f_ext is not None:
             extrap_used = True
             f_high_track = max(f_high_track, f0)
-            fig.add_trace(go.Scatter(
+            fig.add_trace(go.Scattergl(
                 x=f_ext, y=g_ext, mode="lines", name=f"{legend_name} extrap",
                 line=dict(color=color, width=1.6, dash="dot"),
                 showlegend=False))
@@ -540,13 +540,13 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
     if f_ext is not None:
         extrap_used = True
         f_high_track = max(f_high_track, fT_m_ext)
-    fig.add_trace(go.Scatter(
+    fig.add_trace(go.Scattergl(
         x=f_ghz, y=h21_m, mode="lines+markers",
         name=f"|h21|² Meas. ({_meas_label('fT', fT_m_in, fT_m_ext)})",
         line=dict(color="#1f77b4", width=1.4),
         marker=dict(symbol="circle", size=6, color="#1f77b4")))
     if f_ext is not None:
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines",
             name="|h21|² Meas. extrap",
             line=dict(color="#1f77b4", width=1.4, dash="dot"),
@@ -557,13 +557,13 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
     if f_ext is not None:
         extrap_used = True
         f_high_track = max(f_high_track, fmax_m_ext)
-    fig.add_trace(go.Scatter(
+    fig.add_trace(go.Scattergl(
         x=f_ghz, y=U_m, mode="lines+markers",
         name=f"Mason U Meas. ({_meas_label('fmax', fmax_m_in, fmax_m_ext)})",
         line=dict(color="#1f77b4", width=1.4),
         marker=dict(symbol="square", size=6, color="#1f77b4")))
     if f_ext is not None:
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines",
             name="Mason U Meas. extrap",
             line=dict(color="#1f77b4", width=1.4, dash="dot"),
@@ -574,12 +574,12 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
     if f_ext is not None:
         extrap_used = True
         f_high_track = max(f_high_track, fT_s_ext)
-    fig.add_trace(go.Scatter(
+    fig.add_trace(go.Scattergl(
         x=f_ghz, y=h21_s, mode="lines",
         name=f"|h21|² Model ({_meas_label('fT', fT_s_in, fT_s_ext)})",
         line=dict(color="#d62728", width=2.0, dash="dash")))
     if f_ext is not None:
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines",
             name="|h21|² Model extrap",
             line=dict(color="#d62728", width=2.0, dash="dot"),
@@ -590,12 +590,12 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
     if f_ext is not None:
         extrap_used = True
         f_high_track = max(f_high_track, fmax_s_ext)
-    fig.add_trace(go.Scatter(
+    fig.add_trace(go.Scattergl(
         x=f_ghz, y=U_s, mode="lines",
         name=f"Mason U Model ({_meas_label('fmax', fmax_s_in, fmax_s_ext)})",
         line=dict(color="#d62728", width=2.0, dash="longdash")))
     if f_ext is not None:
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines",
             name="Mason U Model extrap",
             line=dict(color="#d62728", width=2.0, dash="dot"),
@@ -934,7 +934,7 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
     extrap_used  = False             # Whether any trace required extrapolation
 
     # ── Measured traces (markers + line) ──────────────────────────────────────
-    fig.add_trace(go.Scatter(
+    fig.add_trace(go.Scattergl(
         x=f_ghz, y=h21_mea, mode="lines+markers",
         name="|h21|² Meas.",
         line=dict(color="#1f77b4", width=1.4),
@@ -943,12 +943,12 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
     if f_ext is not None:
         extrap_used = True
         f_high_track = max(f_high_track, f0)
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines",
             name=f"|h21|² Meas. extrap (fT≈{f0:.1f} GHz)",
             line=dict(color="#1f77b4", width=1.6, dash="dot")))
 
-    fig.add_trace(go.Scatter(
+    fig.add_trace(go.Scattergl(
         x=f_ghz, y=U_mea, mode="lines+markers",
         name="Mason U Meas.",
         line=dict(color="#1f77b4", width=1.4),
@@ -957,7 +957,7 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
     if f_ext is not None:
         extrap_used = True
         f_high_track = max(f_high_track, f0)
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines",
             name=f"Mason U Meas. extrap (fmax≈{f0:.1f} GHz)",
             line=dict(color="#1f77b4", width=1.6, dash="dot")))
@@ -969,7 +969,7 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
             continue
         h21_s, U_s = compute_h21_U(S_sim)
 
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ghz, y=h21_s, mode="lines",
             name=f"|h21|² {short}",
             line=dict(color=col, width=2.0, dash="dash")))
@@ -977,13 +977,13 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
         if f_ext is not None:
             extrap_used = True
             f_high_track = max(f_high_track, f0)
-            fig.add_trace(go.Scatter(
+            fig.add_trace(go.Scattergl(
                 x=f_ext, y=g_ext, mode="lines",
                 name=f"|h21|² {short} extrap (fT≈{f0:.1f} GHz)",
                 line=dict(color=col, width=2.0, dash="dot"),
                 showlegend=False))
 
-        fig.add_trace(go.Scatter(
+        fig.add_trace(go.Scattergl(
             x=f_ghz, y=U_s, mode="lines",
             name=f"Mason U {short}",
             line=dict(color=col, width=2.0, dash="longdash")))
@@ -991,7 +991,7 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
         if f_ext is not None:
             extrap_used = True
             f_high_track = max(f_high_track, f0)
-            fig.add_trace(go.Scatter(
+            fig.add_trace(go.Scattergl(
                 x=f_ext, y=g_ext, mode="lines",
                 name=f"Mason U {short} extrap (fmax≈{f0:.1f} GHz)",
                 line=dict(color=col, width=2.0, dash="dot"),
@@ -1096,14 +1096,14 @@ def render_rz12_section(all_data, para_eff, fname):
         x = np.array([p[0] for p in points])
         y = np.array([p[1] for p in points])
         lbl = [p[2] for p in points]
-        fig.add_trace(go.Scatter(x=x, y=y, mode="markers+text", text=lbl,
+        fig.add_trace(go.Scattergl(x=x, y=y, mode="markers+text", text=lbl,
             textposition="top center", name="Re(Z₁₂)",
             marker=dict(size=11, color="#1f77b4", line=dict(color="#0d4a7a", width=1.5))))
     else:
         # No Ie entered yet — show Re(Z₁₂) values on y-axis at x=0
         y0 = np.array([p[0] for p in all_rez12])
         lbl0 = [p[1] for p in all_rez12]
-        fig.add_trace(go.Scatter(x=np.zeros(len(y0)), y=y0, mode="markers+text", text=lbl0,
+        fig.add_trace(go.Scattergl(x=np.zeros(len(y0)), y=y0, mode="markers+text", text=lbl0,
             textposition="top right", name="Re(Z₁₂) (no IE yet)",
             marker=dict(size=11, symbol="circle-open", color="#1f77b4",
                         line=dict(color="#0d4a7a", width=1.5))))
@@ -1117,10 +1117,10 @@ def render_rz12_section(all_data, para_eff, fname):
             eta = slope / (1.381e-23 * 300 / 1.602e-19)
             x_fit = np.linspace(0, max(x)*1.08, 200)
             y_fit = slope*x_fit + Re_fit
-            fig.add_trace(go.Scatter(x=x_fit, y=y_fit, mode="lines",
+            fig.add_trace(go.Scattergl(x=x_fit, y=y_fit, mode="lines",
                 name=f"Fit Re={Re_fit:.4f} Ω  η={eta:.3f}",
                 line=dict(color="#d62728", width=2, dash="dash")))
-            fig.add_trace(go.Scatter(x=[0], y=[Re_fit], mode="markers",
+            fig.add_trace(go.Scattergl(x=[0], y=[Re_fit], mode="markers",
                 name=f"Re={Re_fit:.4f} Ω",
                 marker=dict(size=14, symbol="star", color="#d62728")))
         except Exception as ex:
@@ -1243,15 +1243,15 @@ def render_open_collector_section(all_data, para_eff, fname):
     ]:
         try:
             sl, ic = np.polyfit(xo, y_arr, 1)
-            fig_o.add_trace(go.Scatter(
+            fig_o.add_trace(go.Scattergl(
                 x=xo, y=y_arr, mode="markers+text", text=lblo,
                 textposition="top center", name=name,
                 marker=dict(size=10, color=color)))
-            fig_o.add_trace(go.Scatter(
+            fig_o.add_trace(go.Scattergl(
                 x=x_fit_o, y=sl * x_fit_o + ic, mode="lines",
                 name=f"{name.split('→')[1].strip()} intercept={ic:.4f} Ω",
                 line=dict(color=color, width=1.5, dash="dash")))
-            fig_o.add_trace(go.Scatter(
+            fig_o.add_trace(go.Scattergl(
                 x=[0], y=[ic], mode="markers",
                 marker=dict(size=12, symbol="star", color=color),
                 name=f"intercept {ic:.4f} Ω", showlegend=False))

@@ -17,7 +17,16 @@ from typing import Union
 import numpy as np
 import pandas as pd
 
-from .rf_math import open_elem_Y, short_lead_Z, y_to_s_single
+from .rf_math import open_elem_Y, short_lead_Z, y_to_s_single, y_to_s_vec, inv2x2
+
+# Optional Streamlit memoisation. No-op decorator outside a Streamlit run.
+try:
+    import streamlit as _st
+    def _cache_data(**kwargs):
+        return _st.cache_data(show_spinner=False, **kwargs)
+except Exception:
+    def _cache_data(**kwargs):
+        return lambda f: f
 
 
 # ── Pad / lead matrix builders (per-frequency, used by simulators) ───────────
@@ -179,6 +188,7 @@ def load_cal(fobj):
 
 # ── Forward simulators for dummy structures ───────────────────────────────────
 
+@_cache_data(max_entries=128)
 def simulate_open(p: dict, freq: np.ndarray, z0: float = 50.0) -> np.ndarray:
     """
     Forward-simulate Open dummy S-parameters.
@@ -186,14 +196,15 @@ def simulate_open(p: dict, freq: np.ndarray, z0: float = 50.0) -> np.ndarray:
 
     p must contain: Cpbe/ce/bc and optional _mode/_extra.
     """
-    N = len(freq)
-    S = np.zeros((N, 2, 2), dtype=complex)
-    for i, w in enumerate(2.0*np.pi*freq):
-        Y = build_Y_pad(p, w)
-        S[i] = y_to_s_single(Y, z0)
-    return S
+    # Lazy import — circular: deembed_math imports s2p_io, so the vec
+    # builders must be fetched at call time.
+    from .deembed_math import build_Y_pad_vec
+    omega = 2.0 * np.pi * freq
+    Y_pad = build_Y_pad_vec(p, omega, np)
+    return y_to_s_vec(Y_pad, z0, np)
 
 
+@_cache_data(max_entries=128)
 def simulate_short(p: dict, freq: np.ndarray, z0: float = 50.0) -> np.ndarray:
     """
     Forward-simulate Short dummy S-parameters.
@@ -201,12 +212,9 @@ def simulate_short(p: dict, freq: np.ndarray, z0: float = 50.0) -> np.ndarray:
 
     p must contain all pad and lead parameters.
     """
-    N = len(freq)
-    S = np.zeros((N, 2, 2), dtype=complex)
-    for i, w in enumerate(2.0*np.pi*freq):
-        Y_pad = build_Y_pad(p, w)
-        Z_ser = build_Z_ser(p, w)
-        try:    Y_ser = np.linalg.inv(Z_ser)
-        except: Y_ser = np.zeros((2,2), dtype=complex)
-        S[i] = y_to_s_single(Y_pad + Y_ser, z0)
-    return S
+    from .deembed_math import build_Y_pad_vec, build_Z_ser_vec
+    omega = 2.0 * np.pi * freq
+    Y_pad = build_Y_pad_vec(p, omega, np)
+    Z_ser = build_Z_ser_vec(p, omega, np)
+    Y_ser = inv2x2(Z_ser, np)         # batched analytic 2×2 inverse
+    return y_to_s_vec(Y_pad + Y_ser, z0, np)

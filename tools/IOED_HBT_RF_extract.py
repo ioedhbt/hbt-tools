@@ -1,5 +1,5 @@
 """
-hbt_rf_tool.py  — v4.4
+hbt_rf_tool.py  — v4.7
 ============================
 Main Streamlit application for HBT RF extraction.
 
@@ -36,9 +36,10 @@ from tools.SSM.helpers        import (
 if "rf_uploader_key" not in st.session_state:
     st.session_state["rf_uploader_key"] = 0
 
-st.title("📡 IOED HBT RF Extraction Tool (v4.6 update)")
+st.title("📡 IOED HBT RF Extraction Tool (v4.7)")
 
-with st.expander("Changelog", expanded=False):
+with st.expander("Changelog", expanded=False):    
+    st.caption("**v4.7**: Switched scatter to scattergl for faster graph load, optimized calculation and loading.")
     st.caption("**v4.6**: Refactored SSM module into modular structure (main_ssm_extraction + ssm_access_resistance + helpers/widgets), added quickset buttons (mean/median/low-f/high-f) to interactive parameter inputs, added Modeled/Measured Open-Short source selector for batch de-embedding, frequency-axis x-axis for short dummy lead-inductance plots, Linux/macOS launcher instructions.")
     st.caption("**v4.5**: Code refactoring and minor improvements.")
     st.caption("**v4.4**: Added optimized tuning strategies, added smith chart with matplotlib, removed Ccex from Cheng's T, improved user usability.")
@@ -226,12 +227,12 @@ with tab_ov:
             df_p=d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
             hov="Freq:%{x:.4f}GHz<br>%{y:.4f}dB<extra></extra>"
             if show_raw and d["df_fin"] is not None and sh21:
-                f_bode.add_trace(go.Scatter(x=d["df_raw"]["Freq (GHz)"],y=d["df_raw"]["|h21|² (dB)"],
+                f_bode.add_trace(go.Scattergl(x=d["df_raw"]["Freq (GHz)"],y=d["df_raw"]["|h21|² (dB)"],
                                             name=f"|h21|² raw–{lbl}",line=dict(color=c,width=1.2,dash="dot"),
                                             opacity=0.35,hovertemplate=hov))
-            if sh21: f_bode.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["|h21|² (dB)"],name=f"|h21|²–{lbl}",line=dict(color=c,width=2.5),hovertemplate=hov))
-            if su:   f_bode.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["Mason U (dB)"],name=f"U–{lbl}",line=dict(color=darken(c),width=2.5,dash="dash"),hovertemplate=hov))
-            if smag: f_bode.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["MAG/MSG (dB)"],name=f"MAG–{lbl}",line=dict(color=c,width=2,dash="dot"),opacity=0.7,hovertemplate=hov))
+            if sh21: f_bode.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["|h21|² (dB)"],name=f"|h21|²–{lbl}",line=dict(color=c,width=2.5),hovertemplate=hov))
+            if su:   f_bode.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["Mason U (dB)"],name=f"U–{lbl}",line=dict(color=darken(c),width=2.5,dash="dash"),hovertemplate=hov))
+            if smag: f_bode.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["MAG/MSG (dB)"],name=f"MAG–{lbl}",line=dict(color=c,width=2,dash="dot"),opacity=0.7,hovertemplate=hov))
     f_bode.add_hline(y=0,line_dash="dash",line_color="black")
     f_bode.update_layout(**bode_layout("Overlay — Bode Plot","Gain (dB)",yr,xr)); f_bode.update_layout(height=550)
     st.plotly_chart(f_bode,use_container_width=True)
@@ -244,10 +245,10 @@ with tab_ov:
             df_p=d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
             hov="Freq:%{x:.4f}GHz<br>GBP:%{y:.4f}GHz<extra></extra>"
             if sh21:
-                f_plat.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["fT Plateau (GHz)"],name=f"fT–{lbl}",line=dict(color=c,width=2.5),hovertemplate=hov))
+                f_plat.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["fT Plateau (GHz)"],name=f"fT–{lbl}",line=dict(color=c,width=2.5),hovertemplate=hov))
                 all_v+=df_p["fT Plateau (GHz)"].dropna().tolist()
             if su:
-                f_plat.add_trace(go.Scatter(x=df_p["Freq (GHz)"],y=df_p["fmax U Plateau (GHz)"],name=f"fmax(U)–{lbl}",line=dict(color=darken(c),width=2.5,dash="dash"),hovertemplate=hov))
+                f_plat.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["fmax U Plateau (GHz)"],name=f"fmax(U)–{lbl}",line=dict(color=darken(c),width=2.5,dash="dash"),hovertemplate=hov))
                 all_v+=df_p["fmax U Plateau (GHz)"].dropna().tolist()
     arr=np.array([v for v in all_v if np.isfinite(v) and v>0])
     ym=float(np.quantile(arr,0.97))*1.3 if len(arr) else 100
@@ -258,94 +259,103 @@ with tab_ind:
     if not all_data or not selected_files:
         st.info("Upload and select files to view individual analysis.")
     else:
-        stabs=st.tabs([Path(n).stem for n in selected_files])
+        # Single-active-file selector — replaces st.tabs(...) over selected_files.
+        # Streamlit executes the body of every st.tabs branch on every rerun (only
+        # the visibility is toggled), so with N files a single slider drag would
+        # re-run all N pipelines. A selectbox conditionally renders only the
+        # selected file's body, so cost no longer scales with N.
+        n=st.selectbox(
+            "📁 Active file",
+            options=selected_files,
+            format_func=lambda fn: Path(fn).stem,
+            key="active_file_n",
+            help="Only the selected file is rendered. Use the dropdown or arrow keys to switch.",
+        )
         file_names=list(all_data.keys())
-        for stab,n in zip(stabs,selected_files):
-            c=PALETTE[file_names.index(n)%len(PALETTE)]
-            d=all_data[n]
-            df_p=d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
+        c=PALETTE[file_names.index(n)%len(PALETTE)]
+        d=all_data[n]
+        df_p=d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
 
-            def _fc(v_cr,v_pl,method):
-                if method in ["No Gain","No Data"]: return method
-                if method=="0dB Cross":      return f"{v_cr:.3f} GHz" if np.isfinite(v_cr) else "N/A"
-                if method=="Extrap & Plat.": return f"{v_pl:.3f} GHz" if np.isfinite(v_pl) else "N/A"
-                return "N/A"
+        def _fc(v_cr,v_pl,method):
+            if method in ["No Gain","No Data"]: return method
+            if method=="0dB Cross":      return f"{v_cr:.3f} GHz" if np.isfinite(v_cr) else "N/A"
+            if method=="Extrap & Plat.": return f"{v_pl:.3f} GHz" if np.isfinite(v_pl) else "N/A"
+            return "N/A"
 
-            with stab:
-                c1,c2,c3,c4,c5=st.columns(5)
-                metric_card(c1,"De-embedding",d["De-embedding"],"mode","#888")
-                metric_card(c2,"fT (GHz)",_fc(d["fT Cross/Extrap (GHz)"],d["fT Plateau (GHz)"],d["fT Method"]),d["fT Method"])
-                metric_card(c3,"fmax U",_fc(d["fmax U Cross/Extrap (GHz)"],d["fmax U Plateau (GHz)"],d["fmax U Method"]),d["fmax U Method"],"#d62728")
-                metric_card(c4,"fmax MAG",_fc(d["fmax MAG Cross/Extrap (GHz)"],d["fmax MAG Plateau (GHz)"],d["fmax MAG Method"]),d["fmax MAG Method"],"#2ca02c")
-                if d["Vce (V)"] is not None:  metric_card(c5,"Vce",f"{d['Vce (V)']} V","bias","#9467bd")
-                elif d["Ib (A)"] is not None: metric_card(c5,"Ib",f"{d['Ib (A)']*1e6:.1f} µA","bias","#9467bd")
+        c1,c2,c3,c4,c5=st.columns(5)
+        metric_card(c1,"De-embedding",d["De-embedding"],"mode","#888")
+        metric_card(c2,"fT (GHz)",_fc(d["fT Cross/Extrap (GHz)"],d["fT Plateau (GHz)"],d["fT Method"]),d["fT Method"])
+        metric_card(c3,"fmax U",_fc(d["fmax U Cross/Extrap (GHz)"],d["fmax U Plateau (GHz)"],d["fmax U Method"]),d["fmax U Method"],"#d62728")
+        metric_card(c4,"fmax MAG",_fc(d["fmax MAG Cross/Extrap (GHz)"],d["fmax MAG Plateau (GHz)"],d["fmax MAG Method"]),d["fmax MAG Method"],"#2ca02c")
+        if d["Vce (V)"] is not None:  metric_card(c5,"Vce",f"{d['Vce (V)']} V","bias","#9467bd")
+        elif d["Ib (A)"] is not None: metric_card(c5,"Ib",f"{d['Ib (A)']*1e6:.1f} µA","bias","#9467bd")
 
-                toggles={"S11":show_s11,"S22":show_s22,"S21":show_s21,"S12":show_s12}
-                scales ={"S11":scale_s11,"S22":scale_s22,"S21":scale_s21,"S12":scale_s12}
+        toggles={"S11":show_s11,"S22":show_s22,"S21":show_s21,"S12":show_s12}
+        scales ={"S11":scale_s11,"S22":scale_s22,"S21":scale_s21,"S12":scale_s12}
 
-                ta,tb,tc,td=st.tabs(["Bode Plot","Plateau Plot","Smith Chart","🔬 SSM Extraction"])
-                with ta: st.plotly_chart(make_bode(df_p,Path(n).stem,xr,yr,sh21,su,smag,c),use_container_width=True)
-                with tb: st.plotly_chart(make_plateau(df_p,d,Path(n).stem,xr,sh21,su,smag,c),use_container_width=True)
-                with tc:
-                    smith_sub_plotly, smith_sub_mpl = st.tabs(
-                        ["Plotly", "Matplotlib"])
-                    with smith_sub_plotly:
-                        st.plotly_chart(make_smith(
-                            d["S_fin"], df_p["Freq (GHz)"].values,
-                            smith_f_min, smith_f_max, toggles, scales,
-                            Path(n).stem, max_r=smith_max_r),
-                            use_container_width=True)
-                    with smith_sub_mpl:
-                        render_matplotlib_smith(
-                            fname=n, topo_key="meas",
-                            sets=[{"S": d["S_fin"], "label": Path(n).stem,
-                                   "kind": "line", "style": "solid"}],
-                            default_multiplier=1.0,
-                        )
-                with td:
-                    # Gate key unique per file
-                    run_key = f"ssm_run_{n}"
+        ta,tb,tc,td=st.tabs(["Bode Plot","Plateau Plot","Smith Chart","🔬 SSM Extraction"])
+        with ta: st.plotly_chart(make_bode(df_p,Path(n).stem,xr,yr,sh21,su,smag,c),use_container_width=True)
+        with tb: st.plotly_chart(make_plateau(df_p,d,Path(n).stem,xr,sh21,su,smag,c),use_container_width=True)
+        with tc:
+            smith_sub_plotly, smith_sub_mpl = st.tabs(
+                ["Plotly", "Matplotlib"])
+            with smith_sub_plotly:
+                st.plotly_chart(make_smith(
+                    d["S_fin"], df_p["Freq (GHz)"].values,
+                    smith_f_min, smith_f_max, toggles, scales,
+                    Path(n).stem, max_r=smith_max_r),
+                    use_container_width=True)
+            with smith_sub_mpl:
+                render_matplotlib_smith(
+                    fname=n, topo_key="meas",
+                    sets=[{"S": d["S_fin"], "label": Path(n).stem,
+                           "kind": "line", "style": "solid"}],
+                    default_multiplier=1.0,
+                )
+        with td:
+            # Gate key unique per file
+            run_key = f"ssm_run_{n}"
 
-                    if not st.session_state.get(run_key, False):
-                        st.markdown(" ")
-                        col_ctr, _, _ = st.columns([1, 2, 2])
-                        if col_ctr.button(
-                            "▶ Run SSM Extraction",
-                            key=f"ssm_btn_{n}",
-                            use_container_width=True,
-                            type="primary",
-                        ):
-                            st.session_state[run_key] = True
-                            st.rerun()
-                        st.caption(
-                            "SSM extraction is skipped until activated to keep the app fast. "
-                            "Click above to run it for this file."
-                        )
-                    else:
-                        # Optional: allow the user to reset / clear the results
-                        if st.button(
-                            "✕ Clear SSM results",
-                            key=f"ssm_clear_{n}",
-                            help="Frees cached computation for this file.",
-                        ):
-                            st.session_state[run_key] = False
-                            # Also clear any downstream caches for this file
-                            for k in list(st.session_state.keys()):
-                                if k.endswith(f"_{n}") and k != run_key:
-                                    del st.session_state[k]
-                            st.rerun()
+            if not st.session_state.get(run_key, False):
+                st.markdown(" ")
+                col_ctr, _, _ = st.columns([1, 2, 2])
+                if col_ctr.button(
+                    "▶ Run SSM Extraction",
+                    key=f"ssm_btn_{n}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    st.session_state[run_key] = True
+                    st.rerun()
+                st.caption(
+                    "SSM extraction is skipped until activated to keep the app fast. "
+                    "Click above to run it for this file."
+                )
+            else:
+                # Optional: allow the user to reset / clear the results
+                if st.button(
+                    "✕ Clear SSM results",
+                    key=f"ssm_clear_{n}",
+                    help="Frees cached computation for this file.",
+                ):
+                    st.session_state[run_key] = False
+                    # Also clear any downstream caches for this file
+                    for k in list(st.session_state.keys()):
+                        if k.endswith(f"_{n}") and k != run_key:
+                            del st.session_state[k]
+                    st.rerun()
 
-                        render_ssm_tab(
-                            n, d["S_raw"], d["freq"], d["z0"],
-                            s2o, s2s, all_data=all_data,
-                        )
+                render_ssm_tab(
+                    n, d["S_raw"], d["freq"], d["z0"],
+                    s2o, s2s, all_data=all_data,
+                )
 
-                with st.expander("📋 Data Table"):
-                    if d["df_fin"] is not None:
-                        ta2,tb2=st.tabs(["De-embedded","Raw"])
-                        with ta2: st.dataframe(df_p.round(4),use_container_width=True,hide_index=True)
-                        with tb2: st.dataframe(d["df_raw"].round(4),use_container_width=True,hide_index=True)
-                    else: st.dataframe(df_p.round(4),use_container_width=True,hide_index=True)
+        with st.expander("📋 Data Table"):
+            if d["df_fin"] is not None:
+                ta2,tb2=st.tabs(["De-embedded","Raw"])
+                with ta2: st.dataframe(df_p.round(4),use_container_width=True,hide_index=True)
+                with tb2: st.dataframe(d["df_raw"].round(4),use_container_width=True,hide_index=True)
+            else: st.dataframe(df_p.round(4),use_container_width=True,hide_index=True)
 
 with tab_sum:
     if not all_data:

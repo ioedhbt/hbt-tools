@@ -33,7 +33,7 @@ def apply_pending(target_key: str) -> None:
         st.session_state[target_key] = st.session_state.pop(pk)
 
 
-def _candidates(arr_disp, default_disp):
+def _candidates(arr_disp, default_disp, cold_disp=None):
     out = []
     if arr_disp is not None:
         a = np.asarray(arr_disp, dtype=float)
@@ -45,11 +45,13 @@ def _candidates(arr_disp, default_disp):
             out.append(("high f", float(a[-1])))
     if default_disp is not None and np.isfinite(default_disp):
         out.append(("default", float(default_disp)))
+    if cold_disp is not None and np.isfinite(cold_disp):
+        out.append(("cold", float(cold_disp)))
     return out
 
 
 def quickset_buttons(*, container, key_prefix: str, target_key: str,
-                     arr_disp=None, default_disp=None,
+                     arr_disp=None, default_disp=None, cold_disp=None,
                      unit: str = "",
                      fmt: str = "%.4g", layout: str = "side") -> None:
     """Render quickset buttons that, when clicked, write a pending value
@@ -67,6 +69,9 @@ def quickset_buttons(*, container, key_prefix: str, target_key: str,
                    quickset entirely for scalar-only inputs).
     default_disp : The original auto-extracted scalar in display units.
                    Surfaces as the "default = …" button.
+    cold_disp    : Optional cold-section value in display units. When
+                   provided, surfaces as a "cold = …" button placed beside
+                   "default" (layout="below") for quick adoption.
     unit         : Display unit appended to each button label and tooltip.
     fmt          : printf-style format spec for the values shown on the
                    button labels (e.g. ``"%.4g"``).
@@ -78,11 +83,20 @@ def quickset_buttons(*, container, key_prefix: str, target_key: str,
         # No per-frequency array → skip quickset entirely (per design).
         return
     spec = fmt.lstrip("%")  # "%.4g" → ".4g"
-    cands = _candidates(arr_disp, default_disp)
+    cands = _candidates(arr_disp, default_disp, cold_disp)
     if not cands:
         return
 
     suffix = f" {unit}" if unit else ""
+
+    _HELP = {
+        "mean":    "Set input to the mean of the per-frequency array",
+        "median":  "Set input to the median of the per-frequency array",
+        "low f":   "Set input to the lowest-frequency point",
+        "high f":  "Set input to the highest-frequency point",
+        "default": "Restore the auto-extracted (median over the slider range) value",
+        "cold":    "Set input to the value extracted in the Cold-HBT section",
+    }
 
     def _render(row_container, items):
         cols = row_container.columns(len(items))
@@ -91,13 +105,14 @@ def quickset_buttons(*, container, key_prefix: str, target_key: str,
             if col.button(text,
                           key=f"{key_prefix}_qs_{lbl}",
                           use_container_width=True,
-                          help=f"Set input to {lbl} of the per-frequency array"):
+                          help=_HELP.get(lbl, f"Set input to {lbl} of the per-frequency array")):
                 st.session_state[target_key + "_pending"] = val
                 st.rerun()
 
     if layout == "below":
         by_lbl = {lbl: (lbl, val) for lbl, val in cands}
-        for row_lbls in (("default",), ("mean", "median"), ("low f", "high f")):
+        # Place "cold" beside "default" when both are present.
+        for row_lbls in (("default", "cold"), ("mean", "median"), ("low f", "high f")):
             row = [by_lbl[l] for l in row_lbls if l in by_lbl]
             if row:
                 _render(container, row)

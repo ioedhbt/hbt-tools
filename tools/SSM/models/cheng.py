@@ -1269,7 +1269,7 @@ class ChengT(AbstractSSMModel):
         if st.session_state.get(hash_key) != cur_hash:
             with st.spinner(f"Simulating {cls.NAME}…"):
                 try:
-                    S_sim = cls.simulate(all_p, freq, z0)
+                    S_sim = cls.simulate_vec(all_p, freq, z0)
                 except Exception as e:
                     st.error(f"Simulation error ({cls.NAME}): {e}")
                     S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
@@ -1280,7 +1280,7 @@ class ChengT(AbstractSSMModel):
             if S_sim is None or S_sim.shape[0] != len(freq):
                 with st.spinner(f"Simulating {cls.NAME}…"):
                     try:
-                        S_sim = cls.simulate(all_p, freq, z0)
+                        S_sim = cls.simulate_vec(all_p, freq, z0)
                     except Exception as e:
                         st.error(f"Simulation error ({cls.NAME}): {e}")
                         S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
@@ -1517,7 +1517,7 @@ class ChengPi(AbstractSSMModel):
         if st.session_state.get(hash_key) != cur_hash:
             with st.spinner(f"Simulating {cls.NAME}…"):
                 try:
-                    S_sim = cls.simulate(all_p, freq, z0)
+                    S_sim = cls.simulate_vec(all_p, freq, z0)
                 except Exception as e:
                     st.error(f"Simulation error ({cls.NAME}): {e}")
                     S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
@@ -1528,7 +1528,7 @@ class ChengPi(AbstractSSMModel):
             if S_sim is None or S_sim.shape[0] != len(freq):
                 with st.spinner(f"Simulating {cls.NAME}…"):
                     try:
-                        S_sim = cls.simulate(all_p, freq, z0)
+                        S_sim = cls.simulate_vec(all_p, freq, z0)
                     except Exception as e:
                         st.error(f"Simulation error ({cls.NAME}): {e}")
                         S_sim = np.full((len(freq), 2, 2), np.nan + 0j)

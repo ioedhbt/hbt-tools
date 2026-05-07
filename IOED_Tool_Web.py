@@ -34,6 +34,7 @@ if not check_password():
 
 # 2. 定義功能頁面 (指向 tools 資料夾內的 Python 檔)
 # [現有功能]
+ebeam_calculator = st.Page("tools/ebeam_calculator.py", title="EBL Calculator", icon="🧮")
 gummel_page = st.Page("tools/IOED_Gummel_Analyzer.py", title="Sim Gummel Plot Analyzer", icon="📈")
 rf_page = st.Page("tools/IOED_HBT_RF_extract.py", title="RF S-Parameter Extraction", icon="📡")
 rf_sim_page = st.Page("tools/RF_simulator.py", title="RF Forward Simulator", icon="🛠️")
@@ -43,9 +44,11 @@ b1500a_page = st.Page("tools/B1500A_Plot.py", title="B1500A plot & TLM", icon="�
 hp4155a_page = st.Page("tools/HP4155A_plot.py", title="HP4155A Quick Plot", icon="📉")
 csv_process_page = st.Page("tools/csv_process.py", title="Measurement Data Muti-Process", icon="🗂️")
 
+
 # 3. 建立側邊欄群組導航選單
 pg = st.navigation({
     "高頻量測 (RF)": [rf_page, rf_sim_page],
+    "製程  (Process)": [ebeam_calculator],
     "元件模擬 (TCAD)": [gummel_page],
     "直流量測 (DC)": [b1500a_page, hp4155a_page],
     "資料處理 (Data)": [csv_process_page]
