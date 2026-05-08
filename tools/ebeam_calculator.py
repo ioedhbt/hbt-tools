@@ -161,12 +161,29 @@ with col_right:
 
 # ─── Section 2: Left Computer Setup ──────────────────────────────────────────
 
-st.header("Left Computer Setup")
-st.caption("Values set in job1.")
+st.header("Left Computer Setup, in job1")
+with st.expander("Setup Instructions", expanded=False):
+    st.caption("In job1: ")
+    st.caption("1. Type `pc`")
+    st.caption("2. Select folder where the .cel file is, usually in `Desktop/IOED/hbt/your_folder`")
+    st.caption("3. Set origin, usualy `10.0,10.0`. Using `0, 0` is difficult to see.")
+    st.caption("4. Click `Ax chip dot` (white), it will be changed to `Ax stage (mm)` (green).")
+    st.caption("5. Type `0.0001g` to set grid spacing.")
+    st.caption("6. Type `mc` to create grid points.")
+    st.caption("7. Click the grid (click `i` to zoom in, and `o` to zoom out if needed).")
+    st.caption("8. Are you sure? -> `Y`")
+    st.caption("9. All x? -> `N`")
+    st.caption("10. Input spacing: `0.6,0.6`")
+    st.caption("11. Grids -> `18,18` depending on the size of the pattern")
+    st.caption("12. `Y` -> `N`")
+    st.caption("13. Click File -> Load cel. Origin: `9.7,9.7`")
+    st.caption("14. If everything is well, click File -> save -> press enter twice.")
+    st.caption("15. If successful, the grids will be green, your folder should have `.ccc, .cbc, .con` files")
+
 c_ox, c_oy, c_cs = st.columns(3)
-c_ox.number_input("Origin x (mm)", key="ebc_origin_x",
+c_ox.number_input("Chip Origin x (mm)", key="ebc_origin_x",
                   format="%.3f", step=0.01)
-c_oy.number_input("Origin y (mm)", key="ebc_origin_y",
+c_oy.number_input("Chip Origin y (mm)", key="ebc_origin_y",
                   format="%.3f", step=0.01)
 c_cs.number_input("Chip Size (mm)", key="ebc_chip_size",
                   format="%.3f", step=0.01, min_value=0.001)
@@ -603,7 +620,7 @@ if mode == "Dose Time Testing":
 
 elif mode == "First Exposure":
     _FE_DEFAULTS = {
-        "ebc_fe_cel_x": 10.0, "ebc_fe_cel_y": 10.0,
+        "ebc_fe_cel_x": 9.7, "ebc_fe_cel_y": 9.7,
         "ebc_fe_nx": 20, "ebc_fe_ny": 20,
         "ebc_fe_shift_x": 94.0, "ebc_fe_shift_y": 104.0,
     }
@@ -671,19 +688,19 @@ elif mode == "First Exposure":
 
     p1, p2, p3 = st.columns(3)
     with p1:
-        st.markdown("**Cel Origin (mm)**")
+        st.markdown("**Cel Origin (mm) in job1**")
         cel_x = st.number_input("x", format="%.3f", step=0.01,
                                 key="ebc_fe_cel_x")
         cel_y = st.number_input("y", format="%.3f", step=0.01,
                                 key="ebc_fe_cel_y")
     with p2:
-        st.markdown("**Grid Count**")
+        st.markdown("**Grid Count in job1**")
         Nx = st.number_input("Nx", min_value=1, step=1,
                              key="ebc_fe_nx")
         Ny = st.number_input("Ny", min_value=1, step=1,
                              key="ebc_fe_ny")
     with p3:
-        st.markdown("**Shift (mm)**")
+        st.markdown("**Shift (mm) in job3**")
         shift_x = st.number_input("x", format="%.3f", step=0.01,
                                   key="ebc_fe_shift_x")
         shift_y = st.number_input("y", format="%.3f", step=0.01,
@@ -810,10 +827,10 @@ elif mode == "Second Alignment":
             "A1": (0.3695, 10.1195), "A2": (0.730, 10.12),
             "A3": (0.0595, 9.8095), "A4": (0.060, 9.45),
             "A5": (2.975, 9.35), "A6": (2.975, 8.95),
-            "B1": (9.609,  10.1195), "B2": (9.25,  10.12),
+            "B1": (9.6095,  10.1195), "B2": (9.25,  10.12),
             "B3": (9.9195,  9.8095), "B4": (9.92,  9.45),
             "B5": (7.005,  9.35), "B6": (7.005,  8.95),
-            "C1": (9.609,  0.0595), "C2": (9.25,  0.06),
+            "C1": (9.6095,  0.0595), "C2": (9.25,  0.06),
             "C3": (9.92,  0.73), "C4": (9.9195,  0.3695),
             "C5": (7.005,  1.39), "C6": (7.005,  1.0),
             "D1": (0.3695,  0.0595), "D2": (0.730,  0.06),
@@ -861,15 +878,16 @@ elif mode == "Second Alignment":
                     f"{key_prefix}_target_x", float(anchor_x))
                 st.session_state.setdefault(
                     f"{key_prefix}_target_y", float(anchor_y))
+                st.caption("Mark position as seen on the SEM:")
                 target_x_input, target_y_input = st.columns(2)
                 with target_x_input:
                     target_x = st.number_input(
-                        "Target x (mm)", format="%.4f", step=0.01,
+                        "Target x in SEM (mm)", format="%.4f", step=0.01,
                         key=f"{key_prefix}_target_x",
                     )
                 with target_y_input:
                     target_y = st.number_input(
-                        "Target y (mm)", format="%.4f", step=0.01,
+                        "Target y in SEM (mm)", format="%.4f", step=0.01,
                         key=f"{key_prefix}_target_y",
                     )
 
@@ -927,12 +945,13 @@ elif mode == "Second Alignment":
         ep_shift_y = 0.0
         ep_ready = False
 
-        if not _gds_cells_data:
-            st.info("Upload a GDS file in the GDS Mask section "
-                    "above first.")
-        else:
-            ep_ctrl_col, ep_plot_col = st.columns(2)
-            with ep_ctrl_col:
+        ep_ctrl_col, ep_plot_col = st.columns([3, 7])
+
+        with ep_ctrl_col:
+            if not _gds_cells_data:
+                st.caption("No GDS file uploaded — showing "
+                           "crosses only.")
+            else:
                 cell_name = _gds_selected_cell_name
                 ep_by_layer = (_gds_cells_data.get(cell_name, {})
                                if cell_name else {})
@@ -948,42 +967,37 @@ elif mode == "Second Alignment":
                     disabled=not ep_labels,
                     key="ebc_sa_ep_layer",
                 )
+                if ep_labels:
+                    ep_polys = ep_by_layer[
+                        ep_layer_options[ep_layer_label]]
 
-            if ep_labels:
-                ep_polys = ep_by_layer[ep_layer_options[ep_layer_label]]
-                ep_shift_x, ep_shift_y = _render_pattern_alignment(
-                    ep_polys, _gds_unit_to_mm, crosses, "ebc_sa_ep",
-                    ep_ctrl_col, ep_plot_col,
-                )
-                ep_ready = True
+        ep_shift_x, ep_shift_y = _render_pattern_alignment(
+            ep_polys, _gds_unit_to_mm, crosses, "ebc_sa_ep",
+            ep_ctrl_col, ep_plot_col,
+        )
+        ep_ready = True
 
         # ── Second Alignment Pattern ─────────────────────────────────
         st.subheader("Second Alignment Pattern")
 
         sap_polys = _gds_selected_polys
-        sap_cel_x = 0.0
-        sap_cel_y = 0.0
-        sap_ready = False
 
-        if not sap_polys:
-            st.info("Select a layer in the GDS Mask section "
-                    "above first.")
-        else:
-            _SAP_DEFAULTS = {
-                "ebc_sa_sap_cel_x": 10.0, "ebc_sa_sap_cel_y": 10.0,
-                "ebc_sa_sap_nx": 20, "ebc_sa_sap_ny": 20,
-            }
-            for _k, _v in _SAP_DEFAULTS.items():
-                st.session_state.setdefault(_k, _v)
+        _SAP_DEFAULTS = {
+            "ebc_sa_sap_cel_x": 9.7, "ebc_sa_sap_cel_y": 9.7,
+            "ebc_sa_sap_nx": 20, "ebc_sa_sap_ny": 20,
+        }
+        for _k, _v in _SAP_DEFAULTS.items():
+            st.session_state.setdefault(_k, _v)
 
-            chip_size_sap = float(st.session_state["ebc_chip_size"])
-            origin_x_sap = float(st.session_state["ebc_origin_x"])
-            origin_y_sap = float(st.session_state["ebc_origin_y"])
-            half_sap = chip_size_sap * 0.5
+        chip_size_sap = float(st.session_state["ebc_chip_size"])
+        origin_x_sap = float(st.session_state["ebc_origin_x"])
+        origin_y_sap = float(st.session_state["ebc_origin_y"])
+        half_sap = chip_size_sap * 0.5
 
-            sap_ctrl_col, sap_plot_col = st.columns(2)
+        sap_ctrl_col, sap_plot_col = st.columns([3, 7])
 
-            with sap_ctrl_col:
+        with sap_ctrl_col:
+            if sap_polys:
                 # Auto-fit Nx/Ny from layer bbox (re-runs on layer or
                 # chip_size change; manual edits stick otherwise).
                 bbox_sap = _layer_bbox_mm(sap_polys, _gds_unit_to_mm)
@@ -994,8 +1008,8 @@ elif mode == "Second Alignment":
                     nx_req = _round_up_even(bb_w / chip_size_sap)
                     ny_req = _round_up_even(bb_h / chip_size_sap)
                     st.caption(
-                        f"Mask layer size: {bb_w:.3f} × {bb_h:.3f} mm  →  "
-                        f"required grids: {nx_req} × {ny_req}"
+                        f"Mask layer size: {bb_w:.3f} × {bb_h:.3f} mm"
+                        f"  →  required grids: {nx_req} × {ny_req}"
                     )
                     sap_token = (_gds_selected_token, chip_size_sap)
                     if (st.session_state.get("ebc_sa_sap_nxny_token")
@@ -1003,30 +1017,36 @@ elif mode == "Second Alignment":
                         st.session_state["ebc_sa_sap_nx"] = int(nx_req)
                         st.session_state["ebc_sa_sap_ny"] = int(ny_req)
                         st.session_state["ebc_sa_sap_nxny_token"] = sap_token
+            else:
+                st.caption("No GDS layer selected — showing "
+                           "crosses only.")
 
-                sp1, sp2 = st.columns(2)
-                with sp1:
-                    st.markdown("**Cel Origin (mm)**")
-                    sap_cel_x = st.number_input(
-                        "x", format="%.3f", step=0.01,
-                        key="ebc_sa_sap_cel_x")
-                    sap_cel_y = st.number_input(
-                        "y", format="%.3f", step=0.01,
-                        key="ebc_sa_sap_cel_y")
-                with sp2:
-                    st.markdown("**Grid Count**")
-                    sap_nx = st.number_input(
-                        "Nx", min_value=1, step=1,
-                        key="ebc_sa_sap_nx")
-                    sap_ny = st.number_input(
-                        "Ny", min_value=1, step=1,
-                        key="ebc_sa_sap_ny")
+            sp1, sp2 = st.columns(2)
+            with sp1:
+                st.markdown("**Cel Origin (mm) in job1**")
+                sap_cel_x = st.number_input(
+                    "x", format="%.3f", step=0.01,
+                    key="ebc_sa_sap_cel_x")
+                sap_cel_y = st.number_input(
+                    "y", format="%.3f", step=0.01,
+                    key="ebc_sa_sap_cel_y")
+            with sp2:
+                st.markdown("**Grid Count in job1**")
+                sap_nx = st.number_input(
+                    "Nx", min_value=1, step=1,
+                    key="ebc_sa_sap_nx")
+                sap_ny = st.number_input(
+                    "Ny", min_value=1, step=1,
+                    key="ebc_sa_sap_ny")
 
-            sap_nx_i = int(sap_nx)
-            sap_ny_i = int(sap_ny)
-            scale_sap = _gds_unit_to_mm
+        sap_nx_i = int(sap_nx)
+        sap_ny_i = int(sap_ny)
+        scale_sap = _gds_unit_to_mm
 
-            # Grid pattern (writable area, packed edge-to-edge)
+        # Plot: only render grid + mask if a GDS layer is selected;
+        # crosses always render (and follow the cel origin).
+        fig_sap = go.Figure()
+        if sap_polys:
             sap_grid_xs: list = []
             sap_grid_ys: list = []
             for i in range(sap_nx_i):
@@ -1038,8 +1058,16 @@ elif mode == "Second Alignment":
                                     gx, gx, None]
                     sap_grid_ys += [gy, gy, gy + chip_size_sap,
                                     gy + chip_size_sap, gy, None]
+            fig_sap.add_trace(go.Scatter(
+                x=sap_grid_xs, y=sap_grid_ys,
+                mode="lines",
+                fill="toself",
+                line=dict(color="#ff7f0e", width=1),
+                fillcolor="rgba(255,127,14,0.15)",
+                name=f"Grid ({sap_nx_i}×{sap_ny_i})",
+                hoverinfo="skip",
+            ))
 
-            # Single mask placement at cel origin
             sap_mask_xs: list = []
             sap_mask_ys: list = []
             for xs, ys in sap_polys:
@@ -1047,132 +1075,126 @@ elif mode == "Second Alignment":
                 pys = [sap_cel_y + p * scale_sap for p in ys]
                 sap_mask_xs += pxs + [pxs[0], None]
                 sap_mask_ys += pys + [pys[0], None]
-
-            # Plot: grid + mask + crosses (no shift)
-            fig_sap = go.Figure()
-            if sap_grid_xs:
-                fig_sap.add_trace(go.Scatter(
-                    x=sap_grid_xs, y=sap_grid_ys,
-                    mode="lines",
-                    fill="toself",
-                    line=dict(color="#ff7f0e", width=1),
-                    fillcolor="rgba(255,127,14,0.15)",
-                    name=f"Grid ({sap_nx_i}×{sap_ny_i})",
-                    hoverinfo="skip",
-                ))
-            if sap_mask_xs:
-                fig_sap.add_trace(go.Scatter(
-                    x=sap_mask_xs, y=sap_mask_ys,
-                    mode="lines",
-                    fill="toself",
-                    line=dict(color="#2ca02c", width=0.5),
-                    fillcolor="rgba(44,160,44,0.5)",
-                    name="Mask",
-                    hoverinfo="skip",
-                ))
-            # Crosses follow the cel origin: as cel moves, the cross
-            # marks move with the second alignment pattern.
             fig_sap.add_trace(go.Scatter(
-                x=[v[0] + sap_cel_x for v in crosses.values()],
-                y=[v[1] + sap_cel_y for v in crosses.values()],
-                mode="markers+text",
-                marker=dict(size=10, color="#d62728", symbol="x"),
-                text=list(crosses.keys()),
-                textposition="top right",
-                hovertemplate=("%{text}<br>"
-                               "(%{x:.4f}, %{y:.4f}) mm<extra></extra>"),
-                name="Crosses",
+                x=sap_mask_xs, y=sap_mask_ys,
+                mode="lines",
+                fill="toself",
+                line=dict(color="#2ca02c", width=0.5),
+                fillcolor="rgba(44,160,44,0.5)",
+                name="Mask",
+                hoverinfo="skip",
             ))
-            fig_sap.update_layout(
-                xaxis=dict(title="x (mm)"),
-                yaxis=dict(title="y (mm)",
-                           scaleanchor="x", scaleratio=1),
-                margin=dict(l=40, r=20, t=20, b=40),
-                height=500,
-                showlegend=True,
-            )
-            with sap_plot_col:
-                st.plotly_chart(fig_sap, use_container_width=True,
-                                key="ebc_sa_sap_chart")
-            sap_ready = True
+
+        # Crosses follow the cel origin: as cel moves, the cross
+        # marks move with the second alignment pattern.
+        fig_sap.add_trace(go.Scatter(
+            x=[v[0] + sap_cel_x for v in crosses.values()],
+            y=[v[1] + sap_cel_y for v in crosses.values()],
+            mode="markers+text",
+            marker=dict(size=10, color="#d62728", symbol="x"),
+            text=list(crosses.keys()),
+            textposition="top right",
+            hovertemplate=("%{text}<br>"
+                           "(%{x:.4f}, %{y:.4f}) mm<extra></extra>"),
+            name="Crosses",
+        ))
+        fig_sap.update_layout(
+            xaxis=dict(title="x (mm)"),
+            yaxis=dict(title="y (mm)",
+                       scaleanchor="x", scaleratio=1),
+            margin=dict(l=40, r=20, t=20, b=40),
+            height=500,
+            showlegend=True,
+        )
+        with sap_plot_col:
+            st.plotly_chart(fig_sap, use_container_width=True,
+                            key="ebc_sa_sap_chart")
+        sap_ready = True
 
         # ── Overlayed ────────────────────────────────────────────────
         st.subheader("Overlayed")
 
-        if not (ep_ready and sap_ready):
-            st.info("Both an Existing Pattern layer and a "
-                    "Second Alignment Pattern layer must be "
-                    "selected.")
-        else:
-            ov_plot_col, ov_ctrl_col = st.columns(2)
+        ov_plot_col, ov_ctrl_col = st.columns([7, 3])
 
-            with ov_ctrl_col:
-                cross_labels = list(crosses.keys())
-                mark1_input, mark2_input = st.columns(2)
-                with mark1_input:
-                    mark1 = st.selectbox(
-                        "Mark 1", cross_labels, key="ebc_sa_o_mark1")
-                    mark2_options = [
-                        m for m in cross_labels if m != mark1]
-                    current_m2 = st.session_state.get("ebc_sa_o_mark2")
-                    if (current_m2 == mark1
-                            or current_m2 not in mark2_options):
-                        st.session_state["ebc_sa_o_mark2"] = mark2_options[0]
-                with mark2_input:
-                    mark2 = st.selectbox(
-                        "Mark 2", mark2_options, key="ebc_sa_o_mark2")
+        with ov_ctrl_col:
+            cross_labels = list(crosses.keys())
+            mark1_input, mark2_input = st.columns(2)
+            with mark1_input:
+                mark1 = st.selectbox(
+                    "Mark 1", cross_labels, key="ebc_sa_o_mark1")
+                m1_pos = crosses[mark1]
+                st.caption(
+                    f"Original: ({m1_pos[0]:.4f}, "
+                    f"{m1_pos[1]:.4f}) mm"
+                )
+                mark2_options = [
+                    m for m in cross_labels if m != mark1]
+                current_m2 = st.session_state.get("ebc_sa_o_mark2")
+                if (current_m2 == mark1
+                        or current_m2 not in mark2_options):
+                    st.session_state["ebc_sa_o_mark2"] = mark2_options[0]
+            with mark2_input:
+                mark2 = st.selectbox(
+                    "Mark 2", mark2_options, key="ebc_sa_o_mark2")
+                m2_pos = crosses[mark2]
+                st.caption(
+                    f"Original: ({m2_pos[0]:.4f}, "
+                    f"{m2_pos[1]:.4f}) mm"
+                )
 
-                # Auto-populate the Shift inputs.
-                # SAP's crosses sit at (preset + sap_cel) because they
-                # follow the cel; EP's at (preset + ep_shift). To put
-                # SAP's marks on EP's marks we need
-                #   preset + sap_cel + shift = preset + ep_shift
-                #   ⇒ shift = ep_shift − sap_cel.
-                shift_token = (ep_shift_x, ep_shift_y,
-                               sap_cel_x, sap_cel_y)
-                if (st.session_state.get("ebc_sa_o_shift_token")
-                        != shift_token):
-                    st.session_state["ebc_sa_o_shift_x"] = float(
-                        ep_shift_x - sap_cel_x)
-                    st.session_state["ebc_sa_o_shift_y"] = float(
-                        ep_shift_y - sap_cel_y)
-                    st.session_state["ebc_sa_o_shift_token"] = shift_token
-                
-                overlay_shift_x_input, overlay_shift_y_input = st.columns(2)
-                with overlay_shift_x_input:
-                    overlay_shift_x = st.number_input(
-                        "Shift x (mm)", format="%.4f", step=0.01,
-                        key="ebc_sa_o_shift_x",
-                    )
-                with overlay_shift_y_input:
-                    overlay_shift_y = st.number_input(
-                        "Shift y (mm)", format="%.4f", step=0.01,
-                        key="ebc_sa_o_shift_y",
-                    )
+            # Auto-populate the Shift inputs.
+            # SAP's crosses sit at (preset + sap_cel) because they
+            # follow the cel; EP's at (preset + ep_shift). To put
+            # SAP's marks on EP's marks we need
+            #   preset + sap_cel + shift = preset + ep_shift
+            #   ⇒ shift = ep_shift − sap_cel.
+            shift_token = (ep_shift_x, ep_shift_y,
+                           sap_cel_x, sap_cel_y)
+            if (st.session_state.get("ebc_sa_o_shift_token")
+                    != shift_token):
+                st.session_state["ebc_sa_o_shift_x"] = float(
+                    ep_shift_x - sap_cel_x)
+                st.session_state["ebc_sa_o_shift_y"] = float(
+                    ep_shift_y - sap_cel_y)
+                st.session_state["ebc_sa_o_shift_token"] = shift_token
 
-            fig_ov = go.Figure()
+            st.caption("Use these numbers in job3:")
+            overlay_shift_x_input, overlay_shift_y_input = st.columns(2)
+            with overlay_shift_x_input:
+                overlay_shift_x = st.number_input(
+                    "Shift x (mm)", format="%.4f", step=0.01,
+                    key="ebc_sa_o_shift_x",
+                )
+            with overlay_shift_y_input:
+                overlay_shift_y = st.number_input(
+                    "Shift y (mm)", format="%.4f", step=0.01,
+                    key="ebc_sa_o_shift_y",
+                )
 
-            # Existing pattern (with EP's user shift)
-            if ep_polys:
-                ep_xs_all, ep_ys_all = [], []
-                for xs, ys in ep_polys:
-                    mxs = [ep_shift_x + p * _gds_unit_to_mm
-                           for p in xs]
-                    mys = [ep_shift_y + p * _gds_unit_to_mm
-                           for p in ys]
-                    ep_xs_all += mxs + [mxs[0], None]
-                    ep_ys_all += mys + [mys[0], None]
-                fig_ov.add_trace(go.Scatter(
-                    x=ep_xs_all, y=ep_ys_all,
-                    mode="lines",
-                    fill="toself",
-                    line=dict(color="#1f77b4", width=0.5),
-                    fillcolor="rgba(31,119,180,0.35)",
-                    name="Existing Pattern",
-                    hoverinfo="skip",
-                ))
+        fig_ov = go.Figure()
 
-            # Second alignment pattern's mask (at cel + overlay shift)
+        # Existing pattern (with EP's user shift); skipped if no file.
+        if ep_polys:
+            ep_xs_all, ep_ys_all = [], []
+            for xs, ys in ep_polys:
+                mxs = [ep_shift_x + p * _gds_unit_to_mm
+                       for p in xs]
+                mys = [ep_shift_y + p * _gds_unit_to_mm
+                       for p in ys]
+                ep_xs_all += mxs + [mxs[0], None]
+                ep_ys_all += mys + [mys[0], None]
+            fig_ov.add_trace(go.Scatter(
+                x=ep_xs_all, y=ep_ys_all,
+                mode="lines",
+                fill="toself",
+                line=dict(color="#1f77b4", width=0.5),
+                fillcolor="rgba(31,119,180,0.35)",
+                name="Existing Pattern",
+                hoverinfo="skip",
+            ))
+
+        # SAP mask (at cel + overlay shift); skipped if no file.
+        if sap_polys:
             sap_ov_xs, sap_ov_ys = [], []
             for xs, ys in sap_polys:
                 mxs = [sap_cel_x + overlay_shift_x
@@ -1191,35 +1213,35 @@ elif mode == "Second Alignment":
                 hoverinfo="skip",
             ))
 
-            # Show only the two selected marks (in the SAP frame:
-            # preset + sap_cel + overlay_shift). Hide the rest.
-            sel_marks = [mark1, mark2]
-            sel_x = [crosses[m][0] + sap_cel_x + overlay_shift_x
-                     for m in sel_marks]
-            sel_y = [crosses[m][1] + sap_cel_y + overlay_shift_y
-                     for m in sel_marks]
-            fig_ov.add_trace(go.Scatter(
-                x=sel_x, y=sel_y,
-                mode="markers+text",
-                marker=dict(size=14, color="#9467bd",
-                            symbol="circle-open",
-                            line=dict(width=2)),
-                text=sel_marks,
-                textposition="top right",
-                hovertemplate=("%{text}<br>"
-                               "(%{x:.4f}, %{y:.4f}) mm"
-                               "<extra></extra>"),
-                name="Selected marks",
-            ))
+        # Show only the two selected marks (in the SAP frame:
+        # preset + sap_cel + overlay_shift). Hide the rest.
+        sel_marks = [mark1, mark2]
+        sel_x = [crosses[m][0] + sap_cel_x + overlay_shift_x
+                 for m in sel_marks]
+        sel_y = [crosses[m][1] + sap_cel_y + overlay_shift_y
+                 for m in sel_marks]
+        fig_ov.add_trace(go.Scatter(
+            x=sel_x, y=sel_y,
+            mode="markers+text",
+            marker=dict(size=14, color="#9467bd",
+                        symbol="circle-open",
+                        line=dict(width=2)),
+            text=sel_marks,
+            textposition="top right",
+            hovertemplate=("%{text}<br>"
+                           "(%{x:.4f}, %{y:.4f}) mm"
+                           "<extra></extra>"),
+            name="Selected marks",
+        ))
 
-            fig_ov.update_layout(
-                xaxis=dict(title="x (mm)"),
-                yaxis=dict(title="y (mm)",
-                           scaleanchor="x", scaleratio=1),
-                margin=dict(l=40, r=20, t=20, b=40),
-                height=600,
-                showlegend=True,
-            )
-            with ov_plot_col:
-                st.plotly_chart(fig_ov, use_container_width=True,
-                                key="ebc_sa_overlay_chart")
+        fig_ov.update_layout(
+            xaxis=dict(title="x (mm)"),
+            yaxis=dict(title="y (mm)",
+                       scaleanchor="x", scaleratio=1),
+            margin=dict(l=40, r=20, t=20, b=40),
+            height=600,
+            showlegend=True,
+        )
+        with ov_plot_col:
+            st.plotly_chart(fig_ov, use_container_width=True,
+                            key="ebc_sa_overlay_chart")
