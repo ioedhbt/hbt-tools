@@ -89,10 +89,10 @@ with col_left:
         st.markdown(f"**{label}**")
         cx, cy = st.columns(2)
         cx.number_input(
-            "x", key=kx, format="%.3f", step=0.1, disabled=disabled,
+            "x", key=kx, format="%.3f", step=0.0005, disabled=disabled,
         )
         cy.number_input(
-            "y", key=ky, format="%.3f", step=0.1, disabled=disabled,
+            "y", key=ky, format="%.3f", step=0.0005, disabled=disabled,
         )
 
     # 2×2 grid: top row = top-left, top-right; bottom row = bottom-left, bottom-right
@@ -163,30 +163,31 @@ with col_right:
 
 st.header("Left Computer Setup, in job1")
 with st.expander("Setup Instructions", expanded=False):
-    st.caption("In job1: ")
-    st.caption("1. Type `pc`")
-    st.caption("2. Select folder where the .cel file is, usually in `Desktop/IOED/hbt/your_folder`")
-    st.caption("3. Set origin, usualy `10.0,10.0`. Using `0, 0` is difficult to see.")
-    st.caption("4. Click `Ax chip dot` (white), it will be changed to `Ax stage (mm)` (green).")
-    st.caption("5. Type `0.0001g` to set grid spacing.")
-    st.caption("6. Type `mc` to create grid points.")
-    st.caption("7. Click the grid (click `i` to zoom in, and `o` to zoom out if needed).")
-    st.caption("8. Are you sure? -> `Y`")
-    st.caption("9. All x? -> `N`")
-    st.caption("10. Input spacing: `0.6,0.6`")
-    st.caption("11. Grids -> `18,18` depending on the size of the pattern")
-    st.caption("12. `Y` -> `N`")
-    st.caption("13. Click File -> Load cel. Origin: `9.7,9.7`")
-    st.caption("14. If everything is well, click File -> save -> press enter twice.")
-    st.caption("15. If successful, the grids will be green, your folder should have `.ccc, .cbc, .con` files")
+    st.caption("Make sure you already have the `.cel` file. In `job1`: ")
+    st.caption("1. Type `pc`.")
+    st.caption("2. Select folder where the `.cel` file is, usually in `Desktop/IOED/hbt/your_folder`.")
+    st.caption("3. Type the chip name, the same name as the `.cel` file.")
+    st.caption("4. Set chip origin, usualy `10.0,10.0`. Using `0, 0` is difficult to see.")
+    st.caption("5. Click `Ax: chip dot` (white), it will be changed to `Ax: stage (mm)` (green).")
+    st.caption("6. Type `0.0001g` to set grid spacing to 100 nm.")
+    st.caption("7. Type `mc` to create grid points.")
+    st.caption("8. Click the square grid (click `i` to zoom in, and `o` to zoom out, then click the screen with the mouse pointer if needed).")
+    st.caption("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.")
+    st.caption("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.")
+    st.caption("11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.")
+    st.caption("12. X direction? `Y` -> Auto reverse? `N`")
+    st.caption("13. Click File -> Load CEL. Enter cel name.")
+    st.caption("14. Origin: `9.7,9.7`.")
+    st.caption("15. Click File -> save -> press enter. Type the file `.con` name, the same as the `.cel` file.")
+    st.caption("16. If successful, the grids will be green, your folder should have `.ccc, .cbc, .con` files.")
 
 c_ox, c_oy, c_cs = st.columns(3)
 c_ox.number_input("Chip Origin x (mm)", key="ebc_origin_x",
-                  format="%.3f", step=0.01)
+                  format="%.3f", step=0.0005)
 c_oy.number_input("Chip Origin y (mm)", key="ebc_origin_y",
-                  format="%.3f", step=0.01)
+                  format="%.3f", step=0.0005)
 c_cs.number_input("Chip Size (mm)", key="ebc_chip_size",
-                  format="%.3f", step=0.01, min_value=0.001)
+                  format="%.3f", step=0.0005, min_value=0.001)
 
 
 # ─── Section 3: GDS Mask Viewer ──────────────────────────────────────────────
@@ -419,15 +420,15 @@ if mode == "Dose Time Testing":
     with p1:
         st.markdown("**Cel Origin (mm) in job1**")
         cel_x = st.number_input("x", format="%.3f",
-                                step=0.1, key="ebc_dt_cel_x")
+                                step=0.0005, key="ebc_dt_cel_x")
         cel_y = st.number_input("y", format="%.3f",
-                                step=0.1, key="ebc_dt_cel_y")
+                                step=0.0005, key="ebc_dt_cel_y")
     with p2:
         st.markdown("**Increment (mm) in job3**")
         dx = st.number_input("dx", format="%.3f",
-                             step=0.1, key="ebc_dt_dx")
+                             step=0.0005, key="ebc_dt_dx")
         dy = st.number_input("dy", format="%.3f",
-                             step=0.1, key="ebc_dt_dy")
+                             step=0.0005, key="ebc_dt_dy")
     with p3:
         st.markdown("**Grid Count in job3**")
         Nx = st.number_input("Nx", min_value=1,
@@ -437,9 +438,9 @@ if mode == "Dose Time Testing":
     with p4:
         st.markdown("**Initial Shift (mm) in job3**")
         shift_x = st.number_input("x", format="%.3f",
-                                  step=0.1, key="ebc_dt_shift_x")
+                                  step=0.0005, key="ebc_dt_shift_x")
         shift_y = st.number_input("y", format="%.3f",
-                                  step=0.1, key="ebc_dt_shift_y")
+                                  step=0.0005, key="ebc_dt_shift_y")
 
     Nx_i, Ny_i = int(Nx), int(Ny)
     grid_xs: list = []
@@ -633,25 +634,36 @@ elif mode == "First Exposure":
     half_v = chip_size_v * 0.5
 
     # ─── Auto-fit Nx/Ny from mask layer size ─────────────────────────
-    # Grid count = ceil(mask_size / setup_chip_size), rounded up to the
-    # next even integer. Driven by the GDS layer bounding box, not the
-    # holder chip dimensions.
+    # The mask's GDS (0,0) lands at cel_origin in plot coords, so the
+    # mask spans (cel + min, cel + max). The grid pattern starts at
+    # origin − half. Required Nx is the grid count needed to cover
+    # the mask's far edge:
+    #   Nx ≥ ceil((cel + max_x − (origin − half)) / chip_size)
+    # rounded up to the next even integer. (Assumes the mask layer's
+    # bbox starts at min ≥ 0; if it goes negative, the mask extends
+    # left of the grid origin and the user must adjust cel.)
     if _gds_selected_polys:
         bbox = _layer_bbox_mm(_gds_selected_polys, _gds_unit_to_mm)
         if bbox is not None:
             min_x, min_y, max_x, max_y = bbox
+            cel_x_v = float(st.session_state["ebc_fe_cel_x"])
+            cel_y_v = float(st.session_state["ebc_fe_cel_y"])
+            right_x = (cel_x_v + max_x) - (origin_x_v - half_v)
+            right_y = (cel_y_v + max_y) - (origin_y_v - half_v)
+            Nx_req = _round_up_even(right_x / chip_size_v)
+            Ny_req = _round_up_even(right_y / chip_size_v)
             layer_w = max_x - min_x
             layer_h = max_y - min_y
-            Nx_req = _round_up_even(layer_w / chip_size_v)
-            Ny_req = _round_up_even(layer_h / chip_size_v)
 
             st.caption(
-                f"Mask layer size: {layer_w:.3f} × {layer_h:.3f} mm  →  "
-                f"required grids: {Nx_req} × {Ny_req} "
-                f"(chip-size tile = {chip_size_v:.3f} mm)"
+                f"Mask layer size: {layer_w:.3f} × {layer_h:.3f} mm"
+                f"  →  required grids: {Nx_req} × {Ny_req} "
+                f"(chip-size tile = {chip_size_v:.3f} mm, "
+                f"cel = {cel_x_v:.3f}, {cel_y_v:.3f})"
             )
 
-            nxny_token = (_gds_selected_token, chip_size_v)
+            nxny_token = (_gds_selected_token, chip_size_v,
+                          cel_x_v, cel_y_v)
             if st.session_state.get("ebc_fe_nxny_token") != nxny_token:
                 st.session_state["ebc_fe_nx"] = int(Nx_req)
                 st.session_state["ebc_fe_ny"] = int(Ny_req)
@@ -689,21 +701,21 @@ elif mode == "First Exposure":
     p1, p2, p3 = st.columns(3)
     with p1:
         st.markdown("**Cel Origin (mm) in job1**")
-        cel_x = st.number_input("x", format="%.3f", step=0.01,
+        cel_x = st.number_input("x", format="%.3f", step=0.0005,
                                 key="ebc_fe_cel_x")
-        cel_y = st.number_input("y", format="%.3f", step=0.01,
+        cel_y = st.number_input("y", format="%.3f", step=0.0005,
                                 key="ebc_fe_cel_y")
     with p2:
-        st.markdown("**Grid Count in job1**")
+        st.markdown("**Grid Count in job1 (make sure everything is inside the chip)**")
         Nx = st.number_input("Nx", min_value=1, step=1,
                              key="ebc_fe_nx")
         Ny = st.number_input("Ny", min_value=1, step=1,
                              key="ebc_fe_ny")
     with p3:
         st.markdown("**Shift (mm) in job3**")
-        shift_x = st.number_input("x", format="%.3f", step=0.01,
+        shift_x = st.number_input("x", format="%.3f", step=0.0005,
                                   key="ebc_fe_shift_x")
-        shift_y = st.number_input("y", format="%.3f", step=0.01,
+        shift_y = st.number_input("y", format="%.3f", step=0.0005,
                                   key="ebc_fe_shift_y")
 
     Nx_i, Ny_i = int(Nx), int(Ny)
@@ -882,12 +894,12 @@ elif mode == "Second Alignment":
                 target_x_input, target_y_input = st.columns(2)
                 with target_x_input:
                     target_x = st.number_input(
-                        "Target x in SEM (mm)", format="%.4f", step=0.01,
+                        "Target x in SEM (mm)", format="%.4f", step=0.0005,
                         key=f"{key_prefix}_target_x",
                     )
                 with target_y_input:
                     target_y = st.number_input(
-                        "Target y in SEM (mm)", format="%.4f", step=0.01,
+                        "Target y in SEM (mm)", format="%.4f", step=0.0005,
                         key=f"{key_prefix}_target_y",
                     )
 
@@ -998,20 +1010,34 @@ elif mode == "Second Alignment":
 
         with sap_ctrl_col:
             if sap_polys:
-                # Auto-fit Nx/Ny from layer bbox (re-runs on layer or
-                # chip_size change; manual edits stick otherwise).
+                # Auto-fit Nx/Ny so the grid covers the mask's far
+                # edge given the cel offset:
+                #   Nx ≥ ceil((cel + max_x − (origin − half))
+                #             / chip_size)
+                # rounded up to the next even integer. Re-runs on
+                # layer, chip-size, or cel changes; manual edits to
+                # Nx/Ny stick until one of those changes again.
                 bbox_sap = _layer_bbox_mm(sap_polys, _gds_unit_to_mm)
                 if bbox_sap is not None:
                     bb_min_x, bb_min_y, bb_max_x, bb_max_y = bbox_sap
+                    cel_x_v = float(
+                        st.session_state["ebc_sa_sap_cel_x"])
+                    cel_y_v = float(
+                        st.session_state["ebc_sa_sap_cel_y"])
+                    right_x = ((cel_x_v + bb_max_x)
+                               - (origin_x_sap - half_sap))
+                    right_y = ((cel_y_v + bb_max_y)
+                               - (origin_y_sap - half_sap))
+                    nx_req = _round_up_even(right_x / chip_size_sap)
+                    ny_req = _round_up_even(right_y / chip_size_sap)
                     bb_w = bb_max_x - bb_min_x
                     bb_h = bb_max_y - bb_min_y
-                    nx_req = _round_up_even(bb_w / chip_size_sap)
-                    ny_req = _round_up_even(bb_h / chip_size_sap)
                     st.caption(
                         f"Mask layer size: {bb_w:.3f} × {bb_h:.3f} mm"
                         f"  →  required grids: {nx_req} × {ny_req}"
                     )
-                    sap_token = (_gds_selected_token, chip_size_sap)
+                    sap_token = (_gds_selected_token, chip_size_sap,
+                                 cel_x_v, cel_y_v)
                     if (st.session_state.get("ebc_sa_sap_nxny_token")
                             != sap_token):
                         st.session_state["ebc_sa_sap_nx"] = int(nx_req)
@@ -1025,13 +1051,13 @@ elif mode == "Second Alignment":
             with sp1:
                 st.markdown("**Cel Origin (mm) in job1**")
                 sap_cel_x = st.number_input(
-                    "x", format="%.3f", step=0.01,
+                    "x", format="%.3f", step=0.0005,
                     key="ebc_sa_sap_cel_x")
                 sap_cel_y = st.number_input(
-                    "y", format="%.3f", step=0.01,
+                    "y", format="%.3f", step=0.0005,
                     key="ebc_sa_sap_cel_y")
             with sp2:
-                st.markdown("**Grid Count in job1**")
+                st.markdown("**Grid Count in job1 (make sure everything is inside the chip)**")
                 sap_nx = st.number_input(
                     "Nx", min_value=1, step=1,
                     key="ebc_sa_sap_nx")
@@ -1162,14 +1188,26 @@ elif mode == "Second Alignment":
             overlay_shift_x_input, overlay_shift_y_input = st.columns(2)
             with overlay_shift_x_input:
                 overlay_shift_x = st.number_input(
-                    "Shift x (mm)", format="%.4f", step=0.01,
+                    "Shift x (mm)", format="%.4f", step=0.0005,
                     key="ebc_sa_o_shift_x",
                 )
             with overlay_shift_y_input:
                 overlay_shift_y = st.number_input(
-                    "Shift y (mm)", format="%.4f", step=0.01,
+                    "Shift y (mm)", format="%.4f", step=0.0005,
                     key="ebc_sa_o_shift_y",
                 )
+
+            # Clearing the token forces the auto-populate block above
+            # to re-fire on the next rerun, resetting Shift x/y to the
+            # computed center (ep_shift − sap_cel).
+            def _recenter_overlay_shift():
+                st.session_state.pop("ebc_sa_o_shift_token", None)
+
+            st.button(
+                "Re-center", on_click=_recenter_overlay_shift,
+                key="ebc_sa_o_recenter",
+                help="Reset Shift x/y to the auto-computed center.",
+            )
 
         fig_ov = go.Figure()
 
