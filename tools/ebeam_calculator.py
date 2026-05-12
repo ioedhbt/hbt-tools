@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover
 # ─── Page header ─────────────────────────────────────────────────────────────
 
 st.title("🧮 E-Beam Lithography Calculator")
-
+st.caption("Use this tool to calculate JEOL ELS-7000 EBL chip positions.")
 
 # ─── Session-state defaults ──────────────────────────────────────────────────
 # Corner defaults:
@@ -319,7 +319,7 @@ else:
         labels = list(layer_options.keys())
 
         selected_label = st.selectbox(
-            "Layer",
+            "Layer to expose",
             labels if labels else ["—"],
             key="ebc_gds_layer",
             disabled=not labels,
@@ -373,6 +373,18 @@ mode = st.radio(
     horizontal=True,
     key="ebc_mode",
 )
+
+# On every workflow-mode change, invalidate the per-mode shift tokens
+# so the newly-active mode re-runs its auto-recenter calculation. Each
+# mode already stores its shift under its own key (ebc_dt_shift_x /
+# ebc_fe_shift_x / ebc_sa_o_shift_x), so resetting only the token
+# triggers a fresh recompute without poking another mode's state.
+_prev_mode = st.session_state.get("_ebc_prev_mode")
+if _prev_mode != mode:
+    for _k in ("ebc_dt_shift_token", "ebc_fe_shift_token",
+               "ebc_sa_o_shift_token"):
+        st.session_state.pop(_k, None)
+    st.session_state["_ebc_prev_mode"] = mode
 
 if mode == "Dose Time Testing":
 
@@ -849,7 +861,7 @@ elif mode == "Second Alignment":
             "D3": (0.0595,  0.3695), "D4": (0.06,  0.73),
             "D5": (2.96,  1.39), "D6": (2.96,  1.0),
         },
-        "placeholder": {},
+        "Custom": {},
     }
 
     preset_name = st.radio(
@@ -858,7 +870,40 @@ elif mode == "Second Alignment":
         horizontal=True,
         key="ebc_sa_preset",
     )
-    crosses = _CROSS_PRESETS[preset_name]
+
+    if preset_name == "Custom":
+        # Custom preset: collect 2 alignment-mark positions from the
+        # user and use them as `crosses` for the rest of the flow.
+        _CUSTOM_DEFAULTS = {
+            "ebc_sa_custom_m1_x": 0.0, "ebc_sa_custom_m1_y": 0.0,
+            "ebc_sa_custom_m2_x": 6.0, "ebc_sa_custom_m2_y": 6.0,
+        }
+        for _k, _v in _CUSTOM_DEFAULTS.items():
+            st.session_state.setdefault(_k, _v)
+
+        cm1, cm2 = st.columns(2)
+        with cm1:
+            st.markdown("**Mark M1 (mm)**")
+            m1cx, m1cy = st.columns(2)
+            m1_x = m1cx.number_input(
+                "x", format="%.4f", step=0.0005,
+                key="ebc_sa_custom_m1_x")
+            m1_y = m1cy.number_input(
+                "y", format="%.4f", step=0.0005,
+                key="ebc_sa_custom_m1_y")
+        with cm2:
+            st.markdown("**Mark M2 (mm)**")
+            m2cx, m2cy = st.columns(2)
+            m2_x = m2cx.number_input(
+                "x", format="%.4f", step=0.0005,
+                key="ebc_sa_custom_m2_x")
+            m2_y = m2cy.number_input(
+                "y", format="%.4f", step=0.0005,
+                key="ebc_sa_custom_m2_y")
+
+        crosses = {"M1": (m1_x, m1_y), "M2": (m2_x, m2_y)}
+    else:
+        crosses = _CROSS_PRESETS[preset_name]
 
     if not crosses:
         st.info("No cross positions defined for this preset.")
