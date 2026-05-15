@@ -1,3 +1,12 @@
+"""
+csv_process.py — B1500A CSV → preset template (Family / Transfer / Gummel)
+batch converter.
+
+Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
+repo root.
+"""
+__version__ = "1.0"
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,7 +15,7 @@ import re
 import os
 import zipfile
 
-st.title("🖥️ HBT Data Processing Tool")
+st.title(f"🖥️ HBT Data Processing Tool (v{__version__})")
 
 
 # --- Utility functions ---

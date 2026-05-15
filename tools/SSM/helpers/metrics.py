@@ -49,22 +49,22 @@ def find_ft_fmax(f_ghz, h21_db, U_db):
     return _zero_cross(f_ghz, h21_db), _zero_cross(f_ghz, U_db)
 
 
-def extrap_20dbdec(f_ghz, gain_db, n_pts: int = 60):
+def extrap_20dbdec(f_ghz, gain_db, n_pts: int = 60, f_max_target=None):
     """
     20 dB/decade extrapolation of a gain trace beyond its highest measured frequency.
 
-    If `gain_db` is still above 0 at the last finite point, project the trace forward
-    along a -20 dB/dec slope (anchored at that last point) until it crosses 0 dB.
+    Anchors a line of slope −20 dB/dec at the last finite (gain, freq) point and
+    projects forward.  By default the projection stops at the 0-dB crossing
+    (i.e. fT or fmax); pass ``f_max_target`` to extend it past that crossing.
 
     Returns
     -------
     (f_ext, g_ext, f_zero) :
-        f_ext   : ndarray  Frequencies (GHz) of the extrapolated segment, starting at
-                           the last measured point and ending where g_ext == 0.
+        f_ext   : ndarray  Frequencies (GHz) of the extrapolated segment.
         g_ext   : ndarray  Corresponding gain values (dB).
         f_zero  : float    The 0-dB crossing frequency (GHz) — i.e. fT or fmax.
-    or  (None, None, None) if the trace already crosses 0 dB inside the measured band
-        or if the data is unusable.
+    or  (None, None, None) if the trace already crosses 0 dB inside the measured
+    band or the data is unusable.
     """
     g = np.asarray(gain_db, dtype=float)
     f = np.asarray(f_ghz, dtype=float)
@@ -78,9 +78,75 @@ def extrap_20dbdec(f_ghz, gain_db, n_pts: int = 60):
     f_zero = f_high * 10.0 ** (g_high / 20.0)
     if not np.isfinite(f_zero) or f_zero <= f_high:
         return None, None, None
-    f_ext = np.logspace(np.log10(f_high), np.log10(f_zero), n_pts)
+    f_end = max(f_zero, float(f_max_target)) if f_max_target else f_zero
+    f_ext = np.logspace(np.log10(f_high), np.log10(f_end), n_pts)
     g_ext = g_high - 20.0 * np.log10(f_ext / f_high)
     return f_ext, g_ext, f_zero
+
+
+def single_pole_extrap(f_ghz, gain_db, idx_lo, idx_hi,
+                       n_pts: int = 60, f_max_target=None):
+    """
+    Single-pole (log-linear) fit over a user-chosen frequency window, projected
+    forward to the 0-dB crossing.
+
+    A single-pole transfer function rolls off at −20 dB/dec asymptotically, so
+    a log-linear regression of ``gain_db`` vs ``log10(f_ghz)`` on a clean
+    high-frequency portion of the trace yields the same fT/fmax as the
+    slope-locked −20 dB/dec extrapolation when the device is well-behaved.
+    The fitted slope can differ from −20 if the data isn't a clean single pole;
+    that disagreement is itself diagnostic.
+
+    Parameters
+    ----------
+    f_ghz, gain_db : array-like
+        Full frequency axis (GHz) and gain (dB).
+    idx_lo, idx_hi : int
+        Inclusive index window into ``f_ghz`` / ``gain_db`` used for the fit.
+    n_pts : int
+        Number of points in the projected curve.
+    f_max_target : float or None
+        Upper-frequency limit (GHz) for the projection.  Defaults to the
+        fitted 0-dB crossing; pass a larger value to extend past it.
+
+    Returns
+    -------
+    (f_ext, g_ext, f_zero, slope, intercept) :
+        f_ext     : ndarray (GHz) — frequency axis of the fitted/projected curve,
+                    spanning the first window point through ``max(f_zero, f_max_target)``.
+        g_ext     : ndarray (dB) — fitted gain values.
+        f_zero    : float (GHz) — fitted 0-dB crossing.
+        slope     : float (dB per decade of f).
+        intercept : float (dB at f = 1 GHz).
+    or (None, None, None, slope, intercept) when the fit returns a non-negative
+    slope or the projection fails.  ``slope`` / ``intercept`` may still be
+    NaN if the window itself is unusable.
+    """
+    f = np.asarray(f_ghz, dtype=float)
+    g = np.asarray(gain_db, dtype=float)
+    nan = float("nan")
+    if idx_lo < 0 or idx_hi >= len(f) or idx_hi <= idx_lo:
+        return None, None, None, nan, nan
+    f_w = f[idx_lo:idx_hi + 1]
+    g_w = g[idx_lo:idx_hi + 1]
+    mask = np.isfinite(f_w) & np.isfinite(g_w) & (f_w > 0)
+    if mask.sum() < 2:
+        return None, None, None, nan, nan
+    log_f = np.log10(f_w[mask])
+    with np.errstate(all="ignore"):
+        slope, intercept = np.polyfit(log_f, g_w[mask], 1)
+    if not np.isfinite(slope) or slope >= 0:
+        return None, None, None, float(slope), float(intercept)
+    f_zero = 10.0 ** (-intercept / slope)
+    if not np.isfinite(f_zero) or f_zero <= 0:
+        return None, None, None, float(slope), float(intercept)
+    f_start = float(f_w[mask][0])
+    f_end = max(f_zero, float(f_max_target)) if f_max_target else f_zero
+    if f_end <= f_start:
+        return None, None, None, float(slope), float(intercept)
+    f_ext = np.logspace(np.log10(f_start), np.log10(f_end), n_pts)
+    g_ext = slope * np.log10(f_ext) + intercept
+    return f_ext, g_ext, float(f_zero), float(slope), float(intercept)
 
 
 # ── Full metrics DataFrame (h21², Mason U, MAG/MSG, K, plateau columns) ──────

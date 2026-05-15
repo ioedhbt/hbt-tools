@@ -1,3 +1,5 @@
+__version__ = "1.9"  # See CHANGELOG.md at the repo root for history.
+
 import io, zipfile
 from pathlib import Path
 import numpy as np
@@ -10,13 +12,9 @@ from plotly.subplots import make_subplots
 if "gummel_uploader_key" not in st.session_state:
     st.session_state["gummel_uploader_key"] = 0
 
-st.title("📈 IOED Sim Gummel Plot Analyzer")
-st.caption("""
-**Core Features:** Real-time Ideality Factor (n) Calculation & Target Calibration  
-
-**📝 Changelog (版本紀錄):**
-* **v1.9:** Implemented Dynamic Data Slicing. Auto-scale Y-axis now strictly binds to the selected X-axis range, eliminating out-of-bound numerical artifacts (e.g., Beta exploding to 5000+).
-""")
+st.title(f"📈 IOED Sim Gummel Plot Analyzer (v{__version__})")
+st.caption("**Core Features:** Real-time Ideality Factor (n) Calculation & Target Calibration. "
+           "See [`CHANGELOG.md`](CHANGELOG.md) for version history.")
 
 UIUC_CSV_STRING = """gummel_Ib,,gummel_Ic,,gummel_beta,
 Vbase,Ib,Vbase,Ic,Vbase,Beta

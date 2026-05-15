@@ -1,3 +1,11 @@
+"""
+B1500A_Plot.py — Keysight B1500A output/transfer curve viewer + TLM analysis.
+
+Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
+repo root.
+"""
+__version__ = "1.0"
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -45,7 +53,7 @@ page = st.sidebar.selectbox(
 # =================================================
 if page == "B1500A Viewer":
 
-    st.title("🧪 B1500A Excel Viewer")
+    st.title(f"🧪 B1500A Excel Viewer (v{__version__})")
 
     uploaded = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
     if not uploaded:
@@ -191,7 +199,7 @@ if page == "B1500A Viewer":
 # TLM ANALYSIS
 # =================================================
 else:
-    st.title("📐 TLM Analysis")
+    st.title(f"📐 TLM Analysis (v{__version__})")
 
     Z = st.number_input("Pad width Z (µm)", value=80.0)
 

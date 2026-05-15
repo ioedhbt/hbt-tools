@@ -4,8 +4,14 @@ ebeam_calculator.py — E-beam lithography position / dose calculator.
 Helps the user map chip-corner positions in the e-beam holder, set the
 left-computer origin, and run per-mode workflows (dose-time test,
 first exposure, second alignment).
+
+Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
+repo root.
 """
 from __future__ import annotations
+
+__version__ = "1.0"
+
 import math
 import os
 import tempfile
@@ -20,7 +26,7 @@ except ImportError:  # pragma: no cover
 
 # ─── Page header ─────────────────────────────────────────────────────────────
 
-st.title("🧮 E-Beam Lithography Calculator")
+st.title(f"🧮 E-Beam Lithography Calculator (v{__version__})")
 st.caption("Use this tool to calculate JEOL ELS-7000 EBL chip positions.")
 
 # ─── Session-state defaults ──────────────────────────────────────────────────
@@ -170,16 +176,30 @@ with st.expander("Setup Instructions", expanded=False):
     st.caption("4. Set chip origin, usualy `10.0,10.0`. Using `0, 0` is difficult to see.")
     st.caption("5. Click `Ax: chip dot` (white), it will be changed to `Ax: stage (mm)` (green).")
     st.caption("6. Type `0.0001g` to set grid spacing to 100 nm.")
-    st.caption("7. Type `mc` to create grid points.")
-    st.caption("8. Click the square grid (click `i` to zoom in, and `o` to zoom out, then click the screen with the mouse pointer if needed).")
-    st.caption("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.")
-    st.caption("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.")
-    st.caption("11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.")
-    st.caption("12. X direction? `Y` -> Auto reverse? `N`")
-    st.caption("13. Click File -> Load CEL. Enter cel name.")
-    st.caption("14. Origin: `9.7,9.7`.")
-    st.caption("15. Click File -> save -> press enter. Type the file `.con` name, the same as the `.cel` file.")
-    st.caption("16. If successful, the grids will be green, your folder should have `.ccc, .cbc, .con` files.")
+    with st.expander("Dose Time Testing", expanded=False):
+        st.caption("7. Click File -> Load CEL. Enter cel name.")
+        st.caption("8. Origin: `9.7,9.7`.")
+    with st.expander("First Exposure", expanded=False):
+        st.caption("7. Type `mc` to create grid points.")
+        st.caption("8. Click the square grid (click `i` to zoom in, and `o` to zoom out, then click the screen with the mouse pointer if needed).")
+        st.caption("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.")
+        st.caption("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.")
+        st.caption("11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.")
+        st.caption("12. X direction? `Y` -> Auto reverse? `N`")
+        st.caption("13. Click File -> Load CEL. Enter cel name.")
+        st.caption("14. Origin: `9.7,9.7`.")
+    with st.expander("Second Alignment", expanded=False):
+        st.caption("7. Type `mc` to create grid points.")
+        st.caption("8. Click the square grid (click `i` to zoom in, and `o` to zoom out, then click the screen with the mouse pointer if needed).")
+        st.caption("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.")
+        st.caption("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.")
+        st.caption("11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.")
+        st.caption("12. X direction? `Y` -> Auto reverse? `N`")
+        st.caption("13. Click File -> Load CEL. Enter cel name.")
+        st.caption("14. Origin: `9.7,9.7`.")
+        st.caption("15. Click Menu -> Chip -> Reg-2 Mark (R2). Input the positions for the 2 marks.")
+    st.caption("Click File -> save -> press enter. Type the file `.con` name, the same as the `.cel` file.")
+    st.caption("If successful, the grids will be green, your folder should have `.ccc, .cbc, .con` files.")
 
 c_ox, c_oy, c_cs = st.columns(3)
 c_ox.number_input("Chip Origin x (mm)", key="ebc_origin_x",

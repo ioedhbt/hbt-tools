@@ -5,8 +5,14 @@ Allows the user to pick an SSM model (Cheng's T / π) or "Open and Short Pad",
 key in all extrinsic / intrinsic parameters from scratch, and inspect the
 resulting Smith chart and (for SSM models) fT/fmax bode plot.  S2P and Excel
 exports are provided for every chart.
+
+Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
+repo root.
 """
 from __future__ import annotations
+
+__version__ = "1.0"
+
 import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
@@ -15,6 +21,11 @@ from tools.SSM.models.cheng    import (ChengT, ChengPi,
                                         _render_topology_illustration,
                                         _EXT_T_SPECS, _INT_T_SPECS,
                                         _EXT_PI_SPECS, _INT_PI_SPECS)
+from tools.SSM.models.xu       import (XuModel,
+                                        _render_topology_illustration as _render_xu_illustration,
+                                        _EXT_T_SPECS as _XU_EXT_SPECS,
+                                        _INT_T_SPECS as _XU_INT_SPECS,
+                                        _XU_PAD_SPECS)
 from tools.SSM.models.base_ui  import PAD_SPECS
 from tools.SSM.ssm_plots       import render_matplotlib_smith
 from tools.SSM.helpers         import (extended_smith_grid,
@@ -29,9 +40,9 @@ _EXCEL_MIME = ("application/vnd.openxmlformats-officedocument."
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-st.title("📡 RF Forward Simulator")
+st.title(f"📡 RF Forward Simulator (v{__version__})")
 st.caption("Forward-simulate S-parameters from a small-signal model "
-           "(Cheng T, Cheng π) or from open/short pad parasitics.")
+           "(Cheng T, Cheng π, Xu T) or from open/short pad parasitics.")
 
 
 # ─── Frequency axis ──────────────────────────────────────────────────────────
@@ -56,7 +67,7 @@ f_ghz = freq * 1e-9
 
 # ─── Model selector ──────────────────────────────────────────────────────────
 
-MODEL_OPTIONS = ["Cheng's T", "Cheng's π", "Open and Short Pad"]
+MODEL_OPTIONS = ["Cheng's T", "Cheng's π", "Xu T", "Open and Short Pad"]
 model_choice  = st.radio("Model", MODEL_OPTIONS, horizontal=True, index=0)
 
 
@@ -321,13 +332,23 @@ if model_choice == "Open and Short Pad":
         )
 
 else:
-    # ─── Cheng T / Pi ─────────────────────────────────────────────────────
+    # ─── Cheng T / Pi / Xu T ──────────────────────────────────────────────
     if model_choice == "Cheng's T":
         model_cls = ChengT
         ext_specs = _EXT_T_SPECS
         int_specs = _INT_T_SPECS
         topo_char = "T"
         prefix    = "ssm_T"
+    elif model_choice == "Xu T":
+        model_cls = XuModel
+        ext_specs = _XU_EXT_SPECS
+        int_specs = _XU_INT_SPECS
+        topo_char = "T"
+        prefix    = "ssm_XuT"
+        # Rbcx defaults to 285 kΩ — pre-init so default sim doesn't see Rbcx=0 → Ybcx=∞
+        _rbcx_sk = f"rfsim_{prefix}_ext_Rbcx"
+        if _rbcx_sk not in st.session_state:
+            st.session_state[_rbcx_sk] = 285.0
     else:
         model_cls = ChengPi
         ext_specs = _EXT_PI_SPECS
@@ -335,15 +356,17 @@ else:
         topo_char = "pi"
         prefix    = "ssm_pi"
 
-    # Split pad specs by group for the requested layout
+    # Split pad specs by group for the requested layout.  Xu uses its own
+    # pad-label aliases (Rb→Rbx, Re→Rex, Cpce→Cpad) but identical keys.
     _pad_open_keys  = {"Cpbe", "Cpce", "Cpbc"}
     _pad_short_keys = {"Lb", "Lc", "Le"}
     _pad_r_order    = ["Rpe", "Rpb", "Rpc"]    # Re, Rb, Rc
 
-    pad_open_specs  = [s for s in PAD_SPECS if s[0] in _pad_open_keys]
-    pad_short_specs = [s for s in PAD_SPECS if s[0] in _pad_short_keys]
+    _pad_specs_for_model = _XU_PAD_SPECS if model_cls is XuModel else PAD_SPECS
+    pad_open_specs  = [s for s in _pad_specs_for_model if s[0] in _pad_open_keys]
+    pad_short_specs = [s for s in _pad_specs_for_model if s[0] in _pad_short_keys]
     pad_r_specs     = sorted(
-        [s for s in PAD_SPECS if s[0] in _pad_r_order],
+        [s for s in _pad_specs_for_model if s[0] in _pad_r_order],
         key=lambda s: _pad_r_order.index(s[0]))
 
     st.markdown("### Inputs")
@@ -415,7 +438,10 @@ else:
 
     with st.expander("🖼️ Topology Illustration", expanded=False):
         try:
-            _render_topology_illustration(p, topo_char, f"rfsim_{prefix}")
+            if model_cls is XuModel:
+                _render_xu_illustration(p, f"rfsim_{prefix}")
+            else:
+                _render_topology_illustration(p, topo_char, f"rfsim_{prefix}")
         except Exception as e:
             st.warning(f"Topology illustration unavailable: {e}")
 

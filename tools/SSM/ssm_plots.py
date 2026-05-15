@@ -5,6 +5,7 @@ All functions render directly into Streamlit and return any UI-state values
 needed by the caller (e.g. extended element modes, Cpar values).
 """
 from __future__ import annotations
+import re
 from pathlib import Path
 import numpy as np
 import streamlit as st
@@ -632,23 +633,91 @@ _MPL_SMITH_COLORS = {"S11": "#1f77b4", "S12": "#d62728",
                      "S21": "#2ca02c", "S22": "#ff7f0e"}
 
 _MPL_LINE_STYLES   = {"solid": "-", "dashed": "--", "dotted": ":"}
-_MPL_MARKER_STYLES = {"circle": "o", "square": "s", "star": "*", "triangle": "^"}
+_MPL_MARKER_STYLES = {"circle": "o", "square": "s", "star": "*", "triangle": "^", "x": "x"}
+# Marker styles that are line-based (unfilled) — they need a visible edge
+# width to be drawn at all in matplotlib.
+_MPL_UNFILLED_MARKERS = {"x"}
 
 
-def _draw_mpl_smith_background(ax, line_lw: float, grid_lw: float):
+# Smith-chart grid: how many constant-R circles to draw.  A constant-R=r
+# circle has radius 1/(r+1) in the Γ-plane and is tangent to (+1, 0).  To
+# distribute N circles with *evenly-spaced radii* over (0, 1], we use
+# rad_i = i/N  ⇒  r_i = N/i − 1   for i = 1..N.
+# At N=6 this reproduces the classic [5, 2, 1, 0.5, 0.2, 0] set.
+_SMITH_GRID_MIN     = 2
+_SMITH_GRID_MAX     = 12
+_SMITH_GRID_DEFAULT = 6
+
+# Text auto-format: regex substitution applied to every text annotation
+# drawn on the Smith chart.  Default: find S11 / S12 / S21 / S22 anywhere in
+# the input and wrap each token as upright mathtext (\mathrm) with the
+# digits as a true subscript — surrounding characters pass through.
+# Example: "S12/5" → "$\mathrm{S}_{12}$/5" → upright S₁₂ + "/5" regular.
+_DEFAULT_AUTOFMT_PATTERN     = r"S(11|12|21|22)"
+_DEFAULT_AUTOFMT_REPLACEMENT = r"$\mathrm{S}_{\1}$"
+
+
+def _apply_text_autoformat(text: str, pattern: str, replacement: str) -> str:
+    r"""Apply a regex substitution where the replacement is a *template*.
+
+    Only ``\1`` … ``\9`` are interpreted as capture-group backreferences.
+    All other backslash sequences (e.g. ``\mathrm``, ``\alpha``) pass
+    through verbatim, so the replacement can carry matplotlib mathtext
+    commands without tripping Python 3.12+'s "unknown escape" error in
+    ``re.sub``.
+
+    Returns the original text unchanged if the pattern is empty/invalid.
+    """
+    if not pattern:
+        return text
+    try:
+        compiled = re.compile(pattern)
+    except re.error:
+        return text
+
+    def _sub(match: re.Match) -> str:
+        out = replacement
+        # Substitute \1 .. \9 from highest to lowest so e.g. \12 doesn't
+        # collide with \1 followed by literal "2".
+        for i in range(min(9, len(match.groups())), 0, -1):
+            out = out.replace(f"\\{i}", match.group(i) or "")
+        return out
+
+    return compiled.sub(_sub, text)
+
+
+def _smith_grid_values(n: int) -> tuple[list[float], list[float]]:
+    """Return (r_values, x_values) for N evenly-spaced Smith-chart grid lines.
+
+    R-values include r=0 (outer unit circle).  X-values use the same set
+    with r=0 stripped, mirrored over the real axis at draw time.
+    """
+    n = max(_SMITH_GRID_MIN, min(_SMITH_GRID_MAX, int(n)))
+    r_vals = [n / i - 1.0 for i in range(1, n + 1)]
+    x_vals = [v for v in r_vals if v > 0.0]
+    return r_vals, x_vals
+
+
+def _draw_mpl_smith_background(ax, line_lw: float, grid_lw: float,
+                               density: int = _SMITH_GRID_DEFAULT):
     """Draw the constant-R / constant-X grid for a unit Smith chart on ``ax``.
 
     Grid (constant-R / constant-X arcs) is drawn first so the black outer-unit
     circle and real-axis line render on top of any grid intersections.
+
+    ``density`` is the desired number of R-circles; positions are recomputed
+    for each value so the visible circles are always evenly spaced.
     """
+    r_values, x_values = _smith_grid_values(int(density))
+
     t = np.linspace(0.0, 2.0*np.pi, 500)
-    for r in [0.0, 0.2, 0.5, 1.0, 2.0, 5.0]:
+    for r in r_values:
         cx  = r/(r+1.0); rad = 1.0/(r+1.0)
         xc  = cx + rad*np.cos(t); yc = rad*np.sin(t)
         out = (xc**2 + yc**2) > 1.0
         xc[out] = np.nan; yc[out] = np.nan
         ax.plot(xc, yc, color="gray", linewidth=grid_lw, alpha=0.7, zorder=1)
-    for x in [0.2, 0.5, 1.0, 2.0, 5.0]:
+    for x in x_values:
         for sign in (1, -1):
             xv  = sign*x; rad = 1.0/abs(xv)
             xc  = 1.0 + rad*np.cos(t); yc = (1.0/xv) + rad*np.sin(t)
@@ -677,7 +746,18 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     Two ways to call:
       Backward-compatible (used by SSM extraction):
         render_matplotlib_smith(S_mea, S_sim, fname, topo_key)
-            → 2 sets: Measured (dashed line) + Modeled (circle markers).
+            → 2 sets: Measured (× markers) + Modeled (solid line).
+
+    Color modes (per-trace controls):
+      • "Different colors for different traces" (default, legacy) — each
+        S-param has its own color, shared across all sets.
+      • "Different colors for measured and modeled" — each set has one color
+        shared across its four S-params (defaults: Measured = #0201f0 blue,
+        Modeled = #b50000 red).  Per-S-param color still drives the text
+        annotation colors in this mode.
+
+    A per-set "Decimate every Nth point" control is shown only for the
+    Measured set.
 
       Extensible:
         render_matplotlib_smith(fname=..., topo_key=..., sets=[
@@ -699,10 +779,10 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         _sets = []
         if S_mea is not None:
             _sets.append({"S": S_mea, "label": "Measured",
-                          "kind": "line", "style": "dashed"})
+                          "kind": "marker", "style": "x"})
         if S_sim is not None:
             _sets.append({"S": S_sim, "label": "Modeled",
-                          "kind": "marker", "style": "circle"})
+                          "kind": "line", "style": "solid"})
         sets = _sets
     sets = [s for s in sets if s.get("S") is not None]
     if not sets:
@@ -737,8 +817,8 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     if extra_key not in st.session_state:
         st.session_state[extra_key] = 0
 
-    # ── Smith chart background thickness ─────────────────────────────────────
-    c_smith, c_grid = st.columns(2)
+    # ── Smith chart background thickness + grid density + text size ─────────
+    c_smith, c_grid, c_density, c_textsize = st.columns(4)
     smith_lw = c_smith.number_input("Smith chart line thickness",
                                     min_value=0.1, max_value=5.0, value=3.0,
                                     step=0.1, format="%.2f",
@@ -747,22 +827,61 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                                    min_value=0.1, max_value=5.0, value=1.0,
                                    step=0.1, format="%.2f",
                                    key=f"{skey}_grid_lw")
+    grid_density = c_density.number_input(
+        "Grid circles",
+        min_value=_SMITH_GRID_MIN, max_value=_SMITH_GRID_MAX,
+        value=_SMITH_GRID_DEFAULT, step=1,
+        help="Number of constant-R circles to draw.  Positions are "
+             "recomputed (evenly-spaced radii) for each value.",
+        key=f"{skey}_grid_count")
+    text_size = c_textsize.number_input(
+        "Text size", min_value=4.0, max_value=48.0, value=12.0,
+        step=1.0, format="%.1f",
+        help="Font size for all on-chart text annotations "
+             "(S-param labels + free text).",
+        key=f"{skey}_text_size")
 
-    # ── Per-set: kind / style / size (contextual: line thickness or marker) ──
+    # ── Per-set: kind / style / size / color (per-set mode) / decimate (mea) ─
+    # Default per-set colors used when "Different colors for measured/modeled"
+    # is selected — keyed on the set's label.
+    _PER_SET_DEFAULT_COLORS = {"Measured": "#0201f0", "Modeled": "#b50000"}
+
+    has_measured = any(s.get("label") == "Measured" for s in sets)
+
     st.markdown("**S-parameter set styles** — applies the same symbol or "
                 "line to all four S-params within a set")
+    # Column-header row: shown once above the per-set rows so widget labels
+    # below can use ``label_visibility='collapsed'`` and all inputs sit at
+    # the same vertical position.
+    _col_weights = [1.2, 1.2, 0.8, 0.8, 0.8, 0.8]
+    h1, h2, h3, h4, h5, h6 = st.columns(_col_weights)
+    h2.markdown("**Kind**")
+    h3.markdown("**Style**")
+    h4.markdown("**Size**")
+    h5.markdown("**Color** *(per-set mode)*")
+    if has_measured:
+        h6.markdown("**Decimate** *(measured)*")
+
     for si, s in enumerate(sets):
-        kind_sk  = f"{skey}_set{si}_kind"
-        style_sk = f"{skey}_set{si}_style"
-        size_sk  = f"{skey}_set{si}_size"
+        kind_sk     = f"{skey}_set{si}_kind"
+        style_sk    = f"{skey}_set{si}_style"
+        size_sk     = f"{skey}_set{si}_size"
+        setcolor_sk = f"{skey}_set{si}_color"
+        dec_sk      = f"{skey}_set{si}_decimate"
         if kind_sk not in st.session_state:
             st.session_state[kind_sk] = ("Line" if s.get("kind") == "line"
                                          else "Markers")
         if style_sk not in st.session_state:
             st.session_state[style_sk] = s.get(
-                "style", "dashed" if s.get("kind") == "line" else "circle")
+                "style", "solid" if s.get("kind") == "line" else "x")
+        if setcolor_sk not in st.session_state:
+            st.session_state[setcolor_sk] = _PER_SET_DEFAULT_COLORS.get(
+                s.get("label"), "#000000")
+        if dec_sk not in st.session_state:
+            st.session_state[dec_sk] = 1
 
-        cc1, cc2, cc3, cc_lbl, cc_in = st.columns([1.2, 1.2, 0.7, 0.7, 0.7])
+        is_measured = (s.get("label") == "Measured")
+        cc1, cc2, cc3, cc_in, cc_col, cc_dec = st.columns(_col_weights)
         cc1.markdown(f"**{s.get('label', f'Set {si+1}')}**")
         kind = cc2.radio(f"Kind {si+1}", ["Markers", "Line"],
                          horizontal=True, key=kind_sk,
@@ -772,28 +891,50 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             if st.session_state[style_sk] not in opts:
                 st.session_state[style_sk] = "solid"
             size_default, size_max = 2.0, 10.0
-            size_label = "Line thickness"
         else:
             opts = list(_MPL_MARKER_STYLES.keys())
             if st.session_state[style_sk] not in opts:
-                st.session_state[style_sk] = "circle"
+                st.session_state[style_sk] = "x"
             size_default, size_max = 6.0, 30.0
-            size_label = "Marker size"
         if size_sk not in st.session_state:
             st.session_state[size_sk] = float(size_default)
         cc3.selectbox(f"Style {si+1}", opts, key=style_sk,
                       label_visibility="collapsed")
-        cc_lbl.markdown(f"<div style='padding-top:6px;text-align:right'>"
-                        f"{size_label}:</div>",
-                        unsafe_allow_html=True)
-        cc_in.number_input(f"{size_label} {si+1}",
+        cc_in.number_input(f"Size {si+1}",
                            min_value=0.1, max_value=size_max,
                            step=0.1, format="%.2f", key=size_sk,
                            label_visibility="collapsed")
+        cc_col.color_picker(f"Color {si+1}", key=setcolor_sk,
+                            label_visibility="collapsed")
+        if is_measured:
+            cc_dec.number_input(f"Decimate {si+1}",
+                                min_value=1, max_value=1000, step=1,
+                                key=dec_sk,
+                                label_visibility="collapsed")
 
     # ── Per-S-param row: multiplier / text / x / y / color ───────────────────
     st.markdown("**Per-trace controls** — multiplier and color are linked "
                 "to both the trace and the text annotation")
+
+    _COLOR_MODE_PER_TRACE = "Different colors for different traces"
+    _COLOR_MODE_PER_SET   = "Different colors for measured and modeled"
+    if has_measured:
+        color_mode = st.radio(
+            "Coloring mode",
+            [_COLOR_MODE_PER_TRACE, _COLOR_MODE_PER_SET],
+            horizontal=True,
+            key=f"{skey}_color_mode",
+            help="Per-trace = each S-param has its own color shared across "
+                 "sets.  Per-set = each set (Measured/Modeled) has one color "
+                 "shared across its four S-params.  Per-S-param color still "
+                 "drives the text annotation colors in either mode.")
+        is_per_set_color = (color_mode == _COLOR_MODE_PER_SET)
+    else:
+        # Only one kind of trace (simulated) — per-set coloring would be
+        # equivalent to a global override, so just hide the toggle.
+        is_per_set_color = False
+
+
     for sp in sparams:
         c_mult, c_text, c_x, c_y, c_color = st.columns([1, 2, 1, 1, 1])
         c_mult.number_input(f"Multiplier {sp}", step=0.1, format="%.3f",
@@ -841,7 +982,7 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     fig, ax = plt.subplots(figsize=(7, 7), dpi=120)
     fig.patch.set_alpha(0.0)
     ax.set_facecolor("none")
-    _draw_mpl_smith_background(ax, smith_lw, grid_lw)
+    _draw_mpl_smith_background(ax, smith_lw, grid_lw, density=int(grid_density))
 
     for si, s in enumerate(sets):
         S = s["S"]
@@ -849,31 +990,55 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                                       "Line" if s.get("kind") == "line"
                                       else "Markers")
         style = st.session_state.get(f"{skey}_set{si}_style",
-                                      s.get("style", "dashed"))
+                                      s.get("style", "solid"))
         size_val = float(st.session_state.get(
             f"{skey}_set{si}_size", 2.0 if kind == "Line" else 6.0))
+        set_color = str(st.session_state.get(
+            f"{skey}_set{si}_color",
+            _PER_SET_DEFAULT_COLORS.get(s.get("label"), "#000000")))
+        is_measured = (s.get("label") == "Measured")
+        decimate = int(st.session_state.get(f"{skey}_set{si}_decimate", 1))
         for sp, (r, c) in [("S11", (0, 0)), ("S12", (0, 1)),
                            ("S21", (1, 0)), ("S22", (1, 1))]:
             cfg = sparam_cfg[sp]
             sv  = S[:, r, c] * cfg["mult"]
-            color = cfg["color"]
+            if is_measured and decimate > 1:
+                sv = sv[::decimate]
+            color = set_color if is_per_set_color else cfg["color"]
             if kind == "Line":
                 ls = _MPL_LINE_STYLES.get(style, "-")
                 ax.plot(sv.real, sv.imag, linestyle=ls, color=color,
                         linewidth=size_val)
             else:
                 mk = _MPL_MARKER_STYLES.get(style, "o")
-                ax.plot(sv.real, sv.imag, marker=mk, color=color,
-                        markersize=size_val, markeredgewidth=0,
-                        linestyle="None", alpha=0.85)
+                if style in _MPL_UNFILLED_MARKERS:
+                    # Unfilled markers (e.g. "x") need a visible edge to render.
+                    mew = max(1.0, size_val * 0.18)
+                    ax.plot(sv.real, sv.imag, marker=mk, color=color,
+                            markersize=size_val, markeredgewidth=mew,
+                            markeredgecolor=color,
+                            linestyle="None", alpha=0.85)
+                else:
+                    ax.plot(sv.real, sv.imag, marker=mk, color=color,
+                            markersize=size_val, markeredgewidth=0,
+                            linestyle="None", alpha=0.85)
 
-    # S-param text annotations (color linked to trace)
+    # Text auto-format pipeline — always on, fixed S-param subscript rule.
+    def _fmt_text(t: str) -> str:
+        return _apply_text_autoformat(
+            t, _DEFAULT_AUTOFMT_PATTERN, _DEFAULT_AUTOFMT_REPLACEMENT)
+
+    # S-param text annotations (color linked to trace).  Regular weight —
+    # bold would only apply to non-mathtext parts and mismatch with the
+    # auto-formatted mathtext spans, giving e.g. bold "/5" next to regular
+    # "S₁₂".  Keep everything visually uniform instead.
+    _ts = float(text_size)
     for sp in sparams:
         cfg = sparam_cfg[sp]
         if cfg["text"]:
-            ax.text(cfg["x"], cfg["y"], cfg["text"],
-                    ha="center", va="center", fontsize=12,
-                    color=cfg["color"], fontweight="bold", zorder=5)
+            ax.text(cfg["x"], cfg["y"], _fmt_text(cfg["text"]),
+                    ha="center", va="center", fontsize=_ts,
+                    color=cfg["color"], zorder=5)
 
     # Free text annotations
     for i in range(n_extra):
@@ -882,9 +1047,9 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             continue
         ax.text(float(st.session_state.get(f"{skey}_ex_{i}", 0.0)),
                 float(st.session_state.get(f"{skey}_ey_{i}", 0.0)),
-                txt, ha="center", va="center", fontsize=12,
+                _fmt_text(txt), ha="center", va="center", fontsize=_ts,
                 color=str(st.session_state.get(f"{skey}_ecolor_{i}", "#000000")),
-                fontweight="bold", zorder=5)
+                zorder=5)
 
     ax.set_xlim(-1.15, 1.15)
     ax.set_ylim(-1.15, 1.15)
@@ -901,17 +1066,27 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                                      "Line" if s.get("kind") == "line"
                                      else "Markers")
         style = st.session_state.get(f"{skey}_set{si}_style",
-                                     s.get("style", "dashed"))
-        legend_parts.append(f"**{s.get('label', f'Set {si+1}')}** "
-                            f"({kind.lower()} · {style})")
-    color_chips = " · ".join(
-        f"<span style='color:{sparam_cfg[sp]['color']}'>**{sp}**</span>"
-        for sp in sparams)
-    st.markdown(
-        "**Legend** — " + " ; ".join(legend_parts) +
-        "  |  Trace colors: " + color_chips,
-        unsafe_allow_html=True,
-    )
+                                     s.get("style", "solid"))
+        label = s.get("label", f"Set {si+1}")
+        if is_per_set_color:
+            set_col = str(st.session_state.get(f"{skey}_set{si}_color", "#000"))
+            legend_parts.append(
+                f"<span style='color:{set_col}'>**{label}**</span> "
+                f"({kind.lower()} · {style})")
+        else:
+            legend_parts.append(f"**{label}** ({kind.lower()} · {style})")
+    if is_per_set_color:
+        st.markdown("**Legend** — " + " ; ".join(legend_parts),
+                    unsafe_allow_html=True)
+    else:
+        color_chips = " · ".join(
+            f"<span style='color:{sparam_cfg[sp]['color']}'>**{sp}**</span>"
+            for sp in sparams)
+        st.markdown(
+            "**Legend** — " + " ; ".join(legend_parts) +
+            "  |  Trace colors: " + color_chips,
+            unsafe_allow_html=True,
+        )
 
 
 def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fname):
@@ -1026,260 +1201,3 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
 # ════════════════════════════════════════════════════════════════════════════════
 # Helper: Re(Z12) vs 1/IE
 # ════════════════════════════════════════════════════════════════════════════════
-
-def render_rz12_section(all_data, para_eff, fname):
-    """
-    Z-parameter method (Re(Z12) vs 1/IE).
-    """
-    st.markdown("#### 📈 Z-Parameter Method  *(Gao [3] Ch. 5.5.1)*")
-    st.caption("NOTE: This method is only valid when devices are biased in the active or linear region.")
-    st.caption("Valid for emitter access/series resistance (Re) extraction.")
-    st.caption("NOT Valid for analysis of files with varying VCB.")
-    st.caption("Drawback: Not suitable for Rb and Rc (Gao Table 5.3, pg. 145).")
-    st.caption("Re(Z₁₂) = (ηkT/q)·(1/IE) + Re")
-    st.latex(r"\mathrm{Re}(Z_{12})=\frac{\eta kT}{q}\cdot\frac{1}{I_E}+R_e")
-
-
-    if not all_data:
-        st.info("No DUT files loaded."); return
-
-    for fn in all_data:
-        for suf, dv in [("use", True), ("Ie", 0.0)]:
-            gk = f"rz12_{suf}_{fn}"
-            if gk not in st.session_state: st.session_state[gk] = dv
-
-    ref_fn  = list(all_data.keys())[0]
-    f_ref   = all_data[ref_fn]["freq"] * 1e-9
-    f_min_v = float(f_ref[max(1, np.searchsorted(f_ref, 0.01))])
-    f_max_v = float(f_ref[-1])
-    col_fq, _ = st.columns([1, 2])
-    f_extract = col_fq.number_input(
-        "Z₁₂ freq (GHz)", min_value=f_min_v, max_value=f_max_v,
-        value=min(1.0, f_max_v*0.05), step=0.5, format="%.2f",
-        key=f"rz12_fext_{fname}")
-
-    st.markdown("**Files:**")
-    for h, t in zip(st.columns([0.3,2.3,1.2,1.4,1.4]),
-                    ["","File","IE (mA)","Re(Z₁₂) (Ω)","Rbe*"]):
-        h.markdown(f"<small><b>{t}</b></small>", unsafe_allow_html=True)
-
-    points = []; all_rez12 = []; Re_ref = para_eff.get("Rpe", 0.0)
-    for fn, d in all_data.items():
-        c0,c1,c2,c3,c4 = st.columns([0.3,2.3,1.2,1.4,1.4])
-        use = c0.checkbox("", key=f"rz12_use_{fn}__{fname}", value=st.session_state[f"rz12_use_{fn}"],
-                           label_visibility="collapsed")
-        st.session_state[f"rz12_use_{fn}"] = use
-        c1.markdown(f"<small>{Path(fn).stem}</small>", unsafe_allow_html=True)
-        if not use: continue
-        Ie = c2.number_input("", min_value=0.0, step=0.1, format="%.3f",
-                              key=f"rz12_Ie_{fn}__{fname}",
-                              value=float(st.session_state[f"rz12_Ie_{fn}"]),
-                              label_visibility="collapsed")
-        st.session_state[f"rz12_Ie_{fn}"] = Ie
-        try:
-            idx    = int(np.argmin(np.abs(d["freq"]*1e-9 - f_extract)))
-            Y_ex1f = peel_parasitics(d["S_raw"], d["freq"], d["z0"], para_eff)
-            ReZ12  = float(y_to_z(Y_ex1f)[idx,0,1].real)
-            c3.markdown(f"**{ReZ12:.4f}**")
-            c4.markdown(f"<small>{ReZ12-Re_ref:.4f}</small>", unsafe_allow_html=True)
-            all_rez12.append((ReZ12, Path(fn).stem))
-            if Ie > 0: points.append((1.0/(Ie*1e-3), ReZ12, Path(fn).stem))
-        except Exception as ex:
-            c3.markdown(f"*err:{ex}*")
-
-    if not all_rez12:
-        st.caption("Enable files above to begin."); return
-
-    fig = go.Figure()
-
-    if points:
-        x = np.array([p[0] for p in points])
-        y = np.array([p[1] for p in points])
-        lbl = [p[2] for p in points]
-        fig.add_trace(go.Scattergl(x=x, y=y, mode="markers+text", text=lbl,
-            textposition="top center", name="Re(Z₁₂)",
-            marker=dict(size=11, color="#1f77b4", line=dict(color="#0d4a7a", width=1.5))))
-    else:
-        # No Ie entered yet — show Re(Z₁₂) values on y-axis at x=0
-        y0 = np.array([p[0] for p in all_rez12])
-        lbl0 = [p[1] for p in all_rez12]
-        fig.add_trace(go.Scattergl(x=np.zeros(len(y0)), y=y0, mode="markers+text", text=lbl0,
-            textposition="top right", name="Re(Z₁₂) (no IE yet)",
-            marker=dict(size=11, symbol="circle-open", color="#1f77b4",
-                        line=dict(color="#0d4a7a", width=1.5))))
-
-    slope, Re_fit, eta = None, None, None
-    if len(points) >= 2:
-        try:
-            x = np.array([p[0] for p in points])
-            y = np.array([p[1] for p in points])
-            slope, Re_fit = np.polyfit(x, y, 1)
-            eta = slope / (1.381e-23 * 300 / 1.602e-19)
-            x_fit = np.linspace(0, max(x)*1.08, 200)
-            y_fit = slope*x_fit + Re_fit
-            fig.add_trace(go.Scattergl(x=x_fit, y=y_fit, mode="lines",
-                name=f"Fit Re={Re_fit:.4f} Ω  η={eta:.3f}",
-                line=dict(color="#d62728", width=2, dash="dash")))
-            fig.add_trace(go.Scattergl(x=[0], y=[Re_fit], mode="markers",
-                name=f"Re={Re_fit:.4f} Ω",
-                marker=dict(size=14, symbol="star", color="#d62728")))
-        except Exception as ex:
-            st.error(f"Fit failed: {ex}")
-    elif points:
-        st.caption("Need ≥ 2 files with IE for fit.")
-
-    fig.update_layout(
-        title=f"Re(Z₁₂) vs 1/IE @ {f_extract:.2f} GHz",
-        xaxis=dict(title="1/IE (A⁻¹)", rangemode="tozero",
-                   showgrid=True, gridcolor="#ebebeb"),
-        yaxis=dict(title="Re(Z₁₂) (Ω)", showgrid=True, gridcolor="#ebebeb"),
-        plot_bgcolor="white", paper_bgcolor="white", height=380,
-        legend=dict(x=0.01, y=0.99, xanchor="left", yanchor="top",
-                    bgcolor="rgba(255,255,255,0.9)", bordercolor="#ccc",
-                    borderwidth=1, font=dict(size=9)),
-        margin=dict(l=55,r=20,t=50,b=50))
-    plotly_with_dl(fig, key=f"rz12_{fname}", filename=f"rz12_{fname}")
-
-    if Re_fit is not None:
-        x = np.array([p[0] for p in points])
-        y = np.array([p[1] for p in points])
-        lbl = [p[2] for p in points]
-        current_stem  = Path(fname).stem
-        current_idx   = next((i for i, l in enumerate(lbl) if l == current_stem), None)
-        if current_idx is not None:
-            st.session_state[f"rz12_Rbe_{fname}"] = y[current_idx] - Re_fit
-        else:
-            st.session_state.pop(f"rz12_Rbe_{fname}", None)
-        st.session_state[f"rz12_Re_{fname}"] = Re_fit
-
-        mc1, mc2 = st.columns(2)
-        mc1.metric("Re (intercept)", f"{Re_fit:.4f} Ω",
-                   delta=f"{Re_fit - para_eff.get('Rpe',0):+.4f} vs open-short")
-        if current_idx is not None:
-            mc2.metric(f"Rbe ({current_stem})", f"{y[current_idx]-Re_fit:.4f} Ω")
-        else:
-            mc2.info("Current file not in fit.")
-    else:
-        st.session_state.pop(f"rz12_Re_{fname}", None)
-        st.session_state.pop(f"rz12_Rbe_{fname}", None)
-
-
-def render_open_collector_section(all_data, para_eff, fname):
-    """
-    Open-collector method: Re(Zij) vs 1/IB linear extrapolation → Rb, Rc, Re.
-    Results written into session state as ocm_Rb/Rc/Re_{fname}.
-    """
-    st.caption("NOTE: This method is only valid when devices are biased with high base current (Ib ≈ 10 ~ 100mA). With high Ib, Ic is assumed to be 0.")
-    st.caption("Valid for base/emitter/collector access/series resistance (Rb, Re, Rc) extraction.")
-    st.caption("Drawback: Assumption that Rbi tends to 0 (Gao, Table 5.3, pg. 145)")
-    st.caption("Re(Z₁₁−Z₁₂) vs 1/IB → Rb,  Re(Z₂₂−Z₁₂) vs 1/IB → Rc,  Re(Z₁₂) vs 1/IB → Re")
-    st.latex(r"\mathrm{Re}(Z_{11}-Z_{12})=R_b+f(I_B),\quad"
-             r"\mathrm{Re}(Z_{22}-Z_{12})=R_c+f(I_B),\quad"
-             r"\mathrm{Re}(Z_{12})=R_e+f(I_B)")
-
-    if not all_data:
-        st.info("No DUT files loaded."); return
-
-    for fn in all_data:
-        for suf, dv in [("ocm_use", True), ("ocm_Ib", 0.0)]:
-            gk = f"{suf}_{fn}"
-            if gk not in st.session_state: st.session_state[gk] = dv
-
-    st.markdown("**Files:**")
-    hcols = st.columns([0.3, 2.0, 1.2, 1.4, 1.4, 1.4])
-    for h, t in zip(hcols, ["", "File", "IB (mA)",
-                              "Re(Z11-Z12)", "Re(Z22-Z12)", "Re(Z12)"]):
-        h.markdown(f"<small><b>{t}</b></small>", unsafe_allow_html=True)
-
-    ocm_points = []  # (1/Ib, ReZ11Z12, ReZ22Z12, ReZ12, stem)
-    for fn, d in all_data.items():
-        c0, c1, c2, c3, c4, c5 = st.columns([0.3, 2.0, 1.2, 1.4, 1.4, 1.4])
-        use = c0.checkbox("", key=f"ocm_use_{fn}__{fname}",
-                          value=st.session_state[f"ocm_use_{fn}"],
-                          label_visibility="collapsed")
-        st.session_state[f"ocm_use_{fn}"] = use
-        c1.markdown(f"<small>{Path(fn).stem}</small>", unsafe_allow_html=True)
-        if not use: continue
-        Ib = c2.number_input("", min_value=0.0, step=0.1, format="%.3f",
-                              key=f"ocm_Ib_{fn}__{fname}",
-                              value=float(st.session_state[f"ocm_Ib_{fn}"]),
-                              label_visibility="collapsed")
-        st.session_state[f"ocm_Ib_{fn}"] = Ib
-        try:
-            ref_fn2 = list(all_data.keys())[0]
-            f_ref2  = all_data[ref_fn2]["freq"] * 1e-9
-            f_ext2  = st.session_state.get(f"rz12_fext_{fname}",
-                                            min(1.0, float(f_ref2[-1]) * 0.05))
-            idx2   = int(np.argmin(np.abs(d["freq"] * 1e-9 - f_ext2)))
-            Y_ex1f = peel_parasitics(d["S_raw"], d["freq"], d["z0"], para_eff)
-            Z_f    = y_to_z(Y_ex1f)[idx2]
-            v1 = float(np.real(Z_f[0, 0] - Z_f[0, 1]))
-            v2 = float(np.real(Z_f[1, 1] - Z_f[0, 1]))
-            v3 = float(np.real(Z_f[0, 1]))
-            c3.markdown(f"**{v1:.4f}**")
-            c4.markdown(f"**{v2:.4f}**")
-            c5.markdown(f"**{v3:.4f}**")
-            if Ib > 0:
-                ocm_points.append((1.0 / (Ib * 1e-3), v1, v2, v3,
-                                   Path(fn).stem))
-        except Exception as ex:
-            c3.markdown(f"*err:{ex}*")
-
-    if len(ocm_points) < 2:
-        st.caption("Need ≥ 2 files with IB for fit."); return
-
-    xo   = np.array([p[0] for p in ocm_points])
-    y1o  = np.array([p[1] for p in ocm_points])
-    y2o  = np.array([p[2] for p in ocm_points])
-    y3o  = np.array([p[3] for p in ocm_points])
-    lblo = [p[4] for p in ocm_points]
-    x_fit_o = np.linspace(0, max(xo) * 1.08, 200)
-
-    fig_o = go.Figure()
-    for y_arr, name, color in [
-        (y1o, "Re(Z11-Z12) → Rb", "#1f77b4"),
-        (y2o, "Re(Z22-Z12) → Rc", "#2ca02c"),
-        (y3o, "Re(Z12) → Re",     "#ff7f0e"),
-    ]:
-        try:
-            sl, ic = np.polyfit(xo, y_arr, 1)
-            fig_o.add_trace(go.Scattergl(
-                x=xo, y=y_arr, mode="markers+text", text=lblo,
-                textposition="top center", name=name,
-                marker=dict(size=10, color=color)))
-            fig_o.add_trace(go.Scattergl(
-                x=x_fit_o, y=sl * x_fit_o + ic, mode="lines",
-                name=f"{name.split('→')[1].strip()} intercept={ic:.4f} Ω",
-                line=dict(color=color, width=1.5, dash="dash")))
-            fig_o.add_trace(go.Scattergl(
-                x=[0], y=[ic], mode="markers",
-                marker=dict(size=12, symbol="star", color=color),
-                name=f"intercept {ic:.4f} Ω", showlegend=False))
-        except Exception:
-            pass
-
-    fig_o.update_layout(
-        title="Open-collector: Re(Zij) vs 1/IB",
-        xaxis=dict(title="1/IB (A⁻¹)", rangemode="tozero",
-                   showgrid=True, gridcolor="#ebebeb"),
-        yaxis=dict(title="Re(Zij) (Ω)", showgrid=True, gridcolor="#ebebeb"),
-        plot_bgcolor="white", paper_bgcolor="white", height=400,
-        legend=dict(x=0.01, y=0.99, xanchor="left", yanchor="top",
-                    bgcolor="rgba(255,255,255,0.9)", bordercolor="#ccc",
-                    borderwidth=1, font=dict(size=9)),
-        margin=dict(l=55, r=20, t=50, b=50))
-    plotly_with_dl(fig_o, key=f"ocm_{fname}", filename=f"open_collector_{fname}")
-
-    try:
-        Rb_ocm = float(np.polyfit(xo, y1o, 1)[1])
-        Rc_ocm = float(np.polyfit(xo, y2o, 1)[1])
-        Re_ocm = float(np.polyfit(xo, y3o, 1)[1])
-        oc1, oc2, oc3 = st.columns(3)
-        oc1.metric("Rb (intercept)", f"{Rb_ocm:.4f} Ω")
-        oc2.metric("Rc (intercept)", f"{Rc_ocm:.4f} Ω")
-        oc3.metric("Re (intercept)", f"{Re_ocm:.4f} Ω")
-        st.session_state[f"ocm_Rb_{fname}"] = Rb_ocm
-        st.session_state[f"ocm_Rc_{fname}"] = Rc_ocm
-        st.session_state[f"ocm_Re_{fname}"] = Re_ocm
-    except Exception:
-        pass

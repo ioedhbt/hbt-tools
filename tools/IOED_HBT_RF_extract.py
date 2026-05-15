@@ -1,5 +1,5 @@
 """
-hbt_rf_tool.py  — v4.7
+hbt_rf_tool.py
 ============================
 Main Streamlit application for HBT RF extraction.
 
@@ -9,7 +9,12 @@ The only SSM-related line in this file is:
     from cheng_extraction import render_ssm_tab
 
 which is then called once inside the "SSM Extraction" sub-tab.
+
+Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
+repo root.
 """
+__version__ = "5.0"
+
 import io, re, zipfile
 from pathlib import Path
 
@@ -36,17 +41,16 @@ from tools.SSM.helpers        import (
 if "rf_uploader_key" not in st.session_state:
     st.session_state["rf_uploader_key"] = 0
 
-st.title("📡 IOED HBT RF Extraction Tool (v4.7)")
+st.title(f"📡 IOED HBT RF Extraction Tool (v{__version__})")
 
-with st.expander("Changelog", expanded=False):    
-    st.caption("**v4.7**: Switched scatter to scattergl for faster graph load, optimized calculation and loading.")
-    st.caption("**v4.6**: Refactored SSM module into modular structure (main_ssm_extraction + ssm_access_resistance + helpers/widgets), added quickset buttons (mean/median/low-f/high-f) to interactive parameter inputs, added Modeled/Measured Open-Short source selector for batch de-embedding, frequency-axis x-axis for short dummy lead-inductance plots, Linux/macOS launcher instructions.")
-    st.caption("**v4.5**: Code refactoring and minor improvements.")
-    st.caption("**v4.4**: Added optimized tuning strategies, added smith chart with matplotlib, removed Ccex from Cheng's T, improved user usability.")
-    st.caption("**v4.3**: Added other OS support for launcher, added Ccex term for Cheng's T, fixed topology illustration for Pi, fixed some plotting.")
-    st.caption("**v4.2**: Topology illustration, graph data download, code refactoring).")
-    st.caption("**v4.1**: Cosmetic improvements).")
-    st.caption("**v4.0**: Extraction tuning with CPU and GPU optimizations).")
+with st.expander(f"What's new in v{__version__}", expanded=False):
+    st.markdown(
+        "- Refactored SSM into an OOP class hierarchy (`SSMModelTemplate` parent "
+        "in `base_ui.py` with concrete `ChengT`, `ChengPi`, `XuModel` subclasses)\n"
+        "- Added Xu's forward simulation\n"
+        "- Added more Smith chart plot options\n\n"
+        "Full version history: [`CHANGELOG.md`](CHANGELOG.md)"
+    )
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  CORE RF UTILITIES — moved to tools/SSM/helpers/ (rf_math, s2p_io,
@@ -294,7 +298,65 @@ with tab_ind:
         scales ={"S11":scale_s11,"S22":scale_s22,"S21":scale_s21,"S12":scale_s12}
 
         ta,tb,tc,td=st.tabs(["Bode Plot","Plateau Plot","Smith Chart","🔬 SSM Extraction"])
-        with ta: st.plotly_chart(make_bode(df_p,Path(n).stem,xr,yr,sh21,su,smag,c),use_container_width=True)
+        with ta:
+            f_arr = df_p["Freq (GHz)"].values
+            n_freq = len(f_arr)
+
+            # ── Extrapolation controls ───────────────────────────────────────
+            bc1, bc2 = st.columns([1, 1])
+            show_20db = bc1.checkbox(
+                "Show −20 dB/dec extrapolation",
+                value=True, key=f"bode_show20_{n}",
+                help="Anchors a line of slope −20 dB/dec at the last "
+                     "measured point (textbook fT/fmax extraction).")
+            show_sp = bc2.checkbox(
+                "Show single-pole fit",
+                value=False, key=f"bode_showsp_{n}",
+                help="Log-linear (single-pole) least-squares fit on a "
+                     "user-chosen window — slope is determined by the data.")
+
+            sp_window_idx = None
+            if show_sp and n_freq >= 4:
+                f_lo, f_hi = float(f_arr[0]), float(f_arr[-1])
+                _spkey = f"bode_spwin_{n}"
+                _dflt  = (max(f_lo, f_hi * 0.5), f_hi)
+                sp_win = st.slider(
+                    "Single-pole fit window (GHz)",
+                    min_value=f_lo, max_value=f_hi,
+                    value=st.session_state.get(_spkey, _dflt),
+                    step=max((f_hi - f_lo) / 400.0, 1e-3),
+                    key=_spkey)
+                _il = int(np.searchsorted(f_arr, sp_win[0], side="left"))
+                _ih = int(np.searchsorted(f_arr, sp_win[1], side="right")) - 1
+                _il = max(0, min(_il, n_freq - 2))
+                _ih = max(_il + 1, min(_ih, n_freq - 1))
+                sp_window_idx = (_il, _ih)
+
+            # f_max_target so extrap curves extend past the largest fT/fmax
+            _ft_now  = d.get("fT Cross/Extrap (GHz)")
+            _fmU_now = d.get("fmax U Cross/Extrap (GHz)")
+            _maxes = [v for v in (_ft_now, _fmU_now, f_arr[-1] if n_freq else 0)
+                      if v is not None and np.isfinite(v)]
+            f_max_target = max(_maxes) * 1.2 if _maxes else None
+
+            fig_bode, extrap_df = make_bode(
+                df_p, Path(n).stem, xr, yr, sh21, su, smag, c,
+                show_20db=show_20db, show_sp=show_sp,
+                sp_window_idx=sp_window_idx,
+                extrap_f_max=f_max_target,
+                return_extrap_df=True)
+            st.plotly_chart(fig_bode, use_container_width=True)
+
+            # ── Excel download for extrapolated/fitted data ──────────────────
+            if extrap_df is not None and not extrap_df.empty:
+                _buf = io.BytesIO()
+                extrap_df.to_excel(_buf, index=False, engine="openpyxl")
+                st.download_button(
+                    "📥 Download extrapolated data (Excel)",
+                    data=_buf.getvalue(),
+                    file_name=f"{Path(n).stem}_bode_extrap.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"bode_dl_{n}")
         with tb: st.plotly_chart(make_plateau(df_p,d,Path(n).stem,xr,sh21,su,smag,c),use_container_width=True)
         with tc:
             smith_sub_plotly, smith_sub_mpl = st.tabs(

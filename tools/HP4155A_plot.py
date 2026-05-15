@@ -1,3 +1,11 @@
+"""
+HP4155A_plot.py — HP/Agilent 4155A curve tracer data viewer.
+
+Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
+repo root.
+"""
+__version__ = "1.0"
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,7 +13,7 @@ import io
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-st.title("🧪 SMU Interactive Plot Tool")
+st.title(f"🧪 SMU Interactive Plot Tool (v{__version__})")
 
 # =================================================
 # Session state

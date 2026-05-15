@@ -3069,3 +3069,175 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     )
                     plotly_with_dl(fig, key=f"tune_sens_{topo_key}_{key}_{fname}",
                                    filename=f"tune_sens_{topo_key}_{key}_{fname}")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# SSMModelTemplate — shared scaffold for concrete model classes
+# ════════════════════════════════════════════════════════════════════════════════
+#
+# This is a *mixin-style* parent: it provides default implementations of
+# simulate_vec, simulate_batch, render_override_and_smith, and
+# render_results_table that work for any model whose forward simulation
+# follows the standard pad→lead→intrinsic chain.
+#
+# Concrete model classes inherit from BOTH this template AND AbstractSSMModel
+# (the ABC contract in models/__init__.py).  Python's MRO combines them:
+#
+#     class MyModel(SSMModelTemplate, AbstractSSMModel):
+#         NAME, SHORT, TOPOLOGY_CHAR = "...", "...", "..."
+#         _INT_SPECS = [...]   # internal param specs (key, label, scale, unit, ...)
+#         _EXT_SPECS = [...]   # external param specs
+#         _Y_INT_VEC_FN     = staticmethod(_Y_int_xxx_vec)
+#         _Y_INT_BATCH_FN   = staticmethod(_Y_int_xxx_batch)
+#         _SIM_WRAP_VEC_FN  = staticmethod(_sim_wrap_vec)   # model's wrap
+#         _SIM_WRAP_BATCH_FN= staticmethod(_sim_wrap_batch) # model's wrap
+#
+#         @classmethod
+#         def _do_override_ui(cls, fname, calc_vals): ...   # call model's _override_ui
+#         @classmethod
+#         def _render_topology(cls, all_p, fname): ...      # render topology illus
+#         @classmethod
+#         def _results_rows(cls, params): ...               # list[(sym, val, unit)]
+#         @classmethod
+#         def _render_results_trace(cls): pass              # optional formula trace
+#
+#         # Still required by AbstractSSMModel (model-specific math):
+#         extract, simulate, reextract
+#
+# The template intentionally does NOT inherit AbstractSSMModel so it can live
+# in base_ui.py without a circular import — concrete classes inherit both.
+
+class SSMModelTemplate:
+    """
+    Shared scaffold for HBT small-signal model classes.
+
+    Provides default bodies for the UI-side and forward-sim wrapper methods;
+    concrete subclasses supply the math kernels and per-model UI bits via
+    class attributes and a handful of classmethod hooks.  See the module
+    docstring above for the contract.
+    """
+
+    # Subclasses must set these:
+    _INT_SPECS: list      = []
+    _EXT_SPECS: list      = []
+    _Y_INT_VEC_FN         = None    # staticmethod or plain function
+    _Y_INT_BATCH_FN       = None
+    _SIM_WRAP_VEC_FN      = None
+    _SIM_WRAP_BATCH_FN    = None
+    # Pad-spec list used by the tuning expander.  Default is the shared
+    # PAD_SPECS; override to customise displayed pad-parameter labels
+    # (e.g. XuModel relabels Cpce → "Cpce / Cpad").
+    _TUNING_PAD_SPECS     = None    # falls back to PAD_SPECS in render_override_and_smith
+
+    # ── Forward simulation ────────────────────────────────────────────────────
+
+    @classmethod
+    def simulate_vec(cls, params, freq, z0=50.0, xp=None):
+        """Vectorised simulate — no per-freq loop.  Pass xp=cupy for GPU."""
+        if xp is None:
+            xp = np
+        return cls._SIM_WRAP_VEC_FN(cls._Y_INT_VEC_FN, params, freq, z0, xp)
+
+    @classmethod
+    def simulate_batch(cls, params, freq, z0=50.0, xp=None, cache=None):
+        """Batched simulate over (param_combo × freq).  Pass xp=cupy for GPU.
+
+        params dict values may be scalars or (B,) arrays.
+        Returns (B, N_freq, 2, 2) on the *xp* device (no host transfer).
+        Optional ``cache`` carries pre-computed constant sub-networks.
+        """
+        if xp is None:
+            xp = np
+        return cls._SIM_WRAP_BATCH_FN(cls._Y_INT_BATCH_FN, params, freq, z0, xp, cache)
+
+    # ── Cached simulate-vec (used by render_override_and_smith) ───────────────
+
+    @classmethod
+    def _cached_simulate_vec(cls, all_p, freq, z0, fname):
+        """Hash-cached wrapper around ``simulate_vec``.
+
+        Skips re-simulation when the parameter dict + freq length match the
+        last invocation.  Errors are caught and reported in-place; the cache
+        is populated with a NaN array so the rest of the UI keeps rendering.
+        """
+        cache_key = f"sim_result_{cls.SHORT}_{fname}"
+        hash_key  = f"sim_phash_{cls.SHORT}_{fname}"
+        cur_hash  = params_hash({k: str(v) for k, v in
+                                  {**all_p, "__nf": len(freq)}.items()})
+
+        def _run():
+            with st.spinner(f"Simulating {cls.NAME}…"):
+                try:
+                    return cls.simulate_vec(all_p, freq, z0)
+                except Exception as e:
+                    st.error(f"Simulation error ({cls.NAME}): {e}")
+                    return np.full((len(freq), 2, 2), np.nan + 0j)
+
+        if st.session_state.get(hash_key) != cur_hash:
+            S_sim = _run()
+            st.session_state[cache_key] = S_sim
+            st.session_state[hash_key]  = cur_hash
+        else:
+            S_sim = st.session_state.get(cache_key)
+            if S_sim is None or S_sim.shape[0] != len(freq):
+                S_sim = _run()
+                st.session_state[cache_key] = S_sim
+                st.session_state[hash_key]  = cur_hash
+        return S_sim
+
+    # ── UI scaffolding ────────────────────────────────────────────────────────
+
+    @classmethod
+    def render_results_table(cls, params):
+        """Render the scalar-parameter dataframe + optional formula-trace expander."""
+        import pandas as pd
+        rows = cls._results_rows(params)
+        st.dataframe(pd.DataFrame(rows, columns=["Symbol", "Value", "Unit"]),
+                     width="stretch", hide_index=True)
+        cls._render_results_trace()
+
+    @classmethod
+    def _render_results_trace(cls):
+        """Optional: render an expander with the full extraction/sim formula chain.
+        Default is a no-op; override to add a 📐 trace expander."""
+        return
+
+    @classmethod
+    def render_override_and_smith(cls, fname, S_raw, freq, z0,
+                                  para_eff, extract_result, **kwargs):
+        """
+        Standard override-UI → cached sim → Smith chart → topology illustration
+        → matplotlib Smith expander → tuning expander.
+
+        Concrete subclasses supply the per-model UI pieces via:
+          cls._do_override_ui(fname, calc_vals)  → all_p
+          cls._render_topology(all_p, fname)     → render illustration
+          cls._INT_SPECS / _EXT_SPECS            → tuning specs
+        """
+        params, _arrays = extract_result
+        calc_vals = {**para_eff, **params}
+        all_p = cls._do_override_ui(fname, calc_vals)
+
+        S_sim = cls._cached_simulate_vec(all_p, freq, z0, fname)
+
+        sc = smith_scale_controls(fname, cls.SHORT)
+        render_smith_with_ftfmax(S_raw, S_sim, freq,
+                                 model_name=cls.NAME, model_short=cls.SHORT,
+                                 fname=fname, scales=sc)
+
+        # Persist the *current* (post-override) param dict so the Complete
+        # Parameter Summary can read live values instead of extraction-time ones.
+        st.session_state[f"current_p_{cls.SHORT}_{fname}"] = dict(all_p)
+
+        with st.expander("🖼️ Topology Illustration", expanded=False):
+            cls._render_topology(all_p, fname)
+
+        with st.expander("📐 Plot Smith chart with matplotlib", expanded=False):
+            from ..ssm_plots import render_matplotlib_smith
+            render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT)
+
+        pad_specs = cls._TUNING_PAD_SPECS if cls._TUNING_PAD_SPECS is not None else PAD_SPECS
+        render_tuning_expander(cls, all_p, S_raw, freq, z0,
+                               pad_specs + cls._EXT_SPECS + cls._INT_SPECS,
+                               fname, cls.SHORT)
+        return S_sim

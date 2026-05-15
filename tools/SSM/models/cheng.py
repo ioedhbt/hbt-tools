@@ -12,7 +12,6 @@ from __future__ import annotations
 import os as _os
 from pathlib import Path as _Path
 import numpy as np
-import pandas as pd
 import streamlit as st
 
 from ..helpers         import (y_to_z, z_to_y, y_to_s_single, y_to_s_vec,
@@ -22,9 +21,10 @@ from ..helpers         import (y_to_z, z_to_y, y_to_s_single, y_to_s_vec,
                                 build_Y_pad, build_Z_ser,
                                 build_Y_pad_vec, build_Z_ser_vec,
                                 build_Y_pad_batch, build_Z_ser_batch)
-from .base_ui         import (smith_scale_controls,
-                               sync_pad_from_preov, PAD_SPECS,
-                               render_tuning_expander, render_smith_with_ftfmax)
+from .base_ui         import sync_pad_from_preov, PAD_SPECS, SSMModelTemplate
+from ._shared          import (_b1, _detect_B, _stack22,
+                                _try_download_inter, has_inter, _load_font,
+                                _FONT_CACHE_DIR)
 from . import AbstractSSMModel
 
 
@@ -349,51 +349,7 @@ def _Y_int_Pi_vec(p, omega, xp):
 
 # ── Batched (B, N, 2, 2) forward simulation for parameter-sweep tuning ─────
 
-def _b1(p, key, default, xp, dtype=None):
-    """Fetch p[key] (or default) and reshape (B,) → (B,1).  Scalars stay scalar.
-
-    If ``dtype`` is given, the value is coerced to that dtype.  Used by the
-    fp32 sweep path so a scalar Python ``float`` constant doesn't promote
-    a (B,N) ``float32`` swept tensor back up to ``float64``.
-    """
-    v = p.get(key, default)
-    if dtype is not None:
-        a = xp.asarray(v, dtype=dtype)
-    else:
-        a = xp.asarray(v)
-    if a.ndim == 1:
-        return a.reshape(-1, 1)
-    return a
-
-
-def _detect_B(p, xp):
-    """Determine batch size B from any (B,)-shaped value in p."""
-    B = 1
-    for v in p.values():
-        if isinstance(v, str):
-            continue
-        try:
-            a = xp.asarray(v)
-        except Exception:
-            continue
-        if a.ndim == 1 and a.shape[0] > B:
-            B = a.shape[0]
-    return B
-
-
-def _stack22(a00, a01, a10, a11, xp):
-    """Stack four (..., ) planes into a (..., 2, 2) tensor.
-
-    Avoids the ``xp.zeros + scatter assignments`` pattern (5 kernel
-    launches) — does it in 3 launches via xp.stack and amortises better
-    on the GPU.  Inputs may be any broadcastable shapes; the result has
-    the broadcast shape with two extra trailing axes.
-    """
-    return xp.stack(
-        [xp.stack([a00, a01], axis=-1),
-         xp.stack([a10, a11], axis=-1)],
-        axis=-2,
-    )
+# _b1, _detect_B, _stack22 — see ._shared (lifted to share with xu.py).
 
 
 def _sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None):
@@ -677,42 +633,7 @@ _INT_PI_SPECS = [
 # ════════════════════════════════════════════════════════════════════════════════
 
 _ILLUS_DIR = _Path(__file__).parent / "illus_template"
-_FONT_CACHE_DIR = _Path(__file__).parent / "fonts"
-_INTER_DOWNLOAD_URLS = (
-    "https://github.com/google/fonts/raw/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf",
-    "https://github.com/rsms/inter/raw/master/docs/font-files/Inter-Regular.ttf",
-)
-
-def _try_download_inter():
-    """Attempt to download Inter once and cache it. Returns the cached path or None."""
-    target = _FONT_CACHE_DIR / "Inter-Regular.ttf"
-    if target.exists():
-        return target
-    try:
-        _FONT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        import urllib.request
-        for url in _INTER_DOWNLOAD_URLS:
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    data = resp.read()
-                if data and len(data) > 10_000:
-                    target.write_bytes(data)
-                    return target
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return None
-
-def has_inter():
-    for name in ("Inter-Regular.ttf", "Inter.ttf"):
-        if _os.path.exists(name):
-            return True
-    cached = _FONT_CACHE_DIR / "Inter-Regular.ttf"
-    if cached.exists():
-        return True
-    return _try_download_inter() is not None
+# _FONT_CACHE_DIR / _try_download_inter / has_inter / _load_font — see ._shared.
 
 ohm_sign = "Ω" if has_inter() else "Ohm"
 
@@ -740,9 +661,6 @@ _UNIT_LADDER: dict[str, str] = {
     f"{ohm_sign}":  f"k{ohm_sign}",  f"k{ohm_sign}": f"M{ohm_sign}", 
     f"M{ohm_sign}": f"G{ohm_sign}", f"G{ohm_sign}": f"T{ohm_sign}",
 }
-
-# Keys that get 3 decimal places instead of 2
-_3DP_PARAMS = {"alpha0", "Gm0"}
 
 # Pixel (x, y[, anchor]) positions for overlaid value text — image is 1014 × 831 px.
 # anchor is a PIL anchor string (default "mm"). First char: l/m/r = horizontal align
@@ -801,46 +719,15 @@ def _fmt_param(key: str, val_si: float) -> str:
     if key not in _PARAM_DISPLAY:
         return f"{val_si:.3g}"
     scale, unit = _PARAM_DISPLAY[key]
-    decimals = 3 if key in _3DP_PARAMS else 2
     display = val_si * scale
     while abs(display) >= 1000 and unit in _UNIT_LADDER:
         display /= 1000
         unit = _UNIT_LADDER[unit]
-    if abs(display - round(display)) < 0.005:
+    if abs(display - round(display)) < 0.0005:
         text = f"{int(round(display))}"
     else:
-        text = f"{display:.{decimals}f}"
+        text = f"{display:.3f}".rstrip("0").rstrip(".")
     return f"{text} {unit}" if unit else text
-
-
-def _load_font(size: int):
-    """Load a TrueType font at the given size, with Inter → Arial → fallback chain."""
-    from PIL import ImageFont
-    candidates = [
-        "Inter-Regular.ttf", "Inter.ttf",
-        "arial.ttf", "Arial.ttf",
-        "segoeui.ttf", "tahoma.ttf", "calibri.ttf",
-    ]
-    win_fonts = _os.path.join(_os.environ.get("WINDIR", "C:/Windows"), "Fonts")
-    dirs = [
-        str(_FONT_CACHE_DIR),
-        win_fonts,
-        "/usr/share/fonts/truetype",
-        "/usr/share/fonts/truetype/liberation",
-        "/System/Library/Fonts",
-    ]
-    for name in candidates:
-        for d in dirs:
-            path = _os.path.join(d, name)
-            if _os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, size)
-                except Exception:
-                    pass
-    try:
-        return ImageFont.load_default(size=size)
-    except TypeError:
-        return ImageFont.load_default()
 
 
 def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> None:
@@ -985,16 +872,7 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS):
 # ════════════════════════════════════════════════════════════════════════════════
 # ChengT
 # ════════════════════════════════════════════════════════════════════════════════
-def _render_step2_plots(arrays, params, freq, fname, tK):
-    """Plot Cbex and Cbcx vs frequency with modeled (median) value overlaid."""
-    import matplotlib.pyplot as plt
-    f_ghz = freq * 1e-9
-    Cbex_arr = arrays.get("Cbex_arr")
-    Cbcx_arr = arrays.get("Cbcx_arr")
-    if Cbex_arr is None or Cbcx_arr is None:
-        return
-
-class ChengT(AbstractSSMModel):
+class ChengT(SSMModelTemplate, AbstractSSMModel):
     """
     Cheng (2022) T-topology.
     Two-step extraction:  Step 2 → Cbex, Cbcx  |  Step 3 → Rbi, Rbe, Cbe, …, α, τB, τC
@@ -1002,6 +880,13 @@ class ChengT(AbstractSSMModel):
     NAME          = "T-topology (Cheng 2022)"
     SHORT         = "T"
     TOPOLOGY_CHAR = "T"
+    # ── Template hooks (see SSMModelTemplate in base_ui.py) ──────────────────
+    _INT_SPECS         = _INT_T_SPECS
+    _EXT_SPECS         = _EXT_T_SPECS
+    _Y_INT_VEC_FN      = _Y_int_T_vec
+    _Y_INT_BATCH_FN    = _Y_int_T_batch
+    _SIM_WRAP_VEC_FN   = _sim_wrap_vec
+    _SIM_WRAP_BATCH_FN = _sim_wrap_batch
     # Cheng's batched intrinsic-Y kernels honour ``cache["_cdtype"]``,
     # so the tuning loop is allowed to run in complex64 ↓ ~5–10× speedup
     # on consumer GPUs (fp64 is gimped 1/64 vs fp32 on RTX 3050).  The
@@ -1114,26 +999,7 @@ class ChengT(AbstractSSMModel):
                 return np.zeros((2, 2), dtype=complex)
         return _sim_wrap(_Y_int, params, freq, z0)
 
-    @classmethod
-    def simulate_vec(cls, params, freq, z0=50.0, xp=None):
-        """Vectorised simulate — no per-freq loop.  Pass xp=cupy for GPU."""
-        if xp is None:
-            xp = np
-        return _sim_wrap_vec(_Y_int_T_vec, params, freq, z0, xp)
-
-    @classmethod
-    def simulate_batch(cls, params, freq, z0=50.0, xp=None, cache=None):
-        """Batched simulate over (param_combo × freq).  Pass xp=cupy for GPU.
-
-        params dict values may be scalars or (B,) arrays.
-        Returns (B, N_freq, 2, 2) on the *xp* device (no host transfer).
-
-        Optional ``cache`` dict (built once per sweep) carries pre-computed
-        constant sub-networks (Y_pad, Z_ser, Y_extr, omega).
-        """
-        if xp is None:
-            xp = np
-        return _sim_wrap_batch(_Y_int_T_batch, params, freq, z0, xp, cache)
+    # simulate_vec, simulate_batch — inherited from SSMModelTemplate
 
     @classmethod
     def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
@@ -1212,9 +1078,9 @@ class ChengT(AbstractSSMModel):
         return new_params, new_arrays
 
     @classmethod
-    def render_results_table(cls, params):
+    def _results_rows(cls, params):
         ri = params
-        rows = [
+        return [
             ("Cbex", f"{ri['Cbex']*1e15:.4f}", "fF"),   # Step 2 — extracted first
             ("Cbcx", f"{ri['Cbcx']*1e15:.4f}", "fF"),   # Step 2
             ("Rbi",  f"{ri['Rbi']:.4f}",        "Ω"),   # Step 3
@@ -1228,9 +1094,8 @@ class ChengT(AbstractSSMModel):
             ("τC",   f"{ri['tauC']*1e12:.4f}", "ps"),
         ]
 
-        st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
-                     width="stretch", hide_index=True)
-
+    @classmethod
+    def _render_results_trace(cls):
         with st.expander("📐 Full formula trace — T-topology (Cheng 2022)", expanded=False):
             st.markdown("**Dependency chain:** Y_ex1 → peel Cbex → Y_ex2 → peel Cbcx → Z_in → intrinsic")
             st.markdown("**Step 2** *(input: Y_ex1)*")
@@ -1255,66 +1120,20 @@ class ChengT(AbstractSSMModel):
                      r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
 
     @classmethod
-    def render_override_and_smith(cls, fname, S_raw, freq, z0,
-                                  para_eff, extract_result, **kwargs):
-        params, arrays = extract_result
-        calc_vals = {**para_eff, **params}
-        all_p = _override_ui(fname, cls.SHORT, calc_vals, _INT_T_SPECS, cls.NAME,
-                             ext_specs=_EXT_T_SPECS)
+    def _do_override_ui(cls, fname, calc_vals):
+        return _override_ui(fname, cls.SHORT, calc_vals, _INT_T_SPECS, cls.NAME,
+                            ext_specs=_EXT_T_SPECS)
 
-        # Cached simulation
-        cache_key  = f"sim_result_{cls.SHORT}_{fname}"
-        hash_key   = f"sim_phash_{cls.SHORT}_{fname}"
-        cur_hash   = params_hash({k: str(v) for k, v in {**all_p, "__nf": len(freq)}.items()})
-        if st.session_state.get(hash_key) != cur_hash:
-            with st.spinner(f"Simulating {cls.NAME}…"):
-                try:
-                    S_sim = cls.simulate_vec(all_p, freq, z0)
-                except Exception as e:
-                    st.error(f"Simulation error ({cls.NAME}): {e}")
-                    S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
-            st.session_state[cache_key] = S_sim
-            st.session_state[hash_key]  = cur_hash
-        else:
-            S_sim = st.session_state.get(cache_key)
-            if S_sim is None or S_sim.shape[0] != len(freq):
-                with st.spinner(f"Simulating {cls.NAME}…"):
-                    try:
-                        S_sim = cls.simulate_vec(all_p, freq, z0)
-                    except Exception as e:
-                        st.error(f"Simulation error ({cls.NAME}): {e}")
-                        S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
-                st.session_state[cache_key] = S_sim
-                st.session_state[hash_key]  = cur_hash
-
-        sc = smith_scale_controls(fname, cls.SHORT)
-        render_smith_with_ftfmax(S_raw, S_sim, freq,
-                                 model_name=cls.NAME, model_short=cls.SHORT,
-                                 fname=fname, scales=sc)
-
-        # Persist the *current* (post-override) param dict so the Complete
-        # Parameter Summary can read live values instead of extraction-time ones.
-        st.session_state[f"current_p_{cls.SHORT}_{fname}"] = dict(all_p)
-
-        with st.expander("🖼️ Topology Illustration", expanded=False):
-            _render_topology_illustration(all_p, "T", fname)
-
-        with st.expander("📐 Plot Smith chart with matplotlib", expanded=False):
-            from ..ssm_plots import render_matplotlib_smith
-            render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT)
-
-        render_tuning_expander(cls, all_p, S_raw, freq, z0,
-                               PAD_SPECS + _EXT_T_SPECS + _INT_T_SPECS, fname, cls.SHORT)
-        _render_step2_plots(arrays, params, freq, fname, cls.NAME)
-        return S_sim
-
+    @classmethod
+    def _render_topology(cls, all_p, fname):
+        _render_topology_illustration(all_p, "T", fname)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ChengPi
 # ════════════════════════════════════════════════════════════════════════════════
 
-class ChengPi(AbstractSSMModel):
+class ChengPi(SSMModelTemplate, AbstractSSMModel):
     """
     Cheng (2022) π-topology  (Step 3 after Zhang et al. 2015).
     Same Step 2 as T but with π variant of Cbex formula.
@@ -1323,6 +1142,13 @@ class ChengPi(AbstractSSMModel):
     SHORT         = "pi"
     TOPOLOGY_CHAR = "pi"
     SUPPORTS_FP32_SWEEP = True   # see ChengT for rationale
+    # ── Template hooks (see SSMModelTemplate in base_ui.py) ──────────────────
+    _INT_SPECS         = _INT_PI_SPECS
+    _EXT_SPECS         = _EXT_PI_SPECS
+    _Y_INT_VEC_FN      = _Y_int_Pi_vec
+    _Y_INT_BATCH_FN    = _Y_int_Pi_batch
+    _SIM_WRAP_VEC_FN   = _sim_wrap_vec
+    _SIM_WRAP_BATCH_FN = _sim_wrap_batch
     PARAM_GROUPS = [
         {
             "label":      "Step 2 — Cbex  (from Im(B·C)/Im(B), low-freq range)",
@@ -1405,19 +1231,7 @@ class ChengPi(AbstractSSMModel):
                 return np.zeros((2, 2), dtype=complex)
         return _sim_wrap(_Y_int, params, freq, z0)
 
-    @classmethod
-    def simulate_vec(cls, params, freq, z0=50.0, xp=None):
-        """Vectorised simulate — no per-freq loop.  Pass xp=cupy for GPU."""
-        if xp is None:
-            xp = np
-        return _sim_wrap_vec(_Y_int_Pi_vec, params, freq, z0, xp)
-
-    @classmethod
-    def simulate_batch(cls, params, freq, z0=50.0, xp=None, cache=None):
-        """Batched simulate over (param_combo × freq)."""
-        if xp is None:
-            xp = np
-        return _sim_wrap_batch(_Y_int_Pi_batch, params, freq, z0, xp, cache)
+    # simulate_vec, simulate_batch — inherited from SSMModelTemplate
 
     # @classmethod
     # def render_step_formulas(cls):
@@ -1486,9 +1300,9 @@ class ChengPi(AbstractSSMModel):
         return new_params, new_arrays
 
     @classmethod
-    def render_results_table(cls, params):
+    def _results_rows(cls, params):
         ri = params
-        rows = [
+        return [
             ("Cbex", f"{ri['Cbex']*1e15:.4f}", "fF"),   # Step 2 — extracted first
             ("Cbcx", f"{ri['Cbcx']*1e15:.4f}", "fF"),   # Step 2
             ("Rbi",  f"{ri['Rbi']:.4f}", "Ω"),           # Step 3
@@ -1500,59 +1314,15 @@ class ChengPi(AbstractSSMModel):
             ("τ",    f"{ri['tau']*1e12:.4f}",  "ps"),
         ]
 
-        st.dataframe(pd.DataFrame(rows, columns=["Symbol","Value","Unit"]),
-                     width="stretch", hide_index=True)
+    # _render_results_trace — default (no-op) inherited from SSMModelTemplate;
+    # the π-topology table doesn't ship with a formula-trace expander today.
 
     @classmethod
-    def render_override_and_smith(cls, fname, S_raw, freq, z0,
-                                  para_eff, extract_result, **kwargs):
-        params, arrays = extract_result
-        calc_vals = {**para_eff, **params}
-        all_p = _override_ui(fname, cls.SHORT, calc_vals, _INT_PI_SPECS, cls.NAME,
-                             ext_specs=_EXT_PI_SPECS)
+    def _do_override_ui(cls, fname, calc_vals):
+        return _override_ui(fname, cls.SHORT, calc_vals, _INT_PI_SPECS, cls.NAME,
+                            ext_specs=_EXT_PI_SPECS)
 
-        cache_key = f"sim_result_{cls.SHORT}_{fname}"
-        hash_key  = f"sim_phash_{cls.SHORT}_{fname}"
-        cur_hash  = params_hash({k: str(v) for k, v in {**all_p, "__nf": len(freq)}.items()})
-        if st.session_state.get(hash_key) != cur_hash:
-            with st.spinner(f"Simulating {cls.NAME}…"):
-                try:
-                    S_sim = cls.simulate_vec(all_p, freq, z0)
-                except Exception as e:
-                    st.error(f"Simulation error ({cls.NAME}): {e}")
-                    S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
-            st.session_state[cache_key] = S_sim
-            st.session_state[hash_key]  = cur_hash
-        else:
-            S_sim = st.session_state.get(cache_key)
-            if S_sim is None or S_sim.shape[0] != len(freq):
-                with st.spinner(f"Simulating {cls.NAME}…"):
-                    try:
-                        S_sim = cls.simulate_vec(all_p, freq, z0)
-                    except Exception as e:
-                        st.error(f"Simulation error ({cls.NAME}): {e}")
-                        S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
-                st.session_state[cache_key] = S_sim
-                st.session_state[hash_key]  = cur_hash
-
-        sc = smith_scale_controls(fname, cls.SHORT)
-        render_smith_with_ftfmax(S_raw, S_sim, freq,
-                                 model_name=cls.NAME, model_short=cls.SHORT,
-                                 fname=fname, scales=sc)
-
-        # Persist the *current* (post-override) param dict so the Complete
-        # Parameter Summary can read live values instead of extraction-time ones.
-        st.session_state[f"current_p_{cls.SHORT}_{fname}"] = dict(all_p)
-
-        with st.expander("🖼️ Topology Illustration", expanded=False):
-            _render_topology_illustration(all_p, "pi", fname)
-
-        with st.expander("📐 Plot Smith chart with matplotlib", expanded=False):
-            from ..ssm_plots import render_matplotlib_smith
-            render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT)
-
-        render_tuning_expander(cls, all_p, S_raw, freq, z0,
-                               PAD_SPECS + _EXT_PI_SPECS + _INT_PI_SPECS, fname, cls.SHORT)
-        _render_step2_plots(arrays, params, freq, fname, cls.NAME)
-        return S_sim
+    @classmethod
+    def _render_topology(cls, all_p, fname):
+        _render_topology_illustration(all_p, "pi", fname)
 

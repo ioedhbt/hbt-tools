@@ -226,13 +226,23 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                 key=f"dl_open_s1_{fname}", width="stretch")
             st.caption("Forward-simulated Open dummy from extracted/overridden Cpbe/Cpce/Cpbc.")
         else:
-            st.info("No Open dummy — Cpbe, Cpce, Cpbc defaulted to 0 fF.")
-            para_caps_ov = {
-                "Cpbe": 0.0, "Cpce": 0.0, "Cpbc": 0.0,
+            st.info("No Open dummy uploaded — enter pad capacitances manually (defaults to 0 fF).")
+            _OPEN_OV = [("Cpbe",1e15),("Cpce",1e15),("Cpbc",1e15)]
+            for dk, _ in _OPEN_OV:
+                sk = f"ov_{dk}_{fname}"
+                if sk not in st.session_state:
+                    st.session_state[sk] = 0.0
+            for col_w, (dk, _) in zip(st.columns(3), _OPEN_OV):
+                sk = f"ov_{dk}_{fname}"
+                apply_pending(sk)
+                col_w.number_input(f"{dk} (fF)", key=sk, format="%.4f", step=0.1)
+            para_caps_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc
+                            for dk, sc in _OPEN_OV}
+            para_caps_ov.update({
                 "Cpbe_mode": "None", "Cpbe_extra": 0.0,
                 "Cpce_mode": "None", "Cpce_extra": 0.0,
                 "Cpbc_mode": "None", "Cpbc_extra": 0.0,
-            }
+            })
 
         # ── Step 1b — Short dummy ─────────────────────────────────────────────
         st.divider()
@@ -346,12 +356,23 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                 key=f"dl_short_s1_{fname}", width="stretch")
             st.caption("Forward-simulated Short dummy: Y_pad + inv(Z_ser) — terminals shorted.")
         else:
-            st.info("No Short dummy — Lb, Lc, Le, Rb, Rc, Re defaulted to 0.")
-            para_short_ov = {
-                "Lb": 0.0, "Lc": 0.0, "Le": 0.0,
+            st.info("No Short dummy uploaded — enter lead inductances manually (defaults to 0 pH). "
+                    "Rb/Rc/Re default to 0; use Cold-HBT / Z-parameter / Open-collector / Custom in Section 3 to set them.")
+            _LEAD_OV = [("Lb",1e12),("Lc",1e12),("Le",1e12)]
+            for dk, _ in _LEAD_OV:
+                sk = f"ov_{dk}_{fname}"
+                if sk not in st.session_state:
+                    st.session_state[sk] = 0.0
+            for col_w, (dk, _) in zip(st.columns(3), _LEAD_OV):
+                sk = f"ov_{dk}_{fname}"
+                apply_pending(sk)
+                col_w.number_input(f"{dk} (pH)", key=sk, format="%.3f", step=0.1)
+            para_short_ov = {dk: st.session_state[f"ov_{dk}_{fname}"]/sc
+                             for dk, sc in _LEAD_OV}
+            para_short_ov.update({
                 "Rpb": 0.0, "Rpc": 0.0, "Rpe": 0.0,
                 "Cpar_Lb": 0.0, "Cpar_Lc": 0.0, "Cpar_Le": 0.0,
-            }
+            })
     para_step1 = {**para_caps_ov, **para_short_ov}
 
     # ══════════════════════════════════════════════════════════════════════════

@@ -66,6 +66,7 @@ from .metrics import (
     compute_h21_U,
     find_ft_fmax,
     extrap_20dbdec,
+    single_pole_extrap,
     compute_metrics,
     extract_limit,
 )
