@@ -31,6 +31,11 @@ concurrency:
   group: build-rust-linux-${{ github.ref }}
   cancel-in-progress: true
 
+# Opt into Node 24 now so the deprecation warnings on actions/* go away
+# (the underlying actions are unchanged — only the runtime is bumped).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -38,13 +43,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Need the full history + a token that can push commits.
           fetch-depth: 0
           persist-credentials: true
 
       - name: Set up Python 3.9
-        # Build venv only — abi3-py39 wheel works on any Python ≥3.9 at
-        # runtime, but maturin needs a compatible interpreter to build.
+        # Build-time interpreter only.  The wheel is abi3-py39, so the
+        # resulting .so works on every Python ≥3.9 at runtime —
+        # including Streamlit Cloud's 3.14.
         uses: actions/setup-python@v5
         with:
           python-version: "3.9"
@@ -59,41 +64,72 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             tools/SSM/rust_kernels/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('tools/SSM/rust_kernels/Cargo.toml') }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('tools/SSM/rust_kernels/Cargo.toml', 'tools/SSM/rust_kernels/src/**') }}
           restore-keys: |
             cargo-${{ runner.os }}-
 
-      - name: Build hbt_rust_kernels (release, abi3-py39)
-        # `build_rust_kernels.py` creates its own .hbttools_build venv,
-        # installs maturin, runs `maturin build --release`, then extracts
-        # the compiled .so into tools/SSM/rust_kernels/bin/linux_x86_64/.
-        run: python build_rust_kernels.py
+      - name: Install maturin + numpy
+        # maturin builds the wheel; numpy is needed for the smoke test below.
+        run: python -m pip install --upgrade pip "maturin>=1.5,<2.0" numpy
 
-      - name: Show resulting binary
+      - name: Build wheel (release, abi3-py39)
+        working-directory: tools/SSM/rust_kernels
+        run: maturin build --release --out target/wheels
+
+      - name: Extract .so into bin/linux_x86_64/
+        # Pull the compiled extension out of the wheel and drop it into
+        # the committed-binary directory.  Mirrors what
+        # `build_rust_kernels.py::_extract_binary` does locally.
         run: |
+          set -euo pipefail
+          WHEEL=$(ls tools/SSM/rust_kernels/target/wheels/hbt_rust_kernels-*.whl | head -n1)
+          echo "Wheel: $WHEEL"
+          mkdir -p tools/SSM/rust_kernels/bin/linux_x86_64
+          # Remove any stale binaries first so we don't leave abi3-py38
+          # lying around once we've upgraded.
+          rm -f tools/SSM/rust_kernels/bin/linux_x86_64/hbt_rust_kernels*.so
+          python - "$WHEEL" <<'PY'
+          import sys, zipfile, shutil, os
+          from pathlib import Path
+          wheel = Path(sys.argv[1])
+          dest  = Path("tools/SSM/rust_kernels/bin/linux_x86_64")
+          with zipfile.ZipFile(wheel) as z:
+              members = [m for m in z.namelist()
+                         if Path(m).name.startswith("hbt_rust_kernels")
+                         and m.endswith(".so")]
+              if not members:
+                  raise SystemExit(f"No .so found in {wheel}")
+              members.sort(key=lambda m: (len(m), m))
+              src = members[0]
+              out = dest / Path(src).name
+              with z.open(src) as f, out.open("wb") as g:
+                  shutil.copyfileobj(f, g)
+              print(f"Extracted {src}  ->  {out}")
+          PY
           ls -la tools/SSM/rust_kernels/bin/linux_x86_64/
-          file tools/SSM/rust_kernels/bin/linux_x86_64/hbt_rust_kernels*.so
 
       - name: Smoke test the built binary
-        # Quick import + tiny kernel call to confirm the .so loads
-        # and the public API works before we commit it.
+        # Import the .so and call y_to_s_4d to confirm the public API
+        # works before we commit.  numpy was installed above.
         run: |
-          python -c "
-          import sys
-          sys.path.insert(0, 'tools/SSM/rust_kernels/bin/linux_x86_64')
+          python - <<'PY'
+          import sys, glob, numpy as np
+          bins = sorted(glob.glob("tools/SSM/rust_kernels/bin/linux_x86_64/hbt_rust_kernels*.so"))
+          assert bins, "no .so found"
+          sys.path.insert(0, "tools/SSM/rust_kernels/bin/linux_x86_64")
           import hbt_rust_kernels as rk
-          import numpy as np
           Y = (np.random.randn(4, 8, 2, 2) + 1j*np.random.randn(4, 8, 2, 2)).astype(np.complex128) * 0.01
           S = rk.y_to_s_4d(Y, 50.0)
           assert S.shape == Y.shape and S.dtype == np.complex128
-          print('Smoke test OK, output shape:', S.shape)
-          "
+          print("Smoke test OK, binary:", bins[0], "output shape:", S.shape)
+          PY
 
       - name: Commit and push if the binary changed
         # Only commits when `git status` shows a real diff under the bin
         # folder.  Adds "[skip ci]" so the resulting push doesn't loop
         # back into this workflow.
         run: |
+          set -e
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add tools/SSM/rust_kernels/bin/linux_x86_64/
