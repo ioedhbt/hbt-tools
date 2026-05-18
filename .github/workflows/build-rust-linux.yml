@@ -1,0 +1,105 @@
+name: Build Rust kernels (Linux x86_64)
+
+# Builds the Linux x86_64 .so for `hbt_rust_kernels` and commits it back
+# under `tools/SSM/rust_kernels/bin/linux_x86_64/` so Streamlit Cloud
+# (which runs Linux but has no Rust toolchain) can use the accelerated
+# CPU kernels.
+#
+# Triggers:
+#   • push to IOED-Tools / main when any Rust source / build config changes
+#   • manual run via the Actions tab (workflow_dispatch)
+#
+# Self-skip: when this workflow commits the rebuilt binary, the commit
+# message ends with "[skip ci]" so it doesn't re-trigger itself.
+
+on:
+  push:
+    branches: [IOED-Tools, main]
+    paths:
+      - "tools/SSM/rust_kernels/src/**"
+      - "tools/SSM/rust_kernels/Cargo.toml"
+      - "tools/SSM/rust_kernels/Cargo.lock"
+      - "tools/SSM/rust_kernels/pyproject.toml"
+      - "build_rust_kernels.py"
+      - ".github/workflows/build-rust-linux.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # required for `git push` from inside the workflow
+
+concurrency:
+  group: build-rust-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need the full history + a token that can push commits.
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Python 3.9
+        # Build venv only — abi3-py39 wheel works on any Python ≥3.9 at
+        # runtime, but maturin needs a compatible interpreter to build.
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            tools/SSM/rust_kernels/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('tools/SSM/rust_kernels/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Build hbt_rust_kernels (release, abi3-py39)
+        # `build_rust_kernels.py` creates its own .hbttools_build venv,
+        # installs maturin, runs `maturin build --release`, then extracts
+        # the compiled .so into tools/SSM/rust_kernels/bin/linux_x86_64/.
+        run: python build_rust_kernels.py
+
+      - name: Show resulting binary
+        run: |
+          ls -la tools/SSM/rust_kernels/bin/linux_x86_64/
+          file tools/SSM/rust_kernels/bin/linux_x86_64/hbt_rust_kernels*.so
+
+      - name: Smoke test the built binary
+        # Quick import + tiny kernel call to confirm the .so loads
+        # and the public API works before we commit it.
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'tools/SSM/rust_kernels/bin/linux_x86_64')
+          import hbt_rust_kernels as rk
+          import numpy as np
+          Y = (np.random.randn(4, 8, 2, 2) + 1j*np.random.randn(4, 8, 2, 2)).astype(np.complex128) * 0.01
+          S = rk.y_to_s_4d(Y, 50.0)
+          assert S.shape == Y.shape and S.dtype == np.complex128
+          print('Smoke test OK, output shape:', S.shape)
+          "
+
+      - name: Commit and push if the binary changed
+        # Only commits when `git status` shows a real diff under the bin
+        # folder.  Adds "[skip ci]" so the resulting push doesn't loop
+        # back into this workflow.
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/SSM/rust_kernels/bin/linux_x86_64/
+          if git diff --cached --quiet; then
+            echo "No changes to commit — binary is already up to date."
+            exit 0
+          fi
+          git commit -m "Build Linux x86_64 Rust kernel binary [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}

@@ -741,14 +741,28 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     st.latex(formula_content)
 
 
-            # Initialize slider
+            # Initialize slider — pre-seed session_state and DO NOT
+            # pass `value=` alongside `key=`, otherwise Streamlit logs
+            # `check_session_state_rules` warnings about a widget being
+            # created with both a default value and a Session-State entry.
+            # Also clamp any pre-existing value to the current [min, max]
+            # bounds in case a previous file had a different freq range.
             if slider_key not in st.session_state:
                 st.session_state[slider_key] = (f_min_v, f_max_v)
+            else:
+                _cur = st.session_state[slider_key]
+                try:
+                    _lo = max(f_min_v, min(f_max_v, float(_cur[0])))
+                    _hi = max(f_min_v, min(f_max_v, float(_cur[1])))
+                    if _lo > _hi:
+                        _lo, _hi = f_min_v, f_max_v
+                    st.session_state[slider_key] = (_lo, _hi)
+                except (TypeError, ValueError, IndexError):
+                    st.session_state[slider_key] = (f_min_v, f_max_v)
 
             f_lo, f_hi = st.slider(
                 "Frequency range (GHz)",
                 min_value=f_min_v, max_value=f_max_v,
-                value=st.session_state[slider_key],
                 step=step_v, format="%.2f",
                 key=slider_key)
 
