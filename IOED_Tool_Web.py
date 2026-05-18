@@ -1,7 +1,16 @@
+import os
 import streamlit as st
 
 # ⚠️ 整個專案的網頁設定，統一在這裡宣告一次
 st.set_page_config(page_title="IOED Lab Portal", layout="wide", page_icon="🔬")
+
+# Local-launch bypass — LAUNCH_Tool.py sets HBT_LOCAL_LAUNCH=1 before
+# spawning streamlit so the password screen is skipped on developer
+# machines.  Streamlit Cloud / public deployments don't set this, so
+# the password gate is preserved there.
+_LOCAL_LAUNCH = os.environ.get("HBT_LOCAL_LAUNCH", "").strip().lower() in {
+    "1", "true", "yes", "on"
+}
 
 def check_password():
     def password_entered():
@@ -28,8 +37,8 @@ def check_password():
             st.error("❌ Password Incorrect / 密碼錯誤")
     return False
 
-# 1. 攔截未登入的使用者
-if not check_password():
+# 1. 攔截未登入的使用者 (skipped on local launches)
+if not _LOCAL_LAUNCH and not check_password():
     st.stop()
 
 # 2. 定義功能頁面 (指向 tools 資料夾內的 Python 檔)

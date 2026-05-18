@@ -1,0 +1,24 @@
+[build-system]
+requires      = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name            = "hbt-rust-kernels"
+version         = "0.1.0"
+description     = "Rust SIMD/Rayon kernels for HBT SSM extraction hot paths"
+readme          = "README.md"
+requires-python = ">=3.9"
+classifiers     = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Operating System :: OS Independent",
+]
+
+[tool.maturin]
+# Pure-Rust extension (no Python source files in the wheel — our Python
+# wrapper lives at tools/SSM/helpers/rust_kernels.py, outside this crate).
+# ABI3-tagged so one compiled file works on every CPython ≥ 3.9 (matches
+# the abi3-py39 feature in Cargo.toml).  No per-Python-version rebuilds.
+features    = ["pyo3/extension-module"]
+module-name = "hbt_rust_kernels"
+bindings    = "pyo3"

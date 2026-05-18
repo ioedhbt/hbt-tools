@@ -181,7 +181,7 @@ if st.button("📊 Show", key="hp_show_btn"):
             fig.update_yaxes(type="log", title=f"I ({unit})")
             fig.update_xaxes(title="Vb")
             apply_axes(fig, xlim, ylim, grid, minor_grid, True)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
             pd.DataFrame({"Vb": vb, "I": abs(i)}).to_excel(writer, sheet_name="Diode", index=False)
 
@@ -208,7 +208,7 @@ if st.button("📊 Show", key="hp_show_btn"):
             fig.update_xaxes(showgrid=grid)
             fig.update_yaxes(showgrid=grid, secondary_y=False)
             fig.update_yaxes(showgrid=grid, secondary_y=True)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
             pd.DataFrame({"Vb": vb, "Ib": ib, "Ic": ic, "Ie": ie, "Beta": beta}).to_excel(writer, sheet_name="Gummel",
                                                                                           index=False)
@@ -232,7 +232,7 @@ if st.button("📊 Show", key="hp_show_btn"):
             apply_axes(fig_ic, xlim, ylim, grid, minor_grid, True)
 
             if dtype == "Family":
-                st.plotly_chart(fig_ic, use_container_width=True)
+                st.plotly_chart(fig_ic, width="stretch")
                 out_ic.to_excel(writer, sheet_name="Electrical", index=False)
             else:
                 if "pd" not in parsed:
@@ -279,9 +279,9 @@ if st.button("📊 Show", key="hp_show_btn"):
 
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.plotly_chart(fig_ic, use_container_width=True)
+                    st.plotly_chart(fig_ic, width="stretch")
                 with c2:
-                    st.plotly_chart(fig_L, use_container_width=True)
+                    st.plotly_chart(fig_L, width="stretch")
 
                 out_ic.to_excel(writer, sheet_name="Electrical", index=False)
                 out_L.to_excel(writer, sheet_name="Optical", index=False)

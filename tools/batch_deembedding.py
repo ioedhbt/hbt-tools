@@ -331,14 +331,14 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
                 st.plotly_chart(
                     make_bode(r["df_de"], Path(name).stem,
                               xr, yr, ui["sh21"], ui["su"], ui["smag"], c),
-                    use_container_width=True)
+                    width="stretch")
             with cs:
                 st.plotly_chart(
                     make_smith(r["S_de"], r["df_de"]["Freq (GHz)"].values,
                                 ui["smith_f_min"], ui["smith_f_max"],
                                 ui["toggles"], ui["scales"],
                                 Path(name).stem, max_r=ui["smith_max_r"]),
-                    use_container_width=True)
+                    width="stretch")
 
     # ── 6. Download all de-embedded files ─────────────────────────────────────
     st.markdown("---")
@@ -361,4 +361,4 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
         data=zbuf.getvalue(),
         file_name=f"Batch_Deembedded_{date}.zip",
         mime="application/zip",
-        use_container_width=True)
+        width="stretch")

@@ -162,7 +162,7 @@ with col_right:
         margin=dict(l=40, r=20, t=20, b=40),
         height=400,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 # ─── Section 2: Left Computer Setup ──────────────────────────────────────────
@@ -380,7 +380,7 @@ else:
                 showlegend=True,
                 legend=dict(itemsizing="constant"),
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
 
 # ─── Section 4: Mode selector ────────────────────────────────────────────────
@@ -568,7 +568,7 @@ if mode == "Dose Time Testing":
             height=550,
             showlegend=True,
         )
-        st.plotly_chart(fig_single, use_container_width=True)
+        st.plotly_chart(fig_single, width="stretch")
 
     # ── Right plot: full Nx×Ny pattern overlaid on chip (with shift) ──
     with plot_right:
@@ -649,7 +649,7 @@ if mode == "Dose Time Testing":
             height=550,
             showlegend=True,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 elif mode == "First Exposure":
     _FE_DEFAULTS = {
@@ -858,7 +858,7 @@ elif mode == "First Exposure":
         height=600,
         showlegend=True,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 elif mode == "Second Alignment":
     # Cross-mark position presets. Coordinates are chip-relative (mm).
@@ -1010,7 +1010,7 @@ elif mode == "Second Alignment":
                 showlegend=True,
             )
             with plot_col:
-                st.plotly_chart(fig, use_container_width=True,
+                st.plotly_chart(fig, width="stretch",
                                 key=f"{key_prefix}_chart")
             return shift_x, shift_y
 
@@ -1198,7 +1198,7 @@ elif mode == "Second Alignment":
             showlegend=True,
         )
         with sap_plot_col:
-            st.plotly_chart(fig_sap, use_container_width=True,
+            st.plotly_chart(fig_sap, width="stretch",
                             key="ebc_sa_sap_chart")
         sap_ready = True
 
@@ -1346,5 +1346,5 @@ elif mode == "Second Alignment":
             showlegend=True,
         )
         with ov_plot_col:
-            st.plotly_chart(fig_ov, use_container_width=True,
+            st.plotly_chart(fig_ov, width="stretch",
                             key="ebc_sa_overlay_chart")

@@ -93,7 +93,7 @@ if page == "B1500A Viewer":
         fig.update_yaxes(type="log", title="Current (A)")
         fig.update_xaxes(title="Voltage (V)")
         fig.update_layout(title="Diode I–V")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         vmin, vmax = st.slider(
             "Ideality factor voltage range (V)",
@@ -154,7 +154,7 @@ if page == "B1500A Viewer":
         fig.update_xaxes(title="Vb (V)")
         fig.update_layout(title="Gummel Plot")
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         vmin, vmax = st.slider(
             "Ideality factor voltage range (V)",
@@ -193,7 +193,7 @@ if page == "B1500A Viewer":
         fig.update_xaxes(title="Vc (V)")
         fig.update_yaxes(title="Ic (A)", range=[0, max(df[c]) * 1.2])
         fig.update_layout(title="Family I–V")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 # =================================================
 # TLM ANALYSIS
@@ -244,4 +244,4 @@ else:
 
         fig.update_xaxes(title="Spacing (µm)", range=[0, 40])
         fig.update_yaxes(title="Resistance (Ω)", range=[0, max(y) * 1.2])
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")

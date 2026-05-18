@@ -12,13 +12,24 @@ import numpy as np
 # ── Y / Z / S conversions ─────────────────────────────────────────────────────
 
 def s_to_y(S, z0=50.0):
+    """Per-frequency S → Y conversion (z0 real, scalar).
+
+    The denominator ``d = (1+s11)(1+s22) − s12 s21`` can vanish at
+    isolated frequency points (singular network), which would emit a
+    flood of ``RuntimeWarning: invalid value encountered in divide``
+    from NumPy.  We deliberately let the NaN propagate — every
+    downstream consumer either masks NaN explicitly or treats it as
+    "no valid data here" — but silence the warning since it's the
+    expected outcome at singularities, not a bug to debug.
+    """
     s11, s12, s21, s22 = S[:,0,0], S[:,0,1], S[:,1,0], S[:,1,1]
     d = (1+s11)*(1+s22) - s12*s21
     Y = np.zeros_like(S)
-    Y[:,0,0] = ((1-s11)*(1+s22)+s12*s21) / (d*z0)
-    Y[:,0,1] = -2*s12 / (d*z0)
-    Y[:,1,0] = -2*s21 / (d*z0)
-    Y[:,1,1] = ((1+s11)*(1-s22)+s12*s21) / (d*z0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Y[:,0,0] = ((1-s11)*(1+s22)+s12*s21) / (d*z0)
+        Y[:,0,1] = -2*s12 / (d*z0)
+        Y[:,1,0] = -2*s21 / (d*z0)
+        Y[:,1,1] = ((1+s11)*(1-s22)+s12*s21) / (d*z0)
     return Y
 
 

@@ -20,8 +20,24 @@ the next run the caller MUST, **before** creating the number_input:
 The convenience helper :func:`apply_pending` does exactly this.
 """
 from __future__ import annotations
+import html as _html
 import numpy as np
 import streamlit as st
+
+
+def info_icon_html(text: str, label: str = "ⓘ") -> str:
+    """HTML markup for a hover-help icon.
+
+    Use inside an existing HTML markdown block (`unsafe_allow_html=True`)
+    or via ``st.markdown(info_icon_html(...), unsafe_allow_html=True)`` to
+    embed a small hover-only tooltip without a visible caption.  Browser-
+    native tooltip — works on every Streamlit version.
+    """
+    safe = _html.escape(text)
+    return (f'<span title="{safe}" '
+            f'style="cursor:help;color:#666;font-size:0.85em;'
+            f'border-bottom:1px dotted #aaa;margin-left:6px;'
+            f'padding:0 3px">{label}</span>')
 
 
 def apply_pending(target_key: str) -> None:
@@ -104,7 +120,7 @@ def quickset_buttons(*, container, key_prefix: str, target_key: str,
             text = f"{lbl} = {format(val, spec)}{suffix}"
             if col.button(text,
                           key=f"{key_prefix}_qs_{lbl}",
-                          use_container_width=True,
+                          width="stretch",
                           help=_HELP.get(lbl, f"Set input to {lbl} of the per-frequency array")):
                 st.session_state[target_key + "_pending"] = val
                 st.rerun()

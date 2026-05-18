@@ -251,12 +251,19 @@ def plotly_with_dl(
     if xl is None:
         return
 
-    ctx.download_button(
+    # Center the download button under the plot using two empty
+    # spacer columns + a narrow centred column.  A pure flexbox
+    # `justify-content:center` on the button would also work but
+    # would require injecting CSS targeting Streamlit's button DOM,
+    # which is fragile across Streamlit versions.
+    _spL, _mid, _spR = ctx.columns([3, 2, 3])
+    _mid.download_button(
         label="⬇ xlsx",
         data=xl,
         file_name=f"{filename or key}.xlsx",
         mime=EXCEL_MIME,
         key=f"dl_xl_{key}",
+        width="stretch",
     )
 
 

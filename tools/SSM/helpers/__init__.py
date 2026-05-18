@@ -79,6 +79,8 @@ from .plotly_plots import (
     make_smith,
     make_bode,
     make_plateau,
+    make_smith_bode_slider_fig,
+    make_smith_bode_joint_slider_html,
 )
 
 # ── chart_export ─────────────────────────────────────────────────────────────
@@ -94,4 +96,29 @@ from .chart_export import (
 from .widgets import (
     quickset_buttons,
     apply_pending,
+    info_icon_html,
+)
+
+# ── fit_cache ────────────────────────────────────────────────────────────────
+from .fit_cache import (
+    get_fit,
+    get_fit_timestamp,
+    list_fits,
+    save_fit,
+    delete_fit,
+    load_cache,
+    export_cache_bytes,
+    import_cache_bytes,
+    cache_path_str,
+    differs_from,
+)
+
+# ── rust_kernels (optional; NumPy fallback when not built) ───────────────────
+from .rust_kernels import (
+    HAS_RUST as RUST_KERNELS_AVAILABLE,
+    inv2x2_batch  as rust_inv2x2_batch,
+    mm2x2_batch   as rust_mm2x2_batch,
+    y_to_s_batch  as rust_y_to_s_batch,
+    y_to_s_4d     as rust_y_to_s_4d,
+    port_residuals_batch as rust_port_residuals_batch,
 )

@@ -92,12 +92,15 @@ def render_rz12_section(all_data, para_eff, fname):
     for fn in sorted_fns:
         d = all_data[fn]
         c0,c1,c2,c3,c4 = st.columns([0.3,2.3,1.2,1.4,1.4])
-        use = c0.checkbox("", key=f"rz12_use_{fn}__{fname}", value=st.session_state[f"rz12_use_{fn}"],
+        use = c0.checkbox(f"Use {Path(fn).stem} in Z₁₂ fit",
+                           key=f"rz12_use_{fn}__{fname}",
+                           value=st.session_state[f"rz12_use_{fn}"],
                            label_visibility="collapsed")
         st.session_state[f"rz12_use_{fn}"] = use
         c1.markdown(f"<small>{Path(fn).stem}</small>", unsafe_allow_html=True)
         if not use: continue
-        Ie = c2.number_input("", min_value=0.0, step=0.1, format="%.3f",
+        Ie = c2.number_input(f"Ie for {Path(fn).stem}",
+                              min_value=0.0, step=0.1, format="%.3f",
                               key=f"rz12_Ie_{fn}__{fname}",
                               value=float(st.session_state[f"rz12_Ie_{fn}"]),
                               label_visibility="collapsed")
@@ -218,13 +221,15 @@ def render_open_collector_section(all_data, para_eff, fname):
     ocm_points = []  # (1/Ib, ReZ11Z12, ReZ22Z12, ReZ12, stem)
     for fn, d in all_data.items():
         c0, c1, c2, c3, c4, c5 = st.columns([0.3, 2.0, 1.2, 1.4, 1.4, 1.4])
-        use = c0.checkbox("", key=f"ocm_use_{fn}__{fname}",
+        use = c0.checkbox(f"Use {Path(fn).stem} in open-collector fit",
+                          key=f"ocm_use_{fn}__{fname}",
                           value=st.session_state[f"ocm_use_{fn}"],
                           label_visibility="collapsed")
         st.session_state[f"ocm_use_{fn}"] = use
         c1.markdown(f"<small>{Path(fn).stem}</small>", unsafe_allow_html=True)
         if not use: continue
-        Ib = c2.number_input("", min_value=0.0, step=0.1, format="%.3f",
+        Ib = c2.number_input(f"Ib for {Path(fn).stem}",
+                              min_value=0.0, step=0.1, format="%.3f",
                               key=f"ocm_Ib_{fn}__{fname}",
                               value=float(st.session_state[f"ocm_Ib_{fn}"]),
                               label_visibility="collapsed")

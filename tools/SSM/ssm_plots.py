@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 
 from .helpers          import (open_elem_Y, s_to_y, y_to_z,
                                 peel_parasitics, simulate_open,
-                                plotly_with_dl,
+                                plotly_with_dl, info_icon_html,
                                 compute_h21_U, find_ft_fmax, extrap_20dbdec)
 from .models.base_ui   import render_smith_chart, ssm_residual
 
@@ -62,7 +62,9 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
             extra_sk = f"open_extra_{cap}_{fname}"
             if mode_sk  not in st.session_state: st.session_state[mode_sk]  = "None"
             if extra_sk not in st.session_state: st.session_state[extra_sk] = 0.0
-            c1.radio("", OPEN_MODES, horizontal=True, key=mode_sk, label_visibility="collapsed")
+            c1.radio(f"Open-element mode for {cap}", OPEN_MODES,
+                     horizontal=True, key=mode_sk,
+                     label_visibility="collapsed")
             mode = st.session_state[mode_sk]
             if mode != "None":
                 unit = _MODE_UNIT[mode]
@@ -406,17 +408,18 @@ def render_os_deemb_preview(S_raw, freq, z0, para_step1, fname):
             r"where $Z_b = R_b + j\omega L_b$, etc. (Rb/Rc/Re here come from the Short dummy only — "
             r"access-resistance correction is applied later in Step 3).")
 
-    st.markdown(
-        "**Raw** = measured DUT (no de-embedding).  \n"
-        "**OS de-embedded** = Open+Short parasitics removed using Step 1a/1b "
-        "extracted values (Cpbe/Cpce/Cpbc + Lb/Lc/Le + short-dummy Rs).")
+    with st.expander("📊 Plots", expanded=False):
+        st.markdown(
+            "**Raw** = measured DUT (no de-embedding).  \n"
+            "**OS de-embedded** = Open+Short parasitics removed using Step 1a/1b "
+            "extracted values (Cpbe/Cpce/Cpbc + Lb/Lc/Le + short-dummy Rs).")
 
-    fT_os, fmax_os = _compare_bode_smith(
-        S_a=S_raw, S_b=S_step1, freq=freq, fname=fname, key_suffix="osdeemb",
-        label_a="Raw", label_b="OS de-embedded",
-        color_a="#2ca02c", color_b="#1f77b4",
-        smith_meas_label="Raw", smith_sim_label="OS de-embedded",
-        gain_title="Gain vs Frequency — Raw vs OS De-embedded")
+        fT_os, fmax_os = _compare_bode_smith(
+            S_a=S_raw, S_b=S_step1, freq=freq, fname=fname, key_suffix="osdeemb",
+            label_a="Raw", label_b="OS de-embedded",
+            color_a="#2ca02c", color_b="#1f77b4",
+            smith_meas_label="Raw", smith_sim_label="OS de-embedded",
+            gain_title="Gain vs Frequency — Raw vs OS De-embedded")
 
     st.markdown(
         "<div style='background:linear-gradient(90deg,#e8f5e9 0%,transparent 100%);"
@@ -453,7 +456,9 @@ def render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname,
     st.markdown(
         "<div style='background:linear-gradient(90deg,#0d737722 0%,transparent 100%);"
         "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📊 OS De-embedded vs Intrinsic</strong></div>",
+        "margin-bottom:2px'><strong>📊 OS De-embedded vs Intrinsic</strong>"
+        f"{info_icon_html('OS de-embedded = Open/Short calibration only (Step 2). Intrinsic = OS calibration + access-resistance Rb/Rc/Re removal using the values selected in Pre-Extraction Review above.')}"
+        "</div>",
         unsafe_allow_html=True)
 
     if S_step1 is None:
@@ -463,17 +468,13 @@ def render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname,
     Y_pareff = peel_parasitics(S_raw, freq, z0, para_eff)
     S_pareff = y_to_s_batch(Y_pareff, z0)
 
-    st.markdown(
-        "**OS de-embedded** = Open/Short calibration only (Step 2).  \n"
-        "**Intrinsic** = OS calibration + access-resistance Rb/Rc/Re removal "
-        "using the values selected in Pre-Extraction Review above.")
-
-    fT_in, fmax_in = _compare_bode_smith(
-        S_a=S_step1, S_b=S_pareff, freq=freq, fname=fname, key_suffix="intrinsic",
-        label_a="OS de-embedded", label_b="Intrinsic",
-        color_a="#1f77b4", color_b="#e67e22",
-        smith_meas_label="OS de-embedded", smith_sim_label="Intrinsic",
-        gain_title="Gain vs Frequency — OS De-embedded vs Intrinsic")
+    with st.expander("📊 Plots", expanded=False):
+        fT_in, fmax_in = _compare_bode_smith(
+            S_a=S_step1, S_b=S_pareff, freq=freq, fname=fname, key_suffix="intrinsic",
+            label_a="OS de-embedded", label_b="Intrinsic",
+            color_a="#1f77b4", color_b="#e67e22",
+            smith_meas_label="OS de-embedded", smith_sim_label="Intrinsic",
+            gain_title="Gain vs Frequency — OS De-embedded vs Intrinsic")
 
     st.markdown(
         "<div style='background:linear-gradient(90deg,#0d737722 0%,transparent 100%);"
@@ -503,7 +504,8 @@ def render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname,
 
 
 def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
-                        key: str, height: int = 560):
+                        key: str, height: int = 560,
+                        compact: bool = False):
     """
     Compact two-trace fT/fmax mini-plot for a single model.
 
@@ -516,6 +518,9 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
 
     The legend reports fT / fmax for measured and modeled (with "extrap"
     annotation if those values came from the 20 dB/dec projection).
+
+    ``compact=True`` pushes the legend further below the X-axis title so
+    the two don't collide in narrow-column layouts (Visual Tuning preview).
     """
     f_ghz = np.asarray(freq) * 1e-9
     h21_m, U_m = compute_h21_U(S_mea)
@@ -608,6 +613,11 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
 
     x_min = max(float(f_ghz[0]), 1e-2)
     x_max = float(f_high_track) * 1.25 if extrap_used else float(f_ghz[-1])
+    # Compact mode pushes the legend further below the X-axis title so
+    # the two don't overlap in narrow-column layouts.  Bottom margin is
+    # bumped to make room.
+    legend_y = -0.26 if compact else -0.15
+    bottom_m = 210 if compact else 180
     fig.update_layout(
         title=dict(text=f"fT / fmax — {model_name}", font=dict(size=12)),
         xaxis=dict(title="Frequency (GHz)", type="log",
@@ -616,12 +626,12 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
         yaxis=dict(title="Gain (dB)", range=[0, 50],
                    showgrid=True, gridcolor="#ebebeb"),
         plot_bgcolor="white", paper_bgcolor="white", height=height,
-        legend=dict(x=0.0, y=-0.15, xanchor="left", yanchor="top",
+        legend=dict(x=0.0, y=legend_y, xanchor="left", yanchor="top",
                     orientation="v",
                     bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=9)),
         hovermode="x unified",
-        margin=dict(l=55, r=20, t=40, b=180))
+        margin=dict(l=55, r=20, t=40, b=bottom_m))
     plotly_with_dl(fig, key=key, filename=key)
 
 
@@ -646,7 +656,7 @@ _MPL_UNFILLED_MARKERS = {"x"}
 # At N=6 this reproduces the classic [5, 2, 1, 0.5, 0.2, 0] set.
 _SMITH_GRID_MIN     = 2
 _SMITH_GRID_MAX     = 12
-_SMITH_GRID_DEFAULT = 6
+_SMITH_GRID_DEFAULT = 4
 
 # Text auto-format: regex substitution applied to every text annotation
 # drawn on the Smith chart.  Default: find S11 / S12 / S21 / S22 anywhere in
@@ -739,9 +749,20 @@ _SPARAM_DEFAULT_POS = {
 
 def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                             topo_key: str = "", *,
-                            sets=None, default_multiplier=1.0):
+                            sets=None, default_multiplier=1.0,
+                            phase: str = "both"):
     """
     Publication-style Smith chart drawn with matplotlib.
+
+    ``phase`` controls which half runs — used by the SSM tab's split
+    "Topology + Smith Chart" / "Smith Chart Controls" two-column
+    layout (see ``render_matplotlib_smith_controls`` /
+    ``render_matplotlib_smith_chart``):
+
+      • ``"both"`` (default, backwards-compat): widgets THEN chart.
+      • ``"controls"``: widgets only — no figure rendered.
+      • ``"chart"``: chart only — reads previously-written session
+        state and skips widget creation.
 
     Two ways to call:
       Backward-compatible (used by SSM extraction):
@@ -801,6 +822,25 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     sparams    = ("S11", "S12", "S21", "S22")
 
     # ── First-time defaults for the 4 fixed S-param rows ─────────────────────
+    # NOTE: text color defaults to the *darker* variant of the trace color so
+    # on-chart labels stay legible against the (often light) trace strokes.
+    def _hex_darken_init(h, by=45):
+        h = h.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"#{max(0,r-by):02x}{max(0,g-by):02x}{max(0,b-by):02x}"
+
+    # "#000000" is treated as a sentinel for "uninitialized / reset by
+    # Streamlit on widget unmount" — when the user switches color modes,
+    # some color_picker keys can come back as black on remount.  We force
+    # them back to the proper palette default so the controls never
+    # surprise the user with black.  (If a user genuinely wants black,
+    # they can re-pick it after every mode change — rare in practice.)
+    def _resolve_color(state_key, default_hex):
+        cur = st.session_state.get(state_key)
+        if cur is None or str(cur).lower() == "#000000":
+            st.session_state[state_key] = default_hex
+        return st.session_state[state_key]
+
     for sp in sparams:
         x0, y0 = _SPARAM_DEFAULT_POS[sp]
         if f"{skey}_text_{sp}" not in st.session_state:
@@ -811,172 +851,335 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             st.session_state[f"{skey}_y_{sp}"]     = float(y0)
         if f"{skey}_mult_{sp}" not in st.session_state:
             st.session_state[f"{skey}_mult_{sp}"]  = float(default_mults[sp])
-        if f"{skey}_color_{sp}" not in st.session_state:
-            st.session_state[f"{skey}_color_{sp}"] = _MPL_SMITH_COLORS[sp]
+        _resolve_color(f"{skey}_color_{sp}", _MPL_SMITH_COLORS[sp])
+        _resolve_color(f"{skey}_text_color_{sp}",
+                       _hex_darken_init(_MPL_SMITH_COLORS[sp]))
 
     if extra_key not in st.session_state:
         st.session_state[extra_key] = 0
 
+    _run_controls = phase in ("controls", "both")
+    _run_chart    = phase in ("chart",    "both")
+
     # ── Smith chart background thickness + grid density + text size ─────────
-    c_smith, c_grid, c_density, c_textsize = st.columns(4)
-    smith_lw = c_smith.number_input("Smith chart line thickness",
-                                    min_value=0.1, max_value=5.0, value=3.0,
-                                    step=0.1, format="%.2f",
-                                    key=f"{skey}_smith_lw")
-    grid_lw  = c_grid.number_input("Smith chart grid thickness",
-                                   min_value=0.1, max_value=5.0, value=1.0,
-                                   step=0.1, format="%.2f",
-                                   key=f"{skey}_grid_lw")
-    grid_density = c_density.number_input(
-        "Grid circles",
-        min_value=_SMITH_GRID_MIN, max_value=_SMITH_GRID_MAX,
-        value=_SMITH_GRID_DEFAULT, step=1,
-        help="Number of constant-R circles to draw.  Positions are "
-             "recomputed (evenly-spaced radii) for each value.",
-        key=f"{skey}_grid_count")
-    text_size = c_textsize.number_input(
-        "Text size", min_value=4.0, max_value=48.0, value=12.0,
-        step=1.0, format="%.1f",
-        help="Font size for all on-chart text annotations "
-             "(S-param labels + free text).",
-        key=f"{skey}_text_size")
+    if _run_controls:
+        c_smith, c_grid, c_density, c_textsize = st.columns(4)
+        smith_lw = c_smith.number_input("Line thickness",
+                                        min_value=0.1, max_value=5.0, value=3.0,
+                                        step=0.1, format="%.2f",
+                                        key=f"{skey}_smith_lw")
+    else:
+        # Chart-only phase — read previously-set widget values direct from
+        # session_state and skip widget creation entirely.
+        smith_lw     = float(st.session_state.get(f"{skey}_smith_lw", 3.0))
+        grid_lw      = float(st.session_state.get(f"{skey}_grid_lw",  1.0))
+        grid_density = int(st.session_state.get(f"{skey}_grid_count",
+                                                  _SMITH_GRID_DEFAULT))
+        text_size    = float(st.session_state.get(f"{skey}_text_size", 18.0))
+    if _run_controls:
+        grid_lw  = c_grid.number_input("Grid thickness",
+                                       min_value=0.1, max_value=5.0, value=1.0,
+                                       step=0.1, format="%.2f",
+                                       key=f"{skey}_grid_lw")
+        grid_density = c_density.number_input(
+            "Grid circles",
+            min_value=_SMITH_GRID_MIN, max_value=_SMITH_GRID_MAX,
+            value=_SMITH_GRID_DEFAULT, step=1,
+            help="Number of constant-R circles to draw.  Positions are "
+                 "recomputed (evenly-spaced radii) for each value.",
+            key=f"{skey}_grid_count")
+        text_size = c_textsize.number_input(
+            "Text size", min_value=4.0, max_value=48.0, value=18.0,
+            step=1.0, format="%.1f",
+            help="Font size for all on-chart text annotations "
+                 "(S-param labels + free text).",
+            key=f"{skey}_text_size")
 
-    # ── Per-set: kind / style / size / color (per-set mode) / decimate (mea) ─
-    # Default per-set colors used when "Different colors for measured/modeled"
-    # is selected — keyed on the set's label.
+    # ── Coloring mode (decided up-front so the per-set / per-trace UIs
+    #    can conditionally show or hide their color pickers) ─────────────
     _PER_SET_DEFAULT_COLORS = {"Measured": "#0201f0", "Modeled": "#b50000"}
-
     has_measured = any(s.get("label") == "Measured" for s in sets)
 
-    st.markdown("**S-parameter set styles** — applies the same symbol or "
-                "line to all four S-params within a set")
-    # Column-header row: shown once above the per-set rows so widget labels
-    # below can use ``label_visibility='collapsed'`` and all inputs sit at
-    # the same vertical position.
-    _col_weights = [1.2, 1.2, 0.8, 0.8, 0.8, 0.8]
-    h1, h2, h3, h4, h5, h6 = st.columns(_col_weights)
-    h2.markdown("**Kind**")
-    h3.markdown("**Style**")
-    h4.markdown("**Size**")
-    h5.markdown("**Color** *(per-set mode)*")
-    if has_measured:
-        h6.markdown("**Decimate** *(measured)*")
+    _COLOR_MODE_PER_TRACE = "trace"
+    _COLOR_MODE_PER_SET   = "bicolor"
+    _COLOR_MODE_CUSTOM    = "custom"
 
-    for si, s in enumerate(sets):
-        kind_sk     = f"{skey}_set{si}_kind"
-        style_sk    = f"{skey}_set{si}_style"
-        size_sk     = f"{skey}_set{si}_size"
-        setcolor_sk = f"{skey}_set{si}_color"
-        dec_sk      = f"{skey}_set{si}_decimate"
-        if kind_sk not in st.session_state:
-            st.session_state[kind_sk] = ("Line" if s.get("kind") == "line"
-                                         else "Markers")
-        if style_sk not in st.session_state:
-            st.session_state[style_sk] = s.get(
-                "style", "solid" if s.get("kind") == "line" else "x")
-        if setcolor_sk not in st.session_state:
-            st.session_state[setcolor_sk] = _PER_SET_DEFAULT_COLORS.get(
-                s.get("label"), "#000000")
-        if dec_sk not in st.session_state:
-            st.session_state[dec_sk] = 1
-
-        is_measured = (s.get("label") == "Measured")
-        cc1, cc2, cc3, cc_in, cc_col, cc_dec = st.columns(_col_weights)
-        cc1.markdown(f"**{s.get('label', f'Set {si+1}')}**")
-        kind = cc2.radio(f"Kind {si+1}", ["Markers", "Line"],
-                         horizontal=True, key=kind_sk,
-                         label_visibility="collapsed")
-        if kind == "Line":
-            opts = list(_MPL_LINE_STYLES.keys())
-            if st.session_state[style_sk] not in opts:
-                st.session_state[style_sk] = "solid"
-            size_default, size_max = 2.0, 10.0
-        else:
-            opts = list(_MPL_MARKER_STYLES.keys())
-            if st.session_state[style_sk] not in opts:
-                st.session_state[style_sk] = "x"
-            size_default, size_max = 6.0, 30.0
-        if size_sk not in st.session_state:
-            st.session_state[size_sk] = float(size_default)
-        cc3.selectbox(f"Style {si+1}", opts, key=style_sk,
-                      label_visibility="collapsed")
-        cc_in.number_input(f"Size {si+1}",
-                           min_value=0.1, max_value=size_max,
-                           step=0.1, format="%.2f", key=size_sk,
-                           label_visibility="collapsed")
-        cc_col.color_picker(f"Color {si+1}", key=setcolor_sk,
-                            label_visibility="collapsed")
-        if is_measured:
-            cc_dec.number_input(f"Decimate {si+1}",
-                                min_value=1, max_value=1000, step=1,
-                                key=dec_sk,
-                                label_visibility="collapsed")
-
-    # ── Per-S-param row: multiplier / text / x / y / color ───────────────────
-    st.markdown("**Per-trace controls** — multiplier and color are linked "
-                "to both the trace and the text annotation")
-
-    _COLOR_MODE_PER_TRACE = "Different colors for different traces"
-    _COLOR_MODE_PER_SET   = "Different colors for measured and modeled"
-    if has_measured:
+    if has_measured and _run_controls:
         color_mode = st.radio(
             "Coloring mode",
-            [_COLOR_MODE_PER_TRACE, _COLOR_MODE_PER_SET],
+            [_COLOR_MODE_PER_TRACE, _COLOR_MODE_PER_SET, _COLOR_MODE_CUSTOM],
             horizontal=True,
             key=f"{skey}_color_mode",
-            help="Per-trace = each S-param has its own color shared across "
-                 "sets.  Per-set = each set (Measured/Modeled) has one color "
-                 "shared across its four S-params.  Per-S-param color still "
-                 "drives the text annotation colors in either mode.")
-        is_per_set_color = (color_mode == _COLOR_MODE_PER_SET)
+            help=("**trace** — each S-param has its own color, shared "
+                  "across all sets.  \n"
+                  "**bicolor** — each set (Measured / Modeled) has one "
+                  "color, shared across its four S-params.  \n"
+                  "**custom** — pick a color independently for every "
+                  "(set, S-param) combination; defaults give measured "
+                  "the legacy palette and modeled a darker version."))
     else:
-        # Only one kind of trace (simulated) — per-set coloring would be
-        # equivalent to a global override, so just hide the toggle.
-        is_per_set_color = False
+        # Only one kind of trace — per-set / custom split is meaningless.
+        color_mode = _COLOR_MODE_PER_TRACE
+    if not _run_controls:
+        # Chart-only phase: read previously-set radio value from state
+        color_mode = str(st.session_state.get(f"{skey}_color_mode",
+                                                _COLOR_MODE_PER_TRACE))
+    is_per_set_color = (color_mode == _COLOR_MODE_PER_SET)
+    is_custom_color  = (color_mode == _COLOR_MODE_CUSTOM)
 
+    # ── Custom-mode 8-picker grid (4 measured + 4 modeled) ───────────────
+    def _hex_darken(h, by=45):
+        h = h.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        r = max(0, r - by); g = max(0, g - by); b = max(0, b - by)
+        return f"#{r:02x}{g:02x}{b:02x}"
 
-    for sp in sparams:
-        c_mult, c_text, c_x, c_y, c_color = st.columns([1, 2, 1, 1, 1])
-        c_mult.number_input(f"Multiplier {sp}", step=0.1, format="%.3f",
-                            key=f"{skey}_mult_{sp}")
-        c_text.text_input(f"{sp} text", key=f"{skey}_text_{sp}")
-        c_x.number_input(f"{sp} x position", step=0.05, format="%.3f",
-                         key=f"{skey}_x_{sp}")
-        c_y.number_input(f"{sp} y position", step=0.05, format="%.3f",
-                         key=f"{skey}_y_{sp}")
-        c_color.color_picker(f"{sp} color", key=f"{skey}_color_{sp}")
+    # ── Pre-seed custom-mode color keys regardless of phase ──────────────
+    # Why: when the chart-only phase runs first (e.g. on the first SSM render
+    # before the user opens the Controls expander), it would otherwise miss
+    # these defaults and the per-(set, S-param) lookup at draw time would
+    # fall back to the per-trace color.  Switching INTO custom mode would
+    # then look like a "color reset" — pre-seeding makes the defaults stick
+    # the moment the user picks Custom, without overwriting earlier edits.
+    # Also: re-apply defaults whenever a custom-mode key has been
+    # reset to "#000000" by widget remount (see _resolve_color above).
+    if is_custom_color:
+        for set_name, default_fn in [("meas",  lambda sp: _MPL_SMITH_COLORS[sp]),
+                                      ("model", lambda sp: _hex_darken(_MPL_SMITH_COLORS[sp]))]:
+            for sp in sparams:
+                ck = f"{skey}_color_{set_name}_{sp}"
+                _resolve_color(ck, default_fn(sp))
 
-    # ── Free text annotations + ➕ button ─────────────────────────────────
-    n_extra = int(st.session_state.get(extra_key, 0))
-    if n_extra > 0:
-        st.markdown("**Extra text annotations**")
-    for i in range(n_extra):
-        st.session_state.setdefault(f"{skey}_etext_{i}",  "")
-        st.session_state.setdefault(f"{skey}_ex_{i}",     0.0)
-        st.session_state.setdefault(f"{skey}_ey_{i}",     0.0)
-        st.session_state.setdefault(f"{skey}_ecolor_{i}", "#000000")
-        ec1, ec2, ec3, ec4 = st.columns([2, 1, 1, 1])
-        ec1.text_input(f"Text {i+1}",     key=f"{skey}_etext_{i}")
-        ec2.number_input(f"x {i+1}", step=0.05, format="%.3f",
-                         key=f"{skey}_ex_{i}")
-        ec3.number_input(f"y {i+1}", step=0.05, format="%.3f",
-                         key=f"{skey}_ey_{i}")
-        ec4.color_picker(f"Color {i+1}", key=f"{skey}_ecolor_{i}")
+    if is_custom_color and _run_controls:
+        st.markdown("**Custom per-(set, S-param) colors** — defaults: "
+                    "measured = legacy palette · modeled = darker version. "
+                    "Your edits persist when switching coloring modes.")
+        for set_name, default_fn in [("meas",  lambda sp: _MPL_SMITH_COLORS[sp]),
+                                      ("model", lambda sp: _hex_darken(_MPL_SMITH_COLORS[sp]))]:
+            row_lbl = "Measured" if set_name == "meas" else "Modeled"
+            cust_cols = st.columns([0.9, 1, 1, 1, 1])
+            cust_cols[0].markdown(f"**{row_lbl}**")
+            for ci, sp in enumerate(sparams):
+                ck = f"{skey}_color_{set_name}_{sp}"
+                if ck not in st.session_state:
+                    st.session_state[ck] = default_fn(sp)
+                cust_cols[ci + 1].color_picker(f"{row_lbl} {sp}",
+                                                key=ck,
+                                                label_visibility="collapsed")
 
-    def _add_text_slot():
-        st.session_state[extra_key] = int(st.session_state[extra_key]) + 1
-    st.button("➕ Add text", key=f"{skey}_add_btn", on_click=_add_text_slot)
+    # ── Per-set table: trace / kind / style / size / [color] / decimate ──
+    # Skip the whole widget table in chart-only phase — values are already
+    # in session_state from the controls phase.
+    if _run_controls:
+        if is_per_set_color:
+            _col_weights = [0.9, 1.0, 1.1, 0.8, 0.8, 0.8]
+            _set_headers = ["Trace", "Kind", "Style", "Size",
+                             "Color", "Decimate"]
+        else:
+            _col_weights = [0.9, 1.0, 1.1, 0.8, 0.8]
+            _set_headers = ["Trace", "Kind", "Style", "Size", "Decimate"]
+
+        st.markdown(
+            "<div style='margin:0 0 2px 0;font-size:0.78em;"
+            "color:#555;letter-spacing:.02em;text-transform:uppercase'>"
+            "Measured / Modeled trace styling</div>",
+            unsafe_allow_html=True)
+        with st.container(border=True):
+            header_cols = st.columns(_col_weights)
+            for i, lbl in enumerate(_set_headers):
+                # Hide the Decimate header when there's no measured trace
+                # (the cell will be empty for non-measured sets anyway).
+                if lbl == "Decimate" and not has_measured:
+                    continue
+                header_cols[i].markdown(
+                    f"<span style='font-size:0.85em;color:#444;"
+                    f"font-weight:600'>{lbl}</span>",
+                    unsafe_allow_html=True)
+
+            for si, s in enumerate(sets):
+                kind_sk     = f"{skey}_set{si}_kind"
+                style_sk    = f"{skey}_set{si}_style"
+                size_sk     = f"{skey}_set{si}_size"
+                setcolor_sk = f"{skey}_set{si}_color"
+                dec_sk      = f"{skey}_set{si}_decimate"
+                if kind_sk not in st.session_state:
+                    st.session_state[kind_sk] = ("Line" if s.get("kind") == "line"
+                                                 else "Markers")
+                if style_sk not in st.session_state:
+                    st.session_state[style_sk] = s.get(
+                        "style", "solid" if s.get("kind") == "line" else "x")
+                # Avoid black as a fallback — black is jarring on a Smith chart
+                # and reads as "uninitialized" to users.  For unknown labels,
+                # cycle through the trace palette by set index so each set
+                # still gets a distinct sensible color.  Use _resolve_color so a
+                # "#000000" left over from a widget remount is also treated as
+                # uninitialized and replaced with the default.
+                _palette_fallback = list(_MPL_SMITH_COLORS.values())[
+                    si % len(_MPL_SMITH_COLORS)]
+                _resolve_color(setcolor_sk,
+                               _PER_SET_DEFAULT_COLORS.get(s.get("label"),
+                                                            _palette_fallback))
+                if dec_sk not in st.session_state:
+                    st.session_state[dec_sk] = 1
+
+                is_measured = (s.get("label") == "Measured")
+                row_cols = st.columns(_col_weights)
+                row_cols[0].markdown(
+                    f"**{s.get('label', f'Set {si+1}')}**")
+                kind = row_cols[1].selectbox(f"Kind {si+1}", ["Markers", "Line"],
+                                              key=kind_sk,
+                                              label_visibility="collapsed")
+                if kind == "Line":
+                    opts = list(_MPL_LINE_STYLES.keys())
+                    if st.session_state[style_sk] not in opts:
+                        st.session_state[style_sk] = "solid"
+                    size_default, size_max = 4.0, 10.0
+                else:
+                    opts = list(_MPL_MARKER_STYLES.keys())
+                    if st.session_state[style_sk] not in opts:
+                        st.session_state[style_sk] = "x"
+                    size_default, size_max = 8.0, 30.0
+                if size_sk not in st.session_state:
+                    st.session_state[size_sk] = float(size_default)
+                row_cols[2].selectbox(f"Style {si+1}", opts, key=style_sk,
+                                       label_visibility="collapsed")
+                row_cols[3].number_input(f"Size {si+1}",
+                                          min_value=0.1, max_value=size_max,
+                                          step=0.1, format="%.2f", key=size_sk,
+                                          label_visibility="collapsed")
+                if is_per_set_color:
+                    row_cols[4].color_picker(f"Color {si+1}", key=setcolor_sk,
+                                              label_visibility="collapsed")
+                    if is_measured:
+                        row_cols[5].number_input(f"Decimate {si+1}",
+                                                  min_value=1, max_value=1000, step=1,
+                                                  key=dec_sk,
+                                                  label_visibility="collapsed")
+                else:
+                    if is_measured:
+                        row_cols[4].number_input(f"Decimate {si+1}",
+                                                  min_value=1, max_value=1000, step=1,
+                                                  key=dec_sk,
+                                                  label_visibility="collapsed")
+
+    # ── Per-S-param table — S-param | Multiplier | Text | x | y | [Trace] | Text
+    # Text color picker is ALWAYS shown (independent of color mode); the
+    # Trace color picker appears only in per-trace coloring mode (in the
+    # other modes the trace color comes from the per-set / 8-picker grid).
+    if _run_controls:
+        # Visual separation between this table and the Measured/Modeled
+        # trace-styling table above it.
+        st.markdown("<div style='height:14px'></div>",
+                    unsafe_allow_html=True)
+        st.markdown(
+            "<div style='margin:0 0 2px 0;font-size:0.78em;"
+            "color:#555;letter-spacing:.02em;text-transform:uppercase'>"
+            "Per-S-parameter trace + label settings</div>",
+            unsafe_allow_html=True)
+
+        # Column widths — first column is a narrow label cell, "Text" input
+        # is narrower than before, the rest balance out.
+        if is_per_set_color or is_custom_color:
+            sp_weights = [0.5, 0.7, 1.2, 0.7, 0.7, 0.7]
+            sp_headers = ["S-param", "Multiplier", "Text",
+                          "x pos", "y pos", "Text"]
+        else:
+            sp_weights = [0.5, 0.7, 1.2, 0.7, 0.7, 0.7, 0.7]
+            sp_headers = ["S-param", "Multiplier", "Text",
+                          "x pos", "y pos", "Trace", "Text"]
+
+        with st.container(border=True):
+            head = st.columns(sp_weights)
+            for i, lbl in enumerate(sp_headers):
+                head[i].markdown(
+                    f"<span style='font-size:0.85em;color:#444;"
+                    f"font-weight:600'>{lbl}</span>",
+                    unsafe_allow_html=True)
+
+            for sp in sparams:
+                row = st.columns(sp_weights)
+                # S-param label cell — uppercase + subscript via mathtext for
+                # consistency with the on-chart label rendering.
+                row[0].markdown(
+                    f"<div style='padding-top:6px;font-weight:600;"
+                    f"font-size:0.95em'>{sp[0]}<sub>{sp[1:]}</sub></div>",
+                    unsafe_allow_html=True)
+                row[1].number_input(f"Multiplier {sp}",
+                                    step=0.1, format="%.3f",
+                                    key=f"{skey}_mult_{sp}",
+                                    label_visibility="collapsed")
+                row[2].text_input(f"{sp} text", key=f"{skey}_text_{sp}",
+                                  label_visibility="collapsed")
+                row[3].number_input(f"{sp} x position",
+                                    step=0.05, format="%.3f",
+                                    key=f"{skey}_x_{sp}",
+                                    label_visibility="collapsed")
+                row[4].number_input(f"{sp} y position",
+                                    step=0.05, format="%.3f",
+                                    key=f"{skey}_y_{sp}",
+                                    label_visibility="collapsed")
+                if is_per_set_color or is_custom_color:
+                    # No trace column in these modes → text-color picker
+                    # sits in column index 5.
+                    row[5].color_picker(f"{sp} text color",
+                                        key=f"{skey}_text_color_{sp}",
+                                        label_visibility="collapsed",
+                                        help="On-chart label color "
+                                             "(default = darker variant of "
+                                             "the trace color).")
+                else:
+                    row[5].color_picker(f"{sp} color",
+                                        key=f"{skey}_color_{sp}",
+                                        label_visibility="collapsed",
+                                        help="Trace color for this "
+                                             "S-parameter.")
+                    row[6].color_picker(f"{sp} text color",
+                                        key=f"{skey}_text_color_{sp}",
+                                        label_visibility="collapsed",
+                                        help="On-chart label color "
+                                             "(default = darker variant of "
+                                             "the trace color).")
+
+        # ── Free text annotations + ➕ button ─────────────────────────────
+        n_extra = int(st.session_state.get(extra_key, 0))
+        if n_extra > 0:
+            st.markdown("**Extra text annotations**")
+        for i in range(n_extra):
+            st.session_state.setdefault(f"{skey}_etext_{i}",  "")
+            st.session_state.setdefault(f"{skey}_ex_{i}",     0.0)
+            st.session_state.setdefault(f"{skey}_ey_{i}",     0.0)
+            st.session_state.setdefault(f"{skey}_ecolor_{i}", "#000000")
+            ec1, ec2, ec3, ec4 = st.columns([2, 1, 1, 1])
+            ec1.text_input(f"Text {i+1}",     key=f"{skey}_etext_{i}")
+            ec2.number_input(f"x {i+1}", step=0.05, format="%.3f",
+                             key=f"{skey}_ex_{i}")
+            ec3.number_input(f"y {i+1}", step=0.05, format="%.3f",
+                             key=f"{skey}_ey_{i}")
+            ec4.color_picker(f"Color {i+1}", key=f"{skey}_ecolor_{i}")
+
+        def _add_text_slot():
+            st.session_state[extra_key] = int(st.session_state[extra_key]) + 1
+        st.button("➕ Add text", key=f"{skey}_add_btn", on_click=_add_text_slot)
+    else:
+        # Chart-only phase: just read how many free text slots exist
+        n_extra = int(st.session_state.get(extra_key, 0))
 
     # ── Resolve per-S-param config (linked color/mult/text/position) ─────────
     sparam_cfg = {}
     for sp in sparams:
         sparam_cfg[sp] = {
-            "mult":  float(st.session_state[f"{skey}_mult_{sp}"]),
-            "color": str(st.session_state[f"{skey}_color_{sp}"]),
-            "text":  str(st.session_state[f"{skey}_text_{sp}"] or ""),
-            "x":     float(st.session_state[f"{skey}_x_{sp}"]),
-            "y":     float(st.session_state[f"{skey}_y_{sp}"]),
+            "mult":       float(st.session_state[f"{skey}_mult_{sp}"]),
+            "color":      str(st.session_state[f"{skey}_color_{sp}"]),
+            "text":       str(st.session_state[f"{skey}_text_{sp}"] or ""),
+            "x":          float(st.session_state[f"{skey}_x_{sp}"]),
+            "y":          float(st.session_state[f"{skey}_y_{sp}"]),
+            "text_color": str(st.session_state[f"{skey}_text_color_{sp}"]),
         }
+
+    # Skip the rest in controls-only phase — the chart half of the split
+    # layout will render the figure + legend from the same session state.
+    if not _run_chart:
+        return
 
     # ── Build the matplotlib figure ──────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(7, 7), dpi=120)
@@ -1004,7 +1207,15 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             sv  = S[:, r, c] * cfg["mult"]
             if is_measured and decimate > 1:
                 sv = sv[::decimate]
-            color = set_color if is_per_set_color else cfg["color"]
+            if is_custom_color:
+                # Pick the per-(set, S-param) color stashed by the 8-picker grid.
+                _set_name = "meas" if is_measured else "model"
+                color = str(st.session_state.get(
+                    f"{skey}_color_{_set_name}_{sp}", cfg["color"]))
+            elif is_per_set_color:
+                color = set_color
+            else:
+                color = cfg["color"]
             if kind == "Line":
                 ls = _MPL_LINE_STYLES.get(style, "-")
                 ax.plot(sv.real, sv.imag, linestyle=ls, color=color,
@@ -1038,7 +1249,7 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         if cfg["text"]:
             ax.text(cfg["x"], cfg["y"], _fmt_text(cfg["text"]),
                     ha="center", va="center", fontsize=_ts,
-                    color=cfg["color"], zorder=5)
+                    color=cfg["text_color"], zorder=5)
 
     # Free text annotations
     for i in range(n_extra):
@@ -1075,7 +1286,24 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                 f"({kind.lower()} · {style})")
         else:
             legend_parts.append(f"**{label}** ({kind.lower()} · {style})")
-    if is_per_set_color:
+    if is_custom_color:
+        # Two color-chip rows (measured / modeled) — one swatch per S-param.
+        rows = []
+        for set_name, set_label in [("meas", "Measured"), ("model", "Modeled")]:
+            chip_strs = []
+            for sp in sparams:
+                cval = st.session_state.get(
+                    f"{skey}_color_{set_name}_{sp}",
+                    _MPL_SMITH_COLORS[sp])
+                chip_strs.append(
+                    f"<span style='color:{cval}'>**{sp}**</span>")
+            rows.append(f"**{set_label}** — " + " · ".join(chip_strs))
+        st.markdown(
+            "**Legend** — " + " ; ".join(legend_parts) + "  \n" +
+            "  \n".join(rows),
+            unsafe_allow_html=True,
+        )
+    elif is_per_set_color:
         st.markdown("**Legend** — " + " ; ".join(legend_parts),
                     unsafe_allow_html=True)
     else:
@@ -1087,6 +1315,37 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             "  |  Trace colors: " + color_chips,
             unsafe_allow_html=True,
         )
+
+
+def render_matplotlib_smith_controls(S_mea=None, S_sim=None, fname: str = "",
+                                      topo_key: str = "", *,
+                                      sets=None, default_multiplier=1.0):
+    """Controls-only half of the split Topology / Matplotlib Smith layout.
+
+    Creates all the widget controls (color mode, line thickness, per-set
+    style/color, per-trace multiplier/color/text/position, free text
+    annotations) and writes them to session_state.  Does NOT render the
+    chart — call :func:`render_matplotlib_smith_chart` (in the other
+    column) for that.  Caller is responsible for ordering: this must run
+    BEFORE the chart half so the session_state is populated."""
+    return render_matplotlib_smith(S_mea, S_sim, fname, topo_key,
+                                    sets=sets,
+                                    default_multiplier=default_multiplier,
+                                    phase="controls")
+
+
+def render_matplotlib_smith_chart(S_mea=None, S_sim=None, fname: str = "",
+                                   topo_key: str = "", *,
+                                   sets=None, default_multiplier=1.0):
+    """Chart-only half of the split Topology / Matplotlib Smith layout.
+
+    Reads the widget values previously written to session_state by
+    :func:`render_matplotlib_smith_controls` and renders the matplotlib
+    figure + legend.  No widgets are created in this phase."""
+    return render_matplotlib_smith(S_mea, S_sim, fname, topo_key,
+                                    sets=sets,
+                                    default_multiplier=default_multiplier,
+                                    phase="chart")
 
 
 def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fname):

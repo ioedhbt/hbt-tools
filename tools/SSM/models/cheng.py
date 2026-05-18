@@ -817,7 +817,7 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str) -> Non
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    st.image(buf.getvalue(), use_container_width=True)
+    st.image(buf.getvalue(), width="stretch")
 
 
 def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS):
@@ -893,6 +893,23 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
     # final top-K is reranked at fp64 to keep the published residuals
     # fully precise.
     SUPPORTS_FP32_SWEEP = True
+
+    # ── Pre-bake truth table: sub-network name → set of params it
+    #    depends on.  When *none* of a sub-network's deps appear in
+    #    ``swept_keys``, the sub-network can be pre-built once and
+    #    re-used for every per-drag simulate_batch call.  The keys
+    #    here match exactly what ``_sim_wrap_batch`` / ``_Y_int_T_batch``
+    #    look up in their ``cache`` argument.
+    STATIC_SUBNETWORKS = {
+        "Y_pad":  frozenset({"Cpbe", "Cpce", "Cpbc"}),
+        "Z_ser":  frozenset({"Rpb", "Rpc", "Rpe", "Lb", "Lc", "Le"}),
+        "Y_extr": frozenset({"Cbex", "Cbcx"}),
+        "Zbe":    frozenset({"Rbe", "Cbe"}),
+        "Zbc":    frozenset({"Rbc", "Cbc"}),
+        "alpha":  frozenset({"alpha0", "tauB", "tauC"}),
+        "T_int_planes": frozenset({"Rbi", "Rbe", "Cbe", "Rbc", "Cbc",
+                                    "alpha0", "tauB", "tauC"}),
+    }
     PARAM_GROUPS  = [
         {
             "label":      "Step 2 — Cbex  (from Im(Y₁₁+Y₁₂)/ω, low-freq range)",
@@ -1128,6 +1145,48 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
     def _render_topology(cls, all_p, fname):
         _render_topology_illustration(all_p, "T", fname)
 
+    @classmethod
+    def _build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable):
+        """Build Cheng-T's intrinsic pre-bake sub-networks (Y_extr,
+        Zbe, Zbc, alpha, T_int_planes).  Mirrors the formulas in
+        ``_run_one_sweep`` so ``_sim_wrap_batch`` finds the same keys."""
+        if "Y_extr" in prebakeable:
+            cbex_c = float(p.get("Cbex", 0.0))
+            cbcx_c = float(p.get("Cbcx", 0.0))
+            cache["Y_extr"] = (1j * omega * cbex_c, 1j * omega * cbcx_c)
+        if "Zbe" in prebakeable:
+            rbe_c = float(p.get("Rbe", 1.0))
+            cbe_c = float(p.get("Cbe", 0.0))
+            cache["Zbe"] = rbe_c / (1.0 + 1j * omega * rbe_c * cbe_c)
+        if "Zbc" in prebakeable:
+            rbc_c = float(p.get("Rbc", 1.0))
+            cbc_c = float(p.get("Cbc", 0.0))
+            cache["Zbc"] = rbc_c / (1.0 + 1j * omega * rbc_c * cbc_c)
+        if "alpha" in prebakeable:
+            a0  = float(p.get("alpha0", 0.0))
+            tC  = float(p.get("tauC",   0.0))
+            tB  = float(p.get("tauB",   0.0))
+            cache["alpha"] = (a0 * xp.exp(-1j * omega * tC)
+                              / (1.0 + 1j * omega * tB))
+        # The composite T_int_planes is only valid if all four building
+        # blocks above are also cached.
+        if ("T_int_planes" in prebakeable
+                and "Zbe" in cache and "Zbc" in cache and "alpha" in cache):
+            rbi_c = float(p.get("Rbi", 0.0))
+            zbe = cache["Zbe"]; zbc = cache["Zbc"]; alpha = cache["alpha"]
+            z00 = rbi_c + zbe
+            z01 = zbe
+            z10 = zbe - alpha * zbc
+            z11 = (1.0 - alpha) * zbc + zbe
+            det = z00 * z11 - z01 * z10
+            inv_det = 1.0 / det
+            cache["T_int_planes"] = (
+                 z11 * inv_det,
+                -z01 * inv_det,
+                -z10 * inv_det,
+                 z00 * inv_det,
+            )
+
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ChengPi
@@ -1149,6 +1208,17 @@ class ChengPi(SSMModelTemplate, AbstractSSMModel):
     _Y_INT_BATCH_FN    = _Y_int_Pi_batch
     _SIM_WRAP_VEC_FN   = _sim_wrap_vec
     _SIM_WRAP_BATCH_FN = _sim_wrap_batch
+    # Pre-bake truth table (see ChengT.STATIC_SUBNETWORKS).
+    STATIC_SUBNETWORKS = {
+        "Y_pad":  frozenset({"Cpbe", "Cpce", "Cpbc"}),
+        "Z_ser":  frozenset({"Rpb", "Rpc", "Rpe", "Lb", "Lc", "Le"}),
+        "Y_extr": frozenset({"Cbex", "Cbcx"}),
+        "Ybe":    frozenset({"Rbe", "Cbe"}),
+        "Ybc":    frozenset({"Rbc", "Cbc"}),
+        "gm":     frozenset({"Gm0", "tau"}),
+        "Pi_int_planes": frozenset({"Rbi", "Rbe", "Cbe", "Rbc", "Cbc",
+                                     "Gm0", "tau"}),
+    }
     PARAM_GROUPS = [
         {
             "label":      "Step 2 — Cbex  (from Im(B·C)/Im(B), low-freq range)",
@@ -1325,4 +1395,45 @@ class ChengPi(SSMModelTemplate, AbstractSSMModel):
     @classmethod
     def _render_topology(cls, all_p, fname):
         _render_topology_illustration(all_p, "pi", fname)
+
+    @classmethod
+    def _build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable):
+        """Build Cheng-π's intrinsic pre-bake sub-networks (Y_extr,
+        Ybe, Ybc, gm, Pi_int_planes)."""
+        if "Y_extr" in prebakeable:
+            cbex_c = float(p.get("Cbex", 0.0))
+            cbcx_c = float(p.get("Cbcx", 0.0))
+            cache["Y_extr"] = (1j * omega * cbex_c, 1j * omega * cbcx_c)
+        if "Ybe" in prebakeable:
+            rbe_c = float(p.get("Rbe", 1.0))
+            cbe_c = float(p.get("Cbe", 0.0))
+            cache["Ybe"] = 1.0 / rbe_c + 1j * omega * cbe_c
+        if "Ybc" in prebakeable:
+            rbc_c = float(p.get("Rbc", 1e9))
+            cbc_c = float(p.get("Cbc", 0.0))
+            cache["Ybc"] = 1.0 / rbc_c + 1j * omega * cbc_c
+        if "gm" in prebakeable:
+            gm0 = float(p.get("Gm0", 0.0))
+            tau = float(p.get("tau", 0.0))
+            cache["gm"] = gm0 * xp.exp(-1j * omega * tau)
+        if ("Pi_int_planes" in prebakeable
+                and "Ybe" in cache and "Ybc" in cache and "gm" in cache):
+            rbi_c = float(p.get("Rbi", 0.0))
+            ybe = cache["Ybe"]; ybc = cache["Ybc"]; gm = cache["gm"]
+            yc00 =  ybe + ybc
+            yc01 = -ybc
+            yc10 =  gm  - ybc
+            yc11 =  ybc
+            idc  = 1.0 / (yc00 * yc11 - yc01 * yc10)
+            zc00 =  yc11 * idc + rbi_c
+            zc01 = -yc01 * idc
+            zc10 = -yc10 * idc
+            zc11 =  yc00 * idc
+            idi  = 1.0 / (zc00 * zc11 - zc01 * zc10)
+            cache["Pi_int_planes"] = (
+                 zc11 * idi,
+                -zc01 * idi,
+                -zc10 * idi,
+                 zc00 * idi,
+            )
 

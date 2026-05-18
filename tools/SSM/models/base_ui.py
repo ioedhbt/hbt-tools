@@ -138,7 +138,22 @@ def _port_residuals_batch(S_mea, S_mod_batch, xp):
 _SMITH_COLORS = {"S11":"#1f77b4","S22":"#ff7f0e","S21":"#2ca02c","S12":"#d62728"}
 
 def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="smith",
-                       show_title=True, meas_label="Meas.", sim_label="Model"):
+                       show_title=True, meas_label="Meas.", sim_label="Model",
+                       *, compact: bool = False, height: int | None = None):
+    """Render a Plotly Smith chart with measured (markers) + modeled (dashed).
+
+    Parameters
+    ----------
+    compact : bool, default False
+        When True, the layout is tuned for narrow containers (e.g. the
+        side-by-side Smith+Bode in the Visual Tuning preview):
+          • legend repositioned to the BOTTOM (instead of right side).
+          • height shrunk to 380 unless ``height`` overrides it.
+          • margins tightened.
+        Default False preserves the original full-width layout.
+    height : int, optional
+        Explicit pixel height; overrides the compact / default values.
+    """
     if scales is None:
         scales = {"S11":1.0,"S12":1.0,"S21":1.0,"S22":1.0}
     fig = go.Figure()
@@ -156,19 +171,36 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
                                   name=f"{name}{sc_lbl} {sim_label}",
                                   line=dict(color=col, width=2.0, dash="dash"),
                                   hovertemplate=f"{name} {sim_label}<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
-    port_res = _port_residuals(S_mea, S_sim)
     title_cfg = (dict(text=f"Smith Chart - {model_name}", font=dict(size=12))
                  if show_title else None)
+    if compact:
+        # The bottom-legend layout needs ~140 px of bottom margin to
+        # keep the X-axis title "Re(Γ)" clear of the legend chips,
+        # plus another ~30 px below for the "● Meas. — — Model"
+        # annotation.  At height=540 the plot area is still ≈ 390 px
+        # which keeps the unit-circle squareness visually reasonable.
+        legend_cfg = dict(orientation="h", x=0.5, y=-0.22,
+                          xanchor="center", yanchor="top",
+                          font=dict(size=9))
+        margin_cfg = dict(l=40, r=15, t=40 if show_title else 10, b=140)
+        eff_height = height if height is not None else 540
+        annotation_y = -0.42  # below the legend chips
+    else:
+        legend_cfg = dict(x=1.02, y=1.0, xanchor="left")
+        margin_cfg = dict(l=50, r=30, t=70, b=50)
+        eff_height = height if height is not None else 560
+        annotation_y = -0.08
     fig.update_layout(
         title=title_cfg,
         xaxis=dict(title="Re(Γ)", range=[-1.1,1.1], scaleanchor="y", scaleratio=1,
                    showgrid=False, zeroline=False),
         yaxis=dict(title="Im(Γ)", range=[-1.1,1.1], showgrid=False, zeroline=False),
-        plot_bgcolor="white", paper_bgcolor="white", height=560,
-        margin=dict(l=50,r=30,t=70,b=50),
-        legend=dict(x=1.02, y=1.0, xanchor="left"),
+        plot_bgcolor="white", paper_bgcolor="white", height=eff_height,
+        margin=margin_cfg,
+        legend=legend_cfg,
         hovermode="closest",
-        annotations=[dict(x=0.5, y=-0.08, xref="paper", yref="paper", showarrow=False,
+        annotations=[dict(x=0.5, y=annotation_y, xref="paper", yref="paper",
+                          showarrow=False,
                           text=f"● {meas_label} (markers)  |  - - {sim_label} (dashed)",
                           font=dict(size=10, color="gray"), align="center")])
     plotly_with_dl(fig, key=key, filename=key)
@@ -216,8 +248,13 @@ def smith_scale_controls(fname, topo_key) -> dict:
         sk = f"smith_scale_{topo_key}_{name}_{fname}"
         if sk not in st.session_state:
             st.session_state[sk] = default
-        sc[name] = col_w.number_input(f"{name} ×", min_value=0.01, max_value=1000.0,
-                                       value=float(st.session_state[sk]),
+        # NOTE: do NOT pass `value=` alongside `key=` when the key is
+        # already initialized in session_state — Streamlit's
+        # check_session_state_rules logs a warning ("created via
+        # st.session_state.X and value parameter").  The widget reads
+        # the current value from session_state via the key alone.
+        sc[name] = col_w.number_input(f"{name} ×",
+                                       min_value=0.01, max_value=1000.0,
                                        step=0.5, format="%.2f", key=sk)
     return sc
 
@@ -913,6 +950,17 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
     return params_out
 
 
+# ── Streamlit fragment decorator (1.36 → st.experimental_fragment;
+#    1.37+ → st.fragment).  Wrapping the slider-preview render functions
+#    in a fragment confines slider-drag reruns to JUST the fragment —
+#    the rest of the SSM script (Sections 1-5, all other models) does
+#    NOT re-execute.  That's the order-of-magnitude speedup for Live
+#    mode (1-2 s per drag → ~150 ms).
+_FRAGMENT = (getattr(st, "fragment", None)
+             or getattr(st, "experimental_fragment", None)
+             or (lambda f: f))
+
+
 # ── Tuning (parameter sweep + residual table) ───────────────────────────────
 
 def _make_sweep_values(min_val, max_val, step):
@@ -930,10 +978,952 @@ def _make_sweep_values(min_val, max_val, step):
     return values
 
 
+def _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
+                           tuning_specs, fname, topo_key):
+    """Sandbox-style slider preview at the top of the Tuning expander.
+
+    Two flavors selectable via the mode radio:
+
+      🐢 Live (Streamlit)    — drag any number of sliders; every drag-tick
+                                triggers a Streamlit rerun + a full sim.
+                                Slow with many params or many freq points,
+                                but supports multi-param sliding.
+
+      ⚡ Plotly slider       — click ``🧮 Build animation`` once, then the
+                                embedded Plotly figure scrubs through
+                                pre-computed frames entirely client-side
+                                (no Streamlit rerun per drag-tick).
+                                Limited to one sweep parameter.
+
+    Sliders in either mode write into ``slpreview_*`` session keys.
+    ✅ "Use these values" (live mode) copies them into the main ``sim_*``
+    keys; the auto-save gate in ``render_override_and_smith`` then picks
+    that change up and persists it to the fit cache.
+    """
+    mode_key = f"slpreview_mode_{topo_key}_{fname}"
+    mode = st.radio(
+        "Preview mode",
+        options=["🐢 Live (Streamlit rerun per drag)",
+                 "⚡ Plotly slider (pre-computed frames)"],
+        index=0, horizontal=True,
+        key=mode_key,
+        help="Live: drag any number of sliders; every tick reruns Streamlit "
+             "and re-simulates.  Plotly: click Build once, then scrub through "
+             "pre-computed frames entirely client-side (one sweep param at a "
+             "time, but instant per drag).")
+    if mode.startswith("⚡"):
+        _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
+                                       tuning_specs, fname, topo_key)
+    else:
+        _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
+                                     tuning_specs, fname, topo_key)
+
+
+def _slider_default_range(current_disp):
+    """Sane default (min, max, step) for one slider given the current value."""
+    if abs(current_disp) < 1e-30:
+        return -1.0, 1.0, 0.01
+    lo = current_disp * 0.1 if current_disp > 0 else current_disp * 10
+    hi = current_disp * 10  if current_disp > 0 else current_disp * 0.1
+    d_min, d_max = min(lo, hi), max(lo, hi)
+    d_step = max((d_max - d_min) / 100, 1e-9)
+    return d_min, d_max, d_step
+
+
+def _multi_metric_top_n(arr, per_metric: int = 10):
+    """Return the union of top-``per_metric`` rows by each of the first five
+    columns (Total, S11, S12, S21, S22), deduped, sorted by Total Residual.
+
+    ``arr`` is an (N, n_cols) float ndarray.  Rows whose Total Residual is
+    non-finite or >= 1e30 (the BIG sentinel used to mark filtered combos)
+    are dropped first.  Result row count: 10 (all five metrics' bests are
+    the same row) ≤ R ≤ 50 (all distinct).
+    """
+    arr = np.asarray(arr, dtype=float)
+    if arr.size == 0 or arr.shape[0] == 0:
+        return arr
+    finite_mask = np.isfinite(arr[:, 0]) & (arr[:, 0] < 1e30)
+    arr = arr[finite_mask]
+    if arr.shape[0] == 0:
+        return arr
+    keep: set[int] = set()
+    for c in range(min(5, arr.shape[1])):
+        col_vals = arr[:, c]
+        col_safe = np.where(np.isfinite(col_vals), col_vals, np.inf)
+        n_take   = min(per_metric, arr.shape[0])
+        idx      = np.argpartition(col_safe, n_take - 1)[:n_take]
+        keep.update(idx.tolist())
+    sub = arr[sorted(keep)]
+    unique = np.unique(sub, axis=0)
+    return unique[np.argsort(unique[:, 0])]
+
+
+@_FRAGMENT
+def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
+                                tuning_specs, fname, topo_key):
+    """Streamlit-rerun-per-drag preview.
+
+    Layout (v4 — fixed-height scroll containers, same primitive
+    Streamlit's own sidebar uses for independent scrolling)
+    --------------------------------------------------------
+    Two top-level columns, each wrapped in ``st.container(height=…)``
+    so they get their own scrollbar.  The page itself does not grow
+    when many variable cards are added — the LEFT container scrolls
+    internally, the RIGHT container stays put.
+
+      ┌─ Left scroll-box ──────────┐ ┌─ Right scroll-box ─────────────┐
+      │ [Parameters to slide]      │ │   Smith         |     Bode     │
+      │  (narrow multiselect)      │ │   (compact)     |   (compact)   │
+      │ ─────────                  │ │   legend below  |  legend below │
+      │ variable card 1            │ │                                │
+      │ variable card 2            │ │                                │
+      │ variable card 3            │ │                                │
+      │ ... (1 per row, scrolls)   │ │                                │
+      └────────────────────────────┘ └────────────────────────────────┘
+      ┌─ Below the columns (always visible) ─────────────────────────┐
+      │  ✅ Use these values     ↩️ Reset preview                     │
+      └───────────────────────────────────────────────────────────────┘
+
+    Buttons live OUTSIDE the scroll boxes so the user doesn't have to
+    scroll the left panel to find them.
+    """
+    from ..ssm_plots import render_ft_fmax_card
+
+    # Fixed height for the two scroll boxes — picks a value comfortable
+    # on a typical 1080p laptop, deliberately taller than the plots so
+    # the right box never shows its own scrollbar (the plots fit) while
+    # the left box gets scrollbars when the user adds many variables.
+    _BOX_HEIGHT = 680
+
+    label_for = {s[0]: s[1] for s in tuning_specs}
+
+    # ── Top-level split — controls slightly narrower so the plots have
+    #    room to display Smith + Bode side-by-side.
+    controls_col, plots_col = st.columns([0.85, 1.15])
+
+    # Pre-declare BOTH scroll containers so we can append into them in
+    # any order (simulation happens after slider values are read).
+    with controls_col:
+        sliders_box = st.container(height=_BOX_HEIGHT, border=False)
+    with plots_col:
+        plots_box = st.container(height=_BOX_HEIGHT, border=False)
+
+    # ── Controls box: multiselect (narrowed) + variable cards ─────────
+    with sliders_box:
+        # Constrain multiselect width with a sub-column so the chips
+        # don't wrap awkwardly across the full panel.
+        sel_key  = f"slpreview_sel_{topo_key}_{fname}"
+        ms_col, _ms_pad = st.columns([3, 1])
+        with ms_col:
+            selected = st.multiselect(
+                "Parameters to slide",
+                options=[s[0] for s in tuning_specs],
+                default=st.session_state.get(sel_key, []),
+                format_func=lambda k: label_for.get(k, k),
+                key=sel_key,
+                help="Pick parameter(s) to drag.  Plots on the right "
+                     "show the slider-substituted model in real time.  "
+                     "The main Smith / fT-fmax plots above stay frozen "
+                     "until you click ✅ Use these values.")
+
+        selected_specs = [s for s in tuning_specs if s[0] in selected]
+        preview_overrides: dict[str, float] = {}
+
+        # Initialize ranges + sliders
+        for spec in selected_specs:
+            key, _, scale = spec[0], spec[1], spec[2]
+            current_disp  = float(all_p.get(key, 0.0)) * scale
+            kp = f"slpreview_{topo_key}_{key}_{fname}"
+            if f"{kp}_min" not in st.session_state:
+                d_min, d_max, d_step = _slider_default_range(current_disp)
+                st.session_state[f"{kp}_min"]  = float(d_min)
+                st.session_state[f"{kp}_max"]  = float(d_max)
+                st.session_state[f"{kp}_step"] = float(d_step)
+            if kp not in st.session_state:
+                st.session_state[kp] = float(current_disp)
+
+        # Variable cards — ONE per row.  The fixed-height scroll box
+        # handles overflow internally.
+        if not selected_specs:
+            st.caption("Select one or more parameters above to begin.")
+        else:
+            for spec in selected_specs:
+                key, label, scale = spec[0], spec[1], spec[2]
+                unit = spec[3] if len(spec) > 3 else ""
+                fmt  = spec[4] if len(spec) > 4 else "%.4g"
+                current_disp = float(all_p.get(key, 0.0)) * scale
+                kp = f"slpreview_{topo_key}_{key}_{fname}"
+                mn = float(st.session_state[f"{kp}_min"])
+                mx = float(st.session_state[f"{kp}_max"])
+                sp = float(st.session_state[f"{kp}_step"])
+                if mx <= mn:
+                    mx = mn + max(sp, abs(mn) * 1e-6 + 1e-9)
+                sp_safe = sp if sp > 0 else max((mx - mn) / 100, 1e-12)
+                # Clamp the persisted slider value into the CURRENT
+                # min/max bounds and write it back to session_state
+                # BEFORE the widget renders.  Passing `value=` to a
+                # widget that also has `key=` (where the key is in
+                # session_state) triggers Streamlit's
+                # check_session_state_rules warning every render —
+                # the supported pattern is "set the key in
+                # session_state, then omit value=".
+                cur_v = min(max(float(st.session_state.get(kp, current_disp)),
+                                mn), mx)
+                st.session_state[kp] = cur_v
+                label_unit = f"{label} ({unit})" if unit else label
+                with st.container(border=True):
+                    head = st.columns([1.4, 1, 1, 1])
+                    head[0].markdown(
+                        f"<div style='padding-top:1.6em;font-weight:600'>"
+                        f"{label_unit}</div>",
+                        unsafe_allow_html=True)
+                    head[1].number_input("Min", format=fmt,
+                                         key=f"{kp}_min")
+                    head[2].number_input("Step", format=fmt,
+                                         key=f"{kp}_step",
+                                         min_value=0.0)
+                    head[3].number_input("Max", format=fmt,
+                                         key=f"{kp}_max")
+                    v = st.slider(label_unit, min_value=mn, max_value=mx,
+                                  step=sp_safe, format=fmt,
+                                  key=kp, label_visibility="collapsed")
+                    st.caption(f"main: **{current_disp:.4g}**  →  "
+                               f"preview: **{v:.4g}** {unit}".rstrip())
+                preview_overrides[key] = float(v) / scale
+
+    # ── Preview simulation (same logic as before, narrowed plot heights
+    #    because each plot now occupies a half-width column).
+    if preview_overrides:
+        all_p_prev = dict(all_p)
+        all_p_prev.update(preview_overrides)
+        swept_keys = list(preview_overrides.keys())
+        xp_live = _cp if _HAS_CUDA else np
+
+        static_cache_key  = f"slpreview_static_cache_{topo_key}_{fname}"
+        static_hash_input = {k: float(v) for k, v in all_p.items()
+                              if k not in swept_keys
+                              and isinstance(v, (int, float))}
+        static_hash_input["__swept"] = tuple(sorted(swept_keys))
+        static_hash_input["__nf"]    = int(len(freq))
+        static_hash_input["__xp"]    = "cuda" if xp_live is not np else "cpu"
+        static_hash = params_hash({k: str(v) for k, v in static_hash_input.items()})
+        cached_static = st.session_state.get(static_cache_key)
+        if cached_static is None or cached_static.get("hash") != static_hash:
+            try:
+                static_cache = model_cls.build_static_cache(
+                    all_p, freq, xp=xp_live, swept_keys=swept_keys)
+            except Exception:
+                static_cache = None
+            st.session_state[static_cache_key] = {"hash": static_hash,
+                                                  "cache": static_cache}
+            cached_static = st.session_state[static_cache_key]
+        static_cache = cached_static.get("cache")
+
+        p_batch = dict(all_p)
+        for k, v in preview_overrides.items():
+            p_batch[k] = xp_live.asarray([v], dtype=float)
+        S_prev = None
+        try:
+            S_b = model_cls.simulate_batch(p_batch, freq, z0,
+                                            xp=xp_live, cache=static_cache)
+            if xp_live is not np:
+                S_b = _cp.asnumpy(S_b)
+            S_prev = np.asarray(S_b)[0]
+        except Exception:
+            try:
+                S_prev = model_cls.simulate_vec(all_p_prev, freq, z0)
+            except Exception as e:
+                st.error(f"Preview simulation failed: {e}")
+                S_prev = None
+        if S_prev is not None and not np.all(np.isfinite(S_prev)):
+            st.warning("Preview S-parameters contain non-finite values — "
+                       "adjust slider ranges to avoid singular combinations.")
+            S_prev = None
+        if S_prev is not None:
+            # Render INTO the right scroll box.  Smith + Bode go in two
+            # sub-columns so they sit side-by-side, with legends below
+            # each plot (compact mode on the smith chart).
+            with plots_box:
+                st.markdown(
+                    f"<div style='font-size:0.85em;color:#555;"
+                    f"margin-bottom:4px'>Preview — {model_cls.NAME} "
+                    f"(residual {ssm_residual(S_raw, S_prev):.2f}%)"
+                    f"</div>",
+                    unsafe_allow_html=True)
+                smith_col, bode_col = st.columns(2)
+                with smith_col:
+                    render_smith_chart(
+                        S_raw, S_prev, model_cls.NAME,
+                        ssm_residual(S_raw, S_prev),
+                        scales=None,
+                        key=f"slpreview_smith_{topo_key}_{fname}",
+                        show_title=False,
+                        compact=True, height=540)
+                with bode_col:
+                    render_ft_fmax_card(
+                        S_raw, S_prev, freq,
+                        model_name=model_cls.NAME,
+                        key=f"slpreview_bode_{topo_key}_{fname}",
+                        height=540, compact=True)
+
+    # ── Commit / Reset buttons — appended to the left column BELOW the
+    #    sliders_box scroll container, so they're always visible
+    #    without scrolling the slider list.
+    with controls_col:
+        bc1, bc2 = st.columns(2)
+        commit_clicked = bc1.button(
+            "✅ Use these values",
+            key=f"slpreview_commit_{topo_key}_{fname}",
+            disabled=(len(preview_overrides) == 0),
+            help="Copy slider values into the fine-tune Smith-chart override "
+                 "fields above.  Does NOT auto-save to the persistent fit "
+                 "cache — only direct edits in the fine-tune number_inputs do.",
+            width="stretch")
+        reset_clicked = bc2.button(
+            "↩️ Reset preview",
+            key=f"slpreview_reset_{topo_key}_{fname}",
+            help="Discard slider drags and clear remembered min/step/max.",
+            width="stretch")
+
+    if commit_clicked:
+        for k, v_si in preview_overrides.items():
+            sc = next(s[2] for s in tuning_specs if s[0] == k)
+            st.session_state[f"sim_{topo_key}_{k}_{fname}"] = float(v_si) * sc
+        st.rerun()
+
+    if reset_clicked:
+        for s in tuning_specs:
+            kp = f"slpreview_{topo_key}_{s[0]}_{fname}"
+            for suf in ("", "_min", "_step", "_max"):
+                st.session_state.pop(kp + suf, None)
+        st.rerun()
+
+
+def _quantize_S_batch_int16(S_batch):
+    """Per-element int16 quantization, scaled by |element|.max() across all
+    frames so each of the four S-elements (S11/S12/S21/S22) keeps its own
+    dynamic range.  Returns a dict with int16 re/im arrays + their scale
+    factors; ``_dequantize_S_frame`` reconstructs a single frame back to
+    complex64 on slider lookup.
+
+    Memory: 2 × int16 per complex (4 bytes) vs. 16 bytes per complex128
+    or 8 per complex64 — i.e. 4× compression over complex128 / 2× over
+    complex64.  For S-params on the unit circle (|Γ| ≤ 1) the round-trip
+    error is ~3e-5, indistinguishable on a Smith / Bode plot."""
+    S = np.asarray(S_batch)
+    # shape (B, N, 2, 2) — compute per-element global max over (B, N).
+    re = S.real
+    im = S.imag
+    # axes 0 and 1 are batch + freq; axes 2-3 are the 2x2 indices.
+    re_max = np.maximum(np.abs(re).max(axis=(0, 1)), 1e-30)
+    im_max = np.maximum(np.abs(im).max(axis=(0, 1)), 1e-30)
+    re_q = np.round(re / re_max[None, None, :, :] * 32767).astype(np.int16)
+    im_q = np.round(im / im_max[None, None, :, :] * 32767).astype(np.int16)
+    return {"re_q":   re_q,
+            "im_q":   im_q,
+            "re_max": re_max.astype(np.float32),
+            "im_max": im_max.astype(np.float32)}
+
+
+def _dequantize_S_frame(quant, joint):
+    """Reconstruct a single frame's S-matrix (shape (N, 2, 2) complex64)
+    from the int16-quantized store built by ``_quantize_S_batch_int16``."""
+    re = quant["re_q"][joint].astype(np.float32) * (
+        quant["re_max"][None, :, :] / 32767.0)
+    im = quant["im_q"][joint].astype(np.float32) * (
+        quant["im_max"][None, :, :] / 32767.0)
+    return (re + 1j * im).astype(np.complex64)
+
+
+def _chunked_simulate_batch_to_host(model_cls, p_batch, freq, z0, *,
+                                     xp, chunk_size: int = 5000,
+                                     dtype=np.complex64):
+    """Run ``simulate_batch`` in chunks of ``chunk_size`` so OOM doesn't bite
+    on million-frame sweeps.  Returns one host-side ``np.ndarray`` of the
+    requested complex ``dtype``.
+
+    The default storage dtype is **complex64** (2× memory savings vs.
+    complex128 with imperceptible visual difference on Smith + Bode).
+    Pass ``dtype=np.complex128`` for full fp64 storage if you need it
+    for downstream residual calculations.
+    """
+    sweep_keys = []
+    B = None
+    for k, v in p_batch.items():
+        if isinstance(v, np.ndarray) or (_HAS_CUDA and isinstance(v, _cp.ndarray)):
+            sweep_keys.append(k)
+            if B is None:
+                B = int(v.shape[0])
+    if B is None or B <= chunk_size:
+        out = model_cls.simulate_batch(p_batch, freq, z0, xp=xp)
+        if xp is not np:
+            out = _cp.asnumpy(out)
+        return np.asarray(out).astype(dtype, copy=False)
+
+    chunks = []
+    for start in range(0, B, chunk_size):
+        end = min(start + chunk_size, B)
+        sub_p = {k: (v[start:end] if k in sweep_keys else v)
+                 for k, v in p_batch.items()}
+        S_c = model_cls.simulate_batch(sub_p, freq, z0, xp=xp)
+        if xp is not np:
+            S_c = _cp.asnumpy(S_c)
+            try:
+                _cp.get_default_memory_pool().free_all_blocks()
+            except Exception:
+                pass
+        chunks.append(np.asarray(S_c).astype(dtype, copy=False))
+    return np.concatenate(chunks, axis=0)
+
+
+@_FRAGMENT
+def _render_plotly_server_cached_view(state, S_raw, freq, model_cls,
+                                       fname, topo_key, decim_n_max):
+    """Server-cached rendering: Streamlit slider per axis + Plotly figure
+    with the SINGLE current frame.  No browser-side bulk transfer — the
+    pre-computed ``S_batch`` lives in session_state on the server, and
+    each slider tick triggers a Streamlit rerun that looks up exactly
+    one frame.  ~100-300 ms per drag tick but supports arbitrarily large
+    sweeps (only bounded by server RAM)."""
+    from ..ssm_plots import render_ft_fmax_card
+
+    slider_specs = state["slider_specs"]
+    dims = [len(sp["values_disp"]) for sp in slider_specs]
+    S_batch = state.get("S_batch")
+    S_quant = state.get("S_quant")
+    if S_batch is None and S_quant is None:
+        st.error("Build state is missing both S_batch and S_quant — "
+                 "click 🧮 Build animation to refresh.")
+        return
+
+    # ── Streamlit sliders, 2 per row ────────────────────────────────────
+    pos: list[int] = []
+    for row_start in range(0, len(slider_specs), 2):
+        row = slider_specs[row_start:row_start + 2]
+        row_cols = st.columns(len(row))
+        for col_w, sp in zip(row_cols, row):
+            idx = slider_specs.index(sp)
+            n = len(sp["values_disp"])
+            key = f"slprev_pl_sc_pos_{topo_key}_{fname}_{idx}"
+            if key not in st.session_state:
+                st.session_state[key] = n // 2
+            with col_w:
+                v_idx = st.slider(
+                    f"{sp['label']} ({sp['unit']})" if sp["unit"]
+                    else sp["label"],
+                    min_value=0, max_value=n - 1, step=1, key=key)
+                v_disp = sp["values_disp"][v_idx]
+                fmt = sp.get("fmt", "%.4g").lstrip("%")
+                try:
+                    v_str = format(float(v_disp), fmt)
+                except (ValueError, TypeError):
+                    v_str = str(v_disp)
+                st.caption(f"= **{v_str} {sp['unit']}**".rstrip())
+            pos.append(v_idx)
+
+    # Joint frame index (row-major over slider_specs)
+    joint = 0
+    for k, p in enumerate(pos):
+        joint = joint * dims[k] + p
+
+    # Pull single frame (decode from int16 if quantized) and decimate freq.
+    if S_batch is not None:
+        S_frame = S_batch[joint]
+    else:
+        S_frame = _dequantize_S_frame(S_quant, joint)
+    if decim_n_max < S_frame.shape[0]:
+        stride = max(1, int(np.ceil(S_frame.shape[0] / decim_n_max)))
+        S_frame_d = S_frame[::stride]
+        freq_d    = np.asarray(freq)[::stride]
+    else:
+        S_frame_d = S_frame
+        freq_d    = np.asarray(freq)
+    if S_raw is not None:
+        if S_raw.shape[0] != len(freq_d):
+            r = max(1, S_raw.shape[0] // len(freq_d))
+            S_raw_d = S_raw[::r][: len(freq_d)]
+        else:
+            S_raw_d = S_raw
+    else:
+        S_raw_d = None
+
+    # Render Smith + Bode side by side using existing helpers
+    col_smith, col_bode = st.columns([1.05, 1])
+    with col_smith:
+        st.markdown("**Smith chart**")
+        if S_raw_d is not None:
+            render_smith_chart(S_raw_d, S_frame_d, model_cls.NAME,
+                               ssm_residual(S_raw_d, S_frame_d),
+                               scales=None,
+                               key=f"slprev_pl_sc_smith_{topo_key}_{fname}",
+                               show_title=False)
+        else:
+            # Model-only Smith chart (RF simulator path)
+            from ..helpers.plotly_plots import make_smith as _make_smith
+            import pandas as _pd
+            df = _pd.DataFrame({
+                "Freq (GHz)": freq_d * 1e-9,
+                "S11_meas":   S_frame_d[:, 0, 0],
+                "S12_meas":   S_frame_d[:, 0, 1],
+                "S21_meas":   S_frame_d[:, 1, 0],
+                "S22_meas":   S_frame_d[:, 1, 1],
+            })
+            fig = _make_smith(df, freq_d * 1e-9,
+                              float(freq_d[0] * 1e-9),
+                              float(freq_d[-1] * 1e-9),
+                              (True, True, True, True),
+                              (1.0, 1.0, 1.0, 1.0),
+                              model_cls.NAME)
+            st.plotly_chart(fig, width="stretch",
+                            key=f"slprev_pl_sc_smith_{topo_key}_{fname}")
+
+    with col_bode:
+        st.markdown("**fT / fmax**")
+        if S_raw_d is not None:
+            render_ft_fmax_card(S_raw_d, S_frame_d, freq_d,
+                                model_name=model_cls.NAME,
+                                key=f"slprev_pl_sc_bode_{topo_key}_{fname}",
+                                height=560)
+        else:
+            # Model-only bode — quick build
+            from ..helpers.metrics import compute_h21_U
+            h21_db, U_db = compute_h21_U(S_frame_d)
+            import plotly.graph_objects as _go
+            f_g = freq_d * 1e-9
+            fig = _go.Figure()
+            fig.add_trace(_go.Scatter(x=f_g, y=h21_db, mode="lines",
+                                      name="|h21|² model",
+                                      line=dict(color="#1f77b4", width=2)))
+            fig.add_trace(_go.Scatter(x=f_g, y=U_db, mode="lines",
+                                      name="Mason U model",
+                                      line=dict(color="#d62728", width=2,
+                                                dash="dash")))
+            fig.update_layout(
+                height=560, plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(title="Frequency (GHz)", type="log",
+                           showgrid=True, gridcolor="#ebebeb"),
+                yaxis=dict(title="Gain (dB)", range=[0, 50],
+                           showgrid=True, gridcolor="#ebebeb"),
+                margin=dict(l=55, r=20, t=20, b=50),
+                legend=dict(orientation="h", x=0.5, y=-0.18,
+                            xanchor="center", yanchor="top"))
+            st.plotly_chart(fig, width="stretch",
+                            key=f"slprev_pl_sc_bode_{topo_key}_{fname}")
+
+
+@_FRAGMENT
+def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
+                                  tuning_specs, fname, topo_key):
+    """Pre-computed Plotly slider — joint (cartesian) multi-param scan.
+
+    Each selected param becomes one Plotly slider.  Frames are the *full
+    cartesian product* of all sliders' sweep values, so dragging slider
+    B reflects the model at the *current position of every other slider*
+    (true M × N × K joint behaviour).  Coordination between sliders is
+    done by injected JS listening to ``plotly_sliderchange``.
+
+    Performance notes
+    -----------------
+    • All traces use ``Scattergl`` (WebGL).
+    • Frequency axis is decimated to ≤ 200 points per trace.
+    • Single ``simulate_batch`` call runs the full cartesian product —
+      one GPU pass when CUDA is available.
+
+    Cache
+    -----
+    Built batch + slider specs stash in session_state until the user
+    changes the selection / ranges and clicks ``🧮 Build`` again.
+    """
+    from ..helpers.plotly_plots import make_smith_bode_joint_slider_html
+
+    label_for = {s[0]: s[1] for s in tuning_specs}
+    options   = [s[0] for s in tuning_specs]
+
+    sel_key = f"slprev_pl_sel_{topo_key}_{fname}"
+    selected = st.multiselect(
+        "Sweep parameters",
+        options=options,
+        default=st.session_state.get(sel_key, [options[0]] if options else []),
+        format_func=lambda k: label_for.get(k, k),
+        key=sel_key,
+        help="Each selected param gets its own Plotly slider in the figure. "
+             "Frames are the FULL cartesian product, so dragging slider B "
+             "reflects the model at the current position of every other "
+             "slider (true joint scan).  Watch the total frame count below "
+             "— it grows multiplicatively.")
+
+    selected_specs = [s for s in tuning_specs if s[0] in selected]
+    if not selected_specs:
+        st.caption("Select one or more parameters above and click "
+                   "**🧮 Build animation**.")
+        return
+
+    # ── Initialize per-param ranges ────────────────────────────────────
+    for spec in selected_specs:
+        key, _, scale = spec[0], spec[1], spec[2]
+        current_disp  = float(all_p.get(key, 0.0)) * scale
+        kp = f"slprev_pl_{topo_key}_{key}_{fname}"
+        if f"{kp}_min" not in st.session_state:
+            d_min, d_max, _ = _slider_default_range(current_disp)
+            st.session_state[f"{kp}_min"]    = float(d_min)
+            st.session_state[f"{kp}_max"]    = float(d_max)
+            st.session_state[f"{kp}_frames"] = 11
+
+    # ── 2-column variable-card grid (min / max / frames per card) ──────
+    def _render_one_range_card(spec):
+        key, label, scale = spec[0], spec[1], spec[2]
+        unit = spec[3] if len(spec) > 3 else ""
+        fmt  = spec[4] if len(spec) > 4 else "%.4g"
+        kp   = f"slprev_pl_{topo_key}_{key}_{fname}"
+        label_unit = f"{label} ({unit})" if unit else label
+        with st.container(border=True):
+            head = st.columns([1.4, 1, 1, 1])
+            # Top-pad the variable name so it sits at the same vertical
+            # level as the input boxes (whose own "Min"/"Max"/"Frames"
+            # labels add ~1.6 em of header height above them).
+            head[0].markdown(
+                f"<div style='padding-top:1.6em;font-weight:600'>"
+                f"{label_unit}</div>",
+                unsafe_allow_html=True)
+            head[1].number_input("Min", format=fmt, key=f"{kp}_min")
+            head[2].number_input("Max", format=fmt, key=f"{kp}_max")
+            head[3].number_input("Frames", min_value=2, max_value=100, step=1,
+                                 key=f"{kp}_frames",
+                                 help="Frames per axis (2–100). "
+                                      "Total = product across params.")
+
+    for row_start in range(0, len(selected_specs), 2):
+        row_specs = selected_specs[row_start:row_start + 2]
+        l_col, r_col = st.columns(2)
+        with l_col:
+            _render_one_range_card(row_specs[0])
+        with r_col:
+            if len(row_specs) > 1:
+                _render_one_range_card(row_specs[1])
+            else:
+                st.empty()
+
+    # ── Decimation (fidelity) control + payload estimate ───────────────
+    n_freq_full = int(len(freq))
+    decim_key   = f"slprev_pl_decim_{topo_key}_{fname}"
+    if decim_key not in st.session_state:
+        st.session_state[decim_key] = min(120, n_freq_full)
+
+    dims_preview = []
+    for spec in selected_specs:
+        kp = f"slprev_pl_{topo_key}_{spec[0]}_{fname}"
+        dims_preview.append(int(st.session_state.get(f"{kp}_frames", 11)))
+    total_frames = int(np.prod(dims_preview)) if dims_preview else 0
+
+    # Estimated payload: (5-sig-fig ≈ 7 chars / number) × 10 numbers / sample.
+    decim_n = int(st.session_state.get(decim_key, min(120, n_freq_full)))
+    decim_n = min(decim_n, n_freq_full)
+    est_mb  = total_frames * decim_n * 10 * 7 / 1024 / 1024
+
+    fd_col1, fd_col2 = st.columns([1, 2])
+    with fd_col1:
+        st.number_input(
+            f"Freq points (max: {n_freq_full})",
+            min_value=20, max_value=n_freq_full, step=10,
+            key=decim_key,
+            help=f"Frequency points kept per trace (max = {n_freq_full} = "
+                 "full fidelity).  Smith and Bode look smooth from ~120 "
+                 "onward; raising it just makes the browser payload bigger.")
+    with fd_col2:
+        st.caption(
+            "Cartesian sweep: "
+            + " × ".join(str(d) for d in dims_preview)
+            + f" = **{total_frames}** frames · {decim_n} freq pts · "
+            f"estimated payload ≈ **{est_mb:.0f} MB**")
+
+    # ── Server-cached toggle.  When ON: pre-compute stays in server RAM
+    #    and only the current frame is shipped per slider tick (Streamlit
+    #    reruns drive the slider).  Bypasses Streamlit's 200 MB browser
+    #    message limit at the cost of ~100-300 ms per drag.
+    sc_key = f"slprev_pl_servercached_{topo_key}_{fname}"
+    server_cached = st.checkbox(
+        "📡 Server-cached mode (Streamlit sliders, supports unlimited "
+        "sweep size, slower drag)",
+        value=st.session_state.get(sc_key, False), key=sc_key,
+        help="OFF (default): pre-computed frames are embedded in the "
+             "browser and scrubbing is instant — but the total payload is "
+             "capped at Streamlit's 200 MB message size.  ON: frames stay "
+             "in server RAM and only the current frame is sent per slider "
+             "drag.  Each drag triggers a Streamlit rerun (~100-300 ms) "
+             "but the sweep can be arbitrarily large.")
+    int16_key = f"slprev_pl_int16_{topo_key}_{fname}"
+    if server_cached:
+        # Memory estimate — complex64 storage = 8 bytes per S element,
+        # int16 quant = 4 bytes per element (2× compression over c64).
+        bytes_per_elem = 4 if st.session_state.get(int16_key, False) else 8
+        ram_mb = total_frames * n_freq_full * bytes_per_elem * 4 / 1024 / 1024
+        col_lbl, col_q = st.columns([2, 1])
+        col_lbl.caption(
+            f"Server RAM estimate ("
+            f"{'int16 quant' if bytes_per_elem == 4 else 'complex64'}, "
+            f"full-fidelity batch): ≈ **{ram_mb:.0f} MB** in session_state.")
+        col_q.checkbox(
+            "🗜️ int16 quantize",
+            value=st.session_state.get(int16_key, False),
+            key=int16_key,
+            help="Per-trace int16 quantization (rescaled by element-wise "
+                 "max) — 2× memory savings vs. complex64 with ~3e-5 "
+                 "round-trip error.  Negligible visual difference on "
+                 "Smith / Bode plots, recommended for very large batches.")
+        if ram_mb > 8000:
+            st.warning(f"⚠️ ~{ram_mb/1024:.1f} GB server-side may OOM on "
+                       "modest machines.  Reduce per-axis frame counts if "
+                       "Build runs out of memory.")
+    else:
+        if est_mb > 180:
+            st.error(
+                f"❌ Estimated payload ≈ {est_mb:.0f} MB will exceed "
+                "Streamlit's 200 MB browser-message limit.  Enable "
+                "**📡 Server-cached mode** above, lower the **Freq points** "
+                "value, reduce per-axis frame counts, or raise the limit "
+                "via `.streamlit/config.toml` → `[server] maxMessageSize "
+                "= 500`.")
+        elif est_mb > 120:
+            st.warning(f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
+                       "to Streamlit's 200 MB limit.")
+        elif total_frames > 2000:
+            st.warning(f"⚠️ {total_frames} frames may stutter on "
+                       "slider drag.")
+
+    # ── CUDA checkbox + Build button (button next to checkbox when CUDA available)
+    cuda_toggle_key = f"slprev_pl_cuda_{topo_key}_{fname}"
+    if _HAS_CUDA:
+        cuda_col, btn_col = st.columns([1.6, 1])
+        with cuda_col:
+            use_cuda = st.checkbox(f"⚡ Use CUDA (cupy {_CUDA_VER}) for "
+                                    "batched simulation",
+                                    value=st.session_state.get(cuda_toggle_key, True),
+                                    key=cuda_toggle_key,
+                                    help="Off-load the joint cartesian "
+                                         "batched simulation to the GPU.  "
+                                         "Result is brought back to host as "
+                                         "fp64 for Plotly embedding.")
+        with btn_col:
+            build_clicked = st.button("🧮 Build animation",
+                                      key=f"slprev_pl_build_{topo_key}_{fname}",
+                                      width="stretch",
+                                      help="Pre-compute the cartesian joint "
+                                           "sweep and embed with JS-"
+                                           "coordinated multi-sliders.")
+    else:
+        use_cuda = False
+        build_clicked = st.button("🧮 Build animation",
+                                  key=f"slprev_pl_build_{topo_key}_{fname}",
+                                  width="stretch",
+                                  help="Pre-compute the cartesian joint "
+                                       "sweep and embed with JS-coordinated "
+                                       "multi-sliders.")
+
+    state_key = f"slprev_pl_state_{topo_key}_{fname}"
+
+    if build_clicked:
+        import time as _time
+        xp = _cp if (use_cuda and _HAS_CUDA) else np
+        device_label = (f"GPU (cupy {_CUDA_VER})"
+                        if xp is not np else "CPU (numpy)")
+        # Build per-axis sweeps then meshgrid → cartesian product
+        sweep_disps  : list[np.ndarray] = []
+        sweep_sis    : list[np.ndarray] = []
+        slider_specs_out: list[dict] = []
+        for spec in selected_specs:
+            key, label, scale = spec[0], spec[1], spec[2]
+            unit = spec[3] if len(spec) > 3 else ""
+            fmt  = spec[4] if len(spec) > 4 else "%.4g"
+            kp   = f"slprev_pl_{topo_key}_{key}_{fname}"
+            mn = float(st.session_state[f"{kp}_min"])
+            mx = float(st.session_state[f"{kp}_max"])
+            nf = int(st.session_state[f"{kp}_frames"])
+            if mx <= mn:
+                mx = mn + abs(mn) * 1e-6 + 1e-9
+            sd = np.linspace(mn, mx, nf)
+            sweep_disps.append(sd)
+            sweep_sis.append(sd / scale)
+            slider_specs_out.append(dict(
+                label=label, unit=unit, fmt=fmt,
+                values_disp=sd.tolist()))
+        meshes = np.meshgrid(*sweep_sis, indexing="ij")
+        flats  = [m.ravel() for m in meshes]
+        n_total = int(flats[0].size) if flats else 0
+
+        # Spinner so the user sees that compute is happening (the Plotly
+        # figure below stays "stale" — the prior build — until the new
+        # batch finishes and we replace it).  For very large sweeps the
+        # chunked path avoids GPU OOM by simulating in slabs of 5 000.
+        t0 = _time.perf_counter()
+        with st.spinner(f"Computing {n_total} frames on {device_label}…"):
+            p_batch = dict(all_p)
+            for spec, flat in zip(selected_specs, flats):
+                p_batch[spec[0]] = xp.asarray(flat, dtype=float)
+            try:
+                S_b = _chunked_simulate_batch_to_host(
+                    model_cls, p_batch, freq, z0, xp=xp)
+            except Exception as e:
+                st.error(f"Batched preview simulation failed: {e}")
+                return
+        elapsed = _time.perf_counter() - t0
+
+        if not np.all(np.isfinite(S_b)):
+            st.warning("Some frames contain non-finite S-parameters — "
+                       "narrow the ranges to avoid singular combinations.")
+
+        state_dict = {
+            "slider_specs":  slider_specs_out,
+            "selected_keys": [s[0] for s in selected_specs],
+            "elapsed_s":     elapsed,
+            "device":        device_label,
+            "n_total":       n_total,
+        }
+        if server_cached and st.session_state.get(int16_key, False):
+            # Pack the batch as int16 (per-element rescaled).  4× smaller
+            # than complex128, 2× smaller than complex64.  Slider lookup
+            # decodes one frame at a time via _dequantize_S_frame.
+            state_dict["S_quant"] = _quantize_S_batch_int16(S_b)
+            state_dict["S_batch"] = None  # free the big complex array
+        else:
+            state_dict["S_batch"] = S_b
+        st.session_state[state_key] = state_dict
+
+    state = st.session_state.get(state_key)
+    if state is None:
+        st.info("Click **🧮 Build animation** to compute frames for the "
+                "Plotly slider(s).")
+        return
+
+    cached_keys  = state.get("selected_keys", [])
+    current_keys = [s[0] for s in selected_specs]
+    if cached_keys != current_keys:
+        st.warning("Selection changed since last build "
+                   f"(cached: {cached_keys}, current: {current_keys}).  "
+                   "Click **🧮 Build animation** to refresh.")
+        return
+
+    # Device + elapsed banner so the user can confirm GPU vs CPU.
+    elapsed = float(state.get("elapsed_s", 0.0))
+    if state.get("S_batch") is not None:
+        n_total = int(state.get("n_total", 0)) or len(state["S_batch"])
+    elif state.get("S_quant") is not None:
+        n_total = int(state.get("n_total", 0)) or state["S_quant"]["re_q"].shape[0]
+    else:
+        n_total = 0
+    device  = str(state.get("device", "?"))
+    ms_each = (elapsed / max(1, n_total)) * 1000.0
+    storage = "int16-quant" if state.get("S_quant") is not None else "complex64"
+    st.caption(f"✅ Built **{n_total}** frames on **{device}** in "
+               f"**{elapsed:.2f} s** ({ms_each:.1f} ms/frame, "
+               f"storage: {storage}).  Drag any slider below to scrub.")
+
+    if server_cached:
+        _render_plotly_server_cached_view(
+            state, S_raw, freq, model_cls, fname, topo_key,
+            decim_n_max=int(st.session_state.get(decim_key, 120)))
+    else:
+        if state.get("S_batch") is None:
+            st.warning("Last build used int16 quantization (server-cached "
+                       "only).  Rebuild without **🗜️ int16 quantize** to "
+                       "embed frames in the browser.")
+            return
+        html = make_smith_bode_joint_slider_html(
+            S_batch_joint=state["S_batch"],
+            freq=freq,
+            slider_specs=state["slider_specs"],
+            model_name=model_cls.NAME,
+            S_meas=S_raw,
+            decimate_points=int(st.session_state.get(decim_key, 120)),
+        )
+        # Plotly figure (height=500) + HTML slider rows below.  Each row
+        # is ~36 px tall; container has ~26 px padding.  +40 px buffer.
+        n_sl = len(state["slider_specs"])
+        iframe_height = 500 + 26 + 36 * n_sl + 30
+        # st.iframe replaced components.v1.html (deprecated 2026-06-01).
+        # When src is a raw HTML string (no http(s) / file / Path prefix)
+        # Streamlit embeds it directly in an iframe — same behaviour as
+        # the old components.html call.  No `scrolling` parameter; the
+        # `height=` integer is interpreted in pixels just like before.
+        st.iframe(html, height=iframe_height)
+
+
+def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
+                                   tuning_specs, fname, topo_key):
+    """🎚️ Visual Tuning expander — drag sliders to see the model react.
+
+    Strictly UI-only: writes into the same fine-tune ``sim_*`` session
+    keys via the ✅ commit button.  Auto-save is suppressed for slider
+    commits (see ``render_override_and_smith``).
+    """
+    with st.expander("🎚️ Visual Tuning", expanded=False):
+        # ── Backend status badges — show ALL active accelerators.
+        #    When both CUDA and Rust are available, the Visual Tuning
+        #    Live mode picks CUDA via `xp=cupy`, but the Plotly slider
+        #    "Build animation" path (cache-less batched sim) can route
+        #    through Rust.  Showing both lets the user know what's
+        #    available, not just which one wins per click.
+        from ..helpers.rust_kernels import (
+            HAS_RUST as _HAS_RUST_BACKEND,
+            rust_diagnostic as _rust_diag,
+        )
+        _chips = []
+        if _HAS_CUDA:
+            _chips.append(
+                "<span style='background:#e3f2fd;color:#0d47a1;"
+                f"padding:2px 8px;border-radius:4px;font-size:0.8em;"
+                f"font-weight:600'>⚡ CUDA (cupy {_CUDA_VER})</span>")
+        if _HAS_RUST_BACKEND:
+            _chips.append(
+                "<span style='background:#fff3e0;color:#e65100;"
+                "padding:2px 8px;border-radius:4px;font-size:0.8em;"
+                "font-weight:600'>🦀 Rust kernels</span>")
+        if not _chips:
+            _chips.append(
+                "<span style='background:#eceff1;color:#37474f;"
+                "padding:2px 8px;border-radius:4px;font-size:0.8em;"
+                "font-weight:600'>🐢 NumPy fallback</span>"
+                "  <span style='font-size:0.78em;color:#666'>"
+                "(build the Rust crate for ~10× speedup — see "
+                "tools/SSM/rust_kernels/README.md)</span>")
+        st.markdown(
+            "Compute backends available: " + "  ".join(_chips),
+            unsafe_allow_html=True)
+
+        # ── Diagnostic: when the binary exists on disk but Rust didn't
+        #    load, surface the actual import error inside an expander so
+        #    the user doesn't have to dig through the terminal.
+        if not _HAS_RUST_BACKEND:
+            _d = _rust_diag()
+            if _d["binary_files"] and not _d["force_numpy"]:
+                with st.expander("🛠️ Why is Rust not active?", expanded=False):
+                    st.code(
+                        f"arch_tag       : {_d['arch_tag']}\n"
+                        f"bin_dir        : {_d['bin_dir']}\n"
+                        f"bin_dir_exists : {_d['bin_dir_exists']}\n"
+                        f"binary_files   : {_d['binary_files']}\n"
+                        f"import_error   : {_d['import_error']}\n"
+                        f"force_numpy    : {_d['force_numpy']}\n",
+                        language="text")
+                    st.caption(
+                        "A binary exists on disk but couldn't be imported. "
+                        "Most common cause: the Streamlit process was started "
+                        "*before* the binary was placed in this folder — "
+                        "restart the launcher (`python LAUNCH_Tool.py`) to "
+                        "pick it up.  If the import error persists after a "
+                        "fresh restart, the .pyd may be from a different ABI; "
+                        "delete it and run `python build_rust_kernels.py`.")
+        _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
+                               tuning_specs, fname, topo_key)
+
+
 def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                            tuning_specs, fname, topo_key):
-    """
-    Render the 🔧 Tuning expander below the Smith chart.
+    """🔧 Auto Tuning for Minimum Residuals — grid sweep + residual ranking.
+
+    Renders the full sweep-grid / brute-force / optimized / prioritize /
+    minimize-deviation toolset.  Kept as ``render_tuning_expander`` for
+    call-site stability (still imported under that name); the visible
+    label is "Auto Tuning for Minimum Residuals".
 
     Parameters
     ----------
@@ -949,7 +1939,71 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
     """
     import pandas as pd
 
-    with st.expander("🔧 Tuning", expanded=False):
+    with st.expander("🔧 Auto Tuning for Minimum Residuals", expanded=False):
+
+        # ── Compute backend badge — cached in session_state so the
+        #    label stays stable across reruns.  Without the cache the
+        #    badge sometimes flipped Rust→NumPy after a Stop/cancel
+        #    rerun (re-import races on `hbt_rust_kernels` after the
+        #    sweep loop unwinds); caching guarantees the badge reflects
+        #    a one-time, definitive detection.
+        _BADGE_KEY = f"_rust_active_cached_{model_cls.SHORT}_{fname}"
+
+        def _detect_rust_active() -> bool:
+            try:
+                from ..helpers.rust_kernels import (
+                    HAS_RUST as _HR,
+                    _phase2_dispatch_enabled as _phase2_on,
+                    SIM_FOR_TOPOLOGY as _SIM_TOPO,
+                )
+            except Exception:                              # pragma: no cover
+                return False
+            return bool(
+                _HR and _phase2_on() and
+                _SIM_TOPO.get(model_cls.SHORT) is not None
+            )
+
+        # Sticky-True caching: re-evaluate every render, but never flip
+        # an active=True back to False within the session.  This keeps
+        # the original "no Rust→NumPy flicker after Stop" guarantee
+        # *and* allows the badge to flip from stale-False → True the
+        # moment the Rust binary becomes importable (e.g. user just
+        # finished building it without restarting Streamlit).
+        _now_active = _detect_rust_active()
+        _prev = bool(st.session_state.get(_BADGE_KEY, False))
+        st.session_state[_BADGE_KEY] = bool(_now_active or _prev)
+        _rust_active_here = st.session_state[_BADGE_KEY]
+        if _HAS_CUDA and _rust_active_here:
+            _bk = ("<span style='background:#e3f2fd;color:#0d47a1;"
+                   "padding:2px 8px;border-radius:4px;font-size:0.8em;"
+                   "font-weight:600'>⚡ CUDA available + 🦀 Rust active</span>"
+                   "  <span style='font-size:0.78em;color:#666'>"
+                   "(CUDA buttons → cupy; CPU buttons → Rust)</span>")
+        elif _HAS_CUDA:
+            _bk = ("<span style='background:#e3f2fd;color:#0d47a1;"
+                   "padding:2px 8px;border-radius:4px;font-size:0.8em;"
+                   "font-weight:600'>⚡ CUDA available</span>"
+                   "  <span style='font-size:0.78em;color:#666'>"
+                   "(CUDA buttons → cupy; CPU buttons → NumPy.  "
+                   "Set <code>HBT_USE_RUST_SIM_BATCH=1</code> to enable "
+                   "Rust on the CPU path for ~25× faster sweeps.)</span>")
+        elif _rust_active_here:
+            _bk = ("<span style='background:#fff3e0;color:#e65100;"
+                   "padding:2px 8px;border-radius:4px;font-size:0.8em;"
+                   "font-weight:600'>🦀 Rust active</span>"
+                   "  <span style='font-size:0.78em;color:#666'>"
+                   "(CPU buttons → Rust kernel)</span>")
+        else:
+            _bk = ("<span style='background:#eceff1;color:#37474f;"
+                   "padding:2px 8px;border-radius:4px;font-size:0.8em;"
+                   "font-weight:600'>🐢 NumPy</span>"
+                   "  <span style='font-size:0.78em;color:#666'>"
+                   "(CPU buttons → NumPy.  Build the Rust crate "
+                   "(<code>python build_rust_kernels.py</code>) and set "
+                   "<code>HBT_USE_RUST_SIM_BATCH=1</code> for ~25× speedup.)"
+                   "</span>")
+        st.markdown(f"Compute backend: {_bk}", unsafe_allow_html=True)
+
         # Column headers
         hdr = st.columns([0.5, 1.5, 1.2, 1.2, 1.2, 1.0])
         hdr[0].markdown("**Sweep**")
@@ -1050,103 +2104,177 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         if _HAS_CUDA:
             st.caption(f"CUDA {_CUDA_VER} detected — GPU acceleration available")
 
-        # ── Calculate buttons ───────────────────────────────────────────
-        st.caption(
-            "ℹ️ **Calculate Residuals (all)** evaluates **every** combination "
-            "in the sweep grid above and ranks the top-100 results by lowest "
-            "**total** residual.")
-        _btn_cols = st.columns([1, 1] if _HAS_CUDA else [1])
-        cpu_clicked = _btn_cols[0].button(
-            "🧮 Calculate Residuals (all)",
-            key=f"tune_calc_{topo_key}_{fname}")
-        cuda_clicked = (
-            _HAS_CUDA
-            and _btn_cols[1].button(
-                "⚡ Calculate (all) with CUDA",
-                key=f"tune_calc_cuda_{topo_key}_{fname}"))
+        # ── Calculate buttons — table-style layout, one bordered card
+        #    per "mode" with title, description, and (CPU, CUDA) button
+        #    pair.  Visually separates the four orthogonal strategies
+        #    so the user doesn't have to read button labels to know
+        #    what's what.
+        _cpu_tag = "🦀 Rust" if _rust_active_here else "🐢 NumPy"
 
-        # ── Optimized recursive bisection buttons ──────────────────────
-        st.caption(
-            "🎯 **Calculate Residuals (optimized)** repeatedly subsamples 5 "
-            "evenly-spaced values per swept parameter (e.g. min=1, step=1, "
-            "max=100 → 1, 25, 50, 75, 100), picks the 2 combos with the "
-            "lowest total residual, then narrows the search box to those "
-            "two values and recurses. Iteration stops once a brute-force "
-            "sweep at the user's chosen step would fit ≤ 5,000,000 combos, "
-            "and that final refinement is run as the closing pass.")
-        _opt_cols = st.columns([1, 1] if _HAS_CUDA else [1])
-        opt_cpu_clicked = _opt_cols[0].button(
-            "🎯 Calculate Residuals (optimized)",
-            key=f"tune_calc_opt_{topo_key}_{fname}")
-        opt_cuda_clicked = (
-            _HAS_CUDA
-            and _opt_cols[1].button(
-                "⚡ Optimized with CUDA",
-                key=f"tune_calc_opt_cuda_{topo_key}_{fname}"))
+        # Modes share a 2-column inner grid (CPU left, CUDA right).
+        # When no CUDA is available the right column is dropped.
+        def _action_cols():
+            return st.columns(2) if _HAS_CUDA else (st.columns(1)[0],
+                                                     st.empty())
 
-        # ── Prioritize (sort by chosen S-parameter) ────────────────────
-        st.caption(
-            "🥇 **Prioritize** runs the same full-grid sweep but ranks results "
-            "by the residual of a single chosen S-parameter instead of the "
-            "total.")
-        _prio_top = st.columns([1, 3])
-        _prio_top[0].markdown("**Prioritize:**")
-        prio_metric = _prio_top[1].radio(
-            "Prioritize sort metric",
-            ["S11", "S12", "S21", "S22"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key=f"tune_prio_metric_{topo_key}_{fname}")
-        _prio_btn = st.columns([1, 1] if _HAS_CUDA else [1])
-        prio_cpu_clicked = _prio_btn[0].button(
-            "🥇 Calculate (Prioritized)",
-            key=f"tune_calc_prio_{topo_key}_{fname}")
-        prio_cuda_clicked = (
-            _HAS_CUDA
-            and _prio_btn[1].button(
-                "⚡ Prioritized with CUDA",
-                key=f"tune_calc_prio_cuda_{topo_key}_{fname}"))
+        # ── 🧮 Brute-force all combos ───────────────────────────────────
+        _calc_all_help = (
+            "Evaluates EVERY combination in the sweep grid above and ranks "
+            "the top-100 results by lowest TOTAL residual.")
+        with st.container(border=True):
+            st.markdown(
+                "**🧮 Brute force — all combos**  "
+                "<span style='color:#666;font-size:0.85em'>"
+                "Evaluate every combination in the grid, rank by total "
+                "residual.</span>",
+                unsafe_allow_html=True)
+            _c_cpu, _c_cuda = _action_cols()
+            cpu_clicked = _c_cpu.button(
+                f"CPU — {_cpu_tag}",
+                key=f"tune_calc_{topo_key}_{fname}",
+                help=_calc_all_help,
+                width="stretch")
+            cuda_clicked = (
+                _HAS_CUDA
+                and _c_cuda.button(
+                    "⚡ CUDA",
+                    key=f"tune_calc_cuda_{topo_key}_{fname}",
+                    help=_calc_all_help,
+                    width="stretch"))
 
-        # ── Minimize deviation (peak-to-peak filter) ────────────────────
-        st.caption(
-            "🎚️ **Minimize deviation** runs the full-grid sweep but discards "
-            "combos whose per-port residuals are unbalanced (peak-to-peak "
-            "spread > threshold).  Surviving balanced combos are then ranked "
-            "by lowest total residual.  Optionally also drop combos where "
-            "any single port residual exceeds a quality floor.")
-        _bal_inputs = st.columns([1, 1, 2])
-        bal_dev_threshold = _bal_inputs[0].number_input(
-            "Max per-port deviation (%)",
-            min_value=0.0, max_value=100.0,
-            value=float(st.session_state.get(
-                f"tune_bal_dev_{topo_key}_{fname}", 3.0)),
-            step=0.5, format="%.2f",
-            key=f"tune_bal_dev_{topo_key}_{fname}",
-            help="Max allowed |max(S11,S12,S21,S22) − min(...)| residual "
-                 "spread (in %).  Smaller = more balanced.")
-        _bal_use_res = _bal_inputs[1].checkbox(
-            "Use residual cap",
-            value=False,
-            key=f"tune_bal_use_res_{topo_key}_{fname}")
-        bal_res_threshold = _bal_inputs[2].number_input(
-            "Max per-port residual (%)",
-            min_value=0.0, max_value=100.0,
-            value=float(st.session_state.get(
-                f"tune_bal_res_{topo_key}_{fname}", 5.0)),
-            step=0.5, format="%.2f",
-            key=f"tune_bal_res_{topo_key}_{fname}",
-            disabled=(not _bal_use_res),
-            help="Quality floor — drop combos where any port's residual "
-                 "exceeds this.")
-        _bal_btn = st.columns([1, 1] if _HAS_CUDA else [1])
-        bal_cpu_clicked = _bal_btn[0].button(
-            "🎚️ Minimize deviation",
-            key=f"tune_calc_bal_{topo_key}_{fname}")
-        bal_cuda_clicked = (
-            _HAS_CUDA
-            and _bal_btn[1].button(
-                "⚡ Minimize deviation with CUDA",
-                key=f"tune_calc_bal_cuda_{topo_key}_{fname}"))
+        # ── 🎯 Optimized recursive bisection ────────────────────────────
+        _opt_help = (
+            "Repeatedly subsamples 5 evenly-spaced values per swept parameter "
+            "(e.g. min=1, step=1, max=100 → 1, 25, 50, 75, 100), picks the 2 "
+            "combos with the lowest total residual, then narrows the search "
+            "box to those two values and recurses.  Iteration stops once a "
+            "brute-force sweep at the user's chosen step would fit ≤ 5,000,000 "
+            "combos, and that final refinement is run as the closing pass.")
+        with st.container(border=True):
+            st.markdown(
+                "**🎯 Optimized — recursive bisection**  "
+                "<span style='color:#666;font-size:0.85em'>"
+                "Iteratively narrow the search box: 5-point subsample → "
+                "keep top-2 → recurse until the final pass fits ≤5M combos."
+                "</span>",
+                unsafe_allow_html=True)
+            _c_cpu, _c_cuda = _action_cols()
+            opt_cpu_clicked = _c_cpu.button(
+                f"CPU — {_cpu_tag}",
+                key=f"tune_calc_opt_{topo_key}_{fname}",
+                help=_opt_help,
+                width="stretch")
+            opt_cuda_clicked = (
+                _HAS_CUDA
+                and _c_cuda.button(
+                    "⚡ CUDA",
+                    key=f"tune_calc_opt_cuda_{topo_key}_{fname}",
+                    help=_opt_help,
+                    width="stretch"))
+
+        # ── 🥇 Prioritized by single S-parameter ────────────────────────
+        _prio_help = (
+            "Runs the same full-grid sweep but ranks results by the residual "
+            "of a single chosen S-parameter instead of the total.")
+        with st.container(border=True):
+            st.markdown(
+                "**🥇 Prioritized — rank by one S-parameter**  "
+                "<span style='color:#666;font-size:0.85em'>"
+                "Same full-grid sweep, but the top-100 selection is sorted "
+                "by a single S-param's residual rather than the total."
+                "</span>",
+                unsafe_allow_html=True)
+            _prio_row = st.columns([0.6, 2])
+            _prio_row[0].markdown(
+                "<div style='padding-top:0.4em'>"
+                "<small><b>Sort by</b></small></div>",
+                unsafe_allow_html=True)
+            prio_metric = _prio_row[1].radio(
+                "Prioritize sort metric",
+                ["S11", "S12", "S21", "S22"],
+                horizontal=True,
+                label_visibility="collapsed",
+                key=f"tune_prio_metric_{topo_key}_{fname}")
+            _c_cpu, _c_cuda = _action_cols()
+            prio_cpu_clicked = _c_cpu.button(
+                f"CPU — {_cpu_tag}",
+                key=f"tune_calc_prio_{topo_key}_{fname}",
+                help=_prio_help,
+                width="stretch")
+            prio_cuda_clicked = (
+                _HAS_CUDA
+                and _c_cuda.button(
+                    "⚡ CUDA",
+                    key=f"tune_calc_prio_cuda_{topo_key}_{fname}",
+                    help=_prio_help,
+                    width="stretch"))
+
+        # ── 🎚️  Minimize deviation (HIDDEN for now — to re-enable, flip
+        #    `_SHOW_MIN_DEV` to True.  All the underlying logic at the
+        #    `bal_cpu_clicked or bal_cuda_clicked` dispatch site below
+        #    stays wired up; the only thing the toggle gates is the
+        #    UI section.).
+        _SHOW_MIN_DEV = False
+        if _SHOW_MIN_DEV:
+            _bal_help = (
+                "Runs the full-grid sweep but discards combos whose per-port "
+                "residuals are unbalanced (peak-to-peak spread > threshold).  "
+                "Surviving balanced combos are then ranked by lowest total "
+                "residual.  Optionally also drop combos where any single port "
+                "residual exceeds a quality floor.")
+            with st.container(border=True):
+                st.markdown(
+                    "**🎚️ Minimize deviation — peak-to-peak filter**  "
+                    "<span style='color:#666;font-size:0.85em'>"
+                    "Discard unbalanced combos, then rank survivors by "
+                    "total residual.</span>",
+                    unsafe_allow_html=True)
+                _bal_inputs = st.columns([1, 1, 2])
+                bal_dev_threshold = _bal_inputs[0].number_input(
+                    "Max per-port deviation (%)",
+                    min_value=0.0, max_value=100.0,
+                    value=float(st.session_state.get(
+                        f"tune_bal_dev_{topo_key}_{fname}", 3.0)),
+                    step=0.5, format="%.2f",
+                    key=f"tune_bal_dev_{topo_key}_{fname}",
+                    help="Max allowed |max(S11,S12,S21,S22) − min(...)| residual "
+                         "spread (in %).  Smaller = more balanced.")
+                _bal_use_res = _bal_inputs[1].checkbox(
+                    "Use residual cap",
+                    value=False,
+                    key=f"tune_bal_use_res_{topo_key}_{fname}")
+                bal_res_threshold = _bal_inputs[2].number_input(
+                    "Max per-port residual (%)",
+                    min_value=0.0, max_value=100.0,
+                    value=float(st.session_state.get(
+                        f"tune_bal_res_{topo_key}_{fname}", 5.0)),
+                    step=0.5, format="%.2f",
+                    key=f"tune_bal_res_{topo_key}_{fname}",
+                    disabled=(not _bal_use_res),
+                    help="Quality floor — drop combos where any port's residual "
+                         "exceeds this.")
+                _c_cpu, _c_cuda = _action_cols()
+                bal_cpu_clicked = _c_cpu.button(
+                    f"CPU — {_cpu_tag}",
+                    key=f"tune_calc_bal_{topo_key}_{fname}",
+                    help=_bal_help,
+                    width="stretch")
+                bal_cuda_clicked = (
+                    _HAS_CUDA
+                    and _c_cuda.button(
+                        "⚡ CUDA",
+                        key=f"tune_calc_bal_cuda_{topo_key}_{fname}",
+                        help=_bal_help,
+                        width="stretch"))
+        else:
+            # Section hidden — neutralise the flags + defaults so the
+            # downstream dispatch (`elif bal_cpu_clicked or
+            # bal_cuda_clicked:` further below) is a no-op.
+            bal_cpu_clicked = False
+            bal_cuda_clicked = False
+            bal_dev_threshold = 3.0
+            _bal_use_res = False
+            bal_res_threshold = 5.0
 
         # # ── Auto (Nelder-Mead) ──────────────────────────────────────────
         # st.caption(
@@ -1182,6 +2310,12 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         #         key=f"tune_calc_auto_cuda_{topo_key}_{fname}"))
 
         # ── Helper: format a "best result" markdown line including all params ──
+        #
+        # • Bold the parameter name AND value for any param that is currently
+        #   ticked for sweep (its `_chk` session key is True).
+        # • Hide all-zero pad caps (Cpbe/Cpce/Cpbc) and lead inductances
+        #   (Lb/Lc/Le) since they're often left at 0 and just add noise.
+        _HIDE_IF_ZERO = {"Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le"}
         def _best_summary_md(best_row, label="Best so far"):
             head = (f"**{label} — Total: {best_row['Total Residual (%)']:.2f}%  |  "
                     f"S11: {best_row['S11 (%)']:.2f}%  S12: {best_row['S12 (%)']:.2f}%  "
@@ -1192,10 +2326,18 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 unit = spec[3] if len(spec) > 3 else ""
                 fmt = spec[4] if len(spec) > 4 else "%.4g"
                 col = f"{label_p} ({unit})" if unit else label_p
-                if col in best_row.index:
-                    v = float(best_row[col])
-                    sval = (fmt % v) if np.isfinite(v) else "NaN"
-                    parts.append(f"{label_p}: {sval} {unit}".strip())
+                if col not in best_row.index:
+                    continue
+                v = float(best_row[col])
+                if key in _HIDE_IF_ZERO and np.isfinite(v) and abs(v) < 1e-30:
+                    continue
+                is_swept = bool(st.session_state.get(
+                    f"tune_{topo_key}_{key}_{fname}_chk", False))
+                sval = (fmt % v) if np.isfinite(v) else "NaN"
+                name_md = f"<b>{label_p}</b>" if is_swept else label_p
+                val_md  = (f"<b>{sval} {unit}</b>".rstrip()
+                           if is_swept else f"{sval} {unit}".rstrip())
+                parts.append(f"{name_md}: {val_md}")
             if parts:
                 head += "  \n<small>" + ", ".join(parts) + "</small>"
             return head
@@ -1517,7 +2659,12 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             sess_key = f"tune_df_{topo_key}_{fname}"
 
             def _topk_to_df(top_arr_host):
-                return pd.DataFrame(top_arr_host, columns=col_names)
+                """Display DataFrame is the top-10 per metric across
+                {Total, S11, S12, S21, S22}, deduped — 10 ≤ R ≤ 50 rows
+                sorted by Total Residual.  See ``_multi_metric_top_n``."""
+                return pd.DataFrame(
+                    _multi_metric_top_n(top_arr_host, per_metric=10),
+                    columns=col_names)
 
             # ── Auto slab sizing from device free memory ────────────────────
             # Per-combo working-set estimate.
@@ -2602,7 +3749,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             def _persist_now():
                 if not top_rows:
                     return
-                df = pd.DataFrame(top_rows, columns=col_names)
+                df = pd.DataFrame(
+                    _multi_metric_top_n(np.asarray(top_rows, dtype=float),
+                                         per_metric=10),
+                    columns=col_names)
                 st.session_state[sess_key] = df
 
             def _callback(xk, *args, **kwargs):
@@ -3129,6 +4279,68 @@ class SSMModelTemplate:
     # (e.g. XuModel relabels Cpce → "Cpce / Cpad").
     _TUNING_PAD_SPECS     = None    # falls back to PAD_SPECS in render_override_and_smith
 
+    # Default: no pre-bakeable sub-networks.  Concrete subclasses override
+    # ``STATIC_SUBNETWORKS`` with a dict of {subnet_name: frozenset(deps)}.
+    STATIC_SUBNETWORKS: dict = {}
+
+    # ── Pre-bake truth table ──────────────────────────────────────────────────
+
+    @classmethod
+    def prebake_static_keys(cls, swept_keys):
+        """Given the iterable of *swept* (i.e. changing) param keys, return
+        the list of pre-bakeable sub-network names for this model.  A sub-
+        network is pre-bakeable iff none of the keys it depends on are
+        swept.  Caller can use this to decide which entries to populate
+        in the ``cache`` argument to ``simulate_batch``."""
+        if not cls.STATIC_SUBNETWORKS:
+            return []
+        swept_set = set(swept_keys)
+        return [name for name, deps in cls.STATIC_SUBNETWORKS.items()
+                if not (deps & swept_set)]
+
+    @classmethod
+    def build_static_cache(cls, all_p, freq, *, xp=None, swept_keys=()):
+        """Build the ``cache`` dict (matching what ``_sim_wrap_batch`` reads)
+        for the given fixed-param baseline and the set of params being
+        swept.  Concrete subclasses override to fill in model-specific
+        sub-networks (Zbe / Zbc / alpha / Y_extr / etc.).
+
+        Default implementation only handles the shared sub-networks
+        (``Y_pad``, ``Z_ser``) — enough to give the live mode a meaningful
+        speed-up even on models without intrinsic pre-bake support.
+        """
+        from ..helpers.deembed_math import build_Y_pad_batch, build_Z_ser_batch
+        if xp is None:
+            xp = np
+        omega = xp.asarray(2 * np.pi * np.asarray(freq), dtype=float)
+        N = int(omega.shape[0])
+        cache: dict = {"omega": omega, "_cdtype": np.complex128}
+        static_p = dict(all_p)
+        pbk = set(cls.prebake_static_keys(swept_keys))
+        if "Y_pad" in pbk and not (cls.STATIC_SUBNETWORKS.get("Y_pad", set()) & set(swept_keys)):
+            try:
+                cache["Y_pad"] = build_Y_pad_batch(static_p, omega, 1, N, xp)
+            except Exception:
+                pass
+        if "Z_ser" in pbk and not (cls.STATIC_SUBNETWORKS.get("Z_ser", set()) & set(swept_keys)):
+            try:
+                cache["Z_ser"] = build_Z_ser_batch(static_p, omega, 1, N, xp)
+            except Exception:
+                pass
+        # Concrete subclasses extend via _build_intrinsic_static_cache().
+        try:
+            cls._build_intrinsic_static_cache(static_p, omega, cache, xp, pbk)
+        except (AttributeError, NotImplementedError):
+            pass
+        return cache
+
+    @classmethod
+    def _build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable):
+        """Override in concrete classes to populate intrinsic sub-networks
+        (Y_extr / Zbe / Zbc / alpha / Ybe / Ybc / gm / T_int_planes / etc.).
+        Default is no-op."""
+        return
+
     # ── Forward simulation ────────────────────────────────────────────────────
 
     @classmethod
@@ -3145,9 +4357,61 @@ class SSMModelTemplate:
         params dict values may be scalars or (B,) arrays.
         Returns (B, N_freq, 2, 2) on the *xp* device (no host transfer).
         Optional ``cache`` carries pre-computed constant sub-networks.
+
+        Phase 2 opt-in
+        --------------
+        When the env var ``HBT_USE_RUST_SIM_BATCH=1`` is set AND the
+        Rust crate is loaded AND a Rust kernel exists for this model's
+        ``SHORT`` identifier, the CPU path (xp is numpy) routes through
+        the Rust end-to-end batched simulator instead of the NumPy
+        composition chain.  The CUDA path (xp is cupy) stays on cupy.
+
+        Cache + Rust
+        ------------
+        When a non-empty ``cache`` is provided, Rust still runs (the
+        whole composition is so much faster than NumPy that the cache
+        savings can't beat it).  The cache is preserved for the NumPy
+        FALLBACK path so a Rust failure (e.g. exotic pad mode raises
+        ``NotImplementedError``) still gets the pre-bake speedup.
+
+        The default behaviour (env var unset) is identical to before:
+        CPU goes through ``cls._SIM_WRAP_BATCH_FN`` exactly as it does
+        today, with no measurable overhead from the opt-in check.
         """
         if xp is None:
             xp = np
+
+        # Phase 2 dispatch — opt-in, CPU-only.  The lazy import keeps
+        # this branch zero-cost when Phase 2 isn't activated.
+        if xp is np:
+            try:
+                from ..helpers.rust_kernels import (
+                    HAS_RUST as _HAS_RUST,
+                    SIM_FOR_TOPOLOGY as _SIM_FOR_TOPOLOGY,
+                    _phase2_dispatch_enabled as _phase2_on,
+                )
+            except Exception:                              # pragma: no cover
+                _HAS_RUST = False
+                _SIM_FOR_TOPOLOGY = {}
+
+                def _phase2_on() -> bool:
+                    return False
+
+            if _HAS_RUST and _phase2_on():
+                rust_wrapper = _SIM_FOR_TOPOLOGY.get(cls.SHORT)
+                if rust_wrapper is not None:
+                    # NumPy fallback closure — preserves the ORIGINAL
+                    # cache so the pre-bake speedup isn't lost if Rust
+                    # raises (NotImplementedError for exotic pad modes
+                    # is the common case).
+                    _saved_cache = cache
+                    def _np_fallback(_p, _f, _z0):
+                        return cls._SIM_WRAP_BATCH_FN(
+                            cls._Y_INT_BATCH_FN, _p, _f, _z0, np,
+                            _saved_cache)
+                    return rust_wrapper(params, freq, z0,
+                                         np_fallback=_np_fallback)
+
         return cls._SIM_WRAP_BATCH_FN(cls._Y_INT_BATCH_FN, params, freq, z0, xp, cache)
 
     # ── Cached simulate-vec (used by render_override_and_smith) ───────────────
@@ -3213,9 +4477,105 @@ class SSMModelTemplate:
           cls._do_override_ui(fname, calc_vals)  → all_p
           cls._render_topology(all_p, fname)     → render illustration
           cls._INT_SPECS / _EXT_SPECS            → tuning specs
+
+        Also performs persistent fit-cache restore (on first render after
+        upload) and auto-save (when the user has fine-tuned vs. extraction
+        defaults).  See helpers/fit_cache.py.
         """
+        from ..helpers.fit_cache import (get_fit, get_fit_timestamp,
+                                          save_fit, delete_fit, differs_from)
+
         params, _arrays = extract_result
         calc_vals = {**para_eff, **params}
+
+        pad_specs   = cls._TUNING_PAD_SPECS if cls._TUNING_PAD_SPECS is not None else PAD_SPECS
+        all_specs   = pad_specs + cls._EXT_SPECS + cls._INT_SPECS
+        int_ext_keys = [k for k, *_ in cls._EXT_SPECS + cls._INT_SPECS]
+        scale_for    = {k: sc for k, _, sc, *_ in all_specs}
+
+        # ── Cache restore — runs on the first call after Run SSM is clicked
+        #    (applied_key resides in session_state, which IOED's "Clear SSM
+        #    results" button wipes for the file; so a fresh Run SSM cycle
+        #    re-applies the cache).
+        cached        = get_fit(fname, cls.SHORT)
+        cached_ts     = get_fit_timestamp(fname, cls.SHORT)
+        applied_key   = f"cache_applied_{cls.SHORT}_{fname}"
+        dismissed_key = f"cache_dismissed_{cls.SHORT}_{fname}"
+
+        # Helper closure — write cached values (including pad) into the
+        # fine-tune session_state and align the sync hashes so subsequent
+        # renders don't overwrite us.
+        #
+        # Pad strategy: prefer cached pad if the cache has it (preserves
+        # the user's fine-tuned pad, e.g. Rpb/Rpc/Rpe from Cold-HBT that
+        # don't get re-extracted from Step 1b alone).  Fall back to
+        # `para_eff` only when the cache has no value for that key
+        # (older cache files written with the no-pad filter, or never
+        # touched).  The matching `main_ssm_extraction` change ensures
+        # `calc_vals[pad] = para_eff[pad]` (live Step 1), so the pad
+        # sync hash below stays aligned with para_eff and
+        # `sync_pad_from_preov` doesn't clobber the cached pad on the
+        # next render.
+        def _apply_cached_to_simstate(cached_dict):
+            if not isinstance(cached_dict, dict):
+                return
+            # Pad: cached value first, else live para_eff.
+            for key, _, sc, *_ in pad_specs:
+                cv = cached_dict.get(key)
+                if not isinstance(cv, (int, float)):
+                    cv = para_eff.get(key, 0.0)
+                st.session_state[f"sim_{cls.SHORT}_{key}_{fname}"] = float(cv) * sc
+            # Int/ext: from cache.
+            for k, v in cached_dict.items():
+                if (k in scale_for and k not in _PAD_KEYS
+                        and isinstance(v, (int, float))):
+                    st.session_state[f"sim_{cls.SHORT}_{k}_{fname}"] = (
+                        float(v) * scale_for[k])
+            # Intrinsic sync hash: hash calc_vals[int_ext].  Since
+            # main_ssm filters pad out of `params`, calc_vals[int_ext]
+            # equals cached[int_ext] — so _override_ui's intrinsic sync
+            # is a no-op.
+            st.session_state[f"sim_synchash_{cls.SHORT}_{fname}"] = params_hash(
+                {k: str(round(float(calc_vals.get(k, 0.0)), 15))
+                 for k in int_ext_keys})
+            # Pad sync hash matches live para_eff (NOT cached pad), so
+            # sync_pad_from_preov stays a no-op until Step 1 actually
+            # changes.  This is what protects the just-loaded cached pad
+            # values from being overwritten by para_eff on the next
+            # render.
+            st.session_state[f"smith_pad_synced_{cls.SHORT}_{fname}"] = params_hash(
+                {k: para_eff.get(k, 0.0) for k in _PAD_KEYS})
+
+        # ── Cache restore — runs on the first call after Run SSM is clicked
+        #    (applied_key resides in session_state, which IOED's "Clear SSM
+        #    results" button wipes for the file; so a fresh Run SSM cycle
+        #    re-applies the cache).
+        if (cached
+                and not st.session_state.get(applied_key)
+                and not st.session_state.get(dismissed_key)):
+            _apply_cached_to_simstate(cached)
+            st.session_state[applied_key] = True
+
+        # Banner whenever a cache entry exists for this (file, model)
+        if cached_ts and not st.session_state.get(dismissed_key):
+            bc1, bc2 = st.columns([5, 1])
+            bc1.info(f"📌 Loaded cached fit for **{cls.NAME}** "
+                     f"(saved {cached_ts}). Any edit to the fine-tune section "
+                     "below (number-inputs, slider commits, ‘Use best’ button) "
+                     "is auto-saved.  Pad values come from Step 1 (not the cache).")
+            if bc2.button("↩️ Use saved",
+                          key=f"cache_reset_{cls.SHORT}_{fname}",
+                          help="Re-apply the cached intrinsic/extrinsic values "
+                               "into the fine-tune fields below — handy after "
+                               "experimenting if you want to revert to the last "
+                               "saved snapshot.  Pad fields are always sourced "
+                               "from Step 1 / pre-extraction override."):
+                _apply_cached_to_simstate(cached)
+                # Mark applied so the auto-restore branch above no-ops, then
+                # rerun so the fine-tune widgets read the freshly-set values.
+                st.session_state[applied_key] = True
+                st.rerun()
+
         all_p = cls._do_override_ui(fname, calc_vals)
 
         S_sim = cls._cached_simulate_vec(all_p, freq, z0, fname)
@@ -3229,15 +4589,43 @@ class SSMModelTemplate:
         # Parameter Summary can read live values instead of extraction-time ones.
         st.session_state[f"current_p_{cls.SHORT}_{fname}"] = dict(all_p)
 
-        with st.expander("🖼️ Topology Illustration", expanded=False):
-            cls._render_topology(all_p, fname)
+        # ── Auto-save — fires whenever the fine-tune section's `all_p`
+        # differs from the current "baseline" snapshot.  The baseline is
+        # `calc_vals` (extraction defaults) overlaid with any cached
+        # values — so after a cache restore, `all_p == baseline` and no
+        # redundant save fires; only genuine user edits beyond the
+        # cached state trigger a write.  Pad is included so users can
+        # fine-tune Rpb/Rpc/Rpe (etc.) and have those values persist.
+        baseline = dict(calc_vals)
+        if isinstance(cached, dict):
+            for _k, _v in cached.items():
+                if _k in scale_for and isinstance(_v, (int, float)):
+                    baseline[_k] = float(_v)
+        check_keys = _PAD_KEYS + int_ext_keys
+        if (not st.session_state.get(dismissed_key)
+                and differs_from(all_p, baseline, keys=check_keys)):
+            save_fit(fname, cls.SHORT, dict(all_p))
 
-        with st.expander("📐 Plot Smith chart with matplotlib", expanded=False):
-            from ..ssm_plots import render_matplotlib_smith
-            render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT)
+        col_left, col_right = st.columns(2)
+        # Run the CONTROLS first (right column) so session_state is fresh
+        # before the chart half on the left reads it.  Visually they
+        # still appear in column order: left = topology + chart,
+        # right = controls.
+        from ..ssm_plots import (render_matplotlib_smith_controls,
+                                  render_matplotlib_smith_chart)
+        with col_right:
+            with st.expander("📐 Smith Chart Controls", expanded=False):
+                render_matplotlib_smith_controls(S_raw, S_sim, fname,
+                                                  cls.SHORT)
+        with col_left:
+            with st.expander("🖼️ Topology / Smith Chart", expanded=False):
+                cls._render_topology(all_p, fname)
+                render_matplotlib_smith_chart(S_raw, S_sim, fname, cls.SHORT)
 
-        pad_specs = cls._TUNING_PAD_SPECS if cls._TUNING_PAD_SPECS is not None else PAD_SPECS
+        render_visual_tuning_expander(cls, all_p, S_raw, freq, z0,
+                                       all_specs,
+                                       fname, cls.SHORT)
         render_tuning_expander(cls, all_p, S_raw, freq, z0,
-                               pad_specs + cls._EXT_SPECS + cls._INT_SPECS,
+                               all_specs,
                                fname, cls.SHORT)
         return S_sim

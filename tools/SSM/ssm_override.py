@@ -125,9 +125,11 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
             cur_idx    = src_opts.index(cur_src)
             st.markdown(label)
             sc1, sc2 = st.columns([3, 1])
-            chosen_lbl = sc1.radio("", radio_lbls, index=cur_idx,
+            chosen_lbl = sc1.radio(f"Source for {var}", radio_lbls,
+                                    index=cur_idx,
                                     key=f"preov_radio_{var}_{fname}",
-                                    horizontal=True, label_visibility="collapsed")
+                                    horizontal=True,
+                                    label_visibility="collapsed")
             chosen_src = src_opts[radio_lbls.index(chosen_lbl)]
             st.session_state[sk_src] = chosen_src
             if chosen_src != "Custom":

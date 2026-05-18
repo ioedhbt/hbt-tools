@@ -586,7 +586,7 @@ def _render_topology_illustration(all_p: dict, fname: str) -> None:
 
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    st.image(buf.getvalue(), use_container_width=True)
+    st.image(buf.getvalue(), width="stretch")
 
 
 def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS):
@@ -661,6 +661,18 @@ class XuModel(SSMModelTemplate, AbstractSSMModel):
     _SIM_WRAP_VEC_FN   = _sim_wrap_vec
     _SIM_WRAP_BATCH_FN = _sim_wrap_batch
     _TUNING_PAD_SPECS  = _XU_PAD_SPECS   # relabels Cpce → "Cpce / Cpad" in tuning UI
+    # Pre-bake truth table: Xu shares Cheng-T's intrinsic topology, plus
+    # the extrinsic Ybcx = 1/Rbcx + jωCbcx network (no Cbex node in Xu).
+    STATIC_SUBNETWORKS = {
+        "Y_pad":  frozenset({"Cpbe", "Cpce", "Cpbc"}),
+        "Z_ser":  frozenset({"Rpb", "Rpc", "Rpe", "Lb", "Lc", "Le"}),
+        "Ybcx":   frozenset({"Rbcx", "Cbcx"}),
+        "Zbe":    frozenset({"Rbe", "Cbe"}),
+        "Zbc":    frozenset({"Rbc", "Cbc"}),
+        "alpha":  frozenset({"alpha0", "tauB", "tauC"}),
+        "T_int_planes": frozenset({"Rbi", "Rbe", "Cbe", "Rbc", "Cbc",
+                                    "alpha0", "tauB", "tauC"}),
+    }
     PARAM_GROUPS  = [
         {
             "label":      "Step 2 — Cbcx  (from Y_ex1, parallel-Rbcx∥Cbcx network)",
@@ -863,4 +875,17 @@ class XuModel(SSMModelTemplate, AbstractSSMModel):
     @classmethod
     def _render_topology(cls, all_p, fname):
         _render_topology_illustration(all_p, fname)
+
+    @classmethod
+    def _build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable):
+        """Xu T uses Cheng-T's intrinsic topology + a parallel
+        Ybcx = 1/Rbcx + jωCbcx extrinsic network (no Cbex node)."""
+        # Reuse Cheng-T's builder for the intrinsic block.
+        from .cheng import ChengT as _ChengT
+        _ChengT._build_intrinsic_static_cache(p, omega, cache, xp,
+                                               prebakeable)
+        if "Ybcx" in prebakeable:
+            rbcx_c = float(p.get("Rbcx", 285e3))
+            cbcx_c = float(p.get("Cbcx", 0.0))
+            cache["Ybcx"] = (1.0 / rbcx_c) + 1j * omega * cbcx_c
 

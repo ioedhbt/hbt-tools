@@ -235,7 +235,7 @@ with col_up1:
 with col_up2:
     st.write("")
     st.write("")
-    if st.button("🗑️ 清除所有上傳檔案", use_container_width=True, key="gummel_clear_btn"):
+    if st.button("🗑️ 清除所有上傳檔案", width="stretch", key="gummel_clear_btn"):
         st.session_state["gummel_uploader_key"] += 1
         if "gummel_ms_files" in st.session_state:
             st.session_state["gummel_ms_files"] = []
@@ -324,10 +324,10 @@ with tab1:
 
         c_btn1, c_btn2, _ = st.columns([1.5, 1.5, 7])
         with c_btn1:
-            if st.button("✅ 全部選取", use_container_width=True, key="gummel_sel_all"):
+            if st.button("✅ 全部選取", width="stretch", key="gummel_sel_all"):
                 st.session_state["gummel_ms_files"] = file_options
         with c_btn2:
-            if st.button("❌ 全部清除選取", use_container_width=True, key="gummel_clr_all"):
+            if st.button("❌ 全部清除選取", width="stretch", key="gummel_clr_all"):
                 st.session_state["gummel_ms_files"] = []
 
         selected_files = st.multiselect(
@@ -361,7 +361,7 @@ with tab1:
 
     update_axes(f_cur, "Current (A)", y_scale == "Log")
     f_cur.update_layout(title="Current (Ic & Ib) Overlay")
-    st.plotly_chart(f_cur, use_container_width=True)
+    st.plotly_chart(f_cur, width="stretch")
 
     st.divider()
 
@@ -380,7 +380,7 @@ with tab1:
 
     update_axes(f_beta, "Beta (Linear)", False)
     f_beta.update_layout(title="Current Gain (Beta) Overlay")
-    st.plotly_chart(f_beta, use_container_width=True)
+    st.plotly_chart(f_beta, width="stretch")
 
 with tab2:
     st.markdown("### 🔍 Single Check Calibration (Dual-Axis)")
@@ -437,7 +437,7 @@ with tab2:
                     plot_bgcolor="white", paper_bgcolor="white", height=550, hovermode="x unified",
                     legend=GLOBAL_LEGEND
                 )
-                st.plotly_chart(f_dual, use_container_width=True)
+                st.plotly_chart(f_dual, width="stretch")
 
                 sim_metrics = extract_metrics(d, n_min, n_max, Vt)
                 uiuc_metrics = (
@@ -460,7 +460,7 @@ with tab2:
                 st.markdown("#### 🎯 Calibration Error Table / 對位誤差表")
                 fmt_comp = {"Simulated / 模擬值": "{:.4e}", "UIUC Target / 目標值": "{:.4e}",
                             "Error (%) / 誤差": "{:+.2f}%"}
-                st.dataframe(comp_df.style.format(fmt_comp, na_rep="—"), use_container_width=True, hide_index=True)
+                st.dataframe(comp_df.style.format(fmt_comp, na_rep="—"), width="stretch", hide_index=True)
 
 with tab3:
     st.markdown("### 📋 Summary")
@@ -477,7 +477,7 @@ with tab3:
         sum_df = pd.DataFrame(summary_rows)
         fmt = {"n_Ic": "{:.4f}", "n_Ib": "{:.4f}", "Max Beta": "{:.2f}", "V_peak_beta": "{:.3f}",
                "V_turn_on (@1nA)": "{:.3f}"}
-        st.dataframe(sum_df.style.format(fmt, na_rep="—"), use_container_width=True, hide_index=True)
+        st.dataframe(sum_df.style.format(fmt, na_rep="—"), width="stretch", hide_index=True)
 
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as w:
@@ -489,11 +489,11 @@ with tab3:
             st.download_button("📥 Download Excel Report / 下載完整報告", data=buf.getvalue(),
                                file_name=f"{file_prefix}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               use_container_width=True)
+                               width="stretch")
         with col_d2:
             zbuf = io.BytesIO()
             with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr("Summary.csv", sum_df.to_csv(index=False).encode())
                 for k, d in all_data.items(): zf.writestr(f"{Path(k).stem}.csv", d.to_csv(index=False).encode())
             st.download_button("📦 Download ZIP (CSV) / 下載 CSV 壓縮包", data=zbuf.getvalue(),
-                               file_name=f"{file_prefix}.zip", mime="application/zip", use_container_width=True)
+                               file_name=f"{file_prefix}.zip", mime="application/zip", width="stretch")

@@ -146,4 +146,4 @@ REGISTRY: dict[str, type[AbstractSSMModel]] = {
 
 
 # Default selection shown on first run (can be overridden in ssm_extraction.py)
-DEFAULT_SELECTION: list[str] = ["T", "pi"]
+DEFAULT_SELECTION: list[str] = ["T"]

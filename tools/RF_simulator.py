@@ -32,7 +32,18 @@ from tools.SSM.helpers         import (extended_smith_grid,
                                         write_s2p, simulate_open, simulate_short,
                                         compute_h21_U, find_ft_fmax,
                                         extrap_20dbdec,
-                                        plotly_with_dl, fig_to_excel_bytes)
+                                        plotly_with_dl, fig_to_excel_bytes,
+                                        make_smith_bode_slider_fig)
+
+try:
+    import cupy as _cp
+    _HAS_CUDA = True
+    _v = _cp.cuda.runtime.runtimeGetVersion()
+    _CUDA_VER = f"{_v // 1000}.{(_v % 1000) // 10}"
+except Exception:
+    _cp = None  # type: ignore[assignment]
+    _HAS_CUDA = False
+    _CUDA_VER = ""
 
 _EXCEL_MIME = ("application/vnd.openxmlformats-officedocument."
                "spreadsheetml.sheet")
@@ -177,6 +188,449 @@ def _smith_multiplier_inputs(prefix: str, label: str = "Smith multipliers") -> d
                                      step=0.1, format="%.3f",
                                      key=sk)
     return out
+
+
+def _render_slider_preview(model_cls, all_p, freq, mults, prefix: str,
+                           pad_specs, ext_specs, int_specs):
+    """RF simulator slider preview block — mode-toggled.
+
+    🐢 Live: drag any number of sliders, every tick reruns Streamlit + sim.
+    ⚡ Plotly: pre-compute N frames for one swept param, scrub client-side.
+    """
+    mode_key = f"rfsim_slpreview_mode_{prefix}"
+    mode = st.radio(
+        "Preview mode",
+        options=["🐢 Live (Streamlit rerun per drag)",
+                 "⚡ Plotly slider (pre-computed frames)"],
+        index=0, horizontal=True,
+        key=mode_key,
+        help="Live: drag any number of sliders; every tick reruns Streamlit "
+             "and re-simulates.  Plotly: click Build once, then scrub through "
+             "pre-computed frames entirely client-side (one sweep param at a "
+             "time, but instant per drag).")
+    if mode.startswith("⚡"):
+        _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix,
+                                             pad_specs, ext_specs, int_specs)
+    else:
+        _render_rfsim_live_slider_preview(model_cls, all_p, freq, mults, prefix,
+                                           pad_specs, ext_specs, int_specs)
+
+
+_FRAGMENT = (getattr(st, "fragment", None)
+             or getattr(st, "experimental_fragment", None)
+             or (lambda f: f))
+
+
+def _slider_default_range(current_disp):
+    if abs(current_disp) < 1e-30:
+        return -1.0, 1.0, 0.01
+    lo = current_disp * 0.1 if current_disp > 0 else current_disp * 10
+    hi = current_disp * 10  if current_disp > 0 else current_disp * 0.1
+    d_min, d_max = min(lo, hi), max(lo, hi)
+    d_step = max((d_max - d_min) / 100, 1e-9)
+    return d_min, d_max, d_step
+
+
+@_FRAGMENT
+def _render_rfsim_live_slider_preview(model_cls, all_p, freq, mults, prefix: str,
+                                       pad_specs, ext_specs, int_specs):
+    """Streamlit-rerun-per-drag implementation.
+
+    Layout
+    ------
+    [ multiselect of params                                                  ]
+    [ one column per selected param — slider + delta caption                 ]
+    [ ▼ Slider ranges (min / step / max) expander, each row has 3 columns   ]
+    [ Smith chart  |  fT/fmax bode  (side by side)                          ]
+    [ ✅ Use these values | ↩️ Reset preview                                 ]
+    """
+    cat_of: dict[str, str] = {}
+    for s in pad_specs: cat_of[s[0]] = "pad"
+    for s in ext_specs: cat_of[s[0]] = "ext"
+    for s in int_specs: cat_of[s[0]] = "int"
+    tuning_specs = list(pad_specs) + list(ext_specs) + list(int_specs)
+    label_for = {s[0]: s[1] for s in tuning_specs}
+
+    sel_key  = f"rfsim_slpreview_sel_{prefix}"
+    selected = st.multiselect(
+        "Parameters to slide", options=[s[0] for s in tuning_specs],
+        default=st.session_state.get(sel_key, []),
+        format_func=lambda k: label_for.get(k, k),
+        key=sel_key,
+        help="Pick parameter(s) to drag.  Plots below show the slider-"
+             "substituted model in real time; the main Smith / fT-fmax "
+             "plots above stay frozen until you click ✅ Use these values.")
+
+    selected_specs = [s for s in tuning_specs if s[0] in selected]
+    preview_overrides: dict[str, float] = {}
+
+    for spec in selected_specs:
+        key, _, scale = spec[0], spec[1], spec[2]
+        current_disp  = float(all_p.get(key, 0.0)) * scale
+        kp = f"rfsim_slpreview_{prefix}_{key}"
+        if f"{kp}_min" not in st.session_state:
+            d_min, d_max, d_step = _slider_default_range(current_disp)
+            st.session_state[f"{kp}_min"]  = float(d_min)
+            st.session_state[f"{kp}_max"]  = float(d_max)
+            st.session_state[f"{kp}_step"] = float(d_step)
+        if kp not in st.session_state:
+            st.session_state[kp] = float(current_disp)
+
+    if selected_specs:
+        with st.expander("📏 Slider ranges (min / step / max)", expanded=False):
+            for row_start in range(0, len(selected_specs), 2):
+                row_specs = selected_specs[row_start:row_start + 2]
+                row_cols  = st.columns(len(row_specs))
+                for col_w, spec in zip(row_cols, row_specs):
+                    key, label, scale = spec[0], spec[1], spec[2]
+                    unit = spec[3] if len(spec) > 3 else ""
+                    fmt  = spec[4] if len(spec) > 4 else "%.4g"
+                    kp   = f"rfsim_slpreview_{prefix}_{key}"
+                    with col_w:
+                        st.markdown(f"**{label}** ({unit})" if unit
+                                    else f"**{label}**")
+                        mc = st.columns(3)
+                        mc[0].number_input(f"Min ({unit})" if unit else "Min",
+                                           format=fmt, key=f"{kp}_min")
+                        mc[1].number_input("Step", format=fmt,
+                                           key=f"{kp}_step", min_value=0.0)
+                        mc[2].number_input(f"Max ({unit})" if unit else "Max",
+                                           format=fmt, key=f"{kp}_max")
+
+    if not selected_specs:
+        st.caption("Select one or more parameters above to begin.")
+    else:
+        slider_cols = st.columns(len(selected_specs))
+        for col, spec in zip(slider_cols, selected_specs):
+            key, label, scale = spec[0], spec[1], spec[2]
+            unit = spec[3] if len(spec) > 3 else ""
+            fmt  = spec[4] if len(spec) > 4 else "%.4g"
+            current_disp = float(all_p.get(key, 0.0)) * scale
+            kp = f"rfsim_slpreview_{prefix}_{key}"
+            mn = float(st.session_state[f"{kp}_min"])
+            mx = float(st.session_state[f"{kp}_max"])
+            sp = float(st.session_state[f"{kp}_step"])
+            if mx <= mn:
+                mx = mn + max(sp, abs(mn) * 1e-6 + 1e-9)
+            sp_safe = sp if sp > 0 else max((mx - mn) / 100, 1e-12)
+            cur_v = min(max(float(st.session_state.get(kp, current_disp)),
+                            mn), mx)
+            with col:
+                v = st.slider(f"{label} ({unit})" if unit else label,
+                              min_value=mn, max_value=mx, step=sp_safe,
+                              value=cur_v, format=fmt, key=kp)
+                st.caption(f"main: **{current_disp:.4g}**  →  "
+                           f"preview: **{v:.4g}** {unit}".rstrip())
+            preview_overrides[key] = float(v) / scale
+
+    # ── Preview plots: Smith | Bode side by side ──────────────────────
+    all_p_prev = dict(all_p)
+    all_p_prev.update(preview_overrides)
+    try:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            S_prev = model_cls.simulate(all_p_prev, freq)
+    except Exception as e:
+        st.error(f"Preview simulation failed: {e}")
+        S_prev = None
+    if S_prev is not None and not np.all(np.isfinite(S_prev)):
+        st.warning("Preview S-parameters contain non-finite values — "
+                   "adjust slider ranges.")
+        S_prev = None
+    if S_prev is not None:
+        col_s, col_b = st.columns([1.05, 1])
+        with col_s:
+            st.markdown("**Preview Smith chart**")
+            st.plotly_chart(_build_smith(S_prev, freq, mults, model_cls.NAME),
+                            width="stretch",
+                            key=f"rfsim_slpreview_smith_{prefix}")
+        with col_b:
+            st.markdown("**Preview fT / fmax**")
+            st.plotly_chart(_build_bode(S_prev, freq, model_cls.NAME),
+                            width="stretch",
+                            key=f"rfsim_slpreview_bode_{prefix}")
+
+    bc1, bc2 = st.columns(2)
+    commit_clicked = bc1.button(
+        "✅ Use these values",
+        key=f"rfsim_slpreview_commit_{prefix}",
+        disabled=(len(preview_overrides) == 0),
+        help="Copy slider values into the fine-tune number_inputs above.",
+        width="stretch")
+    reset_clicked = bc2.button(
+        "↩️ Reset preview",
+        key=f"rfsim_slpreview_reset_{prefix}",
+        help="Discard slider drags and clear remembered min/step/max.",
+        width="stretch")
+
+    if commit_clicked:
+        for k, v_si in preview_overrides.items():
+            sc  = next(s[2] for s in tuning_specs if s[0] == k)
+            cat = cat_of.get(k)
+            if cat is None:
+                continue
+            st.session_state[f"rfsim_{prefix}_{cat}_{k}"] = float(v_si) * sc
+        st.rerun()
+
+    if reset_clicked:
+        for s in tuning_specs:
+            kp = f"rfsim_slpreview_{prefix}_{s[0]}"
+            for suf in ("", "_min", "_step", "_max"):
+                st.session_state.pop(kp + suf, None)
+        st.rerun()
+
+
+@_FRAGMENT
+def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
+                                         pad_specs, ext_specs, int_specs):
+    """Pre-computed Plotly slider — joint (cartesian) multi-param scan.
+
+    Same UX as the SSM version: each selected param gets its own slider,
+    frames are the full cartesian product, JS coordinates the sliders so
+    dragging one reflects the *current position* of all the others.
+    """
+    from tools.SSM.helpers import make_smith_bode_joint_slider_html
+
+    tuning_specs = list(pad_specs) + list(ext_specs) + list(int_specs)
+    label_for = {s[0]: s[1] for s in tuning_specs}
+    options   = [s[0] for s in tuning_specs]
+
+    sel_key  = f"rfsim_slprev_pl_sel_{prefix}"
+    selected = st.multiselect(
+        "Sweep parameters",
+        options=options,
+        default=st.session_state.get(sel_key, [options[0]] if options else []),
+        format_func=lambda k: label_for.get(k, k),
+        key=sel_key,
+        help="Each selected param gets its own Plotly slider in the figure. "
+             "Frames are the FULL cartesian product — dragging one slider "
+             "reflects the model at the current position of every other "
+             "slider.")
+
+    selected_specs = [s for s in tuning_specs if s[0] in selected]
+    if not selected_specs:
+        st.caption("Select one or more parameters above and click "
+                   "**🧮 Build animation**.")
+        return
+
+    for spec in selected_specs:
+        key, _, scale = spec[0], spec[1], spec[2]
+        current_disp  = float(all_p.get(key, 0.0)) * scale
+        kp = f"rfsim_slprev_pl_{prefix}_{key}"
+        if f"{kp}_min" not in st.session_state:
+            d_min, d_max, _ = _slider_default_range(current_disp)
+            st.session_state[f"{kp}_min"]    = float(d_min)
+            st.session_state[f"{kp}_max"]    = float(d_max)
+            st.session_state[f"{kp}_frames"] = 11
+
+    with st.expander("📏 Slider ranges (min / max / frames)", expanded=False):
+        for row_start in range(0, len(selected_specs), 2):
+            row_specs = selected_specs[row_start:row_start + 2]
+            row_cols  = st.columns(len(row_specs))
+            for col_w, spec in zip(row_cols, row_specs):
+                key, label, scale = spec[0], spec[1], spec[2]
+                unit = spec[3] if len(spec) > 3 else ""
+                fmt  = spec[4] if len(spec) > 4 else "%.4g"
+                kp   = f"rfsim_slprev_pl_{prefix}_{key}"
+                with col_w:
+                    st.markdown(f"**{label}** ({unit})" if unit
+                                else f"**{label}**")
+                    mmf = st.columns(3)
+                    mmf[0].number_input(f"Min ({unit})" if unit else "Min",
+                                        format=fmt, key=f"{kp}_min")
+                    mmf[1].number_input(f"Max ({unit})" if unit else "Max",
+                                        format=fmt, key=f"{kp}_max")
+                    mmf[2].number_input("Frames", min_value=2, max_value=100,
+                                        step=1, key=f"{kp}_frames",
+                                        help="Frames per axis (2–100). "
+                                             "Total = product across params.")
+
+    n_freq_full = int(len(freq))
+    decim_key   = f"rfsim_slprev_pl_decim_{prefix}"
+    if decim_key not in st.session_state:
+        st.session_state[decim_key] = min(120, n_freq_full)
+
+    dims_preview = []
+    for spec in selected_specs:
+        kp = f"rfsim_slprev_pl_{prefix}_{spec[0]}"
+        dims_preview.append(int(st.session_state.get(f"{kp}_frames", 11)))
+    total_frames = int(np.prod(dims_preview)) if dims_preview else 0
+
+    decim_n = int(st.session_state.get(decim_key, min(120, n_freq_full)))
+    decim_n = min(decim_n, n_freq_full)
+    est_mb  = total_frames * decim_n * 10 * 7 / 1024 / 1024
+
+    fd_col1, fd_col2 = st.columns([1, 2])
+    with fd_col1:
+        st.number_input(f"Freq points (max: {n_freq_full})",
+                        min_value=20, max_value=n_freq_full, step=10,
+                        key=decim_key,
+                        help=f"Frequency points kept per trace "
+                             f"(max = {n_freq_full} = full fidelity).")
+    with fd_col2:
+        st.caption("Cartesian sweep: "
+                   + " × ".join(str(d) for d in dims_preview)
+                   + f" = **{total_frames}** frames · {decim_n} freq pts · "
+                   f"estimated payload ≈ **{est_mb:.0f} MB**")
+    sc_key = f"rfsim_slprev_pl_servercached_{prefix}"
+    server_cached = st.checkbox(
+        "📡 Server-cached mode (Streamlit sliders, unlimited sweep size, "
+        "slower drag)",
+        value=st.session_state.get(sc_key, False), key=sc_key,
+        help="OFF: embed all frames in the browser (fast scrub, capped by "
+             "Streamlit's 200 MB message limit).  ON: pre-computed frames "
+             "stay in server RAM and only the current frame is sent per "
+             "slider tick (~100-300 ms per drag, no size limit).")
+    if server_cached:
+        ram_mb = total_frames * n_freq_full * 8 * 4 / 1024 / 1024
+        st.caption(f"Server RAM estimate (complex64, full-fidelity batch): "
+                   f"≈ **{ram_mb:.0f} MB** in session_state.")
+        if ram_mb > 8000:
+            st.warning(f"⚠️ ~{ram_mb/1024:.1f} GB server-side may OOM on "
+                       "modest machines.  Reduce per-axis frame counts.")
+    else:
+        if est_mb > 180:
+            st.error(
+                f"❌ Estimated payload ≈ {est_mb:.0f} MB will exceed "
+                "Streamlit's 200 MB browser-message limit.  Enable "
+                "**📡 Server-cached mode**, lower the **Freq points** "
+                "value, reduce per-axis frame counts, or raise the limit "
+                "via `.streamlit/config.toml` → "
+                "`[server] maxMessageSize = 500`.")
+        elif est_mb > 120:
+            st.warning(f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
+                       "to Streamlit's 200 MB limit.")
+        elif total_frames > 2000:
+            st.warning(f"⚠️ {total_frames} frames may stutter on "
+                       "slider drag.")
+
+    cuda_toggle_key = f"rfsim_slprev_pl_cuda_{prefix}"
+    if _HAS_CUDA:
+        cuda_col, btn_col = st.columns([1.6, 1])
+        with cuda_col:
+            use_cuda = st.checkbox(f"⚡ Use CUDA (cupy {_CUDA_VER}) for "
+                                    "batched simulation",
+                                    value=st.session_state.get(cuda_toggle_key, True),
+                                    key=cuda_toggle_key,
+                                    help="Off-load joint cartesian batched "
+                                         "simulation to GPU.  Result is "
+                                         "brought back to host as fp64.")
+        with btn_col:
+            build_clicked = st.button("🧮 Build animation",
+                                      key=f"rfsim_slprev_pl_build_{prefix}",
+                                      width="stretch",
+                                      help="Pre-compute the cartesian joint "
+                                           "sweep and embed with JS-"
+                                           "coordinated multi-sliders.")
+    else:
+        use_cuda = False
+        build_clicked = st.button("🧮 Build animation",
+                                  key=f"rfsim_slprev_pl_build_{prefix}",
+                                  width="stretch",
+                                  help="Pre-compute the cartesian joint "
+                                       "sweep and embed with JS-coordinated "
+                                       "multi-sliders.")
+
+    state_key = f"rfsim_slprev_pl_state_{prefix}"
+
+    if build_clicked:
+        import time as _time
+        xp = _cp if (use_cuda and _HAS_CUDA) else np
+        device_label = (f"GPU (cupy {_CUDA_VER})"
+                        if xp is not np else "CPU (numpy)")
+        sweep_disps : list[np.ndarray] = []
+        sweep_sis   : list[np.ndarray] = []
+        slider_specs_out: list[dict] = []
+        for spec in selected_specs:
+            key, label, scale = spec[0], spec[1], spec[2]
+            unit = spec[3] if len(spec) > 3 else ""
+            fmt  = spec[4] if len(spec) > 4 else "%.4g"
+            kp   = f"rfsim_slprev_pl_{prefix}_{key}"
+            mn = float(st.session_state[f"{kp}_min"])
+            mx = float(st.session_state[f"{kp}_max"])
+            nf = int(st.session_state[f"{kp}_frames"])
+            if mx <= mn:
+                mx = mn + abs(mn) * 1e-6 + 1e-9
+            sd = np.linspace(mn, mx, nf)
+            sweep_disps.append(sd)
+            sweep_sis.append(sd / scale)
+            slider_specs_out.append(dict(
+                label=label, unit=unit, fmt=fmt,
+                values_disp=sd.tolist()))
+        meshes = np.meshgrid(*sweep_sis, indexing="ij")
+        flats  = [m.ravel() for m in meshes]
+        n_total = int(flats[0].size) if flats else 0
+
+        from tools.SSM.models.base_ui import _chunked_simulate_batch_to_host
+        t0 = _time.perf_counter()
+        with st.spinner(f"Computing {n_total} frames on {device_label}…"):
+            p_batch = dict(all_p)
+            for spec, flat in zip(selected_specs, flats):
+                p_batch[spec[0]] = xp.asarray(flat, dtype=float)
+            try:
+                S_b = _chunked_simulate_batch_to_host(
+                    model_cls, p_batch, freq, 50.0, xp=xp)
+            except Exception as e:
+                st.error(f"Batched preview simulation failed: {e}")
+                return
+        elapsed = _time.perf_counter() - t0
+
+        if not np.all(np.isfinite(S_b)):
+            st.warning("Some frames contain non-finite S-parameters — "
+                       "narrow the ranges to avoid singular combinations.")
+
+        st.session_state[state_key] = {
+            "slider_specs":  slider_specs_out,
+            "S_batch":       S_b,
+            "selected_keys": [s[0] for s in selected_specs],
+            "elapsed_s":     elapsed,
+            "device":        device_label,
+            "n_total":       n_total,
+        }
+
+    state = st.session_state.get(state_key)
+    if state is None:
+        st.info("Click **🧮 Build animation** to compute frames for the "
+                "Plotly slider(s).")
+        return
+
+    cached_keys  = state.get("selected_keys", [])
+    current_keys = [s[0] for s in selected_specs]
+    if cached_keys != current_keys:
+        st.warning("Selection changed since last build "
+                   f"(cached: {cached_keys}, current: {current_keys}).  "
+                   "Click **🧮 Build animation** to refresh.")
+        return
+
+    elapsed = float(state.get("elapsed_s", 0.0))
+    n_total = int(state.get("n_total", 0)) or len(state["S_batch"])
+    device  = str(state.get("device", "?"))
+    ms_each = (elapsed / max(1, n_total)) * 1000.0
+    st.caption(f"✅ Built **{n_total}** frames on **{device}** in "
+               f"**{elapsed:.2f} s** ({ms_each:.1f} ms/frame).  "
+               "Drag any slider below to scrub the joint sweep.")
+
+    if server_cached:
+        from tools.SSM.models.base_ui import _render_plotly_server_cached_view
+        _render_plotly_server_cached_view(
+            state, None, freq, model_cls, "rfsim", prefix,
+            decim_n_max=int(st.session_state.get(decim_key, 120)))
+    else:
+        html = make_smith_bode_joint_slider_html(
+            S_batch_joint=state["S_batch"],
+            freq=freq,
+            slider_specs=state["slider_specs"],
+            model_name=model_cls.NAME,
+            S_meas=None,
+            decimate_points=int(st.session_state.get(decim_key, 120)),
+        )
+        n_sl = len(state["slider_specs"])
+        iframe_height = 500 + 26 + 36 * n_sl + 30
+        # st.iframe replaced components.v1.html (deprecated 2026-06-01).
+        # When src is a raw HTML string (no http(s) / file / Path prefix)
+        # Streamlit embeds it directly in an iframe — same behaviour as
+        # the old components.html call.  No `scrolling` parameter; the
+        # `height=` integer is interpreted in pixels just like before.
+        st.iframe(html, height=iframe_height)
 
 
 def _build_bode(S, freq_hz, title: str):
@@ -436,19 +890,34 @@ else:
                        key=f"rfsim_bode_{prefix}",
                        filename=f"rfsim_bode_{prefix}")
 
-    with st.expander("🖼️ Topology Illustration", expanded=False):
-        try:
-            if model_cls is XuModel:
-                _render_xu_illustration(p, f"rfsim_{prefix}")
-            else:
-                _render_topology_illustration(p, topo_char, f"rfsim_{prefix}")
-        except Exception as e:
-            st.warning(f"Topology illustration unavailable: {e}")
+    col_left, col_right = st.columns(2)
+    from tools.SSM.ssm_plots import (render_matplotlib_smith_controls,
+                                      render_matplotlib_smith_chart)
+    with col_right:
+        with st.expander("📐 Smith Chart Controls", expanded=False):
+            render_matplotlib_smith_controls(
+                fname=f"rfsim_{prefix}", topo_key=topo_char,
+                sets=[{"S": S_sim, "label": "Simulated",
+                       "kind": "line", "style": "solid"}],
+                default_multiplier=mults,
+            )
+    with col_left:
+        with st.expander("🖼️ Topology / Smith Chart", expanded=False):
+            try:
+                if model_cls is XuModel:
+                    _render_xu_illustration(p, f"rfsim_{prefix}")
+                else:
+                    _render_topology_illustration(p, topo_char,
+                                                   f"rfsim_{prefix}")
+            except Exception as e:
+                st.warning(f"Topology illustration unavailable: {e}")
+            render_matplotlib_smith_chart(
+                fname=f"rfsim_{prefix}", topo_key=topo_char,
+                sets=[{"S": S_sim, "label": "Simulated",
+                       "kind": "line", "style": "solid"}],
+                default_multiplier=mults,
+            )
 
-    with st.expander("📐 Plot Smith chart with matplotlib", expanded=False):
-        render_matplotlib_smith(
-            fname=f"rfsim_{prefix}", topo_key=topo_char,
-            sets=[{"S": S_sim, "label": "Simulated",
-                   "kind": "line", "style": "solid"}],
-            default_multiplier=mults,
-        )
+    with st.expander("🔧 Tuning — Interactive slider preview", expanded=False):
+        _render_slider_preview(model_cls, p, freq, mults, prefix,
+                                _pad_specs_for_model, ext_specs, int_specs)

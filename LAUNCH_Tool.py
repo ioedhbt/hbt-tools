@@ -12,6 +12,7 @@ CuPy (CUDA GPU acceleration) is installed automatically when a compatible
 NVIDIA GPU and CUDA 12 or 13 toolkit are detected.
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -219,6 +220,74 @@ def main():
         else:
             print("All required packages are present.")
 
+    # ── Rust acceleration status (informational only — never a blocker) ────────
+    # Check whether the compiled hbt_rust_kernels extension is committed for
+    # this OS+arch.  No pip install or rust toolchain is queried; we just
+    # look for the binary on disk in tools/SSM/rust_kernels/bin/<arch>/.
+    import platform as _platform
+    _arch_machine = (_platform.machine() or "unknown").lower()
+    if _win:
+        _arch_dir = f"win_{_arch_machine}"
+    elif sys.platform == "darwin":
+        _arch_dir = f"macosx_{_arch_machine}"
+    else:
+        _arch_dir = f"linux_{_arch_machine}"
+    _rust_bin_dir = (ROOT / "tools" / "SSM" / "rust_kernels" / "bin"
+                     / _arch_dir)
+    def _has_active_binary(_dir):
+        # Same filter as check_rust_status.py: ignore .old-<ts>.<ext>
+        # files that the build script leaves behind when a previously-
+        # loaded .pyd couldn't be deleted in place.
+        if not _dir.is_dir():
+            return False
+        for pat in ("hbt_rust_kernels*.pyd",
+                    "hbt_rust_kernels*.so",
+                    "hbt_rust_kernels*.dylib"):
+            for f in _dir.glob(pat):
+                if ".old-" not in f.name:
+                    return True
+        return False
+
+    _rust_binary = _has_active_binary(_rust_bin_dir)
+    # Auto-build path — only triggers on the local launcher.  Streamlit
+    # Cloud doesn't run this script, so the user keeps full control
+    # over Linux builds (build locally on a WSL/Docker box and commit
+    # the .so).
+    if not _rust_binary:
+        # Probe for cargo (Rust compiler) without crashing on missing.
+        _cargo_ok = False
+        try:
+            _r = subprocess.run(
+                ["cargo", "--version"],
+                capture_output=True, text=True, timeout=10)
+            _cargo_ok = (_r.returncode == 0)
+        except (FileNotFoundError, subprocess.CalledProcessError,
+                subprocess.TimeoutExpired):
+            _cargo_ok = False
+
+        if _cargo_ok:
+            print(f"Rust toolchain detected; building hbt_rust_kernels "
+                  f"for {_arch_dir} (one-time, ~30 s)…")
+            try:
+                run([sys.executable,
+                     str(ROOT / "build_rust_kernels.py")])
+                _rust_binary = _has_active_binary(_rust_bin_dir)
+            except subprocess.CalledProcessError as e:
+                print(f"  Build failed ({e}).  Continuing with "
+                      "NumPy fallback — the tool still works, "
+                      "just without the ~25× sweep speedup.")
+                _rust_binary = False
+
+    if _rust_binary:
+        print(f"Rust acceleration: ENABLED ({_arch_dir} binary present).")
+        print("  HBT_USE_RUST_SIM_BATCH auto-set for this session "
+              "(unset HBT_USE_RUST_SIM_BATCH=0 to force NumPy).")
+    else:
+        print(f"Rust acceleration: not available for {_arch_dir} — "
+              "NumPy fallback active.")
+        print("  (To enable: install rustup from https://rustup.rs/ "
+              "then re-run this launcher; the binary is auto-built.)")
+
     # ── Launch the app ────────────────────────────────────────────────────────
     print()
     print("=" * 50)
@@ -227,8 +296,16 @@ def main():
     print("=" * 50)
     print()
 
+    # Hand a local-launch flag to the Streamlit subprocess so
+    # IOED_Tool_Web.py skips its password gate (the gate is preserved
+    # for Streamlit Cloud / public deployments, which don't go through
+    # this launcher).
+    _child_env = dict(os.environ)
+    _child_env["HBT_LOCAL_LAUNCH"] = "1"
     try:
-        run([str(VENV_STREAMLIT), "run", str(APP_FILE)])
+        subprocess.check_call(
+            [str(VENV_STREAMLIT), "run", str(APP_FILE)],
+            env=_child_env)
     except KeyboardInterrupt:
         print("\nServer shut down cleanly.")
 

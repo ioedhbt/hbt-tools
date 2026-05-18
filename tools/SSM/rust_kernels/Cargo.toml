@@ -1,0 +1,33 @@
+[package]
+name        = "hbt_rust_kernels"
+version     = "0.1.0"
+edition     = "2021"
+description = "SIMD/Rayon-accelerated CPU kernels for HBT SSM hot paths"
+license     = "MIT"
+
+[lib]
+name       = "hbt_rust_kernels"
+# Build a cdylib so maturin can produce a Python extension module
+# (.pyd on Windows / .so on Linux/macOS).
+crate-type = ["cdylib"]
+
+[dependencies]
+# abi3-py39 — produce a SINGLE binary compatible with every Python ≥ 3.9.
+# This lets us commit one .pyd / .so per OS+arch and have it work in any
+# venv the user spins up (LAUNCH_Tool's .hbttools, Streamlit Cloud's
+# managed env, etc.) without rebuilding per interpreter version.
+pyo3        = { version = "0.22", features = ["extension-module", "abi3-py39"] }
+numpy       = "0.22"
+ndarray     = { version = "0.16", features = ["rayon"] }
+num-complex = "0.4"
+rayon       = "1.10"
+
+[profile.release]
+# Aggressive release tuning — this crate is hot path code; binary size
+# is irrelevant.  LTO + single codegen unit lets rustc inline across the
+# whole crate (≈ 5–10 % wins for the 2×2 inner loops).
+opt-level        = 3
+lto              = "fat"
+codegen-units    = 1
+debug            = false
+panic            = "abort"

@@ -25,7 +25,11 @@ from .helpers          import (strict_freq_check, s_to_y,
                                 parse_s2p_bytes, interpolate_s2f,
                                 write_s2p, simulate_open, simulate_short,
                                 plotly_with_dl,
-                                quickset_buttons, apply_pending)
+                                quickset_buttons, apply_pending,
+                                info_icon_html,
+                                load_cache, cache_path_str, list_fits,
+                                export_cache_bytes, import_cache_bytes,
+                                delete_fit)
 from .ssm_access_resistance  import (_render_cold_hbt,
                                 render_rz12_section,
                                 render_open_collector_section)
@@ -134,9 +138,11 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     with st.expander("🖼️ Illustration", expanded=False):
         st.image(image="tools/SSM/de_embedding_illus.png")
 
-    col_nl, _ = st.columns([1, 3])
-    n_low = col_nl.slider("Model low-freq pts", 3, 40, 10, key=f"nlow_{fname}",
-                           help="Low-frequency points for Step 2/3 model extractions.")
+    # Default low-freq fit width for Step 2/3 extractions.  Used to be a
+    # user-facing slider ("Model low-freq pts") but nobody touched it in
+    # practice; 10 is the sweet spot for typical 100 MHz – 110 GHz sweeps.
+    # If a future user wants to tweak it, restore the slider here.
+    n_low = 10
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 1 — Pad capacitance and series inductance
@@ -154,9 +160,10 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         st.markdown(
             "<div style='background:linear-gradient(90deg,#eef0f8 0%,transparent 100%);"
             "border-left:4px solid #3d52a0;padding:8px 14px;border-radius:0 6px 6px 0;"
-            "margin-bottom:2px'><strong>📌 Open Dummy: Pad Capacitances</strong></div>",
+            "margin-bottom:2px'><strong>📌 Open Dummy: Pad Capacitances</strong>"
+            f"{info_icon_html('Gao [3] §4.2. Used to extract pad parasitic capacitances from open dummy. Bias-independent.')}"
+            "</div>",
             unsafe_allow_html=True)
-        st.caption("Gao [3] §4.2.  Used to extract pad parasitic capacitances from open dummy. Bias-independent.")
         # Formulas — shown here, implementation is in ssm_deembedding.step_open
         c1, c2, c3 = st.columns(3)
         with c1: st.latex(r"C_{pbe}=\mathrm{Im}(Y_{11}^{open}+Y_{12}^{open})/\omega")
@@ -249,9 +256,10 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         st.markdown(
             "<div style='background:linear-gradient(90deg,#eef0f8 0%,transparent 100%);"
             "border-left:4px solid #3d52a0;padding:8px 14px;border-radius:0 6px 6px 0;"
-            "margin-bottom:2px'><strong>📌 Short Dummy: Lead Inductances &amp; Series Resistances</strong></div>",
+            "margin-bottom:2px'><strong>📌 Short Dummy: Lead Inductances &amp; Series Resistances</strong>"
+            f"{info_icon_html('Gao [3] §4.2. Used to extract lead inductances and series resistance. However, series resistance is more accurately modeled by other methods (Cold, Z-parameter, open-collector).')}"
+            "</div>",
             unsafe_allow_html=True)
-        st.caption("Gao [3] §4.2. Used to extract lead inductances and series resistance. However, series resistance is more accurately modeled by other methods (Cold, Z-parameter, open-collector).")
         col_m2, _ = st.columns([1, 1])
         if has_open:
             open_sel    = col_m2.radio("Use open from:", ["measured","modelled"],
@@ -499,61 +507,96 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
 
     extract_results: dict[str, tuple] = {}   # short → (params, arrays)
 
+    from .helpers.fit_cache import get_fit as _get_fit
+    from .helpers.fit_cache import get_fit_timestamp as _get_fit_ts
+
     for i, short in enumerate(selected_models):
         ModelClass = REGISTRY[short]
         if i > 0:
             st.divider()
         st.markdown(f"#### {ModelClass.NAME}")
 
-        # Show formulas then run extraction (co-located)
+        # ── Cache-first flow ─────────────────────────────────────────────
+        # If a cached fit exists for (file, model) and the user hasn't
+        # asked to "Re-extract" this session, SKIP the extraction +
+        # interactive section entirely.  The fine-tune section below will
+        # then see calc_vals == cached values (no sync overwrite), which
+        # is the reliable way to keep the cache visible in the UI.
+        cached_fit    = _get_fit(fname, short)
+        cached_ts     = _get_fit_ts(fname, short)
+        reextract_key = f"reextract_session_{short}_{fname}"
+        use_cache     = (cached_fit is not None
+                         and not st.session_state.get(reextract_key, False))
+
         ModelClass.render_step_formulas()
-        params, arrays = ModelClass.extract(Y_ex1, freq, n_low)
 
-        # Rbe override from Z-param method (if available)
-        if rz12_Rbe is not None and "Rbe" in params:
-            params["Rbe"] = rz12_Rbe
-            st.info(f"Rbe overridden from Re(Z₁₂): **{rz12_Rbe:.4f} Ω**")
+        if use_cache:
+            col_msg, col_btn = st.columns([3, 1])
+            col_msg.success(f"📌 Using cached fit (saved {cached_ts}). "
+                            "Extraction + interactive section skipped — "
+                            "values come straight from the cache.  Edit "
+                            "them in the fine-tune section below to update "
+                            "the cache.")
+            if col_btn.button("🔄 Re-extract",
+                              key=f"reextract_btn_{short}_{fname}",
+                              width="stretch",
+                              help="Run extraction and interactive section "
+                                   "for this session.  The on-disk cache "
+                                   "stays put and will reload next time the "
+                                   "file is opened."):
+                st.session_state[reextract_key] = True
+                st.rerun()
+            # Pad keys are owned by Step 1's para_eff — never let a cached
+            # pad value (which may legitimately be zero or be stale from a
+            # previous-session Step 1 extraction) override the LIVE pad
+            # values that flow through render_override_and_smith.  See
+            # also the matching `_PAD_KEYS` exclusion in the cache restore
+            # and the auto-save block in base_ui.py.
+            from .models.base_ui import _PAD_KEYS as _PAD_KEYS_FILTER
+            params = {k: float(v) for k, v in cached_fit.items()
+                      if isinstance(v, (int, float))
+                      and k not in _PAD_KEYS_FILTER}
+            arrays = {}
+        else:
+            params, arrays = ModelClass.extract(Y_ex1, freq, n_low)
 
-        # Interactive parameter-vs-frequency plots — slider updates medians, inputs allow override
-        # Runs BEFORE the table so the table reflects the current overridden values
-        if hasattr(ModelClass, "PARAM_GROUPS"):
-            _reextract_fn = None
-            if hasattr(ModelClass, "reextract"):
-                def _make_fn(_cls, _Y, _f, _n):
-                    def _fn(curr_params, changed_group_idx, curr_arrays):
-                        return _cls.reextract(_Y, _f, _n,
-                                              curr_params, changed_group_idx, curr_arrays)
-                    return _fn
-                _reextract_fn = _make_fn(ModelClass, Y_ex1, freq, n_low)
-            _cbex_sweep_fn = None
-            if hasattr(ModelClass, "sweep_cbex"):
-                def _make_sweep_fn(_cls, _Y, _f):
-                    def _fn(cbex_SI_array, mask):
-                        return _cls.sweep_cbex(_Y, _f, cbex_SI_array, mask)
-                    return _fn
-                _cbex_sweep_fn = _make_sweep_fn(ModelClass, Y_ex1, freq)
-            _cold_map = {
-                "Cbex": "Cex_cold",
-                "Rbi":  "Rbi_cold",
-                "Cbc":  "Cbc_cold",
-                "Cbe":  "Cbe_cold",
-            } if cold_res is not None else None
-            params = render_interactive_param_groups(
-                params, arrays, freq, fname, short, ModelClass.PARAM_GROUPS,
-                cold_res=cold_res, cold_param_map=_cold_map,
-                reextract_fn=_reextract_fn,
-                cbex_sweep_fn=_cbex_sweep_fn)
-            # st.write("DEBUG params after interactive:", {k: v for k, v in params.items() if k in ["Rbi","Rbe","Cbe","Rbc","Cbc","alpha0","tauB","tauC"]})
+            # Rbe override from Z-param method (if available)
+            if rz12_Rbe is not None and "Rbe" in params:
+                params["Rbe"] = rz12_Rbe
+                st.info(f"Rbe overridden from Re(Z₁₂): **{rz12_Rbe:.4f} Ω**")
 
-        # Results table — shows values after interactive slider/override
+            # Interactive parameter-vs-frequency plots — slider updates
+            # medians, inputs allow override.  Runs BEFORE the table so
+            # the table reflects current overridden values.
+            if hasattr(ModelClass, "PARAM_GROUPS"):
+                _reextract_fn = None
+                if hasattr(ModelClass, "reextract"):
+                    def _make_fn(_cls, _Y, _f, _n):
+                        def _fn(curr_params, changed_group_idx, curr_arrays):
+                            return _cls.reextract(_Y, _f, _n,
+                                                  curr_params, changed_group_idx, curr_arrays)
+                        return _fn
+                    _reextract_fn = _make_fn(ModelClass, Y_ex1, freq, n_low)
+                _cbex_sweep_fn = None
+                if hasattr(ModelClass, "sweep_cbex"):
+                    def _make_sweep_fn(_cls, _Y, _f):
+                        def _fn(cbex_SI_array, mask):
+                            return _cls.sweep_cbex(_Y, _f, cbex_SI_array, mask)
+                        return _fn
+                    _cbex_sweep_fn = _make_sweep_fn(ModelClass, Y_ex1, freq)
+                _cold_map = {
+                    "Cbex": "Cex_cold",
+                    "Rbi":  "Rbi_cold",
+                    "Cbc":  "Cbc_cold",
+                    "Cbe":  "Cbe_cold",
+                } if cold_res is not None else None
+                params = render_interactive_param_groups(
+                    params, arrays, freq, fname, short, ModelClass.PARAM_GROUPS,
+                    cold_res=cold_res, cold_param_map=_cold_map,
+                    reextract_fn=_reextract_fn,
+                    cbex_sweep_fn=_cbex_sweep_fn)
+
         ModelClass.render_results_table(params)
-
-        # Degachi-specific diagnostic plots
-        # if hasattr(ModelClass, "render_diagnostic_plots"):
-        #     ModelClass.render_diagnostic_plots(params, arrays, freq, fname)
-
-
-        # Full formula trace (collapsible)
         ModelClass.render_formula_trace()
 
         extract_results[short] = (params, arrays)
@@ -607,6 +650,9 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
 
     # ── Parameter summary table ───────────────────────────────────────────────
     _render_summary_table(fname, para_eff, cold_res, extract_results, REGISTRY)
+
+    # ── Persistent fit cache (export / import / inspect) ──────────────────────
+    _render_fit_cache_panel(fname)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -747,3 +793,71 @@ def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
         st.download_button("📥 Download SSM parameters (CSV)", data=buf.getvalue(),
             file_name=f"SSM_{Path(fname).stem}.csv", mime="text/csv",
             key=f"dl_ssm_{fname}")
+
+
+def _render_fit_cache_panel(fname):
+    """Persistent fit-cache UI: inspect entries for this file, export the
+    whole cache as JSON, or import a JSON cache snapshot (e.g. to carry
+    fits from a local install onto the Streamlit Cloud version)."""
+    with st.expander("💾 Fit cache (persists fine-tuned values across sessions)",
+                     expanded=False):
+        _dut_stem = Path(fname).stem
+        st.caption(
+            f"Stored under: `{cache_path_str()}` → "
+            f"`fits/{_dut_stem}/{_dut_stem}_<model>.json`. "
+            "Set `HBT_FIT_CACHE_DIR` to override. "
+            "Each (file, model) pair is one isolated JSON file — a corrupt or "
+            "all-zero save for one model can no longer overwrite a sibling.  "
+            "Fine-tuned values auto-save here and auto-restore on next open.")
+
+        # ── Per-file inspector ──────────────────────────────────────────────
+        fits = list_fits(fname)
+        if fits:
+            st.markdown(f"**Cached fits for `{Path(fname).name}`:**")
+            for short, ts in sorted(fits.items()):
+                row1, row2 = st.columns([5, 1])
+                row1.text(f"• {short} — saved {ts}  "
+                          f"({_dut_stem}_{short}.json)")
+                if row2.button("🗑️ Delete", key=f"cache_del_{short}_{fname}"):
+                    delete_fit(fname, short)
+                    st.session_state.pop(f"cache_applied_{short}_{fname}",   None)
+                    st.session_state.pop(f"cache_dismissed_{short}_{fname}", None)
+                    st.rerun()
+        else:
+            st.caption(f"No cached fits for `{Path(fname).name}` yet — "
+                       "fine-tune any model parameter and it'll be saved here.")
+
+        # ── Global export / import ──────────────────────────────────────────
+        st.divider()
+        st.markdown("**Whole-cache export / import** "
+                    "*(useful for syncing local ↔ Streamlit Cloud, "
+                    "or backing up before a config change)*")
+
+        try:
+            n_files = len(load_cache())
+        except Exception:
+            n_files = 0
+
+        col_x, col_i = st.columns(2)
+        col_x.download_button(
+            f"📤 Export cache ({n_files} file{'s' if n_files != 1 else ''})",
+            data=export_cache_bytes(),
+            file_name="hbt_fit_cache.json", mime="application/json",
+            key=f"cache_export_{fname}", width="stretch",
+            disabled=(n_files == 0))
+
+        uploaded = col_i.file_uploader(
+            "📥 Import cache (.json)", type=["json"],
+            key=f"cache_import_{fname}",
+            label_visibility="collapsed")
+        if uploaded is not None:
+            apply_key = f"cache_imp_applied_{uploaded.name}_{uploaded.size}_{fname}"
+            if not st.session_state.get(apply_key):
+                try:
+                    n_f, n_fit = import_cache_bytes(uploaded.getvalue(),
+                                                     merge=True)
+                    st.success(f"Imported {n_fit} fit(s) across {n_f} file(s) "
+                               "(merged into existing cache).")
+                    st.session_state[apply_key] = True
+                except ValueError as e:
+                    st.error(str(e))

@@ -13,7 +13,7 @@ which is then called once inside the "SSM Extraction" sub-tab.
 Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
 repo root.
 """
-__version__ = "5.0"
+__version__ = "6.0"
 
 import io, re, zipfile
 from pathlib import Path
@@ -45,10 +45,27 @@ st.title(f"📡 IOED HBT RF Extraction Tool (v{__version__})")
 
 with st.expander(f"What's new in v{__version__}", expanded=False):
     st.markdown(
-        "- Refactored SSM into an OOP class hierarchy (`SSMModelTemplate` parent "
-        "in `base_ui.py` with concrete `ChengT`, `ChengPi`, `XuModel` subclasses)\n"
-        "- Added Xu's forward simulation\n"
-        "- Added more Smith chart plot options\n\n"
+        "- 🦀 **Rust acceleration**: native CPU kernels for batched SSM "
+        "sweeps (~25× faster Auto Tuning); auto-built by the launcher, "
+        "with backend status chips on Visual & Auto Tuning\n"
+        "- 🎚️ **Visual Tuning with live sliders** (new section): "
+        "drag-to-see preview with two modes — 🐢 Live (Streamlit "
+        "rerun per drag, multi-param) and ⚡ Plotly slider "
+        "(pre-computed frames, instant client-side scrub); "
+        "side-by-side Smith + Bode preview, sticky right column, "
+        "fixed-height scrollable variable cards\n"
+        "- 💾 **Fit caching**: auto-saves extracted parameters per "
+        "DUT/model so re-opening a file restores the prior fit; "
+        "\"Use saved\" button on the fine-tune section\n"
+        "- 🎨 **Visual improvements**: Smith chart per-S-param "
+        "text-color picker, table-style scale controls, color-mode "
+        "persistence; WebGL multi-file S-parameter overlay; larger "
+        "Bode preview; fragment-scoped reruns (~10× faster per slider "
+        "drag)\n"
+        "- 🩹 Streamlit deprecation migrations (`width=\"stretch\"`, "
+        "`st.iframe`, accessible widget labels) and assorted bug "
+        "fixes (revert-when-editing, RuntimeWarning floods, "
+        "Auto-Tuning sticky badge)\n\n"
         "Full version history: [`CHANGELOG.md`](CHANGELOG.md)"
     )
 
@@ -146,6 +163,10 @@ with st.sidebar:
     sh21=st.checkbox("|h21|² → fT",value=True,key="sh21")
     su=st.checkbox("Mason U → fmax(U)",value=True,key="su")
     smag=st.checkbox("MAG/MSG → fmax",value=True,key="smag")
+    skk=st.checkbox("K factor (stability)",value=False,key="sk_factor",
+                     help="Rollett's stability factor K = (1−|S11|²−|S22|²+|Δ|²)/(2|S12·S21|).  "
+                          "Network is unconditionally stable when K > 1 *and* |Δ| < 1.  "
+                          "Rendered on a separate axis below the bode plot.")
     st.divider()
     st.markdown("#### 🍩 Smith Chart")
     smith_f_min=st.number_input("Smith Freq Min (GHz)",value=freq_min,min_value=0.01,format="%.4f")
@@ -167,7 +188,7 @@ with col_up1:
                                key=st.session_state["rf_uploader_key"])
 with col_up2:
     st.write(""); st.write("")
-    if st.button("🗑️ Clear uploads",use_container_width=True):
+    if st.button("🗑️ Clear uploads",width="stretch"):
         st.session_state["rf_uploader_key"]+=1
         st.session_state.pop("rf_ms_files",None)
         st.session_state.pop("rf_prev_uploaded",None)
@@ -239,7 +260,31 @@ with tab_ov:
             if smag: f_bode.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["MAG/MSG (dB)"],name=f"MAG–{lbl}",line=dict(color=c,width=2,dash="dot"),opacity=0.7,hovertemplate=hov))
     f_bode.add_hline(y=0,line_dash="dash",line_color="black")
     f_bode.update_layout(**bode_layout("Overlay — Bode Plot","Gain (dB)",yr,xr)); f_bode.update_layout(height=550)
-    st.plotly_chart(f_bode,use_container_width=True)
+    st.plotly_chart(f_bode,width="stretch")
+
+    if skk:
+        st.markdown("### 📊 K-Factor Overlay (Rollett stability)")
+        f_k = go.Figure()
+        if all_data and selected_files:
+            for i, n in enumerate(selected_files):
+                d, c, lbl = all_data[n], PALETTE[i % len(PALETTE)], Path(n).stem
+                df_p = d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
+                if "K Factor" in df_p.columns:
+                    f_k.add_trace(go.Scattergl(
+                        x=df_p["Freq (GHz)"], y=df_p["K Factor"],
+                        name=f"K — {lbl}",
+                        line=dict(color=c, width=2.5),
+                        hovertemplate="Freq:%{x:.4f} GHz<br>K=%{y:.4f}"
+                                       "<extra></extra>"))
+        # K = 1 demarcation line (above = unconditionally stable on this axis)
+        f_k.add_hline(y=1.0, line_dash="dash", line_color="#888",
+                      annotation_text="K = 1", annotation_position="right",
+                      annotation_font=dict(size=9, color="#888"))
+        f_k.update_layout(**bode_layout("Overlay — K Factor",
+                                          "K (dimensionless)",
+                                          [0, 6], xr))
+        f_k.update_layout(height=350)
+        st.plotly_chart(f_k, width="stretch")
 
     st.markdown("### 📊 Plateau Plot Overlay")
     f_plat=go.Figure(); all_v=[]
@@ -257,7 +302,7 @@ with tab_ov:
     arr=np.array([v for v in all_v if np.isfinite(v) and v>0])
     ym=float(np.quantile(arr,0.97))*1.3 if len(arr) else 100
     f_plat.update_layout(**bode_layout("Overlay — Plateau","GBP (GHz)",[0,ym],xr)); f_plat.update_layout(height=550)
-    st.plotly_chart(f_plat,use_container_width=True)
+    st.plotly_chart(f_plat,width="stretch")
 
 with tab_ind:
     if not all_data or not selected_files:
@@ -286,13 +331,49 @@ with tab_ind:
             if method=="Extrap & Plat.": return f"{v_pl:.3f} GHz" if np.isfinite(v_pl) else "N/A"
             return "N/A"
 
-        c1,c2,c3,c4,c5=st.columns(5)
+        # K-factor summary — minimum K over the swept band + the
+        # frequency where it occurs, plus a stability indicator.
+        # Rollett K is dimensionless and varies with frequency, so the
+        # most useful single-number summary is the worst-case (min).
+        def _k_summary(_df):
+            if "K Factor" not in _df.columns:
+                return None, None, "—"
+            k_series = _df["K Factor"]
+            mask = np.isfinite(k_series.values)
+            if not mask.any():
+                return None, None, "—"
+            k_arr = k_series.values[mask]
+            f_arr = _df["Freq (GHz)"].values[mask]
+            i_min = int(np.argmin(k_arr))
+            k_min = float(k_arr[i_min])
+            f_at_min = float(f_arr[i_min])
+            # Stability classification (Rollett's K alone — full
+            # criterion also requires |Δ| < 1; for the card we report
+            # the K side and let users dig into Δ in the plot below).
+            if (k_arr >= 1.0).all():
+                tag = "🟢 K≥1 across band"
+            elif k_min < 1.0 < float(k_arr.max()):
+                tag = "🟡 K crosses 1"
+            else:
+                tag = "🔴 K<1 across band"
+            return k_min, f_at_min, tag
+
+        _k_min, _k_fmin, _k_tag = _k_summary(df_p)
+
+        c1,c2,c3,c4,c5,c6=st.columns(6)
         metric_card(c1,"De-embedding",d["De-embedding"],"mode","#888")
         metric_card(c2,"fT (GHz)",_fc(d["fT Cross/Extrap (GHz)"],d["fT Plateau (GHz)"],d["fT Method"]),d["fT Method"])
         metric_card(c3,"fmax U",_fc(d["fmax U Cross/Extrap (GHz)"],d["fmax U Plateau (GHz)"],d["fmax U Method"]),d["fmax U Method"],"#d62728")
         metric_card(c4,"fmax MAG",_fc(d["fmax MAG Cross/Extrap (GHz)"],d["fmax MAG Plateau (GHz)"],d["fmax MAG Method"]),d["fmax MAG Method"],"#2ca02c")
-        if d["Vce (V)"] is not None:  metric_card(c5,"Vce",f"{d['Vce (V)']} V","bias","#9467bd")
-        elif d["Ib (A)"] is not None: metric_card(c5,"Ib",f"{d['Ib (A)']*1e6:.1f} µA","bias","#9467bd")
+        if _k_min is not None:
+            metric_card(c5,"K min",
+                         f"{_k_min:.3f}",
+                         f"{_k_tag} @ {_k_fmin:.2f} GHz",
+                         "#0d7377")
+        else:
+            metric_card(c5,"K min","—","not available","#888")
+        if d["Vce (V)"] is not None:  metric_card(c6,"Vce",f"{d['Vce (V)']} V","bias","#9467bd")
+        elif d["Ib (A)"] is not None: metric_card(c6,"Ib",f"{d['Ib (A)']*1e6:.1f} µA","bias","#9467bd")
 
         toggles={"S11":show_s11,"S22":show_s22,"S21":show_s21,"S12":show_s12}
         scales ={"S11":scale_s11,"S22":scale_s22,"S21":scale_s21,"S12":scale_s12}
@@ -345,7 +426,41 @@ with tab_ind:
                 sp_window_idx=sp_window_idx,
                 extrap_f_max=f_max_target,
                 return_extrap_df=True)
-            st.plotly_chart(fig_bode, use_container_width=True)
+            st.plotly_chart(fig_bode, width="stretch")
+
+            # ── K-factor sub-plot (controlled by the global "K factor"
+            #    sidebar checkbox `skk`).  Plotted on its own axis below
+            #    the Bode plot because K is dimensionless and shares no
+            #    natural scale with dB gain.  Dashed line at K=1 marks
+            #    the unconditional-stability threshold.
+            if skk and "K Factor" in df_p.columns:
+                f_k_ind = go.Figure()
+                f_k_ind.add_trace(go.Scattergl(
+                    x=df_p["Freq (GHz)"], y=df_p["K Factor"],
+                    name="K", line=dict(color=c, width=2.5),
+                    hovertemplate="Freq: %{x:.4f} GHz<br>"
+                                   "K = %{y:.4f}<extra></extra>"))
+                f_k_ind.add_hline(y=1.0, line_dash="dash", line_color="#888",
+                                  annotation_text="K = 1",
+                                  annotation_position="right",
+                                  annotation_font=dict(size=9, color="#888"))
+                _k_arr = df_p["K Factor"].values
+                _k_finite = _k_arr[np.isfinite(_k_arr)]
+                _y_top = max(float(_k_finite.max()) * 1.1, 2.0) if len(_k_finite) else 5.0
+                _y_bot = min(float(_k_finite.min()) * 1.1, 0.0) if len(_k_finite) else 0.0
+                f_k_ind.update_layout(
+                    title=dict(text=f"K Factor (stability) — {Path(n).stem}",
+                                font=dict(size=12)),
+                    xaxis=dict(title="Frequency (GHz)", type="log",
+                                range=[np.log10(max(xr[0], 1e-2)),
+                                       np.log10(xr[1])],
+                                showgrid=True, gridcolor="#ebebeb"),
+                    yaxis=dict(title="K", range=[_y_bot, _y_top],
+                                showgrid=True, gridcolor="#ebebeb"),
+                    plot_bgcolor="white", paper_bgcolor="white",
+                    height=320, margin=dict(l=55, r=20, t=40, b=50),
+                    hovermode="x unified")
+                st.plotly_chart(f_k_ind, width="stretch")
 
             # ── Excel download for extrapolated/fitted data ──────────────────
             if extrap_df is not None and not extrap_df.empty:
@@ -357,7 +472,7 @@ with tab_ind:
                     file_name=f"{Path(n).stem}_bode_extrap.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key=f"bode_dl_{n}")
-        with tb: st.plotly_chart(make_plateau(df_p,d,Path(n).stem,xr,sh21,su,smag,c),use_container_width=True)
+        with tb: st.plotly_chart(make_plateau(df_p,d,Path(n).stem,xr,sh21,su,smag,c),width="stretch")
         with tc:
             smith_sub_plotly, smith_sub_mpl = st.tabs(
                 ["Plotly", "Matplotlib"])
@@ -366,7 +481,7 @@ with tab_ind:
                     d["S_fin"], df_p["Freq (GHz)"].values,
                     smith_f_min, smith_f_max, toggles, scales,
                     Path(n).stem, max_r=smith_max_r),
-                    use_container_width=True)
+                    width="stretch")
             with smith_sub_mpl:
                 render_matplotlib_smith(
                     fname=n, topo_key="meas",
@@ -384,10 +499,20 @@ with tab_ind:
                 if col_ctr.button(
                     "▶ Run SSM Extraction",
                     key=f"ssm_btn_{n}",
-                    use_container_width=True,
+                    width="stretch",
                     type="primary",
                 ):
                     st.session_state[run_key] = True
+                    # Force cache restore to re-run on this Run SSM cycle:
+                    # if `cache_applied_<short>_<n>` is left over from a
+                    # previous cycle (or a prior session), the auto-restore
+                    # would skip and the fine-tune fields would stay at
+                    # their last-rendered values (often 0).
+                    for _k in list(st.session_state.keys()):
+                        if (_k.startswith("cache_applied_")
+                                or _k.startswith("cache_dismissed_")) \
+                                and _k.endswith(f"_{n}"):
+                            del st.session_state[_k]
                     st.rerun()
                 st.caption(
                     "SSM extraction is skipped until activated to keep the app fast. "
@@ -415,9 +540,9 @@ with tab_ind:
         with st.expander("📋 Data Table"):
             if d["df_fin"] is not None:
                 ta2,tb2=st.tabs(["De-embedded","Raw"])
-                with ta2: st.dataframe(df_p.round(4),use_container_width=True,hide_index=True)
-                with tb2: st.dataframe(d["df_raw"].round(4),use_container_width=True,hide_index=True)
-            else: st.dataframe(df_p.round(4),use_container_width=True,hide_index=True)
+                with ta2: st.dataframe(df_p.round(4),width="stretch",hide_index=True)
+                with tb2: st.dataframe(d["df_raw"].round(4),width="stretch",hide_index=True)
+            else: st.dataframe(df_p.round(4),width="stretch",hide_index=True)
 
 with tab_sum:
     if not all_data:
@@ -431,14 +556,14 @@ with tab_sum:
         sum_df=pd.DataFrame(rows)
         fmt={c:"{:.4f}" for c in sum_df.columns if "Cross" in c or "Plat" in c}
         fmt["Vce (V)"]="{:.3f}"; fmt["Ib (µA)"]="{:.1f}"
-        st.dataframe(sum_df.style.format(fmt,na_rep="—"),use_container_width=True,hide_index=True)
+        st.dataframe(sum_df.style.format(fmt,na_rep="—"),width="stretch",hide_index=True)
         date=datetime.now().strftime("%Y-%m-%d")
         d1,d2=st.columns(2)
         with d1:
             st.download_button("📥 Excel",data=build_excel(sum_df,all_data),
                                file_name=f"RF_Extraction_{date}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               use_container_width=True)
+                               width="stretch")
         with d2:
             zbuf=io.BytesIO()
             with zipfile.ZipFile(zbuf,"w",zipfile.ZIP_DEFLATED) as zf:
@@ -448,7 +573,7 @@ with tab_sum:
                     zf.writestr(f"{Path(k).stem}.csv",dp.to_csv(index=False).encode())
             st.download_button("📦 ZIP (CSV)",data=zbuf.getvalue(),
                                file_name=f"RF_Extraction_{date}.zip",
-                               mime="application/zip",use_container_width=True)
+                               mime="application/zip",width="stretch")
 
 with tab_bd:
     render_batch_deembedding_tab(
