@@ -91,3 +91,27 @@ python3 LAUNCH_Tool.py
 ```
 
 If `python3` is not found, install Python 3.9+ from your package manager (e.g. `sudo apt install python3 python3-venv` on Debian/Ubuntu, or `brew install python` on macOS). The launcher will create a local virtual environment at `.hbttools/` and install all required packages on first run.
+
+---
+
+## Where are extracted SSM fits cached?
+
+Fine-tuned SSM parameters are persisted **per DUT, per model** in JSON files so you can re-open the same `.s2p` later and pick up where you left off.
+
+Resolution order (first writable path wins):
+
+1. `$HBT_FIT_CACHE_DIR` — env-var override (set this to point the cache anywhere you like)
+2. `~/.hbt-tools/` — the default on every OS
+3. `<repo>/.fit_cache/` — fallback if the home dir isn't writable
+
+Layout under the cache root:
+
+```
+fits/
+  <dut_basename>/
+    <dut_basename>_<model_short>.json     # e.g. mydut_T.json, mydut_pi.json, mydut_XuT.json
+```
+
+On Windows the default is `C:\Users\<you>\.hbt-tools\fits\…`, on macOS / Linux it's `~/.hbt-tools/fits/…`. Each `.json` holds a `saved_at` timestamp plus the SI-unit params dict for that one (file, model) pair — corrupt or all-zero saves for one model can no longer overwrite a sibling.
+
+**Streamlit Community Cloud:** caching is **automatically disabled** there because the Cloud VM is ephemeral (any disk write evaporates on the next cold start) and a stale cache would otherwise fight your fine-tune edits. The cache UI is hidden on Cloud. To force one mode or the other set `HBT_DISABLE_FIT_CACHE=1` (off) or `HBT_FIT_CACHE_FORCE_ON=1` (on).

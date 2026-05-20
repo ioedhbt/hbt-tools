@@ -4164,6 +4164,13 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 _sp_colors = {"S11": "#1f77b4", "S12": "#d62728",
                               "S21": "#2ca02c", "S22": "#ff7f0e"}
 
+                # Lay sensitivity charts out in a 2-column grid.  Even
+                # index → left column, odd index → right column.  An
+                # odd total leaves the final chart alone in the left
+                # column (right column stays empty).
+                _sens_col_pair = None  # current (left_col, right_col)
+                _sens_rendered = 0
+
                 for spec in ticked_specs:
                     key, label, scale = spec[0], spec[1], spec[2]
                     unit = spec[3] if len(spec) > 3 else ""
@@ -4231,8 +4238,16 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         legend=dict(orientation="h", y=1.12),
                         hovermode="x unified",
                     )
-                    plotly_with_dl(fig, key=f"tune_sens_{topo_key}_{key}_{fname}",
-                                   filename=f"tune_sens_{topo_key}_{key}_{fname}")
+                    # Open a fresh 2-column pair every even-indexed chart.
+                    if _sens_rendered % 2 == 0:
+                        _sens_col_pair = st.columns(2)
+                    _target = _sens_col_pair[_sens_rendered % 2]
+                    with _target:
+                        plotly_with_dl(
+                            fig,
+                            key=f"tune_sens_{topo_key}_{key}_{fname}",
+                            filename=f"tune_sens_{topo_key}_{key}_{fname}")
+                    _sens_rendered += 1
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -4467,11 +4482,25 @@ class SSMModelTemplate:
 
     @classmethod
     def render_results_table(cls, params):
-        """Render the scalar-parameter dataframe + optional formula-trace expander."""
+        """Render JUST the scalar-parameter dataframe.
+
+        The formula-trace expander is rendered separately via
+        :meth:`render_formula_trace` so the call site can place both
+        side-by-side in their own columns / expanders.
+        """
         import pandas as pd
         rows = cls._results_rows(params)
         st.dataframe(pd.DataFrame(rows, columns=["Symbol", "Value", "Unit"]),
                      width="stretch", hide_index=True)
+
+    @classmethod
+    def render_formula_trace(cls):
+        """Render the 📐 Full formula trace expander, if the subclass
+        provides one.  Default dispatches to the private template hook
+        ``_render_results_trace`` — subclasses (Cheng T / π, Xu T)
+        override that hook to supply their own LaTeX dependency chain.
+        Models without a trace (e.g. Degachi) silently render nothing.
+        """
         cls._render_results_trace()
 
     @classmethod
@@ -4479,6 +4508,17 @@ class SSMModelTemplate:
         """Optional: render an expander with the full extraction/sim formula chain.
         Default is a no-op; override to add a 📐 trace expander."""
         return
+
+    @classmethod
+    def has_formula_trace(cls) -> bool:
+        """True iff the subclass overrides ``_render_results_trace``.
+
+        Used by callers that want to drop the side-by-side layout when
+        no formula trace is available (so the parameter table can use
+        full width instead of leaving an empty right column).
+        """
+        return (cls._render_results_trace.__func__
+                is not SSMModelTemplate._render_results_trace.__func__)
 
     @classmethod
     def render_override_and_smith(cls, fname, S_raw, freq, z0,
@@ -4574,9 +4614,7 @@ class SSMModelTemplate:
         if cached_ts and not st.session_state.get(dismissed_key):
             bc1, bc2 = st.columns([5, 1])
             bc1.info(f"📌 Loaded cached fit for **{cls.NAME}** "
-                     f"(saved {cached_ts}). Any edit to the fine-tune section "
-                     "below (number-inputs, slider commits, ‘Use best’ button) "
-                     "is auto-saved.  Pad values come from Step 1 (not the cache).")
+                     f"(saved {cached_ts}).")
             if bc2.button("↩️ Use saved",
                           key=f"cache_reset_{cls.SHORT}_{fname}",
                           help="Re-apply the cached intrinsic/extrinsic values "
@@ -4625,16 +4663,22 @@ class SSMModelTemplate:
         # before the chart half on the left reads it.  Visually they
         # still appear in column order: left = topology + chart,
         # right = controls.
-        from ..ssm_plots import (render_matplotlib_smith_controls,
-                                  render_matplotlib_smith_chart)
+        from ..ssm_plots import render_matplotlib_smith
         with col_right:
             with st.expander("📐 Smith Chart Controls", expanded=False):
-                render_matplotlib_smith_controls(S_raw, S_sim, fname,
-                                                  cls.SHORT)
+                render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT,
+                                         phase="controls", freq_hz=freq)
         with col_left:
-            with st.expander("🖼️ Topology / Smith Chart", expanded=False):
+            # Two stacked sub-expanders (one row each), both collapsed
+            # by default — keeps the page compact and lets the user
+            # open only the panel they need without rerunning the
+            # other.  Previously these were both inside a single
+            # "🖼️ Topology / Smith Chart" expander.
+            with st.expander("🖼️ Topology illustration", expanded=False):
                 cls._render_topology(all_p, fname)
-                render_matplotlib_smith_chart(S_raw, S_sim, fname, cls.SHORT)
+            with st.expander("📈 Smith Chart", expanded=False):
+                render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT,
+                                         phase="chart", freq_hz=freq)
 
         render_visual_tuning_expander(cls, all_p, S_raw, freq, z0,
                                        all_specs,

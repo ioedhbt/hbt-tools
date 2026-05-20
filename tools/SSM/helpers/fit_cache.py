@@ -54,6 +54,56 @@ _FITS_SUBDIR     = "fits"
 _FALLBACK_DIR    = Path(__file__).resolve().parents[3] / ".fit_cache"
 
 
+# ── Cloud / ephemeral-host detection ─────────────────────────────────────────
+#
+# Streamlit Community Cloud spins up an ephemeral VM that's recycled after
+# any idle period — anything we write to disk evaporates on the next cold
+# start, so the "persistent" cache is effectively write-only there.
+# Worse, a stale cache entry that survives within a single VM lifetime
+# fights the fine-tune section: every rerender of a fine-tune number
+# input would have its value re-overwritten by the cached value, so the
+# user can't actually edit anything.
+#
+# Detection rule (in priority order):
+#   1. ``HBT_DISABLE_FIT_CACHE=1`` (or true/yes/on)  → explicit OFF
+#   2. ``HBT_FIT_CACHE_FORCE_ON=1``                  → explicit ON
+#      (escape hatch for testing on Cloud-like hosts)
+#   3. ``/mount/src`` exists on disk                 → Streamlit Cloud → OFF
+#   4. Otherwise                                     → ON (local default)
+#
+# When `_CACHE_DISABLED` is True, every public function in this module
+# returns the empty / negative result without touching the filesystem
+# (load_cache → {}, get_fit → None, save_fit → False, etc.).  The
+# callers' UI branches then collapse naturally — no banner, no "Use
+# saved" button, no auto-save that would clobber the user's edits.
+def _detect_cache_disabled() -> bool:
+    env = os.environ.get("HBT_DISABLE_FIT_CACHE", "").strip().lower()
+    if env in {"1", "true", "yes", "on"}:
+        return True
+    force_on = os.environ.get("HBT_FIT_CACHE_FORCE_ON", "").strip().lower()
+    if force_on in {"1", "true", "yes", "on"}:
+        return False
+    # Streamlit Community Cloud-specific path — present on Cloud, absent
+    # on every other host we care about.
+    try:
+        return Path("/mount/src").exists()
+    except OSError:
+        return False
+
+
+_CACHE_DISABLED: bool = _detect_cache_disabled()
+
+
+def is_cache_disabled() -> bool:
+    """Public predicate — True when the persistent fit cache is OFF.
+
+    Useful for callers that want to hide cache-only UI elements (e.g.
+    the "Use saved" button, the "Re-extract" toggle) instead of just
+    letting them no-op silently.
+    """
+    return _CACHE_DISABLED
+
+
 def _resolve_cache_dir() -> Path:
     env = os.environ.get("HBT_FIT_CACHE_DIR")
     if env:
@@ -197,6 +247,8 @@ def load_cache() -> dict:
     are the canonical (extension-stripped) form; ``get_fit`` / ``save_fit``
     / ``list_fits`` still accept full ``foo.s2p`` filenames and strip the
     extension internally."""
+    if _CACHE_DISABLED:
+        return {}
     _migrate_legacy_if_present()
     out: dict[str, dict] = {}
     try:
@@ -229,6 +281,8 @@ def load_cache() -> dict:
 
 def get_fit(fname: str, model_short: str) -> Optional[dict]:
     """Return cached params (SI units) for (fname, model_short), or None."""
+    if _CACHE_DISABLED:
+        return None
     _migrate_legacy_if_present()
     entry = _read_model_file(_model_file(fname, model_short))
     if not entry:
@@ -238,6 +292,8 @@ def get_fit(fname: str, model_short: str) -> Optional[dict]:
 
 
 def get_fit_timestamp(fname: str, model_short: str) -> Optional[str]:
+    if _CACHE_DISABLED:
+        return None
     _migrate_legacy_if_present()
     entry = _read_model_file(_model_file(fname, model_short))
     return entry.get("saved_at") if entry else None
@@ -245,6 +301,8 @@ def get_fit_timestamp(fname: str, model_short: str) -> Optional[str]:
 
 def list_fits(fname: str) -> dict:
     """Return ``{model_short: timestamp}`` for the given s2p basename."""
+    if _CACHE_DISABLED:
+        return {}
     _migrate_legacy_if_present()
     out: dict[str, str] = {}
     d = _dut_dir(fname)
@@ -286,6 +344,8 @@ def save_fit(fname: str, model_short: str, params_si: dict) -> bool:
     incoming params look like a fresh / uninitialised render (every
     numeric value is 0.0) — this guards against the self-perpetuating
     all-zero cache that the v1 layout was vulnerable to."""
+    if _CACHE_DISABLED:
+        return False
     _migrate_legacy_if_present()
 
     payload: dict = {}
@@ -317,6 +377,8 @@ def save_fit(fname: str, model_short: str, params_si: dict) -> bool:
 def delete_fit(fname: str, model_short: Optional[str] = None) -> bool:
     """Drop the cache for one model (when ``model_short`` is given), or for
     every model under this DUT (when ``None``)."""
+    if _CACHE_DISABLED:
+        return False
     _migrate_legacy_if_present()
     if model_short is None:
         d = _dut_dir(fname)
@@ -358,6 +420,10 @@ def import_cache_bytes(raw: bytes, merge: bool = True) -> tuple[int, int]:
     """Import a v1-shaped JSON blob (single object keyed by basename).  When
     ``merge`` is False, every existing per-model file is wiped before the
     import (one-shot replace).  Returns ``(n_files, n_fits)``."""
+    if _CACHE_DISABLED:
+        # No filesystem to write to (or a write-only ephemeral one) —
+        # treat import as a successful no-op so the UI doesn't error.
+        return (0, 0)
     _migrate_legacy_if_present()
     try:
         incoming = json.loads(raw.decode("utf-8"))

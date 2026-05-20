@@ -10,11 +10,12 @@ repo root.
 """
 from __future__ import annotations
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 import math
 import os
 import tempfile
+import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
 
@@ -42,7 +43,8 @@ _DEFAULTS = {
     "ebc_tl_x": 104.0, "ebc_tl_y": 126.4,
     "ebc_br_x": 116.0, "ebc_br_y": 114.4,
     "ebc_origin_x": 10.0, "ebc_origin_y": 10.0,
-    "ebc_chip_size": 0.6,
+    "ebc_chip_size": 600, "ebc_dotmap": 60000,
+    "ebc_resolution": 0.01,
 }
 for _k, _v in _DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
@@ -104,15 +106,19 @@ with col_left:
     # 2×2 grid: top row = top-left, top-right; bottom row = bottom-left, bottom-right
     row_top = st.columns(2)
     with row_top[0]:
-        _corner_inputs("Top Left (TL)",  "ebc_tl_x", "ebc_tl_y", disabled=disabled_tl)
+        with st.container(border=True):
+            _corner_inputs("Top Left (TL)",  "ebc_tl_x", "ebc_tl_y", disabled=disabled_tl)
     with row_top[1]:
-        _corner_inputs("Top Right (TR)", "ebc_tr_x", "ebc_tr_y", disabled=disabled_tr)
+        with st.container(border=True):
+            _corner_inputs("Top Right (TR)", "ebc_tr_x", "ebc_tr_y", disabled=disabled_tr)
 
     row_bot = st.columns(2)
     with row_bot[0]:
-        _corner_inputs("Bottom Left (BL)",  "ebc_bl_x", "ebc_bl_y", disabled=disabled_bl)
+        with st.container(border=True):
+            _corner_inputs("Bottom Left (BL)",  "ebc_bl_x", "ebc_bl_y", disabled=disabled_bl)
     with row_bot[1]:
-        _corner_inputs("Bottom Right (BR)", "ebc_br_x", "ebc_br_y", disabled=disabled_br)
+        with st.container(border=True):
+            _corner_inputs("Bottom Right (BR)", "ebc_br_x", "ebc_br_y", disabled=disabled_br)
 
 with col_right:
     st.subheader("Chip Position")
@@ -167,7 +173,7 @@ with col_right:
 
 # ─── Section 2: Left Computer Setup ──────────────────────────────────────────
 
-st.header("Left Computer Setup, in job1")
+st.header("Left Computer Setup")
 with st.expander("Setup Instructions", expanded=False):
     st.caption("Make sure you already have the `.cel` file. In `job1`: ")
     st.caption("1. Type `pc`.")
@@ -201,13 +207,38 @@ with st.expander("Setup Instructions", expanded=False):
     st.caption("Click File -> save -> press enter. Type the file `.con` name, the same as the `.cel` file.")
     st.caption("If successful, the grids will be green, your folder should have `.ccc, .cbc, .con` files.")
 
-c_ox, c_oy, c_cs = st.columns(3)
-c_ox.number_input("Chip Origin x (mm)", key="ebc_origin_x",
-                  format="%.3f", step=0.0005)
-c_oy.number_input("Chip Origin y (mm)", key="ebc_origin_y",
-                  format="%.3f", step=0.0005)
-c_cs.number_input("Chip Size (mm)", key="ebc_chip_size",
-                  format="%.3f", step=0.0005, min_value=0.001)
+c_oxy, c_csdm = st.columns(2)
+with c_oxy:
+    with st.container(border=True):
+        st.markdown("**In Job 1**")
+        c_ox, c_oy = st.columns(2)
+        c_ox.number_input("Chip Origin x (mm)", key="ebc_origin_x",
+                    format="%.3f", step=0.0005)
+        c_oy.number_input("Chip Origin y (mm)", key="ebc_origin_y",
+                    format="%.3f", step=0.0005)
+with c_csdm:
+    with st.container(border=True):
+        st.markdown("**In Job 2**")
+        c_cs, c_dm, c_res = st.columns(3)
+        c_cs.selectbox(
+            "Chip Size (μm)",
+            [75, 150, 300, 600, 1200],
+            key="ebc_chip_size",
+        )
+        c_dm.selectbox(
+            "Dotmap",
+            [20000, 60000, 240000],
+            key="ebc_dotmap",
+        )
+        # Resolution = chip size (μm) / dotmap. Stored in μm under
+        # ebc_resolution; also shown in nm for readability.
+        _chip_um = int(st.session_state["ebc_chip_size"])
+        _dotmap = int(st.session_state["ebc_dotmap"])
+        st.session_state["ebc_resolution"] = _chip_um / _dotmap
+        _res_um = st.session_state["ebc_resolution"]
+        c_res.markdown("**Resolution**")
+        c_res.markdown(f"{_chip_um} μm / {_dotmap} dots = {_res_um * 1000:g} nm")
+
 
 
 # ─── Section 3: GDS Mask Viewer ──────────────────────────────────────────────
@@ -286,6 +317,301 @@ def _round_up_even(value: float) -> int:
     """Smallest even integer >= value, with a floor of 2."""
     n = max(1, math.ceil(value))
     return n if n % 2 == 0 else n + 1
+
+
+# ─── Time Calculator helpers ─────────────────────────────────────────────────
+
+def _polygon_clip_per_cell_mm(polys_mm: list, cells: list):
+    """For each cell rect (xmin, ymin, xmax, ymax), clip `polys_mm` to
+    the cell and return ``(areas, clipped_polys)`` where:
+
+    - ``areas``: list of mm² per cell.
+    - ``clipped_polys``: flat list of ``(xs, ys)`` clipped polygons in
+      mm (across all cells), suitable for plotting only the portion of
+      the mask that actually lands inside a grid.
+
+    Uses a numpy bbox prefilter so we only run ``gdstk.boolean`` on
+    polygons whose bounding box overlaps the cell.
+    """
+    n_cells = len(cells)
+    if not polys_mm or not n_cells or gdstk is None:
+        return [0.0] * n_cells, []
+
+    # Pre-build polygon objects and per-polygon bbox arrays.
+    gpolys = []
+    bxmin_l, bxmax_l, bymin_l, bymax_l = [], [], [], []
+    for xs, ys in polys_mm:
+        if len(xs) < 3:
+            continue
+        gpolys.append(gdstk.Polygon(list(zip(xs, ys))))
+        bxmin_l.append(min(xs)); bxmax_l.append(max(xs))
+        bymin_l.append(min(ys)); bymax_l.append(max(ys))
+    if not gpolys:
+        return [0.0] * n_cells, []
+    bxmin = np.asarray(bxmin_l); bxmax = np.asarray(bxmax_l)
+    bymin = np.asarray(bymin_l); bymax = np.asarray(bymax_l)
+
+    areas: list = []
+    clipped_all: list = []
+    # gdstk works in user units; choose a precision well below the
+    # finest dimension we care about (10 nm = 1e-5 mm here).
+    precision = 1e-7
+    for xmin, ymin, xmax, ymax in cells:
+        overlap = ((bxmax >= xmin) & (bxmin <= xmax)
+                   & (bymax >= ymin) & (bymin <= ymax))
+        idxs = np.flatnonzero(overlap)
+        if idxs.size == 0:
+            areas.append(0.0)
+            continue
+        candidates = [gpolys[i] for i in idxs]
+        cell_rect = gdstk.rectangle((xmin, ymin), (xmax, ymax))
+        try:
+            inter = gdstk.boolean(
+                candidates, [cell_rect], "and", precision=precision,
+            )
+        except Exception:
+            areas.append(0.0)
+            continue
+        cell_area = 0.0
+        for p in inter:
+            cell_area += p.area()
+            pts = p.points
+            clipped_all.append(
+                (pts[:, 0].tolist(), pts[:, 1].tolist())
+            )
+        areas.append(float(cell_area))
+    return areas, clipped_all
+
+
+def _format_hms(seconds: float) -> str:
+    """Format a duration in seconds as HH:MM:SS.sss."""
+    if seconds < 0 or not math.isfinite(seconds):
+        return "—"
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds - h * 3600 - m * 60
+    return f"{h:02d}:{m:02d}:{s:06.3f}"
+
+
+def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
+                            chip_size_mm: float, dotmap: int,
+                            dose_ramp: bool = False) -> None:
+    """Render the per-mode Time Calculator section.
+
+    polys_mm : mask polygons in global mm coordinates.
+    cells    : list of (xmin, ymin, xmax, ymax) grid cells in mm.
+    chip_size_mm : grid cell size in mm.
+    dotmap   : EBL dotmap (dots per chip-size dimension).
+    dose_ramp : if True (Dose Time Testing), replace the single dose
+        input with `initial dose` and `incremental dose` inputs. Each
+        grid gets dose = init + grid_index × step, in iteration order.
+    """
+    st.subheader("Time Calculator")
+
+    _TC_DEFAULTS = {
+        f"{prefix}_dose_us": 2.0,
+        f"{prefix}_dose_init_us": 2.0,
+        f"{prefix}_dose_step_us": 0.2,
+        f"{prefix}_stage_s": 15.0,
+    }
+    for _k, _v in _TC_DEFAULTS.items():
+        st.session_state.setdefault(_k, _v)
+
+    if dose_ramp:
+        c_init, c_step, c_stage, c_btn = st.columns([2, 2, 2, 1])
+        with c_init:
+            st.number_input(
+                "Initial dose (μs / dot)", min_value=0.0, step=0.01,
+                format="%.3f", key=f"{prefix}_dose_init_us",
+            )
+        with c_step:
+            st.number_input(
+                "Incremental dose (μs / grid)", min_value=0.0, step=0.01,
+                format="%.3f", key=f"{prefix}_dose_step_us",
+            )
+    else:
+        c_dose, c_stage, c_btn = st.columns([2, 2, 1])
+        with c_dose:
+            st.number_input(
+                "Dose time (μs / dot)", min_value=0.0, step=0.01,
+                format="%.3f", key=f"{prefix}_dose_us",
+            )
+    with c_stage:
+        st.number_input(
+            "Stage movement time (s / grid)", min_value=0.0, step=0.1,
+            format="%.2f", key=f"{prefix}_stage_s",
+        )
+    with c_btn:
+        st.markdown("&nbsp;")  # vertical spacing to line up with inputs
+        clicked = st.button(
+            "Calculate time", key=f"{prefix}_calc",
+            type="primary", width="stretch",
+        )
+
+    if clicked:
+        with st.spinner("Computing polygon area inside each grid…"):
+            cell_areas, clipped_polys = _polygon_clip_per_cell_mm(
+                polys_mm, cells)
+        res_mm = chip_size_mm / dotmap if dotmap > 0 else 0.0
+        res_area = res_mm * res_mm if res_mm > 0 else 1.0
+        filled_per_cell = [a / res_area for a in cell_areas]
+        filled_total = sum(filled_per_cell)
+        active = sum(1 for a in cell_areas if a > 0)
+        stage_s = float(st.session_state[f"{prefix}_stage_s"])
+        stage_us = active * stage_s * 1e6
+
+        if dose_ramp:
+            init_us = float(st.session_state[f"{prefix}_dose_init_us"])
+            step_us = float(st.session_state[f"{prefix}_dose_step_us"])
+            # Per-grid dose follows the cell iteration order. Every
+            # grid carries the same mask (DT replicates the pattern),
+            # so the difference between grids is purely the dose ramp.
+            per_grid_dose = [
+                init_us + k * step_us for k in range(len(cell_areas))
+            ]
+            exposure_us = sum(
+                f * d for f, d in zip(filled_per_cell, per_grid_dose)
+            )
+            active_doses = [
+                per_grid_dose[k] for k, a in enumerate(cell_areas)
+                if a > 0
+            ]
+            dose_min = min(active_doses) if active_doses else init_us
+            dose_max = max(active_doses) if active_doses else init_us
+            dose_us = None
+        else:
+            dose_us = float(st.session_state[f"{prefix}_dose_us"])
+            per_grid_dose = None
+            exposure_us = filled_total * dose_us
+            dose_min = dose_max = dose_us
+            init_us = step_us = None
+
+        total_us = exposure_us + stage_us
+        st.session_state[f"{prefix}_time_result"] = {
+            "dose_ramp": dose_ramp,
+            "cell_areas": cell_areas,
+            "filled_per_cell": filled_per_cell,
+            "cells": list(cells),
+            "polys_mm": list(polys_mm),
+            "clipped_polys": clipped_polys,
+            "chip_size_mm": chip_size_mm,
+            "dotmap": dotmap,
+            "res_mm": res_mm,
+            "filled_total": filled_total,
+            "active": active,
+            "n_cells": len(cells),
+            "dose_us": dose_us,
+            "dose_init_us": init_us,
+            "dose_step_us": step_us,
+            "per_grid_dose": per_grid_dose,
+            "dose_min": dose_min,
+            "dose_max": dose_max,
+            "stage_s": stage_s,
+            "exposure_us": exposure_us,
+            "stage_us": stage_us,
+            "total_us": total_us,
+        }
+
+    result = st.session_state.get(f"{prefix}_time_result")
+    if not result:
+        return
+
+    col_vals, col_plot = st.columns(2)
+
+    with col_vals:
+        st.markdown("**Breakdown**")
+        st.write(
+            f"Resolution: **{result['res_mm'] * 1e6:.3f} nm** "
+            f"({result['res_mm'] * 1000:g} μm) — "
+            f"chip size / dotmap = "
+            f"{result['chip_size_mm'] * 1000:g} μm / {result['dotmap']}"
+        )
+        st.write(
+            f"Filled resolution boxes: "
+            f"**{result['filled_total']:,.0f}**"
+        )
+        st.write(
+            f"Active grids: **{result['active']} / "
+            f"{result['n_cells']}** "
+            "(empty grids are skipped)"
+        )
+        if result.get("dose_ramp"):
+            st.write(
+                f"Dose ramp: **{result['dose_init_us']:.3f} μs** "
+                f"+ {result['dose_step_us']:.3f} μs/grid "
+                f"→ active range "
+                f"**{result['dose_min']:.3f} – "
+                f"{result['dose_max']:.3f} μs**"
+            )
+            st.write(
+                "Exposure: Σ(filled × per-grid dose) "
+                f"= **{result['exposure_us'] / 1e6:,.3f} s**"
+            )
+        else:
+            st.write(
+                f"Exposure: {result['filled_total']:,.0f} × "
+                f"{result['dose_us']:.3f} μs "
+                f"= **{result['exposure_us'] / 1e6:,.3f} s**"
+            )
+        st.write(
+            f"Stage movement: {result['active']} × "
+            f"{result['stage_s']:.2f} s "
+            f"= **{result['stage_us'] / 1e6:,.3f} s**"
+        )
+        st.markdown(
+            f"### Estimated Time: `{_format_hms(result['total_us'] / 1e6)}`",
+            help="hh:mm:ss.sss (hours:minutes:seconds)"
+        )
+
+    with col_plot:
+        fig = go.Figure()
+
+        # Active grid cells only (empty ones hidden).
+        ne_xs, ne_ys = [], []
+        for cell, area in zip(result["cells"], result["cell_areas"]):
+            if area <= 0:
+                continue
+            x0, y0, x1, y1 = cell
+            ne_xs += [x0, x1, x1, x0, x0, None]
+            ne_ys += [y0, y0, y1, y1, y0, None]
+        if ne_xs:
+            fig.add_trace(go.Scatter(
+                x=ne_xs, y=ne_ys, mode="lines",
+                fill="toself",
+                line=dict(color="#ff7f0e", width=1),
+                fillcolor="rgba(255,127,14,0.20)",
+                name=f"Active grids ({result['active']})",
+                hoverinfo="skip",
+            ))
+
+        # Mask clipped to grids: only the portion of each mask polygon
+        # that lands inside a grid cell, so what is plotted matches
+        # what is exposed and what was counted in the area total.
+        mxs, mys = [], []
+        for xs, ys in result.get("clipped_polys", []):
+            if not xs:
+                continue
+            mxs += list(xs) + [xs[0], None]
+            mys += list(ys) + [ys[0], None]
+        if mxs:
+            fig.add_trace(go.Scatter(
+                x=mxs, y=mys, mode="lines", fill="toself",
+                line=dict(color="#2ca02c", width=0.5),
+                fillcolor="rgba(44,160,44,0.4)",
+                name="Mask",
+                hoverinfo="skip",
+            ))
+
+        fig.update_layout(
+            xaxis=dict(title="x (mm)"),
+            yaxis=dict(title="y (mm)",
+                       scaleanchor="x", scaleratio=1),
+            margin=dict(l=40, r=20, t=20, b=40),
+            height=500,
+            showlegend=True,
+        )
+        st.plotly_chart(fig, width="stretch",
+                        key=f"{prefix}_tc_chart")
 
 
 # Module-level outputs consumed by workflow modes:
@@ -417,7 +743,9 @@ if mode == "Dose Time Testing":
     for _k, _v in _DT_DEFAULTS.items():
         st.session_state.setdefault(_k, _v)
 
-    chip_size = float(st.session_state["ebc_chip_size"])
+    # ebc_chip_size is stored in μm (selectbox); convert to mm for the
+    # rest of the math, which works in mm.
+    chip_size = float(st.session_state["ebc_chip_size"]) / 1000.0
     origin_x = float(st.session_state["ebc_origin_x"])
     origin_y = float(st.session_state["ebc_origin_y"])
     half = chip_size * 0.5
@@ -450,56 +778,84 @@ if mode == "Dose Time Testing":
 
     p1, p2, p3, p4 = st.columns(4)
     with p1:
-        st.markdown("**Cel Origin (mm) in job1**")
-        cel_x = st.number_input("x", format="%.3f",
-                                step=0.0005, key="ebc_dt_cel_x")
-        cel_y = st.number_input("y", format="%.3f",
-                                step=0.0005, key="ebc_dt_cel_y")
+        with st.container(border=True):
+            st.markdown("**Cel Origin (mm) in job1**")
+            p11, p12 = st.columns(2)
+            cel_x = p11.number_input("x", format="%.3f",
+                                    step=0.1, key="ebc_dt_cel_x")
+            cel_y = p12.number_input("y", format="%.3f",
+                                    step=0.1, key="ebc_dt_cel_y")
     with p2:
-        st.markdown("**Increment (mm) in job3**")
-        dx = st.number_input("dx", format="%.3f",
-                             step=0.0005, key="ebc_dt_dx")
-        dy = st.number_input("dy", format="%.3f",
-                             step=0.0005, key="ebc_dt_dy")
+        with st.container(border=True):
+            st.markdown("**Increment (mm) in job3**")
+            p11, p12 = st.columns(2)
+            dx = p11.number_input("dx", format="%.3f",
+                                step=0.0005, key="ebc_dt_dx")
+            dy = p12.number_input("dy", format="%.3f",
+                                step=0.0005, key="ebc_dt_dy")
     with p3:
-        st.markdown("**Grid Count in job3**")
-        Nx = st.number_input("Nx", min_value=1,
-                             step=1, key="ebc_dt_nx")
-        Ny = st.number_input("Ny", min_value=1,
-                             step=1, key="ebc_dt_ny")
+        with st.container(border=True):
+            st.markdown("**Grid Count in job3**")
+            p11, p12 = st.columns(2)
+            Nx = p11.number_input("Nx", min_value=1,
+                                    step=1, key="ebc_dt_nx")
+            Ny = p12.number_input("Ny", min_value=1,
+                                    step=1, key="ebc_dt_ny")
     with p4:
-        st.markdown("**Initial Shift (mm) in job3**")
-        shift_x = st.number_input("x", format="%.3f",
-                                  step=0.0005, key="ebc_dt_shift_x")
-        shift_y = st.number_input("y", format="%.3f",
-                                  step=0.0005, key="ebc_dt_shift_y")
+        with st.container(border=True):
+            st.markdown("**Initial Shift (mm) in job3**")
+            p11, p12 = st.columns(2)
+            shift_x = p11.number_input("x", format="%.3f",
+                                    step=0.0005, key="ebc_dt_shift_x")
+            shift_y = p12.number_input("y", format="%.3f",
+                                    step=0.0005, key="ebc_dt_shift_y")
 
     Nx_i, Ny_i = int(Nx), int(Ny)
     grid_xs: list = []
     grid_ys: list = []
+    _dt_cells: list = []
     for i in range(Nx_i):
         for j in range(Ny_i):
             gx = origin_x - half + i * dx + shift_x
             gy = origin_y - half + j * dy + shift_y
             grid_xs += [gx, gx + chip_size, gx + chip_size, gx, gx, None]
             grid_ys += [gy, gy, gy + chip_size, gy + chip_size, gy, None]
+            _dt_cells.append((gx, gy, gx + chip_size, gy + chip_size))
 
-    # Mask cell overlay: place the selected GDS layer's (0,0) at
-    # (cel_origin + i·dx + shift, cel_origin + j·dy + shift); polygon
-    # coords convert from GDS user units to mm via _gds_unit_to_mm.
+    # Mask cell overlay (right plot + Time Calculator):
+    # 1. Place the mask once at (cel_x, cel_y) — the single-grid
+    #    position with no shift.
+    # 2. Clip it to that single grid so any polygon spilling outside
+    #    is trimmed *before* duplication.
+    # 3. Duplicate the already-trimmed shapes to each (i, j) cell.
+    # The left plot ("Single Grid (no shift)") builds its own
+    # un-clipped placement separately and is intentionally unaffected.
+    _dt_polys_mm: list = []
     mask_xs: list = []
     mask_ys: list = []
     if _gds_selected_polys:
         scale = _gds_unit_to_mm
+        single_polys: list = []
+        for xs, ys in _gds_selected_polys:
+            pxs = [cel_x + p * scale for p in xs]
+            pys = [cel_y + p * scale for p in ys]
+            single_polys.append((pxs, pys))
+        single_box = (origin_x - half, origin_y - half,
+                      origin_x + half, origin_y + half)
+        _, _dt_clipped_single = _polygon_clip_per_cell_mm(
+            single_polys, [single_box])
         for i in range(Nx_i):
             for j in range(Ny_i):
-                cx = cel_x + i * dx + shift_x
-                cy = cel_y + j * dy + shift_y
-                for xs, ys in _gds_selected_polys:
-                    pxs = [cx + p * scale for p in xs]
-                    pys = [cy + p * scale for p in ys]
-                    mask_xs += pxs + [pxs[0], None]
-                    mask_ys += pys + [pys[0], None]
+                offset_x = i * dx + shift_x
+                offset_y = j * dy + shift_y
+                for cxs, cys in _dt_clipped_single:
+                    if not cxs:
+                        continue
+                    txs = [x + offset_x for x in cxs]
+                    tys = [y + offset_y for y in cys]
+                    _dt_polys_mm.append((txs, tys))
+                    mask_xs += txs + [txs[0], None]
+                    mask_ys += tys + [tys[0], None]
 
     bl = (st.session_state["ebc_bl_x"], st.session_state["ebc_bl_y"])
     br = (st.session_state["ebc_br_x"], st.session_state["ebc_br_y"])
@@ -651,6 +1007,13 @@ if mode == "Dose Time Testing":
         )
         st.plotly_chart(fig, width="stretch")
 
+    _render_time_calculator(
+        "ebc_dt", _dt_polys_mm, _dt_cells,
+        chip_size_mm=chip_size,
+        dotmap=int(st.session_state["ebc_dotmap"]),
+        dose_ramp=True,
+    )
+
 elif mode == "First Exposure":
     _FE_DEFAULTS = {
         "ebc_fe_cel_x": 9.7, "ebc_fe_cel_y": 9.7,
@@ -660,7 +1023,8 @@ elif mode == "First Exposure":
     for _k, _v in _FE_DEFAULTS.items():
         st.session_state.setdefault(_k, _v)
 
-    chip_size_v = float(st.session_state["ebc_chip_size"])
+    # ebc_chip_size is stored in μm (selectbox); convert to mm.
+    chip_size_v = float(st.session_state["ebc_chip_size"]) / 1000.0
     origin_x_v = float(st.session_state["ebc_origin_x"])
     origin_y_v = float(st.session_state["ebc_origin_y"])
     half_v = chip_size_v * 0.5
@@ -732,23 +1096,35 @@ elif mode == "First Exposure":
 
     p1, p2, p3 = st.columns(3)
     with p1:
-        st.markdown("**Cel Origin (mm) in job1**")
-        cel_x = st.number_input("x", format="%.3f", step=0.0005,
-                                key="ebc_fe_cel_x")
-        cel_y = st.number_input("y", format="%.3f", step=0.0005,
-                                key="ebc_fe_cel_y")
+        with st.container(border=True):
+            st.markdown("**Cel Origin (mm) in job1**")
+            p11, p12 = st.columns(2)
+            with p11:
+                cel_x = st.number_input("x", format="%.3f", step=0.1,
+                                        key="ebc_fe_cel_x")
+            with p12:
+                cel_y = st.number_input("y", format="%.3f", step=0.1,
+                                        key="ebc_fe_cel_y")
     with p2:
-        st.markdown("**Grid Count in job1 (make sure everything is inside the chip)**")
-        Nx = st.number_input("Nx", min_value=1, step=1,
-                             key="ebc_fe_nx")
-        Ny = st.number_input("Ny", min_value=1, step=1,
-                             key="ebc_fe_ny")
+        with st.container(border=True):
+            st.markdown("**Grid Count in job1 (make sure everything is inside the chip)**")
+            p21, p22 = st.columns(2)
+            with p21:
+                Nx = st.number_input("Nx", min_value=1, step=1,
+                                     key="ebc_fe_nx")
+            with p22:
+                Ny = st.number_input("Ny", min_value=1, step=1,
+                                 key="ebc_fe_ny")
     with p3:
-        st.markdown("**Shift (mm) in job3**")
-        shift_x = st.number_input("x", format="%.3f", step=0.0005,
-                                  key="ebc_fe_shift_x")
-        shift_y = st.number_input("y", format="%.3f", step=0.0005,
-                                  key="ebc_fe_shift_y")
+        with st.container(border=True):
+            st.markdown("**Shift (mm) in job3**")
+            p31, p32 = st.columns(2)
+            with p31:
+                shift_x = st.number_input("x", format="%.3f", step=0.0005,
+                                          key="ebc_fe_shift_x")
+            with p32:
+                shift_y = st.number_input("y", format="%.3f", step=0.0005,
+                                      key="ebc_fe_shift_y")
 
     Nx_i, Ny_i = int(Nx), int(Ny)
 
@@ -756,6 +1132,7 @@ elif mode == "First Exposure":
     # representing the e-beam writable area (no mask duplication).
     grid_xs: list = []
     grid_ys: list = []
+    _fe_cells: list = []
     for i in range(Nx_i):
         for j in range(Ny_i):
             gx = origin_x_v - half_v + i * chip_size_v + shift_x
@@ -764,10 +1141,13 @@ elif mode == "First Exposure":
                         gx, gx, None]
             grid_ys += [gy, gy, gy + chip_size_v,
                         gy + chip_size_v, gy, None]
+            _fe_cells.append(
+                (gx, gy, gx + chip_size_v, gy + chip_size_v))
 
     # Single mask placement: GDS (0,0) lands at (cel + shift).
     mask_xs: list = []
     mask_ys: list = []
+    _fe_polys_mm: list = []
     if _gds_selected_polys:
         scale = _gds_unit_to_mm
         for xs, ys in _gds_selected_polys:
@@ -775,6 +1155,7 @@ elif mode == "First Exposure":
             pys = [cel_y + shift_y + p * scale for p in ys]
             mask_xs += pxs + [pxs[0], None]
             mask_ys += pys + [pys[0], None]
+            _fe_polys_mm.append((pxs, pys))
 
     bl = (st.session_state["ebc_bl_x"], st.session_state["ebc_bl_y"])
     br = (st.session_state["ebc_br_x"], st.session_state["ebc_br_y"])
@@ -860,6 +1241,12 @@ elif mode == "First Exposure":
     )
     st.plotly_chart(fig, width="stretch")
 
+    _render_time_calculator(
+        "ebc_fe", _fe_polys_mm, _fe_cells,
+        chip_size_mm=chip_size_v,
+        dotmap=int(st.session_state["ebc_dotmap"]),
+    )
+
 elif mode == "Second Alignment":
     # Cross-mark position presets. Coordinates are chip-relative (mm).
     # Add new presets here; the radio below lists all keys.
@@ -894,32 +1281,62 @@ elif mode == "Second Alignment":
     if preset_name == "Custom":
         # Custom preset: collect 2 alignment-mark positions from the
         # user and use them as `crosses` for the rest of the flow.
+        # Canonical storage is always mm with 1 nm precision; a unit
+        # radio lets the user enter values in mm or μm.
         _CUSTOM_DEFAULTS = {
             "ebc_sa_custom_m1_x": 0.0, "ebc_sa_custom_m1_y": 0.0,
             "ebc_sa_custom_m2_x": 6.0, "ebc_sa_custom_m2_y": 6.0,
+            "ebc_sa_custom_unit": "mm",
         }
         for _k, _v in _CUSTOM_DEFAULTS.items():
             st.session_state.setdefault(_k, _v)
 
+        unit = st.radio(
+            "Input unit", ["mm", "μm"], horizontal=True,
+            key="ebc_sa_custom_unit",
+        )
+        to_disp = 1000.0 if unit == "μm" else 1.0   # mm → display unit
+        # 1 nm precision: 1e-6 mm or 1e-3 μm.
+        fmt = "%.3f" if unit == "μm" else "%.6f"
+        step = 0.001 if unit == "μm" else 0.000001
+
+        # Re-seed the widget value from the canonical mm key whenever
+        # the unit toggles, so switching modes shows the same physical
+        # value in the new unit instead of a stale display number.
+        prev_unit = st.session_state.get("_ebc_sa_custom_prev_unit", unit)
+        unit_changed = (prev_unit != unit)
+        st.session_state["_ebc_sa_custom_prev_unit"] = unit
+
+        def _mark_input(label: str, mm_key: str) -> float:
+            widget_key = f"{mm_key}_disp"
+            if unit_changed or widget_key not in st.session_state:
+                st.session_state[widget_key] = (
+                    st.session_state[mm_key] * to_disp
+                )
+            val = st.number_input(
+                label, format=fmt, step=step, key=widget_key,
+            )
+            # Persist canonical mm value (1 nm precision).
+            st.session_state[mm_key] = round(val / to_disp, 6)
+            return st.session_state[mm_key]
+
         cm1, cm2 = st.columns(2)
         with cm1:
-            st.markdown("**Mark M1 (mm)**")
-            m1cx, m1cy = st.columns(2)
-            m1_x = m1cx.number_input(
-                "x", format="%.4f", step=0.0005,
-                key="ebc_sa_custom_m1_x")
-            m1_y = m1cy.number_input(
-                "y", format="%.4f", step=0.0005,
-                key="ebc_sa_custom_m1_y")
+            with st.container(border=True):
+                st.markdown(f"**Mark M1 ({unit})**")
+                m1cx, m1cy = st.columns(2)
+                with m1cx:
+                    m1_x = _mark_input("x", "ebc_sa_custom_m1_x")
+                with m1cy:
+                    m1_y = _mark_input("y", "ebc_sa_custom_m1_y")
         with cm2:
-            st.markdown("**Mark M2 (mm)**")
-            m2cx, m2cy = st.columns(2)
-            m2_x = m2cx.number_input(
-                "x", format="%.4f", step=0.0005,
-                key="ebc_sa_custom_m2_x")
-            m2_y = m2cy.number_input(
-                "y", format="%.4f", step=0.0005,
-                key="ebc_sa_custom_m2_y")
+            with st.container(border=True):
+                st.markdown(f"**Mark M2 ({unit})**")
+                m2cx, m2cy = st.columns(2)
+                with m2cx:
+                    m2_x = _mark_input("x", "ebc_sa_custom_m2_x")
+                with m2cy:
+                    m2_y = _mark_input("y", "ebc_sa_custom_m2_y")
 
         crosses = {"M1": (m1_x, m1_y), "M2": (m2_x, m2_y)}
     else:
@@ -946,27 +1363,29 @@ elif mode == "Second Alignment":
             cross_labels = list(crosses.keys())
 
             with controls_col:
-                anchor = st.selectbox(
-                    "Move:", cross_labels,
-                    key=f"{key_prefix}_anchor",
-                )
-                anchor_x, anchor_y = crosses[anchor]
-                st.session_state.setdefault(
-                    f"{key_prefix}_target_x", float(anchor_x))
-                st.session_state.setdefault(
-                    f"{key_prefix}_target_y", float(anchor_y))
-                st.caption("Mark position as seen on the SEM:")
-                target_x_input, target_y_input = st.columns(2)
-                with target_x_input:
-                    target_x = st.number_input(
-                        "Target x in SEM (mm)", format="%.4f", step=0.0005,
-                        key=f"{key_prefix}_target_x",
+                with st.container(border=True):
+                    anchor = st.selectbox(
+                        "Move:", cross_labels,
+                        key=f"{key_prefix}_anchor",
                     )
-                with target_y_input:
-                    target_y = st.number_input(
-                        "Target y in SEM (mm)", format="%.4f", step=0.0005,
-                        key=f"{key_prefix}_target_y",
-                    )
+                    anchor_x, anchor_y = crosses[anchor]
+                    st.session_state.setdefault(
+                        f"{key_prefix}_target_x", float(anchor_x))
+                    st.session_state.setdefault(
+                        f"{key_prefix}_target_y", float(anchor_y))
+                    
+                    st.caption("Mark position as seen on the SEM:")
+                    target_x_input, target_y_input = st.columns(2)
+                    with target_x_input:
+                        target_x = st.number_input(
+                            "Target x", format="%.4f", step=0.001,
+                            key=f"{key_prefix}_target_x",
+                        )
+                    with target_y_input:
+                        target_y = st.number_input(
+                            "Target y", format="%.4f", step=0.001,
+                            key=f"{key_prefix}_target_y",
+                        )
 
             shift_x = target_x - anchor_x
             shift_y = target_y - anchor_y
@@ -1066,7 +1485,8 @@ elif mode == "Second Alignment":
         for _k, _v in _SAP_DEFAULTS.items():
             st.session_state.setdefault(_k, _v)
 
-        chip_size_sap = float(st.session_state["ebc_chip_size"])
+        # ebc_chip_size is stored in μm (selectbox); convert to mm.
+        chip_size_sap = float(st.session_state["ebc_chip_size"]) / 1000.0
         origin_x_sap = float(st.session_state["ebc_origin_x"])
         origin_y_sap = float(st.session_state["ebc_origin_y"])
         half_sap = chip_size_sap * 0.5
@@ -1114,21 +1534,71 @@ elif mode == "Second Alignment":
 
             sp1, sp2 = st.columns(2)
             with sp1:
-                st.markdown("**Cel Origin (mm) in job1**")
-                sap_cel_x = st.number_input(
-                    "x", format="%.3f", step=0.0005,
-                    key="ebc_sa_sap_cel_x")
-                sap_cel_y = st.number_input(
-                    "y", format="%.3f", step=0.0005,
-                    key="ebc_sa_sap_cel_y")
+                with st.container(border=True):
+                    st.markdown("**Cel Origin (mm) in job1**")
+                    sap_cel_x = st.number_input(
+                        "x", format="%.3f", step=0.1,
+                        key="ebc_sa_sap_cel_x")
+                    sap_cel_y = st.number_input(
+                        "y", format="%.3f", step=0.1,
+                        key="ebc_sa_sap_cel_y")
             with sp2:
-                st.markdown("**Grid Count in job1 (make sure everything is inside the chip)**")
-                sap_nx = st.number_input(
-                    "Nx", min_value=1, step=1,
-                    key="ebc_sa_sap_nx")
-                sap_ny = st.number_input(
-                    "Ny", min_value=1, step=1,
-                    key="ebc_sa_sap_ny")
+                with st.container(border=True):
+                    st.markdown("**Grid Count in job1 (make sure everything is inside the chip)**")
+                    sap_nx = st.number_input(
+                        "Nx", min_value=1, step=1,
+                        key="ebc_sa_sap_nx")
+                    sap_ny = st.number_input(
+                        "Ny", min_value=1, step=1,
+                        key="ebc_sa_sap_ny")
+            with st.container(border=True):
+                st.markdown("**Registration mark position in job1**")
+                celx = float(st.session_state["ebc_sa_sap_cel_x"])
+                cely = float(st.session_state["ebc_sa_sap_cel_y"])
+
+                # Load the 2 marks being used (chosen in the Overlayed
+                # section's Mark 1 / Mark 2 selectboxes — read from
+                # session_state since that block renders after this one).
+                # Fall back to the first two crosses on the first run
+                # before Overlayed has populated the selection.
+                _cross_keys = list(crosses.keys())
+                m1_name = st.session_state.get("ebc_sa_o_mark1")
+                if not m1_name or m1_name not in crosses:
+                    m1_name = _cross_keys[0] if _cross_keys else None
+                m2_name = st.session_state.get("ebc_sa_o_mark2")
+                if (not m2_name or m2_name == m1_name
+                        or m2_name not in crosses):
+                    _others = [k for k in _cross_keys if k != m1_name]
+                    m2_name = _others[0] if _others else m1_name
+
+                mk1x_mask = float(crosses[m1_name][0])
+                mk1y_mask = float(crosses[m1_name][1])
+                mk2x_mask = float(crosses[m2_name][0])
+                mk2y_mask = float(crosses[m2_name][1])
+
+                # add mark offset to cel origin to get mark positions in job1 coords:
+                mk1x, mk1y = mk1x_mask+celx, mk1y_mask+cely
+                mk2x, mk2y = mk2x_mask+celx, mk2y_mask+cely
+
+                m1_col, m2_col = st.columns(2)
+                with m1_col:
+                    with st.container(border=True):
+                        st.markdown(
+                            f"**Mark 1 ({m1_name})**",
+                            help=f"x = {mk1x_mask} mm + {celx:.3f} mm, "
+                                 f"y = {mk1y_mask} mm + {cely:.3f} mm",
+                        )
+                        st.markdown(f"x: {mk1x:.4f}")
+                        st.markdown(f"y: {mk1y:.4f}")
+                with m2_col:
+                    with st.container(border=True):
+                        st.markdown(
+                            f"**Mark 2 ({m2_name})**",
+                            help=f"x = {mk2x_mask} mm + {celx:.3f} mm, "
+                                 f"y = {mk2y_mask} mm + {cely:.3f} mm",
+                        )
+                        st.markdown(f"x: {mk2x:.4f}")
+                        st.markdown(f"y: {mk2y:.4f}")
 
         sap_nx_i = int(sap_nx)
         sap_ny_i = int(sap_ny)
@@ -1137,6 +1607,8 @@ elif mode == "Second Alignment":
         # Plot: only render grid + mask if a GDS layer is selected;
         # crosses always render (and follow the cel origin).
         fig_sap = go.Figure()
+        _sa_cells: list = []
+        _sa_polys_mm: list = []
         if sap_polys:
             sap_grid_xs: list = []
             sap_grid_ys: list = []
@@ -1149,6 +1621,9 @@ elif mode == "Second Alignment":
                                     gx, gx, None]
                     sap_grid_ys += [gy, gy, gy + chip_size_sap,
                                     gy + chip_size_sap, gy, None]
+                    _sa_cells.append(
+                        (gx, gy,
+                         gx + chip_size_sap, gy + chip_size_sap))
             fig_sap.add_trace(go.Scatter(
                 x=sap_grid_xs, y=sap_grid_ys,
                 mode="lines",
@@ -1166,6 +1641,7 @@ elif mode == "Second Alignment":
                 pys = [sap_cel_y + p * scale_sap for p in ys]
                 sap_mask_xs += pxs + [pxs[0], None]
                 sap_mask_ys += pys + [pys[0], None]
+                _sa_polys_mm.append((pxs, pys))
             fig_sap.add_trace(go.Scatter(
                 x=sap_mask_xs, y=sap_mask_ys,
                 mode="lines",
@@ -1209,29 +1685,30 @@ elif mode == "Second Alignment":
 
         with ov_ctrl_col:
             cross_labels = list(crosses.keys())
-            mark1_input, mark2_input = st.columns(2)
-            with mark1_input:
-                mark1 = st.selectbox(
-                    "Mark 1", cross_labels, key="ebc_sa_o_mark1")
-                m1_pos = crosses[mark1]
-                st.caption(
-                    f"Original: ({m1_pos[0]:.4f}, "
-                    f"{m1_pos[1]:.4f}) mm"
-                )
-                mark2_options = [
-                    m for m in cross_labels if m != mark1]
-                current_m2 = st.session_state.get("ebc_sa_o_mark2")
-                if (current_m2 == mark1
-                        or current_m2 not in mark2_options):
-                    st.session_state["ebc_sa_o_mark2"] = mark2_options[0]
-            with mark2_input:
-                mark2 = st.selectbox(
-                    "Mark 2", mark2_options, key="ebc_sa_o_mark2")
-                m2_pos = crosses[mark2]
-                st.caption(
-                    f"Original: ({m2_pos[0]:.4f}, "
-                    f"{m2_pos[1]:.4f}) mm"
-                )
+            with st.container(border=True):
+                mark1_input, mark2_input = st.columns(2)
+                with mark1_input:
+                    mark1 = st.selectbox(
+                        "Mark 1", cross_labels, key="ebc_sa_o_mark1")
+                    m1_pos = crosses[mark1]
+                    st.caption(
+                        f"Original: ({m1_pos[0]:.4f}, "
+                        f"{m1_pos[1]:.4f}) mm"
+                    )
+                    mark2_options = [
+                        m for m in cross_labels if m != mark1]
+                    current_m2 = st.session_state.get("ebc_sa_o_mark2")
+                    if (current_m2 == mark1
+                            or current_m2 not in mark2_options):
+                        st.session_state["ebc_sa_o_mark2"] = mark2_options[0]
+                with mark2_input:
+                    mark2 = st.selectbox(
+                        "Mark 2", mark2_options, key="ebc_sa_o_mark2")
+                    m2_pos = crosses[mark2]
+                    st.caption(
+                        f"Original: ({m2_pos[0]:.4f}, "
+                        f"{m2_pos[1]:.4f}) mm"
+                    )
 
             # Auto-populate the Shift inputs.
             # SAP's crosses sit at (preset + sap_cel) because they
@@ -1248,31 +1725,32 @@ elif mode == "Second Alignment":
                 st.session_state["ebc_sa_o_shift_y"] = float(
                     ep_shift_y - sap_cel_y)
                 st.session_state["ebc_sa_o_shift_token"] = shift_token
+                
+            with st.container(border=True):
+                st.caption("Use these numbers in job3:")
+                overlay_shift_x_input, overlay_shift_y_input = st.columns(2)
+                with overlay_shift_x_input:
+                    overlay_shift_x = st.number_input(
+                        "Shift x (mm)", format="%.4f", step=0.0005,
+                        key="ebc_sa_o_shift_x",
+                    )
+                with overlay_shift_y_input:
+                    overlay_shift_y = st.number_input(
+                        "Shift y (mm)", format="%.4f", step=0.0005,
+                        key="ebc_sa_o_shift_y",
+                    )
 
-            st.caption("Use these numbers in job3:")
-            overlay_shift_x_input, overlay_shift_y_input = st.columns(2)
-            with overlay_shift_x_input:
-                overlay_shift_x = st.number_input(
-                    "Shift x (mm)", format="%.4f", step=0.0005,
-                    key="ebc_sa_o_shift_x",
+                # Clearing the token forces the auto-populate block above
+                # to re-fire on the next rerun, resetting Shift x/y to the
+                # computed center (ep_shift − sap_cel).
+                def _recenter_overlay_shift():
+                    st.session_state.pop("ebc_sa_o_shift_token", None)
+
+                st.button(
+                    "Re-center", on_click=_recenter_overlay_shift,
+                    key="ebc_sa_o_recenter",
+                    help="Reset Shift x/y to the auto-computed center.",
                 )
-            with overlay_shift_y_input:
-                overlay_shift_y = st.number_input(
-                    "Shift y (mm)", format="%.4f", step=0.0005,
-                    key="ebc_sa_o_shift_y",
-                )
-
-            # Clearing the token forces the auto-populate block above
-            # to re-fire on the next rerun, resetting Shift x/y to the
-            # computed center (ep_shift − sap_cel).
-            def _recenter_overlay_shift():
-                st.session_state.pop("ebc_sa_o_shift_token", None)
-
-            st.button(
-                "Re-center", on_click=_recenter_overlay_shift,
-                key="ebc_sa_o_recenter",
-                help="Reset Shift x/y to the auto-computed center.",
-            )
 
         fig_ov = go.Figure()
 
@@ -1348,3 +1826,9 @@ elif mode == "Second Alignment":
         with ov_plot_col:
             st.plotly_chart(fig_ov, width="stretch",
                             key="ebc_sa_overlay_chart")
+
+        _render_time_calculator(
+            "ebc_sa", _sa_polys_mm, _sa_cells,
+            chip_size_mm=chip_size_sap,
+            dotmap=int(st.session_state["ebc_dotmap"]),
+        )

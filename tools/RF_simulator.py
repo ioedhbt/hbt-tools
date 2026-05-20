@@ -891,15 +891,15 @@ else:
                        filename=f"rfsim_bode_{prefix}")
 
     col_left, col_right = st.columns(2)
-    from tools.SSM.ssm_plots import (render_matplotlib_smith_controls,
-                                      render_matplotlib_smith_chart)
+    from tools.SSM.ssm_plots import render_matplotlib_smith
     with col_right:
         with st.expander("📐 Smith Chart Controls", expanded=False):
-            render_matplotlib_smith_controls(
+            render_matplotlib_smith(
                 fname=f"rfsim_{prefix}", topo_key=topo_char,
                 sets=[{"S": S_sim, "label": "Simulated",
                        "kind": "line", "style": "solid"}],
                 default_multiplier=mults,
+                phase="controls", freq_hz=freq,
             )
     with col_left:
         with st.expander("🖼️ Topology / Smith Chart", expanded=False):
@@ -911,11 +911,12 @@ else:
                                                    f"rfsim_{prefix}")
             except Exception as e:
                 st.warning(f"Topology illustration unavailable: {e}")
-            render_matplotlib_smith_chart(
+            render_matplotlib_smith(
                 fname=f"rfsim_{prefix}", topo_key=topo_char,
                 sets=[{"S": S_sim, "label": "Simulated",
                        "kind": "line", "style": "solid"}],
                 default_multiplier=mults,
+                phase="chart", freq_hz=freq,
             )
 
     with st.expander("🔧 Tuning — Interactive slider preview", expanded=False):

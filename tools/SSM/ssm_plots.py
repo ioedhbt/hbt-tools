@@ -750,19 +750,26 @@ _SPARAM_DEFAULT_POS = {
 def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                             topo_key: str = "", *,
                             sets=None, default_multiplier=1.0,
-                            phase: str = "both"):
+                            phase: str = "both",
+                            freq_hz=None):
     """
     Publication-style Smith chart drawn with matplotlib.
 
     ``phase`` controls which half runs — used by the SSM tab's split
     "Topology + Smith Chart" / "Smith Chart Controls" two-column
-    layout (see ``render_matplotlib_smith_controls`` /
-    ``render_matplotlib_smith_chart``):
+    layout (callers invoke this function twice — once with
+    ``phase="controls"`` in the right column, once with ``phase="chart"``
+    in the left column):
 
       • ``"both"`` (default, backwards-compat): widgets THEN chart.
       • ``"controls"``: widgets only — no figure rendered.
       • ``"chart"``: chart only — reads previously-written session
         state and skips widget creation.
+
+    ``freq_hz`` (optional ndarray of frequencies in Hz) seeds a default
+    "{lo:g}~{hi:g} GHz" annotation at position (0.0, -1.1) on the first
+    render — the user can then edit / move / delete it through the
+    "Extra text annotations" controls.
 
     Two ways to call:
       Backward-compatible (used by SSM extraction):
@@ -1141,6 +1148,35 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                                              "the trace color).")
 
         # ── Free text annotations + ➕ button ─────────────────────────────
+        #
+        # Seed a default freq-range annotation at the bottom of the chart on
+        # the very first render for this (fname, topo_key).  Defaults:
+        #   text     : "{lo:g}~{hi:g} GHz" derived from `freq_hz`
+        #   position : (0.0, -1.1)            — just below the unit circle
+        #   color    : #000000
+        # The user can edit / move / delete it through the same Text inputs
+        # used by every other free-text slot.  A sentinel session_state key
+        # prevents re-seeding on subsequent reruns (so the user's edits
+        # actually stick).
+        _seed_key = f"{skey}_freq_default_seeded"
+        if (freq_hz is not None
+                and not st.session_state.get(_seed_key)
+                and int(st.session_state.get(extra_key, 0)) == 0):
+            try:
+                _f = np.asarray(freq_hz, dtype=float)
+                _f = _f[np.isfinite(_f)]
+                if _f.size >= 2:
+                    _lo = float(_f.min()) * 1e-9
+                    _hi = float(_f.max()) * 1e-9
+                    st.session_state[extra_key]         = 1
+                    st.session_state[f"{skey}_etext_0"]  = f"{_lo:g}~{_hi:g} GHz"
+                    st.session_state[f"{skey}_ex_0"]     = 0.0
+                    st.session_state[f"{skey}_ey_0"]     = -1.1
+                    st.session_state[f"{skey}_ecolor_0"] = "#000000"
+            except (TypeError, ValueError):
+                pass
+            st.session_state[_seed_key] = True
+
         n_extra = int(st.session_state.get(extra_key, 0))
         if n_extra > 0:
             st.markdown("**Extra text annotations**")
@@ -1315,37 +1351,6 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             "  |  Trace colors: " + color_chips,
             unsafe_allow_html=True,
         )
-
-
-def render_matplotlib_smith_controls(S_mea=None, S_sim=None, fname: str = "",
-                                      topo_key: str = "", *,
-                                      sets=None, default_multiplier=1.0):
-    """Controls-only half of the split Topology / Matplotlib Smith layout.
-
-    Creates all the widget controls (color mode, line thickness, per-set
-    style/color, per-trace multiplier/color/text/position, free text
-    annotations) and writes them to session_state.  Does NOT render the
-    chart — call :func:`render_matplotlib_smith_chart` (in the other
-    column) for that.  Caller is responsible for ordering: this must run
-    BEFORE the chart half so the session_state is populated."""
-    return render_matplotlib_smith(S_mea, S_sim, fname, topo_key,
-                                    sets=sets,
-                                    default_multiplier=default_multiplier,
-                                    phase="controls")
-
-
-def render_matplotlib_smith_chart(S_mea=None, S_sim=None, fname: str = "",
-                                   topo_key: str = "", *,
-                                   sets=None, default_multiplier=1.0):
-    """Chart-only half of the split Topology / Matplotlib Smith layout.
-
-    Reads the widget values previously written to session_state by
-    :func:`render_matplotlib_smith_controls` and renders the matplotlib
-    figure + legend.  No widgets are created in this phase."""
-    return render_matplotlib_smith(S_mea, S_sim, fname, topo_key,
-                                    sets=sets,
-                                    default_multiplier=default_multiplier,
-                                    phase="chart")
 
 
 def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fname):

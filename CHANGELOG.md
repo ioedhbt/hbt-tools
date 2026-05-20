@@ -109,6 +109,13 @@ entry under that tool below.
 
 ## EBL Calculator — [`tools/ebeam_calculator.py`](tools/ebeam_calculator.py)
 
+### v1.1
+- Chip Size selector switched to μm presets; resolution is now displayed live
+- Added Time Calculator to each workflow mode — computes filled resolution boxes, exposure + stage-movement time, total as HH:MM:SS; empty grids are hidden in the result plot
+- Dose Time Testing: dose ramp inputs (initial + incremental)
+- Custom alignment-mark inputs: mm / μm unit toggle, canonical storage in mm at 1 nm precision; Second Alignment registration display now reads the actually-selected Mark 1 / Mark 2
+
+
 ### v1.0
 - Initial version tracking (includes custom second alignment mark)
 

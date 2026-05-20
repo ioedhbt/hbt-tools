@@ -41,17 +41,27 @@ def darken(c):
 
 
 def bode_layout(title, ytitle, yr, xr):
-    """Plotly layout dict for Bode / plateau plots (log-x frequency axis)."""
+    """Plotly layout dict for Bode / plateau plots (log-x frequency axis).
+
+    Legend placement mirrors the Raw-vs-De-embedded comparison plot in
+    :mod:`tools.SSM.ssm_plots._compare_bode_smith`: horizontal, centered
+    below the plot area, with a soft white background.  This keeps the
+    trace names from squeezing the chart when many DUTs / S-parameters
+    are overlaid in the Overlay or Individual tabs.
+    """
     return dict(
         title=dict(text=title, font=dict(size=13)),
         xaxis=dict(title="Frequency (GHz)", type="log",
                    range=[np.log10(max(xr[0], 1e-4)), np.log10(xr[1])],
                    showgrid=True, gridcolor="#ebebeb", minor_showgrid=True),
         yaxis=dict(title=ytitle, range=list(yr), showgrid=True, gridcolor="#ebebeb"),
-        legend=dict(x=1.0, y=1.0, xanchor="left", yanchor="top",
-                    bgcolor="rgba(255,255,255,0.88)", bordercolor="#ccc", borderwidth=1),
-        plot_bgcolor="white", paper_bgcolor="white", height=500,
-        margin=dict(l=55, r=25, t=45, b=50), hovermode="x unified", template="plotly_white")
+        legend=dict(orientation="h", x=0.5, y=-0.22,
+                    xanchor="center", yanchor="top",
+                    bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
+                    borderwidth=1, font=dict(size=9)),
+        plot_bgcolor="white", paper_bgcolor="white", height=560,
+        margin=dict(l=55, r=25, t=45, b=160),
+        hovermode="x unified", template="plotly_white")
 
 
 # ── Smith chart ──────────────────────────────────────────────────────────────

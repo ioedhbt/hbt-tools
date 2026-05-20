@@ -596,8 +596,25 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                     reextract_fn=_reextract_fn,
                     cbex_sweep_fn=_cbex_sweep_fn)
 
-        ModelClass.render_results_table(params)
-        ModelClass.render_formula_trace()
+        # Lay the extracted-parameters table side-by-side with the
+        # 📐 Full formula trace expander when the model provides one.
+        # Each lives inside its own expander so the user can collapse
+        # either independently.  Models without a formula trace (e.g.
+        # Degachi) render the table at full width to avoid leaving a
+        # visually empty right column.
+        _has_trace = getattr(ModelClass, "has_formula_trace",
+                             lambda: False)()
+        if _has_trace:
+            _col_tbl, _col_trace = st.columns(2, gap="medium")
+            with _col_tbl:
+                with st.expander("📊 Extracted parameters", expanded=False):
+                    ModelClass.render_results_table(params)
+            with _col_trace:
+                ModelClass.render_formula_trace()
+        else:
+            with st.expander("📊 Extracted parameters", expanded=False):
+                ModelClass.render_results_table(params)
+            ModelClass.render_formula_trace()
 
         extract_results[short] = (params, arrays)
 
@@ -781,10 +798,30 @@ def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
             if not np.isfinite(v):
                 continue
             av = abs(v)
-            if av < 1e-12:  sc_d, unit_d = 1e15, "fF"
-            elif av < 1e-9: sc_d, unit_d = 1e12, "pH"
-            elif av > 1e2:  sc_d, unit_d = 1e-3, "k-unit"
-            else:           sc_d, unit_d = 1.0,  ""
+            # Key-prefix dispatch FIRST so resistances (R*) never get
+            # rescaled to "k-unit" or stripped of their Ω suffix — the
+            # purely magnitude-based fallback below mishandled Rbe (no
+            # unit), Rbi / Rbc (k-unit) before this fix.
+            kl = k.lower()
+            if kl.startswith("r"):
+                sc_d, unit_d = 1.0, "Ω"
+            elif kl.startswith("c"):
+                sc_d, unit_d = (1e15, "fF") if av < 1e-12 else (1e12, "pF")
+            elif kl.startswith("l"):
+                sc_d, unit_d = (1e12, "pH") if av < 1e-9 else (1e9, "nH")
+            elif kl.startswith("gm"):
+                sc_d, unit_d = 1e3, "mS"
+            elif kl.startswith("tau") or kl in ("tbi", "tbe", "tau_b",
+                                                "tau_c", "taub", "tauc"):
+                sc_d, unit_d = 1e12, "ps"
+            elif kl.startswith("alpha") or kl.startswith("beta"):
+                sc_d, unit_d = 1.0, ""
+            else:
+                # Last-resort magnitude heuristic for keys we don't
+                # recognise from the prefix alone.
+                if av < 1e-12:  sc_d, unit_d = 1e15, "fF"
+                elif av < 1e-9: sc_d, unit_d = 1e12, "pH"
+                else:           sc_d, unit_d = 1.0,  ""
             rows.append({"Layer":layer,"Symbol":k,"Value":f"{v*sc_d:.4f}","Unit":unit_d})
     if rows:
         df_sum = pd.DataFrame(rows)
@@ -799,6 +836,15 @@ def _render_fit_cache_panel(fname):
     """Persistent fit-cache UI: inspect entries for this file, export the
     whole cache as JSON, or import a JSON cache snapshot (e.g. to carry
     fits from a local install onto the Streamlit Cloud version)."""
+    # Hide the entire cache panel on hosts where caching is disabled
+    # (Streamlit Community Cloud ephemeral VMs).  Showing it there is
+    # misleading because every write is lost on the next cold start
+    # and reads always return empty.  See helpers/fit_cache.py for the
+    # detection rule (`/mount/src` presence or `HBT_DISABLE_FIT_CACHE`).
+    from .helpers.fit_cache import is_cache_disabled
+    if is_cache_disabled():
+        return
+
     with st.expander("💾 Fit cache (persists fine-tuned values across sessions)",
                      expanded=False):
         _dut_stem = Path(fname).stem
