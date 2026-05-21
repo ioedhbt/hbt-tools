@@ -13,7 +13,7 @@ which is then called once inside the "SSM Extraction" sub-tab.
 Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
 repo root.
 """
-__version__ = "6.0"
+__version__ = "6.1"
 
 import io, re, zipfile
 from pathlib import Path

@@ -11,6 +11,20 @@ entry under that tool below.
 
 ## RF S-Parameter Extraction — [`tools/IOED_HBT_RF_extract.py`](tools/IOED_HBT_RF_extract.py)
 
+### v6.1
+- ➕ New SSM model: **Kun-Yang HEMT** (pi-topology, forward simulation
+  only). Inside → out: intrinsic pi (Cgs/Ri + Cgd/Rgd + Cds∥Rds + gm) →
+  source-side Z_delay (R_delay ∥ C_delay in series with Rs+jωLs) →
+  series-lead Z_ser (gate/drain/source) → Kun-Yang substrate pad
+  (Cgsp/Rsub1, Cdsp/Rsub2, Cgdp). No standard open-dummy pad layer for
+  this model — the substrate network IS the pad
+- 🦀 Rust kernel `sim_kunyang_batch` (Rayon-parallel over the batch
+  axis); CUDA via CuPy and NumPy fallback all parity-tested
+- Static-cache pre-bake of Z_delay / Y_gs / Y_gd / Y_ds / gm /
+  KY_int_planes / KY_pad_planes for fast Visual + Auto Tuning sweeps
+- Also exposed in `tools/RF_simulator.py` with the KY-specific section
+  ordering (substrate pad first, then access R & leads)
+
 ### v6.0
 - 🦀 Rust acceleration for SSM hot paths: end-to-end batched simulators
   (Cheng T, Cheng π, Xu T) with Rayon parallelism — ~25× faster Auto

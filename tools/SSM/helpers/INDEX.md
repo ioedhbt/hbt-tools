@@ -391,6 +391,46 @@ Overrides class attribute `_TUNING_PAD_SPECS = _XU_PAD_SPECS` so the tuning expa
 | `_render_topology(all_p, fname)` | 876 | Template hook — render Xu schematic illustration. |
 | `_build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable)` | 880 | Populate intrinsic sub-networks (Zbe, Zbc, alpha, T_int_planes, Ybcx) into the static cache when not in `swept_keys`. |
 
+### [`models/kunyang.py`](../models/kunyang.py) — Kun-Yang HEMT (pi-model, forward sim only)
+
+Forward-simulation-only model — no extraction is performed.  Built inside → out:
+
+1. Intrinsic 3-component pi:  series Cgs/Ri (gate-source shunt), series Cgd/Rgd (gate-drain), parallel Rds∥Cds + transconductance gm = Gm0·exp(−jωτ) (drain-source).
+2. Z_ser wrap with gate/drain/source lead L+R (re-uses HBT Lb/Lc/Le, Rpb/Rpc/Rpe keys; relabelled in the UI).
+3. Kun-Yang custom substrate pad in parallel:  Cgsp series Rsub1 (port-1 shunt), Cdsp series Rsub2 (port-2 shunt), Cgdp (port-1 to port-2 shunt cap).
+4. Standard open-dummy pad (Cpbe, Cpce, Cpbc) on top → S.
+
+Module-level helpers:
+
+| Function | Line | Purpose |
+|---|---|---|
+| `_Y_int_KY_vec(p, omega, xp)` | 41 | Vectorised intrinsic pi-model Y matrix → (N, 2, 2). |
+| `_Y_int_KY_batch(p, omega, B, N, xp, cache=None)` | 70 | Batched intrinsic Y → 4 (B, N) planes; cache-aware. |
+| `_Y_kypad_vec(p, omega, xp)` | 122 | Vectorised Kun-Yang substrate pad Y → (N, 2, 2). |
+| `_Y_kypad_batch(p, omega, B, N, xp, cache=None)` | 153 | Batched Kun-Yang substrate pad as 4 (B, N) planes. |
+| `_sim_wrap(Y_int_fn, p, freq, z0)` | 185 | Per-frequency scalar forward sim. |
+| `_sim_wrap_vec(Y_int_vec_fn, p, freq, z0, xp)` | 218 | Vectorised forward sim — numpy or cupy. |
+| `_sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None)` | 240 | Batched (param_combo × freq) forward sim — fully inlined 2×2 algebra; powers visual / auto tuning. |
+| `_override_ui(fname, tK, calc_vals, int_specs, label, ext_specs)` | 339 | Fine-tune override UI: HEMT-labelled pads, Kun-Yang custom pad, intrinsic pi. |
+
+`class KunYangHEMT(SSMModelTemplate, AbstractSSMModel)` (line 410, `SHORT="KY"`):
+
+Inherited from `SSMModelTemplate` (in `base_ui.py`):
+`simulate_vec`, `simulate_batch`, `_cached_simulate_vec`, `render_results_table`, `render_override_and_smith`.
+Overrides class attribute `_TUNING_PAD_SPECS = _KY_PAD_SPECS` so the tuning expander relabels pad caps and leads to HEMT terminology (Lg/Ld/Ls, Rg/Rd/Rs, Cpg/Cpd/Cpgd) while keeping the underlying storage keys identical to the HBT models.
+
+| Method | Line | Purpose |
+|---|---|---|
+| `extract(Y_ex1, freq, n_low, **kwargs)` | 450 | Returns default starting parameters; no measurement-based extraction. |
+| `simulate(params, freq, z0=50.0)` | 459 | Scalar forward sim (per-freq loop). |
+| `render_step_formulas()` | 474 | LaTeX formulas for the four layers. |
+| `_results_rows(params)` | 502 | Template hook — table rows for extracted/tuned parameters. |
+| `_render_results_trace()` | 522 | Template hook — 📐 LaTeX dependency chain expander. |
+| `_do_override_ui(fname, calc_vals)` | 546 | Template hook — call `_override_ui` with Kun-Yang specs. |
+| `_render_topology(all_p, fname)` | 552 | Template hook — placeholder note (no schematic shipped). |
+| `_build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable)` | 559 | Pre-bake Y_gs / Y_gd / Y_ds / gm / KY_int_planes / KY_pad_planes when their deps are not in the sweep. |
+| `get_s2p_header_params(params, para_eff)` | 600 | Customised `.s2p` header: HEMT pad labels (Lg/Ld/Ls, Rg/Rd/Rs), Kun-Yang substrate caps, intrinsic pi. |
+
 ### [`models/degachi.py`](../models/degachi.py) — Degachi & Ghannouchi (2008) augmented π *(currently disabled in the registry — uncomment in `models/__init__.py` to re-enable)*
 
 Module-level helpers (Eqs. follow the 2008 IEEE TED paper):

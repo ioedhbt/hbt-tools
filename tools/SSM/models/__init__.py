@@ -136,12 +136,14 @@ class AbstractSSMModel(ABC):
 from .cheng   import ChengT, ChengPi   # noqa: E402
 # from .degachi import Degachi           # noqa: E402
 from .xu      import XuModel           # noqa: E402
+from .kunyang import KunYangHEMT       # noqa: E402
 
 REGISTRY: dict[str, type[AbstractSSMModel]] = {
-    ChengT.SHORT:  ChengT,
-    ChengPi.SHORT: ChengPi,
+    ChengT.SHORT:       ChengT,
+    ChengPi.SHORT:      ChengPi,
     # Degachi.SHORT: Degachi,
-    XuModel.SHORT: XuModel,
+    XuModel.SHORT:      XuModel,
+    KunYangHEMT.SHORT:  KunYangHEMT,
 }
 
 

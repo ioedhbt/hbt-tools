@@ -523,6 +523,19 @@ def sim_xu_t_batch(params, freq, z0=50.0, *, np_fallback):
     return _phase2_dispatch("sim_xu_t_batch", params, freq, z0, np_fallback)
 
 
+def sim_kunyang_batch(params, freq, z0=50.0, *, np_fallback):
+    """Kun-Yang HEMT pi-topology — end-to-end batched simulation.
+
+    Topology (inside → out): intrinsic pi → source-side ``Z_delay`` (in
+    series with Rs+jωLs) → series-lead Z_ser → Kun-Yang custom substrate
+    pad → S.  No standard open-dummy ``Y_pad`` layer for this model.
+
+    See :func:`sim_cheng_t_batch` for the dispatch semantics and the
+    ``np_fallback`` contract.
+    """
+    return _phase2_dispatch("sim_kunyang_batch", params, freq, z0, np_fallback)
+
+
 # Lookup table consumed by `SSMModelTemplate.simulate_batch` to pick
 # the right Rust wrapper for a model's `SHORT` identifier.  Adding a
 # new topology only requires (a) a Rust `#[pyfunction]`, (b) a wrapper
@@ -531,6 +544,7 @@ SIM_FOR_TOPOLOGY = {
     "T":   sim_cheng_t_batch,
     "pi":  sim_cheng_pi_batch,
     "XuT": sim_xu_t_batch,
+    "KY":  sim_kunyang_batch,
 }
 
 
@@ -545,5 +559,6 @@ __all__ = [
     "sim_cheng_t_batch",
     "sim_cheng_pi_batch",
     "sim_xu_t_batch",
+    "sim_kunyang_batch",
     "SIM_FOR_TOPOLOGY",
 ]

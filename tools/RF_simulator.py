@@ -26,6 +26,10 @@ from tools.SSM.models.xu       import (XuModel,
                                         _EXT_T_SPECS as _XU_EXT_SPECS,
                                         _INT_T_SPECS as _XU_INT_SPECS,
                                         _XU_PAD_SPECS)
+from tools.SSM.models.kunyang  import (KunYangHEMT,
+                                        _render_topology_illustration as _render_ky_illustration,
+                                        _EXT_KY_SPECS, _INT_KY_SPECS,
+                                        _KY_PAD_SPECS, _DEFAULT_PARAMS as _KY_DEFAULT_PARAMS)
 from tools.SSM.models.base_ui  import PAD_SPECS
 from tools.SSM.ssm_plots       import render_matplotlib_smith
 from tools.SSM.helpers         import (extended_smith_grid,
@@ -53,7 +57,7 @@ _EXCEL_MIME = ("application/vnd.openxmlformats-officedocument."
 
 st.title(f"📡 RF Forward Simulator (v{__version__})")
 st.caption("Forward-simulate S-parameters from a small-signal model "
-           "(Cheng T, Cheng π, Xu T) or from open/short pad parasitics.")
+           "(Cheng T, Cheng π, Xu T, Kun-Yang HEMT) or from open/short pad parasitics.")
 
 
 # ─── Frequency axis ──────────────────────────────────────────────────────────
@@ -78,7 +82,7 @@ f_ghz = freq * 1e-9
 
 # ─── Model selector ──────────────────────────────────────────────────────────
 
-MODEL_OPTIONS = ["Cheng's T", "Cheng's π", "Xu T", "Open and Short Pad"]
+MODEL_OPTIONS = ["Cheng's T", "Cheng's π", "Xu T", "Kun-Yang HEMT", "Open and Short Pad"]
 model_choice  = st.radio("Model", MODEL_OPTIONS, horizontal=True, index=0)
 
 
@@ -803,6 +807,21 @@ else:
         _rbcx_sk = f"rfsim_{prefix}_ext_Rbcx"
         if _rbcx_sk not in st.session_state:
             st.session_state[_rbcx_sk] = 285.0
+    elif model_choice == "Kun-Yang HEMT":
+        model_cls = KunYangHEMT
+        ext_specs = _EXT_KY_SPECS
+        int_specs = _INT_KY_SPECS
+        topo_char = "pi"
+        prefix    = "ssm_KY"
+        # Pre-init the intrinsic + custom-pad inputs with the model defaults so
+        # the first render produces a finite Smith chart (Rds=0 would explode).
+        for _key, _, _sc, *_ in _EXT_KY_SPECS + _INT_KY_SPECS:
+            _sk = (f"rfsim_{prefix}_ext_{_key}"
+                   if _key in {k for k, *_ in _EXT_KY_SPECS}
+                   else f"rfsim_{prefix}_int_{_key}")
+            if _sk not in st.session_state:
+                st.session_state[_sk] = float(
+                    _KY_DEFAULT_PARAMS.get(_key, 0.0)) * float(_sc)
     else:
         model_cls = ChengPi
         ext_specs = _EXT_PI_SPECS
@@ -816,42 +835,47 @@ else:
     _pad_short_keys = {"Lb", "Lc", "Le"}
     _pad_r_order    = ["Rpe", "Rpb", "Rpc"]    # Re, Rb, Rc
 
-    _pad_specs_for_model = _XU_PAD_SPECS if model_cls is XuModel else PAD_SPECS
+    if model_cls is XuModel:
+        _pad_specs_for_model = _XU_PAD_SPECS
+    elif model_cls is KunYangHEMT:
+        _pad_specs_for_model = _KY_PAD_SPECS
+    else:
+        _pad_specs_for_model = PAD_SPECS
     pad_open_specs  = [s for s in _pad_specs_for_model if s[0] in _pad_open_keys]
     pad_short_specs = [s for s in _pad_specs_for_model if s[0] in _pad_short_keys]
     pad_r_specs     = sorted(
         [s for s in _pad_specs_for_model if s[0] in _pad_r_order],
         key=lambda s: _pad_r_order.index(s[0]))
 
+    def _render_pad_row(specs):
+        for col_w, spec in zip(st.columns(3), specs):
+            key, lbl, sc, unit, fmt, step = spec
+            sk = f"rfsim_{prefix}_pad_{key}"
+            if sk not in st.session_state:
+                st.session_state[sk] = 0.0
+            col_w.number_input(f"{lbl} ({unit})", key=sk,
+                               format=fmt, step=step)
+
     st.markdown("### Inputs")
     with st.expander(f"✏️ {model_cls.NAME} parameters", expanded=True):
-        st.markdown("**Pad Parasitics**")
-        for col_w, spec in zip(st.columns(3), pad_open_specs):
-            key, lbl, sc, unit, fmt, step = spec
-            sk = f"rfsim_{prefix}_pad_{key}"
-            if sk not in st.session_state:
-                st.session_state[sk] = 0.0
-            col_w.number_input(f"{lbl} ({unit})", key=sk,
-                               format=fmt, step=step)
-        for col_w, spec in zip(st.columns(3), pad_short_specs):
-            key, lbl, sc, unit, fmt, step = spec
-            sk = f"rfsim_{prefix}_pad_{key}"
-            if sk not in st.session_state:
-                st.session_state[sk] = 0.0
-            col_w.number_input(f"{lbl} ({unit})", key=sk,
-                               format=fmt, step=step)
-
-        st.markdown("**Access Resistance**")
-        for col_w, spec in zip(st.columns(3), pad_r_specs):
-            key, lbl, sc, unit, fmt, step = spec
-            sk = f"rfsim_{prefix}_pad_{key}"
-            if sk not in st.session_state:
-                st.session_state[sk] = 0.0
-            col_w.number_input(f"{lbl} ({unit})", key=sk,
-                               format=fmt, step=step)
-
-        _render_spec_inputs(ext_specs, prefix + "_ext", "Extrinsic Caps")
-        _render_spec_inputs(int_specs, prefix + "_int", "Intrinsic")
+        if model_cls is KunYangHEMT:
+            # KY: substrate / custom pad FIRST (these caps ARE the pad layer),
+            # then access resistance + lead inductances.  No Cpg / Cpd / Cpgd
+            # row — those entries are not used by the Kun-Yang model.
+            _render_spec_inputs(ext_specs, prefix + "_ext",
+                                 "Kun-Yang Custom Pad / Substrate Network")
+            st.markdown("**Access Resistance & Lead Inductance**")
+            _render_pad_row(pad_short_specs)
+            _render_pad_row(pad_r_specs)
+            _render_spec_inputs(int_specs, prefix + "_int", "Intrinsic Pi-Model")
+        else:
+            st.markdown("**Pad Parasitics**")
+            _render_pad_row(pad_open_specs)
+            _render_pad_row(pad_short_specs)
+            st.markdown("**Access Resistance**")
+            _render_pad_row(pad_r_specs)
+            _render_spec_inputs(ext_specs, prefix + "_ext", "Extrinsic Caps")
+            _render_spec_inputs(int_specs, prefix + "_int", "Intrinsic")
 
     p = {**_collect_specs(PAD_SPECS, prefix + "_pad"),
          **_collect_specs(ext_specs, prefix + "_ext"),
@@ -906,6 +930,8 @@ else:
             try:
                 if model_cls is XuModel:
                     _render_xu_illustration(p, f"rfsim_{prefix}")
+                elif model_cls is KunYangHEMT:
+                    _render_ky_illustration(p, f"rfsim_{prefix}")
                 else:
                     _render_topology_illustration(p, topo_char,
                                                    f"rfsim_{prefix}")

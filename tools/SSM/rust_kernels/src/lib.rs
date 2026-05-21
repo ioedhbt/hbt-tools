@@ -1018,6 +1018,223 @@ fn sim_xu_t_batch<'py>(
     Ok(out.into_pyarray_bound(py))
 }
 
+#[pyfunction]
+fn sim_kunyang_batch<'py>(
+    py: Python<'py>,
+    params: &Bound<'py, PyDict>,
+    freq:   PyReadonlyArray1<'py, f64>,
+    z0:     f64,
+) -> PyResult<Bound<'py, PyArray4<C>>> {
+    // Kun-Yang model has NO standard Cpbe/Cpce/Cpbc pad layer (the KY
+    // substrate network replaces it).  Cpar_L* parasitic-cap modes are
+    // also ignored — they were a HBT-only de-embedding feature.  No
+    // _params_use_extra_modes() check here.
+
+    // Series-lead + access-resistance (re-uses HBT key names — see
+    // models/kunyang.py).
+    let p_lb     = _extract_bcval(params, "Lb",     0.0)?;
+    let p_lc     = _extract_bcval(params, "Lc",     0.0)?;
+    let p_le     = _extract_bcval(params, "Le",     0.0)?;
+    let p_rpb    = _extract_bcval(params, "Rpb",    0.0)?;
+    let p_rpc    = _extract_bcval(params, "Rpc",    0.0)?;
+    let p_rpe    = _extract_bcval(params, "Rpe",    0.0)?;
+    // Source-side delay network (R_delay ‖ C_delay in series with Rs+jωLs)
+    let p_rdelay = _extract_bcval(params, "R_delay", 0.0)?;
+    let p_cdelay = _extract_bcval(params, "C_delay", 0.0)?;
+    // Intrinsic pi-model
+    let p_cgs    = _extract_bcval(params, "Cgs",    0.0)?;
+    let p_ri     = _extract_bcval(params, "Ri",     0.0)?;
+    let p_cgd    = _extract_bcval(params, "Cgd",    0.0)?;
+    let p_rgd    = _extract_bcval(params, "Rgd",    0.0)?;
+    let p_cds    = _extract_bcval(params, "Cds",    0.0)?;
+    let p_rds    = _extract_bcval(params, "Rds",    1.0)?;
+    let p_gm0    = _extract_bcval(params, "Gm0",    0.0)?;
+    let p_tau    = _extract_bcval(params, "tau",    0.0)?;
+    // Kun-Yang custom pad / substrate
+    let p_cgsp   = _extract_bcval(params, "Cgsp",   0.0)?;
+    let p_rsub1  = _extract_bcval(params, "Rsub1",  0.0)?;
+    let p_cdsp   = _extract_bcval(params, "Cdsp",   0.0)?;
+    let p_rsub2  = _extract_bcval(params, "Rsub2",  0.0)?;
+    let p_cgdp   = _extract_bcval(params, "Cgdp",   0.0)?;
+
+    let all = [
+        &p_lb, &p_lc, &p_le, &p_rpb, &p_rpc, &p_rpe,
+        &p_rdelay, &p_cdelay,
+        &p_cgs, &p_ri, &p_cgd, &p_rgd, &p_cds, &p_rds, &p_gm0, &p_tau,
+        &p_cgsp, &p_rsub1, &p_cdsp, &p_rsub2, &p_cgdp,
+    ];
+    let b: usize = all.iter().filter_map(|v| v.batch_len()).max().unwrap_or(1);
+    for (i, v) in all.iter().enumerate() {
+        if let BcVal::PerBatch(arr) = v {
+            if arr.len() != b {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    format!("sim_kunyang_batch: param at idx {} has len {}, expected B={}.",
+                            i, arr.len(), b)
+                ));
+            }
+        }
+    }
+
+    let freq_view = freq.as_array();
+    let n = freq_view.len();
+    let freq_slice = freq_view.as_slice()
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err(
+            "sim_kunyang_batch: freq array must be C-contiguous."
+        ))?
+        .to_vec();
+
+    let mut out = Array4::<C>::zeros((b, n, 2, 2));
+    let slab_len = n * 4;
+    let flat = out.as_slice_mut().expect("C-contig");
+    let one = C::new(1.0, 0.0);
+    let zeroc = C::new(0.0, 0.0);
+    let z0c = C::new(z0, 0.0);
+
+    py.allow_threads(|| {
+        flat.par_chunks_mut(slab_len)
+            .enumerate()
+            .for_each(|(bi, chunk)| {
+                // Per-batch scalar loads.
+                let lb = p_lb.at(bi); let lc = p_lc.at(bi); let le = p_le.at(bi);
+                let rpb = p_rpb.at(bi); let rpc = p_rpc.at(bi); let rpe = p_rpe.at(bi);
+                let r_d = p_rdelay.at(bi); let c_d = p_cdelay.at(bi);
+                let cgs = p_cgs.at(bi); let ri  = p_ri.at(bi);
+                let cgd = p_cgd.at(bi); let rgd = p_rgd.at(bi);
+                let cds = p_cds.at(bi); let rds = p_rds.at(bi);
+                let gm0 = p_gm0.at(bi); let tau = p_tau.at(bi);
+                let cgsp = p_cgsp.at(bi); let rsub1 = p_rsub1.at(bi);
+                let cdsp = p_cdsp.at(bi); let rsub2 = p_rsub2.at(bi);
+                let cgdp = p_cgdp.at(bi);
+
+                // Loop-invariant compositional shortcuts.
+                let lead_l_active  = lb != 0.0 || lc != 0.0 || le != 0.0;
+                let ser_active     = rpb != 0.0 || rpc != 0.0 || rpe != 0.0
+                                   || lead_l_active;
+                let delay_active   = r_d != 0.0;   // r_d == 0 → Z_delay = 0
+                let ky_pad_active  = cgsp != 0.0 || cdsp != 0.0 || cgdp != 0.0;
+                // Y_ds = 1/Rds + jω·Cds; guard against Rds == 0 (NumPy would
+                // emit inf; we treat it as the open-circuit term being skipped).
+                let inv_rds = if rds != 0.0 { 1.0 / rds } else { 0.0 };
+
+                for ni in 0..n {
+                    let omega = 2.0 * std::f64::consts::PI * freq_slice[ni];
+                    let jw    = C::new(0.0, omega);
+
+                    // ── Intrinsic pi-model ────────────────────────────────
+                    //   Y_gs = jωCgs / (1 + jω·Ri·Cgs)
+                    //   Y_gd = jωCgd / (1 + jω·Rgd·Cgd)
+                    //   Y_ds = 1/Rds + jωCds
+                    //   gm   = Gm0 · exp(-jωτ)
+                    let jw_cgs = jw * cgs;
+                    let y_gs   = jw_cgs / (one + jw_cgs * ri);
+                    let jw_cgd = jw * cgd;
+                    let y_gd   = jw_cgd / (one + jw_cgd * rgd);
+                    let y_ds   = C::new(inv_rds, 0.0) + jw * cds;
+                    let gm     = C::new(gm0, 0.0) * (-jw * tau).exp();
+
+                    // Y_in pi-matrix:
+                    //   [ Y_gs+Y_gd      -Y_gd     ]
+                    //   [ gm  - Y_gd     Y_ds+Y_gd ]
+                    let yi00 = y_gs + y_gd;
+                    let yi01 = -y_gd;
+                    let yi10 = gm - y_gd;
+                    let yi11 = y_ds + y_gd;
+
+                    // ── Z_DUT = inv(Y_in) + Z_ser (+ Z_delay on source) ──
+                    //  Z_delay = R_delay / (1 + jω·R_delay·C_delay), added to
+                    //  every element of Z_ser since the indefinite-T matrix
+                    //  carries Z_source in all four entries.
+                    let z_delay = if delay_active {
+                        C::new(r_d, 0.0) / (one + jw * (r_d * c_d))
+                    } else {
+                        zeroc
+                    };
+
+                    // Build Z_ser planes (R + jωL on diag, common source on
+                    // off-diag) — analytic shortcut when L's are all zero.
+                    let (zb, zc, ze) = if lead_l_active {
+                        (C::new(rpb, 0.0) + jw * lb,
+                         C::new(rpc, 0.0) + jw * lc,
+                         C::new(rpe, 0.0) + jw * le)
+                    } else {
+                        (C::new(rpb, 0.0),
+                         C::new(rpc, 0.0),
+                         C::new(rpe, 0.0))
+                    };
+                    // Add Z_delay onto the common source path (all 4 elems).
+                    let ze_eff = ze + z_delay;
+
+                    let (yd00, yd01, yd10, yd11) = if ser_active || delay_active {
+                        // Z_in = inv(Y_in)
+                        let inv_det_i = one / (yi00 * yi11 - yi01 * yi10);
+                        let zi00 =  yi11 * inv_det_i;
+                        let zi01 = -yi01 * inv_det_i;
+                        let zi10 = -yi10 * inv_det_i;
+                        let zi11 =  yi00 * inv_det_i;
+
+                        let zt00 = zi00 + zb + ze_eff;
+                        let zt01 = zi01 + ze_eff;
+                        let zt10 = zi10 + ze_eff;
+                        let zt11 = zi11 + zc + ze_eff;
+
+                        // Y_DUT = inv(Z_tot)
+                        let inv_det_t = one / (zt00 * zt11 - zt01 * zt10);
+                        ( zt11 * inv_det_t, -zt01 * inv_det_t,
+                         -zt10 * inv_det_t,  zt00 * inv_det_t)
+                    } else {
+                        // Z_ser == 0 and Z_delay == 0 → Y_DUT == Y_in.
+                        (yi00, yi01, yi10, yi11)
+                    };
+
+                    // ── Kun-Yang custom pad (parallel) ────────────────────
+                    //   Y_gsp = jωCgsp / (1 + jω·Rsub1·Cgsp)
+                    //   Y_dsp = jωCdsp / (1 + jω·Rsub2·Cdsp)
+                    //   Y_gdp = jωCgdp
+                    let (ya00, ya01, ya10, ya11) = if ky_pad_active {
+                        let jw_cgsp = jw * cgsp;
+                        let jw_cdsp = jw * cdsp;
+                        let y_gsp = jw_cgsp / (one + jw_cgsp * rsub1);
+                        let y_dsp = jw_cdsp / (one + jw_cdsp * rsub2);
+                        let y_gdp = jw * cgdp;
+                        ( yd00 + y_gsp + y_gdp,
+                          yd01 - y_gdp,
+                          yd10 - y_gdp,
+                          yd11 + y_dsp + y_gdp)
+                    } else {
+                        (yd00, yd01, yd10, yd11)
+                    };
+
+                    // ── Y → S (inlined, matches y_to_s_vec exactly) ───────
+                    let yn00 = ya00 * z0c;
+                    let yn01 = ya01 * z0c;
+                    let yn10 = ya10 * z0c;
+                    let yn11 = ya11 * z0c;
+                    let m00 = one + yn00;
+                    let m11 = one + yn11;
+                    let inv_det_m = one / (m00 * m11 - yn01 * yn10);
+                    let mi00 =  m11  * inv_det_m;
+                    let mi01 = -yn01 * inv_det_m;
+                    let mi10 = -yn10 * inv_det_m;
+                    let mi11 =  m00  * inv_det_m;
+                    let nn00 = one - yn00;
+                    let nn11 = one - yn11;
+                    let s00 = nn00 * mi00 + (-yn01) * mi10;
+                    let s01 = nn00 * mi01 + (-yn01) * mi11;
+                    let s10 = (-yn10) * mi00 + nn11 * mi10;
+                    let s11 = (-yn10) * mi01 + nn11 * mi11;
+
+                    let off = ni * 4;
+                    chunk[off]     = s00;
+                    chunk[off + 1] = s01;
+                    chunk[off + 2] = s10;
+                    chunk[off + 3] = s11;
+                }
+            });
+    });
+
+    Ok(out.into_pyarray_bound(py))
+}
+
 #[pymodule]
 fn hbt_rust_kernels(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Phase 1 primitives
@@ -1030,6 +1247,7 @@ fn hbt_rust_kernels(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sim_cheng_t_batch,    m)?)?;
     m.add_function(wrap_pyfunction!(sim_cheng_pi_batch,   m)?)?;
     m.add_function(wrap_pyfunction!(sim_xu_t_batch,       m)?)?;
+    m.add_function(wrap_pyfunction!(sim_kunyang_batch,    m)?)?;
     m.add("__doc__", "HBT Rust kernels — see Python wrapper at \
                       tools/SSM/helpers/rust_kernels.py")?;
     Ok(())
