@@ -228,6 +228,7 @@ def plotly_with_dl(
     filename: str = "",
     width: str = "stretch",
     container=None,
+    extra_download: tuple | None = None,
     **kwargs,
 ):
     """
@@ -242,29 +243,53 @@ def plotly_with_dl(
     width     : Passed through to st.plotly_chart (default "stretch").
     container : Optional Streamlit column / container object.
                 When None the function renders into the current st context.
+    extra_download : optional ``(label, data_bytes, file_name, mime)`` tuple
+                that adds a second download button next to the xlsx one
+                (used by the SSM measured-vs-modeled Smith chart to expose
+                a "Download modeled S2P" alongside the standard xlsx).
     **kwargs  : Extra keyword arguments forwarded to st.plotly_chart.
     """
     ctx = container if container is not None else st
     ctx.plotly_chart(fig, width=width, key=key, **kwargs)
 
     xl = fig_to_excel_bytes(fig)
-    if xl is None:
+    if xl is None and extra_download is None:
         return
 
-    # Center the download button under the plot using two empty
-    # spacer columns + a narrow centred column.  A pure flexbox
-    # `justify-content:center` on the button would also work but
-    # would require injecting CSS targeting Streamlit's button DOM,
-    # which is fragile across Streamlit versions.
-    _spL, _mid, _spR = ctx.columns([3, 2, 3])
-    _mid.download_button(
-        label="⬇ xlsx",
-        data=xl,
-        file_name=f"{filename or key}.xlsx",
-        mime=EXCEL_MIME,
-        key=f"dl_xl_{key}",
-        width="stretch",
-    )
+    # Center download buttons under the plot.  Layout adapts based on
+    # whether we have one or two buttons:
+    #   - 1 button : two side spacers + a narrow centred col [3,2,3]
+    #   - 2 buttons: tighter spacers + two centred cols     [2,2,2,2]
+    if extra_download is None:
+        _spL, _mid, _spR = ctx.columns([3, 2, 3])
+        _mid.download_button(
+            label="⬇ xlsx",
+            data=xl,
+            file_name=f"{filename or key}.xlsx",
+            mime=EXCEL_MIME,
+            key=f"dl_xl_{key}",
+            width="stretch",
+        )
+    else:
+        ex_label, ex_data, ex_fname, ex_mime = extra_download
+        _spL, _c1, _c2, _spR = ctx.columns([2, 2, 2, 2])
+        if xl is not None:
+            _c1.download_button(
+                label="⬇ xlsx",
+                data=xl,
+                file_name=f"{filename or key}.xlsx",
+                mime=EXCEL_MIME,
+                key=f"dl_xl_{key}",
+                width="stretch",
+            )
+        _c2.download_button(
+            label=ex_label,
+            data=ex_data,
+            file_name=ex_fname,
+            mime=ex_mime,
+            key=f"dl_extra_{key}",
+            width="stretch",
+        )
 
 
 # ════════════════════════════════════════════════════════════════════════════════

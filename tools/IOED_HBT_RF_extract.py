@@ -15,7 +15,7 @@ repo root.
 """
 __version__ = "6.1"
 
-import io, re, zipfile
+import hashlib, io, re, zipfile
 from pathlib import Path
 
 import numpy as np
@@ -33,8 +33,11 @@ from tools.SSM.helpers        import (
     strict_freq_check,
     deembed_open_short, deembed_thru_half,
     compute_metrics, extract_limit,
-    PALETTE, darken, bode_layout, make_smith, make_bode, make_plateau,
+    extrap_20dbdec, single_pole_extrap,
+    PALETTE, FT_FMAX_SYMBOLS, FT_FMAX_COLORS, darken, bode_layout, make_smith, make_bode, make_plateau,
+    add_overlay_trace_with_markers,
     metric_card, build_excel, load_cal,
+    rust_parse_and_compute_batch,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -74,20 +77,57 @@ with st.expander(f"What's new in v{__version__}", expanded=False):
 #  deembed_math, metrics). See helpers/INDEX.md for the catalog.
 # ═════════════════════════════════════════════════════════════════════════════
 
-def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t, n_pts, f_min, f_max):
-    """Parse, de-embed, compute metrics, extract fT/fmax for one DUT file."""
-    if filename.lower().endswith(".csv"):
+def _df_from_rust_entry(prepared: dict) -> pd.DataFrame:
+    """Build a metrics DataFrame matching `compute_metrics()`'s schema from a
+    single dict returned by `rust_parse_and_compute_batch`.  Lets the bulk
+    loop hand the parsed result back into the existing process_dut path
+    without re-doing parse + s_to_y + compute_metrics in Python."""
+    return pd.DataFrame({
+        "Freq (GHz)":             prepared["freq"] * 1e-9,
+        "|h21|² (dB)":            prepared["h21_db"],
+        "Mason U (dB)":           prepared["u_db"],
+        "MAG/MSG (dB)":           prepared["mag_db"],
+        "K Factor":               prepared["k"],
+        "fT Plateau (GHz)":       prepared["ft_plat"],
+        "fmax U Plateau (GHz)":   prepared["fmax_u_plat"],
+        "fmax MAG Plateau (GHz)": prepared["fmax_mag_plat"],
+    })
+
+
+def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t,
+                n_pts, f_min, f_max, *, prepared=None):
+    """Parse, de-embed, compute metrics, extract fT/fmax for one DUT file.
+
+    When `prepared` is given (a dict from `rust_parse_and_compute_batch`
+    plus a `df_raw` field), the parse + s_to_y + compute_metrics phase is
+    skipped — we use the pre-parsed `freq`/`S`/`z0`/`df_raw` directly.
+    `Y_raw` becomes lazy: it's only materialised when a de-embed branch
+    actually fires, saving ~0.2 ms on the no-cal bulk-upload path.
+    """
+    if prepared is not None:
+        freq   = prepared["freq"]
+        S_raw  = prepared["S"]
+        z0     = float(prepared["z0"])
+        df_raw = prepared["df_raw"]
+    elif filename.lower().endswith(".csv"):
         freq, S_raw, z0 = parse_csv(content)
+        df_raw = compute_metrics(s_to_y(S_raw, z0), freq)
     else:
         freq, S_raw, z0 = parse_s2p(content)
-    Y_raw = s_to_y(S_raw,z0)
-    df_raw = compute_metrics(Y_raw,freq)
-    Y_fin,stages,d1_o,d1_s = Y_raw,[],None,None
+        df_raw = compute_metrics(s_to_y(S_raw, z0), freq)
+
+    _y_raw_cache = [None]
+    def _y_raw():
+        if _y_raw_cache[0] is None:
+            _y_raw_cache[0] = s_to_y(S_raw, z0)
+        return _y_raw_cache[0]
+
+    Y_fin, stages, d1_o, d1_s = None, [], None, None
     if s1_o and s1_s:
         f1o,S1o,z1o=s1_o; f1s,S1s,z1s=s1_s
         strict_freq_check(freq,f1o,"Probe Open")
         d1_o,d1_s=s_to_y(S1o,z1o),s_to_y(S1s,z1s)
-        Y_fin=deembed_open_short(Y_fin,d1_o,d1_s); stages.append("Probe")
+        Y_fin=deembed_open_short(_y_raw(),d1_o,d1_s); stages.append("Probe")
     Y2o=Y2s=None
     if s2_o and s2_s:
         f2o,S2o,z2o=s2_o; f2s,S2s,z2s=s2_s
@@ -96,6 +136,7 @@ def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t, n_pts, f_min, f
         if d1_o is not None:
             Y2o=deembed_open_short(Y2o,d1_o,d1_s)
             Y2s=deembed_open_short(Y2s,d1_o,d1_s)
+        if Y_fin is None: Y_fin = _y_raw()
         Y_fin=deembed_open_short(Y_fin,Y2o,Y2s); stages.append("Dev(O/S)")
     if s3_t:
         f3t,S3t,z3t=s3_t; strict_freq_check(freq,f3t,"Dev Thru")
@@ -105,15 +146,27 @@ def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t, n_pts, f_min, f
             Y3t_r=s_to_y(S3t,z3t)
             if d1_o is not None: Y3t_r=deembed_open_short(Y3t_r,d1_o,d1_s)
             Y3t=deembed_open_short(Y3t_r,Y2o,Y2s)
+        if Y_fin is None: Y_fin = _y_raw()
         Y_fin=deembed_thru_half(Y_fin,Y3t); stages.append("Dev(Thru)")
     note=" + ".join(stages) if stages else "None"
     df_fin=compute_metrics(Y_fin,freq) if stages else None
     S_fin=y_to_s(Y_fin,z0) if stages else S_raw
     df_e=df_fin if df_fin is not None else df_raw
     f_arr=df_e["Freq (GHz)"].values
-    fT_cr,fT_pl,ft_m    = extract_limit(f_arr,df_e["|h21|² (dB)"].values,  df_e["fT Plateau (GHz)"].values,  n_pts,f_min,f_max)
-    fmU_cr,fmU_pl,fmU_m = extract_limit(f_arr,df_e["Mason U (dB)"].values,  df_e["fmax U Plateau (GHz)"].values,n_pts,f_min,f_max)
-    fmM_cr,fmM_pl,fmM_m = extract_limit(f_arr,df_e["MAG/MSG (dB)"].values,  df_e["fmax MAG Plateau (GHz)"].values,n_pts,f_min,f_max)
+    # When the Rust batch kernel pre-computed extract_limit for df_raw
+    # AND no de-embed stages fired (so df_e == df_raw), reuse those
+    # values directly — saves 3 Python extract_limit calls per file.
+    # When stages did fire, df_fin is different from df_raw, so we must
+    # re-extract from df_fin (Python path).
+    if prepared is not None and not stages \
+            and "ft_cross" in prepared and "ft_method" in prepared:
+        fT_cr,  fT_pl,  ft_m  = prepared["ft_cross"],     prepared["ft_plateau"],     prepared["ft_method"]
+        fmU_cr, fmU_pl, fmU_m = prepared["fmax_u_cross"], prepared["fmax_u_plateau"], prepared["fmax_u_method"]
+        fmM_cr, fmM_pl, fmM_m = prepared["fmax_mag_cross"], prepared["fmax_mag_plateau"], prepared["fmax_mag_method"]
+    else:
+        fT_cr,fT_pl,ft_m    = extract_limit(f_arr,df_e["|h21|² (dB)"].values,  df_e["fT Plateau (GHz)"].values,  n_pts,f_min,f_max)
+        fmU_cr,fmU_pl,fmU_m = extract_limit(f_arr,df_e["Mason U (dB)"].values,  df_e["fmax U Plateau (GHz)"].values,n_pts,f_min,f_max)
+        fmM_cr,fmM_pl,fmM_m = extract_limit(f_arr,df_e["MAG/MSG (dB)"].values,  df_e["fmax MAG Plateau (GHz)"].values,n_pts,f_min,f_max)
     stem=re.sub(r"\.(s2p|csv)$","",filename,flags=re.IGNORECASE)
     m=re.search(r"[Vv][Cc][Ee][_\-]?([\d]+(?:p\d+)?)\s*[Vv]",stem)
     vce=float(m.group(1).replace("p",".")) if m else None
@@ -201,18 +254,169 @@ s2s=load_cal(f2s) if sw2 else None   # passed to render_ssm_tab
 s3t=load_cal(f3t) if sw3 else None
 
 all_data,errors={},{}
+
+# Per-file process_dut cache.  Streamlit re-runs the whole script on every
+# interaction (slider drag, checkbox toggle), so without a cache the bulk
+# loop re-parses every .s2p file on every rerun — that's the ~10 s
+# unresponsiveness when uploading 30+ files.  Profiling shows the math is
+# only ~8 ms/file; the gain here is from skipping it entirely on reruns
+# where nothing the file depends on has changed.
+#
+# Cache key = file bytes + cal signatures + chart-window params.  Cal
+# signatures only need to cover the inputs that actually feed
+# `process_dut` (the four de-embed S-arrays + thru); the Smith / display
+# controls don't.  Anything else changing leaves the cache hot.
+def _cal_sig(cal):
+    if cal is None:
+        return b""
+    _, S, _ = cal
+    return S.tobytes()
+
+def _dut_cache_key(content_bytes, s1o, s1s, s2o, s2s, s3t,
+                   n_pts, freq_min, freq_max):
+    h = hashlib.blake2b(digest_size=16)
+    h.update(content_bytes)
+    for cal in (s1o, s1s, s2o, s2s, s3t):
+        h.update(_cal_sig(cal))
+    h.update(repr((int(n_pts), float(freq_min), float(freq_max))).encode())
+    return h.digest()
+
+_dut_cache = st.session_state.setdefault("rf_dut_cache", {})
+_dut_keys: dict[str, bytes] = {}
+
 if dut_files:
+    fresh_keys = set()
+
+    # ── Pass 1: classify each file as (cache hit | s2p-miss | csv-miss) ──
+    # `.s2p` cache misses get batched through the Rust kernel below — one
+    # call across all of them, Rayon-parallel with the GIL released — so
+    # parse + s_to_y + compute_metrics for 30 files completes in roughly
+    # one-Nth the wall-clock of the old per-file Python loop.  CSV files
+    # stay on the Python path (pandas dependency, low usage).
+    s2p_misses: list[tuple] = []   # (file_obj, key, bytes)
+    csv_misses: list[tuple] = []   # (file_obj, key, bytes)
     for f in dut_files:
+        content = f.getvalue()
         try:
-            df_raw,df_fin,S_fin,S_raw,freq,z0_dut,res=process_dut(
-                f.getvalue().decode("utf-8",errors="ignore"),
+            key = _dut_cache_key(content, s1o, s1s, s2o, s2s, s3t,
+                                 n_pts, freq_min, freq_max)
+        except Exception as e:
+            errors[f.name] = f"cache-key error: {e}"
+            continue
+        fresh_keys.add(key)
+        cached = _dut_cache.get(key)
+        if cached is not None:
+            all_data[f.name] = cached
+            _dut_keys[f.name] = key
+            continue
+        if f.name.lower().endswith(".s2p"):
+            s2p_misses.append((f, key, content))
+        else:
+            csv_misses.append((f, key, content))
+
+    # ── Pass 2: Rust batch parse + metrics + extract for .s2p misses ──
+    # We hand n_pts/freq_min/freq_max in so the kernel can run extract_limit
+    # inside the parallel section.  For files with no de-embed (which is
+    # the common bulk-upload case), this skips the 3 Python extract_limit
+    # calls per file — saves ~1.6 ms/file × 30 = ~48 ms cold first-upload.
+    if s2p_misses:
+        batch_bytes = [c for _, _, c in s2p_misses]
+        try:
+            rust_results = rust_parse_and_compute_batch(
+                batch_bytes, n_pts, freq_min, freq_max)
+        except Exception as e:
+            rust_results = None
+            for f, _key, _c in s2p_misses:
+                errors[f.name] = f"batch parse failed: {e}"
+        if rust_results is not None:
+            for (f, key, _content), prepared in zip(s2p_misses, rust_results):
+                if "error" in prepared:
+                    errors[f.name] = prepared["error"]
+                    continue
+                try:
+                    prepared["df_raw"] = _df_from_rust_entry(prepared)
+                    df_raw,df_fin,S_fin,S_raw,freq,z0_dut,res = process_dut(
+                        None, f.name, s1o, s1s, s2o, s2s, s3t,
+                        n_pts, freq_min, freq_max, prepared=prepared)
+                    entry = {
+                        "df_raw":df_raw,"df_fin":df_fin,
+                        "S_fin":S_fin,"S_raw":S_raw,
+                        "freq":freq,"z0":z0_dut,**res}
+                    _dut_cache[key] = entry
+                    all_data[f.name] = entry
+                    _dut_keys[f.name] = key
+                except Exception as e:
+                    errors[f.name] = str(e)
+
+    # ── Pass 3: Python path for .csv files ──
+    for f, key, content in csv_misses:
+        try:
+            df_raw,df_fin,S_fin,S_raw,freq,z0_dut,res = process_dut(
+                content.decode("utf-8",errors="ignore"),
                 f.name,s1o,s1s,s2o,s2s,s3t,n_pts,freq_min,freq_max)
-            all_data[f.name]={
+            entry = {
                 "df_raw":df_raw,"df_fin":df_fin,
                 "S_fin":S_fin,"S_raw":S_raw,
                 "freq":freq,"z0":z0_dut,**res}
+            _dut_cache[key] = entry
+            all_data[f.name] = entry
+            _dut_keys[f.name] = key
         except Exception as e:
-            errors[f.name]=str(e)
+            errors[f.name] = str(e)
+
+    # Evict entries for files no longer in the uploader (or with stale
+    # cal/chart params) to bound memory across long sessions.
+    for stale in list(_dut_cache.keys() - fresh_keys):
+        del _dut_cache[stale]
+else:
+    _dut_cache.clear()
+
+# ── Plotly figure cache (overlay tab) ─────────────────────────────────────────
+# Streamlit's st.tabs always executes every tab body on every rerun, so any
+# checkbox toggle or slider drag in the sidebar currently rebuilds the heavy
+# Overlay figures from scratch.  We memoize them on a key derived from the
+# per-DUT cache keys (proxy for "input data identity") plus the settings each
+# figure reads.  First render still pays the construction cost; every rerun
+# afterwards that leaves these inputs unchanged returns the cached figure.
+_fig_cache: dict = st.session_state.setdefault("rf_fig_cache", {})
+
+def _selected_dut_keys(names):
+    """Tuple of cache keys for the currently-selected files, preserving order."""
+    return tuple(_dut_keys.get(n, n.encode()) for n in names)
+
+def _cached_fig(key, build_fn):
+    fig = _fig_cache.get(key)
+    if fig is None:
+        fig = build_fn()
+        _fig_cache[key] = fig
+    return fig
+
+def _evict_stale_figs():
+    """Drop cached figures whose referenced DUT keys are no longer current.
+
+    Each cached key has its DUT reference at position [1]; overlay figures
+    store a tuple of keys (one per selected file), individual figures
+    store a single bytes key.
+    """
+    valid = set(_dut_keys.values())
+    for k in list(_fig_cache.keys()):
+        try:
+            ref = k[1]
+            if isinstance(ref, bytes):
+                if ref not in valid and valid:
+                    del _fig_cache[k]
+            elif isinstance(ref, tuple):
+                refs = [r for r in ref if isinstance(r, bytes)]
+                if refs and any(r not in valid for r in refs):
+                    del _fig_cache[k]
+        except Exception:
+            pass
+    # If the user cleared all uploads, drop everything so memory doesn't
+    # linger across sessions where the same cache key is reused.
+    if not _dut_keys:
+        _fig_cache.clear()
+
+_evict_stale_figs()
 
 for fname,err in errors.items():
     st.error(f"**{fname}**: {err}")
@@ -245,64 +449,114 @@ tab_ov,tab_ind,tab_sum,tab_bd=st.tabs(["📊 Overlay","📁 Individual","📋 Su
 
 with tab_ov:
     st.markdown("### 📊 Bode Plot Overlay")
-    f_bode=go.Figure()
-    if all_data and selected_files:
-        for i,n in enumerate(selected_files):
-            d,c,lbl=all_data[n],PALETTE[i%len(PALETTE)],Path(n).stem
-            df_p=d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
-            hov="Freq:%{x:.4f}GHz<br>%{y:.4f}dB<extra></extra>"
-            if show_raw and d["df_fin"] is not None and sh21:
-                f_bode.add_trace(go.Scattergl(x=d["df_raw"]["Freq (GHz)"],y=d["df_raw"]["|h21|² (dB)"],
-                                            name=f"|h21|² raw–{lbl}",line=dict(color=c,width=1.2,dash="dot"),
-                                            opacity=0.35,hovertemplate=hov))
-            if sh21: f_bode.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["|h21|² (dB)"],name=f"|h21|²–{lbl}",line=dict(color=c,width=2.5),hovertemplate=hov))
-            if su:   f_bode.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["Mason U (dB)"],name=f"U–{lbl}",line=dict(color=darken(c),width=2.5,dash="dash"),hovertemplate=hov))
-            if smag: f_bode.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["MAG/MSG (dB)"],name=f"MAG–{lbl}",line=dict(color=c,width=2,dash="dot"),opacity=0.7,hovertemplate=hov))
-    f_bode.add_hline(y=0,line_dash="dash",line_color="black")
-    f_bode.update_layout(**bode_layout("Overlay — Bode Plot","Gain (dB)",yr,xr)); f_bode.update_layout(height=550)
-    st.plotly_chart(f_bode,width="stretch")
+
+    def _build_overlay_bode():
+        # Standardised colours: fT trace (|h21|²) = blue, fmax traces
+        # (Mason U, MAG/MSG) = red.  All files share the same fT/fmax
+        # colour — files are distinguished by name in the legend rather
+        # than by hue.  PALETTE is still passed (i, c, ...) so future
+        # per-file tinting can re-use it without changing this loop.
+        c_fT, c_fmax = FT_FMAX_COLORS["fT"], FT_FMAX_COLORS["fmax"]
+        fig = go.Figure()
+        if all_data and selected_files:
+            hov = "Freq:%{x:.4f}GHz<br>%{y:.4f}dB<extra></extra>"
+            for i, n in enumerate(selected_files):
+                d, _c, lbl = all_data[n], PALETTE[i % len(PALETTE)], Path(n).stem
+                df_p = d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
+                fx = df_p["Freq (GHz)"]
+                if show_raw and d["df_fin"] is not None and sh21:
+                    fig.add_trace(go.Scattergl(x=d["df_raw"]["Freq (GHz)"], y=d["df_raw"]["|h21|² (dB)"],
+                                                name=f"|h21|² raw–{lbl}", line=dict(color=c_fT, width=1.2, dash="dot"),
+                                                opacity=0.35, hovertemplate=hov))
+                if sh21:
+                    add_overlay_trace_with_markers(
+                        fig, fx, df_p["|h21|² (dB)"], name=f"|h21|²–{lbl}",
+                        color=c_fT, symbol=FT_FMAX_SYMBOLS["h21"], line_width=2.5,
+                        marker_size=5, hovertemplate=hov)
+                if su:
+                    add_overlay_trace_with_markers(
+                        fig, fx, df_p["Mason U (dB)"], name=f"U–{lbl}",
+                        color=c_fmax, symbol=FT_FMAX_SYMBOLS["U"], dash="dash",
+                        line_width=2.5, marker_size=5, hovertemplate=hov)
+                if smag:
+                    add_overlay_trace_with_markers(
+                        fig, fx, df_p["MAG/MSG (dB)"], name=f"MAG–{lbl}",
+                        color=c_fmax, symbol=FT_FMAX_SYMBOLS["MAG"], dash="dot",
+                        line_width=2, marker_size=5, opacity=0.7,
+                        hovertemplate=hov)
+        fig.add_hline(y=0, line_dash="dash", line_color="black")
+        fig.update_layout(**bode_layout("Overlay — Bode Plot", "Gain (dB)", yr, xr))
+        fig.update_layout(height=550)
+        return fig
+
+    f_bode = _cached_fig(("ov_bode", _selected_dut_keys(selected_files),
+                          bool(show_raw), bool(sh21), bool(su), bool(smag),
+                          xr, yr), _build_overlay_bode)
+    st.plotly_chart(f_bode, width="stretch")
 
     if skk:
         st.markdown("### 📊 K-Factor Overlay (Rollett stability)")
-        f_k = go.Figure()
-        if all_data and selected_files:
-            for i, n in enumerate(selected_files):
-                d, c, lbl = all_data[n], PALETTE[i % len(PALETTE)], Path(n).stem
-                df_p = d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
-                if "K Factor" in df_p.columns:
-                    f_k.add_trace(go.Scattergl(
-                        x=df_p["Freq (GHz)"], y=df_p["K Factor"],
-                        name=f"K — {lbl}",
-                        line=dict(color=c, width=2.5),
-                        hovertemplate="Freq:%{x:.4f} GHz<br>K=%{y:.4f}"
-                                       "<extra></extra>"))
-        # K = 1 demarcation line (above = unconditionally stable on this axis)
-        f_k.add_hline(y=1.0, line_dash="dash", line_color="#888",
-                      annotation_text="K = 1", annotation_position="right",
-                      annotation_font=dict(size=9, color="#888"))
-        f_k.update_layout(**bode_layout("Overlay — K Factor",
-                                          "K (dimensionless)",
-                                          [0, 6], xr))
-        f_k.update_layout(height=350)
+
+        def _build_overlay_kfactor():
+            fig = go.Figure()
+            if all_data and selected_files:
+                for i, n in enumerate(selected_files):
+                    d, c, lbl = all_data[n], PALETTE[i % len(PALETTE)], Path(n).stem
+                    df_p = d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
+                    if "K Factor" in df_p.columns:
+                        fig.add_trace(go.Scattergl(
+                            x=df_p["Freq (GHz)"], y=df_p["K Factor"],
+                            name=f"K — {lbl}",
+                            line=dict(color=c, width=2.5),
+                            hovertemplate="Freq:%{x:.4f} GHz<br>K=%{y:.4f}"
+                                           "<extra></extra>"))
+            fig.add_hline(y=1.0, line_dash="dash", line_color="#888",
+                          annotation_text="K = 1", annotation_position="right",
+                          annotation_font=dict(size=9, color="#888"))
+            fig.update_layout(**bode_layout("Overlay — K Factor",
+                                              "K (dimensionless)",
+                                              [0, 6], xr))
+            fig.update_layout(height=350)
+            return fig
+
+        f_k = _cached_fig(("ov_kfactor", _selected_dut_keys(selected_files), xr),
+                          _build_overlay_kfactor)
         st.plotly_chart(f_k, width="stretch")
 
     st.markdown("### 📊 Plateau Plot Overlay")
-    f_plat=go.Figure(); all_v=[]
-    if all_data and selected_files:
-        for i,n in enumerate(selected_files):
-            d,c,lbl=all_data[n],PALETTE[i%len(PALETTE)],Path(n).stem
-            df_p=d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
-            hov="Freq:%{x:.4f}GHz<br>GBP:%{y:.4f}GHz<extra></extra>"
-            if sh21:
-                f_plat.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["fT Plateau (GHz)"],name=f"fT–{lbl}",line=dict(color=c,width=2.5),hovertemplate=hov))
-                all_v+=df_p["fT Plateau (GHz)"].dropna().tolist()
-            if su:
-                f_plat.add_trace(go.Scattergl(x=df_p["Freq (GHz)"],y=df_p["fmax U Plateau (GHz)"],name=f"fmax(U)–{lbl}",line=dict(color=darken(c),width=2.5,dash="dash"),hovertemplate=hov))
-                all_v+=df_p["fmax U Plateau (GHz)"].dropna().tolist()
-    arr=np.array([v for v in all_v if np.isfinite(v) and v>0])
-    ym=float(np.quantile(arr,0.97))*1.3 if len(arr) else 100
-    f_plat.update_layout(**bode_layout("Overlay — Plateau","GBP (GHz)",[0,ym],xr)); f_plat.update_layout(height=550)
-    st.plotly_chart(f_plat,width="stretch")
+
+    def _build_overlay_plateau():
+        # Standardised colours — same convention as the Bode overlay above.
+        c_fT, c_fmax = FT_FMAX_COLORS["fT"], FT_FMAX_COLORS["fmax"]
+        fig = go.Figure()
+        all_v: list[float] = []
+        if all_data and selected_files:
+            hov = "Freq:%{x:.4f}GHz<br>GBP:%{y:.4f}GHz<extra></extra>"
+            for i, n in enumerate(selected_files):
+                d, _c, lbl = all_data[n], PALETTE[i % len(PALETTE)], Path(n).stem
+                df_p = d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
+                fx = df_p["Freq (GHz)"]
+                if sh21:
+                    add_overlay_trace_with_markers(
+                        fig, fx, df_p["fT Plateau (GHz)"], name=f"fT–{lbl}",
+                        color=c_fT, symbol=FT_FMAX_SYMBOLS["h21"], line_width=2.5,
+                        marker_size=5, hovertemplate=hov)
+                    all_v += df_p["fT Plateau (GHz)"].dropna().tolist()
+                if su:
+                    add_overlay_trace_with_markers(
+                        fig, fx, df_p["fmax U Plateau (GHz)"], name=f"fmax(U)–{lbl}",
+                        color=c_fmax, symbol=FT_FMAX_SYMBOLS["U"], dash="dash",
+                        line_width=2.5, marker_size=5, hovertemplate=hov)
+                    all_v += df_p["fmax U Plateau (GHz)"].dropna().tolist()
+        arr = np.array([v for v in all_v if np.isfinite(v) and v > 0])
+        ym = float(np.quantile(arr, 0.97)) * 1.3 if len(arr) else 100
+        fig.update_layout(**bode_layout("Overlay — Plateau", "GBP (GHz)", [0, ym], xr))
+        fig.update_layout(height=550)
+        return fig
+
+    f_plat = _cached_fig(("ov_plateau", _selected_dut_keys(selected_files),
+                          bool(sh21), bool(su), xr), _build_overlay_plateau)
+    st.plotly_chart(f_plat, width="stretch")
 
 with tab_ind:
     if not all_data or not selected_files:
@@ -330,6 +584,46 @@ with tab_ind:
             if method=="0dB Cross":      return f"{v_cr:.3f} GHz" if np.isfinite(v_cr) else "N/A"
             if method=="Extrap & Plat.": return f"{v_pl:.3f} GHz" if np.isfinite(v_pl) else "N/A"
             return "N/A"
+
+        # Mirror the Bode tab's extrapolation controls on the fT/fmax cards.
+        # The Bode tab's widgets render later in this rerun, but their
+        # session_state keys persist from the previous rerun, so reading
+        # them here matches what the tab is about to display.
+        _show20_card = st.session_state.get(f"bode_show20_{n}", True)
+        _showsp_card = st.session_state.get(f"bode_showsp_{n}", False)
+        _sp_win_card = st.session_state.get(f"bode_spwin_{n}", None)
+        _f_card = df_p["Freq (GHz)"].values
+        _nf_card = len(_f_card)
+
+        def _extrap_f0(col_name):
+            f0_20 = f0_sp = None
+            if col_name not in df_p.columns or _nf_card == 0:
+                return f0_20, f0_sp
+            y = df_p[col_name].values
+            if _show20_card:
+                _, _, f0_20 = extrap_20dbdec(_f_card, y)
+            if (_showsp_card and _sp_win_card is not None
+                    and _nf_card >= 4):
+                f_lo, f_hi = float(_f_card[0]), float(_f_card[-1])
+                lo = max(float(_sp_win_card[0]), f_lo)
+                hi = min(float(_sp_win_card[1]), f_hi)
+                _il = int(np.searchsorted(_f_card, lo, side="left"))
+                _ih = int(np.searchsorted(_f_card, hi, side="right")) - 1
+                _il = max(0, min(_il, _nf_card - 2))
+                _ih = max(_il + 1, min(_ih, _nf_card - 1))
+                _, _, f0_sp, _, _ = single_pole_extrap(_f_card, y, _il, _ih)
+            return f0_20, f0_sp
+
+        _fT_20, _fT_sp     = _extrap_f0("|h21|² (dB)")
+        _fmU_20, _fmU_sp   = _extrap_f0("Mason U (dB)")
+
+        def _sub(method, f20, fsp):
+            parts = [method]
+            if f20 is not None and np.isfinite(f20):
+                parts.append(f"−20dB: {f20:.2f} GHz")
+            if fsp is not None and np.isfinite(fsp):
+                parts.append(f"SP: {fsp:.2f} GHz")
+            return " | ".join(parts)
 
         # K-factor summary — minimum K over the swept band + the
         # frequency where it occurs, plus a stability indicator.
@@ -362,8 +656,8 @@ with tab_ind:
 
         c1,c2,c3,c4,c5,c6=st.columns(6)
         metric_card(c1,"De-embedding",d["De-embedding"],"mode","#888")
-        metric_card(c2,"fT (GHz)",_fc(d["fT Cross/Extrap (GHz)"],d["fT Plateau (GHz)"],d["fT Method"]),d["fT Method"])
-        metric_card(c3,"fmax U",_fc(d["fmax U Cross/Extrap (GHz)"],d["fmax U Plateau (GHz)"],d["fmax U Method"]),d["fmax U Method"],"#d62728")
+        metric_card(c2,"fT (GHz)",_fc(d["fT Cross/Extrap (GHz)"],d["fT Plateau (GHz)"],d["fT Method"]),_sub(d["fT Method"],_fT_20,_fT_sp))
+        metric_card(c3,"fmax U",_fc(d["fmax U Cross/Extrap (GHz)"],d["fmax U Plateau (GHz)"],d["fmax U Method"]),_sub(d["fmax U Method"],_fmU_20,_fmU_sp),"#d62728")
         metric_card(c4,"fmax MAG",_fc(d["fmax MAG Cross/Extrap (GHz)"],d["fmax MAG Plateau (GHz)"],d["fmax MAG Method"]),d["fmax MAG Method"],"#2ca02c")
         if _k_min is not None:
             metric_card(c5,"K min",
@@ -420,12 +714,16 @@ with tab_ind:
                       if v is not None and np.isfinite(v)]
             f_max_target = max(_maxes) * 1.2 if _maxes else None
 
-            fig_bode, extrap_df = make_bode(
+            _bode_key = ("ind_bode", _dut_keys.get(n, n.encode()),
+                          bool(show_20db), bool(show_sp), sp_window_idx,
+                          xr, yr, bool(sh21), bool(su), bool(smag), c,
+                          f_max_target)
+            fig_bode, extrap_df = _cached_fig(_bode_key, lambda: make_bode(
                 df_p, Path(n).stem, xr, yr, sh21, su, smag, c,
                 show_20db=show_20db, show_sp=show_sp,
                 sp_window_idx=sp_window_idx,
                 extrap_f_max=f_max_target,
-                return_extrap_df=True)
+                return_extrap_df=True))
             st.plotly_chart(fig_bode, width="stretch")
 
             # ── K-factor sub-plot (controlled by the global "K factor"
@@ -434,33 +732,38 @@ with tab_ind:
             #    natural scale with dB gain.  Dashed line at K=1 marks
             #    the unconditional-stability threshold.
             if skk and "K Factor" in df_p.columns:
-                f_k_ind = go.Figure()
-                f_k_ind.add_trace(go.Scattergl(
-                    x=df_p["Freq (GHz)"], y=df_p["K Factor"],
-                    name="K", line=dict(color=c, width=2.5),
-                    hovertemplate="Freq: %{x:.4f} GHz<br>"
-                                   "K = %{y:.4f}<extra></extra>"))
-                f_k_ind.add_hline(y=1.0, line_dash="dash", line_color="#888",
+                def _build_ind_kfactor():
+                    fig = go.Figure()
+                    fig.add_trace(go.Scattergl(
+                        x=df_p["Freq (GHz)"], y=df_p["K Factor"],
+                        name="K", line=dict(color=c, width=2.5),
+                        hovertemplate="Freq: %{x:.4f} GHz<br>"
+                                       "K = %{y:.4f}<extra></extra>"))
+                    fig.add_hline(y=1.0, line_dash="dash", line_color="#888",
                                   annotation_text="K = 1",
                                   annotation_position="right",
                                   annotation_font=dict(size=9, color="#888"))
-                _k_arr = df_p["K Factor"].values
-                _k_finite = _k_arr[np.isfinite(_k_arr)]
-                _y_top = max(float(_k_finite.max()) * 1.1, 2.0) if len(_k_finite) else 5.0
-                _y_bot = min(float(_k_finite.min()) * 1.1, 0.0) if len(_k_finite) else 0.0
-                f_k_ind.update_layout(
-                    title=dict(text=f"K Factor (stability) — {Path(n).stem}",
-                                font=dict(size=12)),
-                    xaxis=dict(title="Frequency (GHz)", type="log",
-                                range=[np.log10(max(xr[0], 1e-2)),
-                                       np.log10(xr[1])],
-                                showgrid=True, gridcolor="#ebebeb"),
-                    yaxis=dict(title="K", range=[_y_bot, _y_top],
-                                showgrid=True, gridcolor="#ebebeb"),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    height=320, margin=dict(l=55, r=20, t=40, b=50),
-                    hovermode="x unified")
-                st.plotly_chart(f_k_ind, width="stretch")
+                    _k_arr = df_p["K Factor"].values
+                    _k_finite = _k_arr[np.isfinite(_k_arr)]
+                    _y_top = max(float(_k_finite.max()) * 1.1, 2.0) if len(_k_finite) else 5.0
+                    _y_bot = min(float(_k_finite.min()) * 1.1, 0.0) if len(_k_finite) else 0.0
+                    fig.update_layout(
+                        title=dict(text=f"K Factor (stability) — {Path(n).stem}",
+                                    font=dict(size=12)),
+                        xaxis=dict(title="Frequency (GHz)", type="log",
+                                    range=[np.log10(max(xr[0], 1e-2)),
+                                           np.log10(xr[1])],
+                                    showgrid=True, gridcolor="#ebebeb"),
+                        yaxis=dict(title="K", range=[_y_bot, _y_top],
+                                    showgrid=True, gridcolor="#ebebeb"),
+                        plot_bgcolor="white", paper_bgcolor="white",
+                        height=320, margin=dict(l=55, r=20, t=40, b=50),
+                        hovermode="x unified")
+                    return fig
+                _k_fig = _cached_fig(
+                    ("ind_kfactor", _dut_keys.get(n, n.encode()), xr, c),
+                    _build_ind_kfactor)
+                st.plotly_chart(_k_fig, width="stretch")
 
             # ── Excel download for extrapolated/fitted data ──────────────────
             if extrap_df is not None and not extrap_df.empty:
@@ -472,16 +775,25 @@ with tab_ind:
                     file_name=f"{Path(n).stem}_bode_extrap.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key=f"bode_dl_{n}")
-        with tb: st.plotly_chart(make_plateau(df_p,d,Path(n).stem,xr,sh21,su,smag,c),width="stretch")
+        with tb:
+            _plat_fig = _cached_fig(
+                ("ind_plateau", _dut_keys.get(n, n.encode()),
+                 bool(sh21), bool(su), bool(smag), xr, c),
+                lambda: make_plateau(df_p, d, Path(n).stem, xr, sh21, su, smag, c))
+            st.plotly_chart(_plat_fig, width="stretch")
         with tc:
             smith_sub_plotly, smith_sub_mpl = st.tabs(
                 ["Plotly", "Matplotlib"])
             with smith_sub_plotly:
-                st.plotly_chart(make_smith(
+                _smith_key = ("ind_smith", _dut_keys.get(n, n.encode()),
+                               smith_f_min, smith_f_max, smith_max_r,
+                               tuple(sorted(toggles.items())),
+                               tuple(sorted(scales.items())))
+                _smith_fig = _cached_fig(_smith_key, lambda: make_smith(
                     d["S_fin"], df_p["Freq (GHz)"].values,
                     smith_f_min, smith_f_max, toggles, scales,
-                    Path(n).stem, max_r=smith_max_r),
-                    width="stretch")
+                    Path(n).stem, max_r=smith_max_r))
+                st.plotly_chart(_smith_fig, width="stretch")
             with smith_sub_mpl:
                 render_matplotlib_smith(
                     fname=n, topo_key="meas",

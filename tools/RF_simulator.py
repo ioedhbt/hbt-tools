@@ -36,6 +36,7 @@ from tools.SSM.helpers         import (extended_smith_grid,
                                         write_s2p, simulate_open, simulate_short,
                                         compute_h21_U, find_ft_fmax,
                                         extrap_20dbdec,
+                                        FT_FMAX_SYMBOLS, FT_FMAX_COLORS,
                                         plotly_with_dl, fig_to_excel_bytes,
                                         make_smith_bode_slider_fig)
 
@@ -653,7 +654,7 @@ def _build_bode(S, freq_hz, title: str):
             return f"{name}≈{ext_val:.2f} GHz (extrap)"
         return f"{name}=n/a"
 
-    def _add_trace(y, base_name, color, dash, kind, in_val):
+    def _add_trace(y, base_name, color, dash, kind, in_val, symbol):
         """Plot trace + extrapolation; bake the (in-band or extrap) value
         into the legend entry so fT/fmax always show.
         """
@@ -661,9 +662,10 @@ def _build_bode(S, freq_hz, title: str):
         f_ext, g_ext, f0 = extrap_20dbdec(f_ghz_local, y)
         ext_val = f0 if f_ext is not None else None
         legend_name = f"{base_name}  [{_meas_lbl(kind, in_val, ext_val)}]"
-        fig.add_trace(go.Scatter(x=f_ghz_local, y=y, mode="lines",
+        fig.add_trace(go.Scatter(x=f_ghz_local, y=y, mode="lines+markers",
                                  name=legend_name,
-                                 line=dict(color=color, width=2, dash=dash)))
+                                 line=dict(color=color, width=2, dash=dash),
+                                 marker=dict(symbol=symbol, size=6, color=color)))
         if f_ext is not None:
             extrap_used  = True
             f_high_track = max(f_high_track, f0)
@@ -673,8 +675,11 @@ def _build_bode(S, freq_hz, title: str):
                                                dash="dot"),
                                      showlegend=False))
 
-    _add_trace(h21_db, "|h21|²",   "#1f77b4", "solid", "fT",   fT)
-    _add_trace(U_db,   "Mason U",  "#d62728", "dash",  "fmax", fmax)
+    # Standard colour scheme (FT_FMAX_COLORS): fT in blue, fmax in red.
+    # Both traces are "measured" sims (no model comparison in this view),
+    # so both are solid; extrap fall-throughs in `_add_trace` are dotted.
+    _add_trace(h21_db, "|h21|²",  FT_FMAX_COLORS["fT"],   "solid", "fT",   fT,   FT_FMAX_SYMBOLS["h21"])
+    _add_trace(U_db,   "Mason U", FT_FMAX_COLORS["fmax"], "solid", "fmax", fmax, FT_FMAX_SYMBOLS["U"])
 
     fig.add_hline(y=0, line_color="#333", line_width=1.2,
                   annotation_text="0 dB", annotation_position="right",
@@ -694,8 +699,8 @@ def _build_bode(S, freq_hz, title: str):
         legend=dict(orientation="h", x=0.5, y=-0.18,
                     xanchor="center", yanchor="top",
                     bgcolor="rgba(255,255,255,0.92)",
-                    bordercolor="#ccc", borderwidth=1, font=dict(size=9)),
-        hovermode="x unified", margin=dict(l=55, r=20, t=40, b=120),
+                    bordercolor="#ccc", borderwidth=1, font=dict(size=18)),
+        hovermode="x unified", margin=dict(l=55, r=20, t=40, b=180),
     )
     return fig
 
@@ -914,10 +919,28 @@ else:
                        key=f"rfsim_bode_{prefix}",
                        filename=f"rfsim_bode_{prefix}")
 
-    col_left, col_right = st.columns(2)
     from tools.SSM.ssm_plots import render_matplotlib_smith
-    with col_right:
-        with st.expander("📐 Smith Chart Controls", expanded=False):
+
+    # Topology illustration and matplotlib Smith chart go in their own
+    # expanders so users can collapse each independently — mirrors how
+    # the SSM extraction tab keeps these on separate axes.
+    with st.expander("🖼️ Topology Illustration", expanded=False):
+        try:
+            if model_cls is XuModel:
+                _render_xu_illustration(p, f"rfsim_{prefix}")
+            elif model_cls is KunYangHEMT:
+                _render_ky_illustration(p, f"rfsim_{prefix}")
+            else:
+                _render_topology_illustration(p, topo_char,
+                                               f"rfsim_{prefix}")
+        except Exception as e:
+            st.warning(f"Topology illustration unavailable: {e}")
+
+    with st.expander("🍩 Smith Chart (Matplotlib)", expanded=False):
+        # Controls on the right column, chart on the left — same
+        # split-call pattern the SSM tab uses inside its expander.
+        col_mpl_left, col_mpl_right = st.columns([1.2, 1])
+        with col_mpl_right:
             render_matplotlib_smith(
                 fname=f"rfsim_{prefix}", topo_key=topo_char,
                 sets=[{"S": S_sim, "label": "Simulated",
@@ -925,18 +948,7 @@ else:
                 default_multiplier=mults,
                 phase="controls", freq_hz=freq,
             )
-    with col_left:
-        with st.expander("🖼️ Topology / Smith Chart", expanded=False):
-            try:
-                if model_cls is XuModel:
-                    _render_xu_illustration(p, f"rfsim_{prefix}")
-                elif model_cls is KunYangHEMT:
-                    _render_ky_illustration(p, f"rfsim_{prefix}")
-                else:
-                    _render_topology_illustration(p, topo_char,
-                                                   f"rfsim_{prefix}")
-            except Exception as e:
-                st.warning(f"Topology illustration unavailable: {e}")
+        with col_mpl_left:
             render_matplotlib_smith(
                 fname=f"rfsim_{prefix}", topo_key=topo_char,
                 sets=[{"S": S_sim, "label": "Simulated",

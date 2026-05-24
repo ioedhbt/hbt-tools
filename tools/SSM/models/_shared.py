@@ -10,54 +10,15 @@ from pathlib import Path as _Path
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# Batched-simulation helpers (used by _sim_wrap_batch and _Y_int_*_batch kernels)
+# Batched-simulation array helpers — RE-EXPORTED from helpers/_array_utils.
 # ════════════════════════════════════════════════════════════════════════════════
-
-def _b1(p, key, default, xp, dtype=None):
-    """Fetch p[key] (or default) and reshape (B,) → (B,1).  Scalars stay scalar.
-
-    If ``dtype`` is given, the value is coerced to that dtype.  Used by the
-    fp32 sweep path so a scalar Python ``float`` constant doesn't promote
-    a (B,N) ``float32`` swept tensor back up to ``float64``.
-    """
-    v = p.get(key, default)
-    if dtype is not None:
-        a = xp.asarray(v, dtype=dtype)
-    else:
-        a = xp.asarray(v)
-    if a.ndim == 1:
-        return a.reshape(-1, 1)
-    return a
-
-
-def _detect_B(p, xp):
-    """Determine batch size B from any (B,)-shaped value in p."""
-    B = 1
-    for v in p.values():
-        if isinstance(v, str):
-            continue
-        try:
-            a = xp.asarray(v)
-        except Exception:
-            continue
-        if a.ndim == 1 and a.shape[0] > B:
-            B = a.shape[0]
-    return B
-
-
-def _stack22(a00, a01, a10, a11, xp):
-    """Stack four (..., ) planes into a (..., 2, 2) tensor.
-
-    Avoids the ``xp.zeros + scatter assignments`` pattern (5 kernel
-    launches) — does it in 3 launches via xp.stack and amortises better
-    on the GPU.  Inputs may be any broadcastable shapes; the result has
-    the broadcast shape with two extra trailing axes.
-    """
-    return xp.stack(
-        [xp.stack([a00, a01], axis=-1),
-         xp.stack([a10, a11], axis=-1)],
-        axis=-2,
-    )
+# These three functions used to live here, with byte-identical duplicates
+# in helpers/deembed_math.py and models/degachi.py.  They moved to
+# helpers/_array_utils.py so the helpers package (which can't reach back
+# into models without a circular import) can use them too.  This module
+# re-exports them so every existing `from ._shared import _b1, _detect_B,
+# _stack22` call site keeps working unchanged.
+from ..helpers._array_utils import _b1, _detect_B, _stack22  # noqa: F401
 
 
 # ════════════════════════════════════════════════════════════════════════════════

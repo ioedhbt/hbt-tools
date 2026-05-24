@@ -351,28 +351,9 @@ def _simulate_vec(p, freq, z0=50.0, xp=None):
 
 
 # ── Batched (B, N, 2, 2) simulate for parameter-sweep tuning ─────────────────
-
-def _b1(p, key, default, xp):
-    """Fetch p[key] (or default) and reshape (B,) → (B,1).  Scalars stay scalar."""
-    v = p.get(key, default)
-    a = xp.asarray(v)
-    if a.ndim == 1:
-        return a.reshape(-1, 1)
-    return a
-
-
-def _detect_B(p, xp):
-    B = 1
-    for v in p.values():
-        if isinstance(v, str):
-            continue
-        try:
-            a = xp.asarray(v)
-        except Exception:
-            continue
-        if a.ndim == 1 and a.shape[0] > B:
-            B = a.shape[0]
-    return B
+# `_b1` / `_detect_B` come from the canonical helpers location — formerly
+# duplicated here, in helpers/deembed_math.py, and in models/_shared.py.
+from ._shared import _b1, _detect_B  # noqa: F401
 
 
 def _simulate_batch(p, freq, z0=50.0, xp=None, cache=None):

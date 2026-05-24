@@ -139,7 +139,8 @@ _SMITH_COLORS = {"S11":"#1f77b4","S22":"#ff7f0e","S21":"#2ca02c","S12":"#d62728"
 
 def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="smith",
                        show_title=True, meas_label="Meas.", sim_label="Model",
-                       *, compact: bool = False, height: int | None = None):
+                       *, compact: bool = False, height: int | None = None,
+                       extra_download: tuple | None = None):
     """Render a Plotly Smith chart with measured (markers) + modeled (dashed).
 
     Parameters
@@ -203,11 +204,13 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
                           showarrow=False,
                           text=f"● {meas_label} (markers)  |  - - {sim_label} (dashed)",
                           font=dict(size=10, color="gray"), align="center")])
-    plotly_with_dl(fig, key=key, filename=key)
+    plotly_with_dl(fig, key=key, filename=key, extra_download=extra_download)
 
 
 def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
-                             model_short: str, fname: str, scales=None):
+                             model_short: str, fname: str, scales=None,
+                             *, s2p_bytes: bytes | None = None,
+                             s2p_filename: str | None = None):
     """
     Two-column layout: Smith chart (left) + fT/fmax mini-card (right).
 
@@ -215,6 +218,11 @@ def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
     on the right shows |h21|² and Mason U for both measured and modeled with
     20 dB/dec extrapolation when needed.  Use this in place of the bare
     `render_smith_chart()` call inside each model's `render_override_and_smith`.
+
+    When ``s2p_bytes`` is supplied, the Smith chart's download row gains a
+    second button (📥 S2P) right next to the standard xlsx — this replaced
+    the standalone "Download Modeled DUT S2P" section that used to live at
+    the bottom of the SSM extraction tab.
     """
     # Local import — ssm_plots imports back from base_ui at module load time,
     # so a top-level import here would create a circular dependency.
@@ -226,11 +234,14 @@ def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
     title_line2 = (f"**per-trace residuals**: **S11**: {port_res['S11']:.2f}%  , **S12**: {port_res['S12']:.2f}%  , "
                    f"**S21**: {port_res['S21']:.2f}%  , **S22**: {port_res['S22']:.2f}%")
     st.markdown(f"{title_line1}; {title_line2}")
-    # st.markdown(title_line2)
+    extra_dl = None
+    if s2p_bytes is not None and s2p_filename is not None:
+        extra_dl = ("📥 modeled S2P", s2p_bytes, s2p_filename, "text/plain")
     col_l, col_r = st.columns([1.05, 1])
     with col_l:
         render_smith_chart(S_raw, S_sim, model_name, err, scales,
-                           key=f"smith_{model_short}_{fname}")
+                           key=f"smith_{model_short}_{fname}",
+                           extra_download=extra_dl)
     with col_r:
         render_ft_fmax_card(S_raw, S_sim, freq,
                             model_name=model_name,
@@ -2018,17 +2029,14 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                    "</span>")
         st.markdown(f"Compute backend: {_bk}", unsafe_allow_html=True)
 
-        # Column headers
-        hdr = st.columns([0.5, 1.5, 1.2, 1.2, 1.2, 1.0])
-        hdr[0].markdown("**Sweep**")
-        hdr[1].markdown("**Parameter**")
-        hdr[2].markdown("**Min**")
-        hdr[3].markdown("**Step**")
-        hdr[4].markdown("**Max**")
-        hdr[5].markdown("**# Calc**")
-
-        # "Use default" button — resets all min/step/max to current ± 1 (or 0/0/0 for zero params)
-        if st.button("↩️ Use default values", key=f"tune_defaults_{topo_key}_{fname}"):
+        # ── Toolbar: Use default values + Select all + De-select all ──
+        # All three buttons live above the table so users hit the bulk
+        # actions before scanning per-row.  Each writes to session_state
+        # and reruns so the table picks up the new values on the next
+        # render pass.
+        _tb1, _tb2, _tb3, _ = st.columns([1.0, 1.0, 1.0, 3.0])
+        if _tb1.button("↩️ Use default values",
+                        key=f"tune_defaults_{topo_key}_{fname}"):
             for spec in tuning_specs:
                 key, scale = spec[0], spec[2]
                 current_si = float(all_p.get(key, 0.0))
@@ -2043,6 +2051,27 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     st.session_state[f"{kp}_step"] = 1.0
                     st.session_state[f"{kp}_max"] = current_disp + 1.0
             st.rerun()
+        if _tb2.button("✅ Select all",
+                        key=f"tune_select_all_{topo_key}_{fname}"):
+            for spec in tuning_specs:
+                key = spec[0]
+                st.session_state[f"tune_{topo_key}_{key}_{fname}_chk"] = True
+            st.rerun()
+        if _tb3.button("❌ De-select all",
+                        key=f"tune_deselect_all_{topo_key}_{fname}"):
+            for spec in tuning_specs:
+                key = spec[0]
+                st.session_state[f"tune_{topo_key}_{key}_{fname}_chk"] = False
+            st.rerun()
+
+        # Column headers
+        hdr = st.columns([0.5, 1.5, 1.2, 1.2, 1.2, 1.0])
+        hdr[0].markdown("**Sweep**")
+        hdr[1].markdown("**Parameter**")
+        hdr[2].markdown("**Min**")
+        hdr[3].markdown("**Step**")
+        hdr[4].markdown("**Max**")
+        hdr[5].markdown("**# Calc**")
 
         # Pre-initialize session state defaults (only on first render of each key)
         for spec in tuning_specs:
@@ -4632,10 +4661,32 @@ class SSMModelTemplate:
 
         S_sim = cls._cached_simulate_vec(all_p, freq, z0, fname)
 
+        # Build the modeled S2P bytes once here so render_smith_with_ftfmax
+        # can wire a "📥 modeled S2P" button next to the xlsx download under
+        # the Smith chart.  This replaces the standalone "Download Modeled
+        # DUT S2P" section that used to live at the bottom of the SSM tab.
+        from ..helpers import write_s2p
+        from pathlib import Path as _Path
+        s2p_params = {}
+        for _k in ("Cpbe", "Cpce", "Cpbc"):
+            s2p_params[_k] = f"{para_eff.get(_k, 0.0) * 1e15:.4f} fF"
+        for _k_raw, _label in (("Rpb", "Rb"), ("Rpc", "Rc"), ("Rpe", "Re")):
+            s2p_params[_label] = f"{para_eff.get(_k_raw, 0.0):.4f} Ω"
+        for _k in ("Lb", "Lc", "Le"):
+            s2p_params[_k] = f"{para_eff.get(_k, 0.0) * 1e12:.4f} pH"
+        s2p_bytes = write_s2p(
+            freq, S_sim,
+            title=f"DUT {cls.NAME} — {_Path(fname).stem}",
+            params=s2p_params,
+        )
+        s2p_filename = f"model_dut_{_Path(fname).stem}_{cls.SHORT}.s2p"
+
         sc = smith_scale_controls(fname, cls.SHORT)
         render_smith_with_ftfmax(S_raw, S_sim, freq,
                                  model_name=cls.NAME, model_short=cls.SHORT,
-                                 fname=fname, scales=sc)
+                                 fname=fname, scales=sc,
+                                 s2p_bytes=s2p_bytes,
+                                 s2p_filename=s2p_filename)
 
         # Persist the *current* (post-override) param dict so the Complete
         # Parameter Summary can read live values instead of extraction-time ones.
@@ -4658,25 +4709,24 @@ class SSMModelTemplate:
                 and differs_from(all_p, baseline, keys=check_keys)):
             save_fit(fname, cls.SHORT, dict(all_p))
 
-        col_left, col_right = st.columns(2)
-        # Run the CONTROLS first (right column) so session_state is fresh
-        # before the chart half on the left reads it.  Visually they
-        # still appear in column order: left = topology + chart,
-        # right = controls.
+        # Topology illustration in its own expander (collapsed by default).
         from ..ssm_plots import render_matplotlib_smith
-        with col_right:
-            with st.expander("📐 Smith Chart Controls", expanded=False):
+        with st.expander("🖼️ Topology illustration", expanded=False):
+            cls._render_topology(all_p, fname)
+
+        # Smith chart (matplotlib) + its controls live in a single
+        # expander, rendered side-by-side — matches the RF simulator
+        # layout (RF_simulator.py "🍩 Smith Chart (Matplotlib)").  The
+        # split-call pattern (controls in the right column, chart in the
+        # left) preserves the order-of-operations requirement that
+        # widgets render BEFORE the chart so session_state is fresh when
+        # the chart half reads it.
+        with st.expander("🍩 Smith Chart (Matplotlib)", expanded=False):
+            col_mpl_left, col_mpl_right = st.columns([1.2, 1])
+            with col_mpl_right:
                 render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT,
                                          phase="controls", freq_hz=freq)
-        with col_left:
-            # Two stacked sub-expanders (one row each), both collapsed
-            # by default — keeps the page compact and lets the user
-            # open only the panel they need without rerunning the
-            # other.  Previously these were both inside a single
-            # "🖼️ Topology / Smith Chart" expander.
-            with st.expander("🖼️ Topology illustration", expanded=False):
-                cls._render_topology(all_p, fname)
-            with st.expander("📈 Smith Chart", expanded=False):
+            with col_mpl_left:
                 render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT,
                                          phase="chart", freq_hz=freq)
 

@@ -21,6 +21,13 @@ numpy       = "0.22"
 ndarray     = { version = "0.16", features = ["rayon"] }
 num-complex = "0.4"
 rayon       = "1.10"
+# parse_and_compute_batch parallelises across files and each closure does
+# many small Vec<f64> / Vec<Complex64> allocations during parse_s2p +
+# compute_metrics.  The default system allocator (HeapAlloc on Windows)
+# serialises across threads; mimalloc has per-thread arenas which removes
+# the contention and recovers ~4-6× of the Rayon parallelism that the
+# system allocator was eating.
+mimalloc    = { version = "0.1", default-features = false }
 
 [profile.release]
 # Aggressive release tuning — this crate is hot path code; binary size

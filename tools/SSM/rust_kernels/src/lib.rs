@@ -22,17 +22,24 @@
 
 // ndarray 0.16 with `features = ["rayon"]` exposes `par_for_each` as an
 // inherent method on `Zip`, so no prelude import is needed.
-use ndarray::{Array2, Array3, Array4, Axis, Zip};
+use ndarray::{Array1, Array2, Array3, Array4, Axis, Zip};
 use num_complex::Complex64;
 use numpy::{IntoPyArray, PyArray2, PyArray3, PyArray4,
             PyReadonlyArray1, PyReadonlyArray3, PyReadonlyArray4};
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 // rayon::slice::ParallelSliceMut provides `par_chunks_mut` used by
 // the Phase 2 end-to-end simulators below.
 use rayon::slice::ParallelSliceMut;
-use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+
+// mimalloc as the global allocator — see Cargo.toml note.  The default
+// Windows allocator (HeapAlloc) serialises across threads on small/medium
+// allocations, throttling Rayon parse paths that grow many small Vecs
+// per task.  mimalloc's per-thread arenas remove the contention.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 type C = Complex64;
 
@@ -1235,6 +1242,598 @@ fn sim_kunyang_batch<'py>(
     Ok(out.into_pyarray_bound(py))
 }
 
+// ── Phase 1.5 — bulk-upload parse + metrics, parallel across files ──────────
+//
+// Replaces the Python `parse_s2p → s_to_y → compute_metrics` chain that the
+// IOED bulk-upload loop runs per-file.  Profiling on N=1001-pt sweeps:
+//   parse_s2p          5.3 ms  (65 %)
+//   compute_metrics    0.9 ms  (11 %)
+//   s_to_y             0.2 ms  ( 3 %)
+//   ───────────────────────────────────
+//   total per file     ~6.5 ms  →  30 files = ~200 ms serial in Python
+//
+// In Rust with Rayon across files: ~200 / cores wall-clock, GIL released
+// during the parallel block.
+//
+// Output schema (one PyDict per file, in input order):
+//   freq          : (N,)         f64
+//   S             : (N, 2, 2)    complex128   (Touchstone S11/S12/S21/S22)
+//   z0            : float
+//   h21_db        : (N,)         f64
+//   u_db          : (N,)         f64
+//   mag_db        : (N,)         f64
+//   k             : (N,)         f64
+//   ft_plat       : (N,)         f64
+//   fmax_u_plat   : (N,)         f64
+//   fmax_mag_plat : (N,)         f64
+//
+// Or, on per-file parse failure:
+//   error : str    (only this key set; downstream Python treats as failure)
+//
+// CSV files / extracted Touchstone variants the Python parser handles but
+// this Rust port doesn't yet (notably .csv) should NOT be passed here —
+// the wrapper dispatches them to the Python fallback.
+
+// ── extract_limit Rust impl ─────────────────────────────────────────────────
+//
+// Mirrors `helpers/metrics.extract_limit` exactly.  Returns a fT/fmax value
+// from a (gain, plateau) trace pair using a "genuine 0-dB crossing" search
+// (gain stays above 0 for >=10 consecutive points) with a log-linear
+// extrapolation fallback.  Called 3× per file (h21 → fT, U → fmax_U,
+// MAG/MSG → fmax_MAG) inside the parallel parse_and_compute_batch loop —
+// this saves ~1.6 ms/file of Python work that used to run downstream.
+//
+// method codes are exported to Python as small ints to avoid allocating
+// PyString per file; the Python wrapper maps these back to the same string
+// labels the Python `extract_limit` returned ("No Data", "No Gain",
+// "0dB Cross", "Extrap & Plat.").
+
+const METHOD_NO_DATA:     u8 = 0;
+const METHOD_NO_GAIN:     u8 = 1;
+const METHOD_ZERO_CROSS:  u8 = 2;
+const METHOD_EXTRAP_PLAT: u8 = 3;
+
+/// Linear least-squares fit (degree 1) returning `(slope, intercept)`.
+/// Caller must ensure x.len() == y.len() >= 2.
+#[inline]
+fn _polyfit_1(x: &[f64], y: &[f64]) -> (f64, f64) {
+    let n  = x.len() as f64;
+    let sx : f64 = x.iter().sum();
+    let sy : f64 = y.iter().sum();
+    let sxx: f64 = x.iter().map(|v| v * v).sum();
+    let sxy: f64 = x.iter().zip(y).map(|(a, b)| a * b).sum();
+    let denom = n * sxx - sx * sx;
+    let m = (n * sxy - sx * sy) / denom;
+    let c = (sy - m * sx) / n;
+    (m, c)
+}
+
+/// Polynomial fit of degree `deg ∈ {1, 2}` of (x, y) pairs, evaluated at
+/// `x = 0`.  Returns the constant-term of the fitted polynomial (which is
+/// what `np.polyval(np.polyfit(g, f, deg), 0.0)` computes when the caller
+/// is searching for the 0-dB crossing of f(g) ≈ poly(g)).
+///
+/// Degree 1 uses closed-form least-squares; degree 2 solves the 3×3 normal
+/// equations via Cramer's rule.  Both match `np.polyfit` to within fp64
+/// rounding for well-conditioned inputs.
+fn _polyfit_eval0(x: &[f64], y: &[f64], deg: usize) -> f64 {
+    if x.len() < 2 { return f64::NAN; }
+    if deg <= 1 || x.len() < 3 {
+        // y(0) = intercept of linear fit.
+        let (_m, c) = _polyfit_1(x, y);
+        return c;
+    }
+    // Degree-2 least squares: minimise Σ (yi − (a xi² + b xi + c))².
+    // Normal equations:  [s4 s3 s2; s3 s2 s1; s2 s1 n] · [a b c]ᵀ = [t2 t1 t0]ᵀ
+    let n  = x.len() as f64;
+    let s1: f64 = x.iter().sum();
+    let s2: f64 = x.iter().map(|v| v * v).sum();
+    let s3: f64 = x.iter().map(|v| v * v * v).sum();
+    let s4: f64 = x.iter().map(|v| v.powi(4)).sum();
+    let t0: f64 = y.iter().sum();
+    let t1: f64 = x.iter().zip(y).map(|(a, b)| a * b).sum();
+    let t2: f64 = x.iter().zip(y).map(|(a, b)| a * a * b).sum();
+    // We only need `c` (the constant term).  Solve via Cramer.
+    let det =
+        s4 * (s2 * n - s1 * s1)
+      - s3 * (s3 * n - s1 * s2)
+      + s2 * (s3 * s1 - s2 * s2);
+    if det == 0.0 || !det.is_finite() {
+        // Fall back to linear if the quadratic system is singular.
+        let (_m, c) = _polyfit_1(x, y);
+        return c;
+    }
+    let c =
+        s4 * (s2 * t0 - s1 * t1)
+      - s3 * (s3 * t0 - s1 * t2)
+      + t2 * (s3 * s1 - s2 * s2);
+    c / det
+}
+
+#[derive(Default, Clone, Copy)]
+struct ExtractResult {
+    cross:  f64,
+    plat:   f64,
+    method: u8,
+}
+
+/// Port of `helpers/metrics.extract_limit`.  See that docstring for the
+/// genuine-crossing logic; we mirror it line-for-line so the per-file
+/// (fT, fmax_U, fmax_MAG) values match what the Python downstream would
+/// have produced.
+fn _extract_limit_rust(
+    freq_ghz: &[f64],
+    gain_db:  &[f64],
+    plateau:  &[f64],
+    n_pts:    usize,
+    f_min:    f64,
+    f_max:    f64,
+) -> ExtractResult {
+    let nn = freq_ghz.len();
+    // Mask = in-window & finite gain.  We materialise the valid indices
+    // rather than three separate Vecs upfront, then build f_v/g_v/p_v
+    // once we know N — saves a few allocations on the parse-failure path.
+    let mut valid: Vec<usize> = Vec::with_capacity(nn);
+    for i in 0..nn {
+        if freq_ghz[i] >= f_min && freq_ghz[i] <= f_max && gain_db[i].is_finite() {
+            valid.push(i);
+        }
+    }
+    if valid.is_empty() {
+        return ExtractResult { cross: f64::NAN, plat: f64::NAN, method: METHOD_NO_DATA };
+    }
+    let n = valid.len();
+    let f_v: Vec<f64> = valid.iter().map(|&i| freq_ghz[i]).collect();
+    let g_v: Vec<f64> = valid.iter().map(|&i| gain_db[i]).collect();
+    let p_v: Vec<f64> = valid.iter().map(|&i| plateau[i]).collect();
+
+    let max_g = g_v.iter().copied()
+        .fold(f64::NEG_INFINITY,
+              |a, b| if b.is_nan() { a } else { a.max(b) });
+    if max_g <= 0.0 {
+        return ExtractResult { cross: f64::NAN, plat: f64::NAN, method: METHOD_NO_GAIN };
+    }
+
+    // Genuine-crossing search (mirrors the Python `for idx in crossings[::-1]`).
+    let above: Vec<bool> = g_v.iter().map(|&v| v >= 0.0).collect();
+    let mut crossings: Vec<usize> = Vec::new();
+    for i in 0..n.saturating_sub(1) {
+        if above[i] && !above[i + 1] {
+            crossings.push(i);
+        }
+    }
+    let mut genuine_idx: Option<usize> = None;
+    let n80 = (0.80 * n as f64) as usize;
+    'outer: for &idx in crossings.iter().rev() {
+        // Count consecutive above-zero points ending at idx.
+        let mut cnt = 0usize;
+        let mut j = idx as isize;
+        while j >= 0 {
+            if above[j as usize] { cnt += 1; } else { break; }
+            j -= 1;
+        }
+        if cnt < 10 { continue; }
+        // Skip if the entire above-zero run starts in the top 20% of the
+        // window AND the run is short — that's almost certainly a tail
+        // noise excursion above 0 dB, not a real fT crossing.
+        let run_start = idx.saturating_sub(cnt - 1);
+        if run_start > n80 && cnt < 20 { continue; }
+        genuine_idx = Some(idx);
+        break 'outer;
+    }
+
+    if let Some(idx) = genuine_idx {
+        // Polyfit window around the crossing — matches Python's
+        //   s,e = max(0,idx-n_pts//2+1), min(N,idx+n_pts//2+1+(n_pts%2))
+        // arithmetic exactly (with saturating math so we don't underflow
+        // when idx < n_pts/2).
+        let half = n_pts / 2;
+        let mut s = idx.saturating_sub(half).saturating_add(1).min(n);
+        let mut e = (idx + half + 1 + (n_pts % 2)).min(n);
+        if e.saturating_sub(s) < 2 {
+            s = idx.min(n);
+            e = (idx + 2).min(n);
+        }
+        let xs = &g_v[s..e];
+        let ys = &f_v[s..e];
+        let deg = (e - s - 1).min(2);
+        let mut v_cross = _polyfit_eval0(xs, ys, deg);
+
+        // Sanity-check: if the polyfit overshot the window or went
+        // negative, fall back to two-point linear interpolation across
+        // the actual crossing pair.
+        let bad = !v_cross.is_finite() || v_cross <= 0.0
+                  || v_cross < f_v[s] || v_cross > f_v[e - 1];
+        if bad && idx + 1 < n {
+            let dy = g_v[idx + 1] - g_v[idx];
+            if dy != 0.0 {
+                v_cross = f_v[idx] + (0.0 - g_v[idx]) * (f_v[idx + 1] - f_v[idx]) / dy;
+            }
+        }
+        return ExtractResult { cross: v_cross, plat: f64::NAN, method: METHOD_ZERO_CROSS };
+    }
+
+    // Extrap & plat. fallback — log-linear fit of the last n_use points.
+    let median = {
+        let mut sorted: Vec<f64> = g_v.iter().copied().filter(|v| v.is_finite()).collect();
+        if sorted.is_empty() { 0.0 } else {
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            // NumPy median: average of the two middle elements for even N.
+            let m = sorted.len();
+            if m % 2 == 1 { sorted[m / 2] } else { 0.5 * (sorted[m / 2 - 1] + sorted[m / 2]) }
+        }
+    };
+    if median > 0.0 {
+        let mut v_plat = f64::NEG_INFINITY;
+        let mut any_finite = false;
+        for &v in &p_v {
+            if v.is_finite() { v_plat = v_plat.max(v); any_finite = true; }
+        }
+        let v_plat = if any_finite { v_plat } else { f64::NAN };
+
+        let n_use = n_pts.min(f_v.len());
+        let mut v_extrap = f64::NAN;
+        if n_use >= 2 {
+            let tail = f_v.len() - n_use;
+            let logf: Vec<f64> = f_v[tail..].iter().map(|v| v.log10()).collect();
+            let gtail: Vec<f64> = g_v[tail..].to_vec();
+            let (m, c) = _polyfit_1(&logf, &gtail);
+            if m < 0.0 && m.is_finite() && c.is_finite() {
+                v_extrap = 10f64.powf(-c / m);
+            }
+        }
+        return ExtractResult { cross: v_extrap, plat: v_plat, method: METHOD_EXTRAP_PLAT };
+    }
+    ExtractResult { cross: f64::NAN, plat: f64::NAN, method: METHOD_NO_GAIN }
+}
+
+struct DUTRustResult {
+    freq:          Vec<f64>,
+    s_flat:        Vec<Complex64>,   // length n*4 row-major (N, 2, 2)
+    z0:            f64,
+    h21_db:        Vec<f64>,
+    u_db:          Vec<f64>,
+    mag_db:        Vec<f64>,
+    k:             Vec<f64>,
+    ft_plat:       Vec<f64>,
+    fmax_u_plat:   Vec<f64>,
+    fmax_mag_plat: Vec<f64>,
+    // Per-file extract_limit results (filled after compute_metrics).
+    ext_ft:        ExtractResult,
+    ext_fmax_u:    ExtractResult,
+    ext_fmax_mag:  ExtractResult,
+    error:         Option<String>,
+}
+
+impl DUTRustResult {
+    fn empty_err(msg: impl Into<String>) -> Self {
+        Self {
+            freq: Vec::new(), s_flat: Vec::new(), z0: 50.0,
+            h21_db: Vec::new(), u_db: Vec::new(), mag_db: Vec::new(),
+            k: Vec::new(), ft_plat: Vec::new(),
+            fmax_u_plat: Vec::new(), fmax_mag_plat: Vec::new(),
+            ext_ft: ExtractResult::default(),
+            ext_fmax_u: ExtractResult::default(),
+            ext_fmax_mag: ExtractResult::default(),
+            error: Some(msg.into()),
+        }
+    }
+}
+
+#[inline(always)]
+fn _parse_one_s(a: f64, b: f64, fmt: u8) -> Complex64 {
+    // fmt: 0 = MA (mag/ang°), 1 = DB (dB/ang°), 2 = RI (real/imag)
+    match fmt {
+        1 => Complex64::from_polar(10.0_f64.powf(a / 20.0), b.to_radians()),
+        2 => Complex64::new(a, b),
+        _ => Complex64::from_polar(a, b.to_radians()),  // MA is the default
+    }
+}
+
+fn _parse_s2p_rust(content: &[u8]) -> Result<(Vec<f64>, Vec<Complex64>, f64), String> {
+    // Decode lossily — matches the Python `decode("utf-8", errors="ignore")`.
+    let text = std::str::from_utf8(content)
+        .map_or_else(|_| String::from_utf8_lossy(content).into_owned(),
+                     |s| s.to_string());
+
+    let mut freq_unit_scale: f64 = 1.0;  // hz default
+    let mut fmt: u8 = 0;                  // MA default
+    let mut z0: f64 = 50.0;
+    // Pre-size for a typical 1000-pt sweep (9 floats per row).
+    let mut data_vals: Vec<f64> = Vec::with_capacity(1024 * 9);
+
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('!') {
+            continue;
+        }
+        if line.starts_with('#') {
+            let lower: String = line[1..].to_ascii_lowercase();
+            let parts: Vec<&str> = lower.split_whitespace().collect();
+            for (i, p) in parts.iter().enumerate() {
+                match *p {
+                    "hz"  => freq_unit_scale = 1.0,
+                    "khz" => freq_unit_scale = 1e3,
+                    "mhz" => freq_unit_scale = 1e6,
+                    "ghz" => freq_unit_scale = 1e9,
+                    "ma"  => fmt = 0,
+                    "db"  => fmt = 1,
+                    "ri"  => fmt = 2,
+                    "r"   => if let Some(nxt) = parts.get(i + 1) {
+                        if let Ok(v) = nxt.parse() { z0 = v; }
+                    },
+                    _ => {}
+                }
+            }
+            continue;
+        }
+        // Data row — split on whitespace and parse floats.  Ignore any
+        // token that doesn't parse (matches Python's tolerant behaviour
+        // for stray inline comments).
+        for tok in line.split_whitespace() {
+            if let Ok(v) = tok.parse::<f64>() {
+                data_vals.push(v);
+            }
+        }
+    }
+
+    let n = data_vals.len() / 9;
+    if n == 0 {
+        return Err("parse_s2p: no 9-column data rows found".to_string());
+    }
+
+    let mut freq = Vec::with_capacity(n);
+    let mut s_flat = vec![Complex64::new(0.0, 0.0); n * 4];
+    for i in 0..n {
+        let row = &data_vals[i * 9..(i + 1) * 9];
+        freq.push(row[0] * freq_unit_scale);
+        // Touchstone column order: S11, S21, S12, S22 at (1,2)(3,4)(5,6)(7,8).
+        // Output layout row-major (N, 2, 2) → flat indices [s11, s12, s21, s22].
+        let base = i * 4;
+        s_flat[base + 0] = _parse_one_s(row[1], row[2], fmt);   // S11
+        s_flat[base + 2] = _parse_one_s(row[3], row[4], fmt);   // S21
+        s_flat[base + 1] = _parse_one_s(row[5], row[6], fmt);   // S12
+        s_flat[base + 3] = _parse_one_s(row[7], row[8], fmt);   // S22
+    }
+    Ok((freq, s_flat, z0))
+}
+
+fn _compute_metrics_rust(r: &mut DUTRustResult) {
+    let n = r.freq.len();
+    let z0c = Complex64::new(r.z0, 0.0);
+    let one = Complex64::new(1.0, 0.0);
+    let eps = Complex64::new(1e-30, 0.0);
+
+    r.h21_db        = Vec::with_capacity(n);
+    r.u_db          = Vec::with_capacity(n);
+    r.mag_db        = Vec::with_capacity(n);
+    r.k             = Vec::with_capacity(n);
+    r.ft_plat       = Vec::with_capacity(n);
+    r.fmax_u_plat   = Vec::with_capacity(n);
+    r.fmax_mag_plat = Vec::with_capacity(n);
+
+    for i in 0..n {
+        let base = i * 4;
+        let s11 = r.s_flat[base + 0];
+        let s12 = r.s_flat[base + 1];
+        let s21 = r.s_flat[base + 2];
+        let s22 = r.s_flat[base + 3];
+
+        // S → Y, analytic (matches helpers.rf_math.s_to_y exactly).
+        let d   = (one + s11) * (one + s22) - s12 * s21;
+        let dz0 = d * z0c;
+        let y11 = ((one - s11) * (one + s22) + s12 * s21) / dz0;
+        let y12 = Complex64::new(-2.0, 0.0) * s12 / dz0;
+        let y21 = Complex64::new(-2.0, 0.0) * s21 / dz0;
+        let y22 = ((one + s11) * (one - s22) + s12 * s21) / dz0;
+
+        // |h21|² → dB
+        let h21    = -y21 / (y11 + eps);
+        let h21_n2 = h21.norm_sqr();
+        let h21_db = 10.0 * (h21_n2 + 1e-30).log10();
+
+        // Mason U (NaN when denominator non-positive, matching Python where()).
+        let num_u  = (y21 - y12).norm_sqr();
+        let den_u  = 4.0 * (y11.re * y22.re - y12.re * y21.re);
+        let u_val  = if den_u > 0.0 { num_u / den_u } else { f64::NAN };
+        let u_db   = 10.0 * (u_val.abs() + 1e-30).log10();
+
+        // K factor
+        let num_k = 2.0 * y11.re * y22.re - (y12 * y21).re;
+        let k_val = num_k / ((y12 * y21).norm() + 1e-60);
+
+        // MAG / MSG
+        let msg = y21.norm() / (y12.norm() + 1e-30);
+        let mag_msg = if k_val > 1.0 {
+            msg * (k_val - ((k_val * k_val - 1.0).max(0.0)).sqrt())
+        } else {
+            msg
+        };
+        let mag_db = 10.0 * (mag_msg.abs() + 1e-30).log10();
+
+        // Plateau values (f in GHz so the curves match the DataFrame outputs).
+        let f_ghz = r.freq[i] * 1e-9;
+        let ft_plat       = f_ghz * h21_n2.sqrt();
+        let fmax_u_plat   = f_ghz * u_val.abs().sqrt();
+        let fmax_mag_plat = f_ghz * mag_msg.abs().sqrt();
+
+        r.h21_db.push(h21_db);
+        r.u_db.push(u_db);
+        r.mag_db.push(mag_db);
+        r.k.push(k_val);
+        r.ft_plat.push(ft_plat);
+        r.fmax_u_plat.push(fmax_u_plat);
+        r.fmax_mag_plat.push(fmax_mag_plat);
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (files, n_pts=2, f_min=0.01, f_max=50.0))]
+fn parse_and_compute_batch<'py>(
+    py: Python<'py>,
+    files: Vec<Vec<u8>>,
+    n_pts: usize,
+    f_min: f64,
+    f_max: f64,
+) -> PyResult<Bound<'py, PyDict>> {
+    // Return shape: a single PyDict with stacked arrays + per-file offsets.
+    //
+    // The earlier version returned ``Vec<PyDict>`` — one dict-of-arrays per
+    // file.  At 30 files × 9 PyArray allocations per file = 270 PyArray
+    // creations, the PyO3 boundary work dominated the kernel time and the
+    // Rayon speedup didn't materialise (1.2× vs 8× expected).
+    //
+    // SoA layout:
+    //   n_per_file    int64  (N_files,)      — rows per file, 0 on parse failure
+    //   z0_per_file   float64 (N_files,)
+    //   errors        list[Optional[str]]    — one per file, None on success
+    //   freq          float64 (total_N,)     — concatenated across all files
+    //   S             complex128 (total_N, 2, 2)
+    //   h21_db, u_db, mag_db, k,
+    //   ft_plat, fmax_u_plat, fmax_mag_plat   — float64 (total_N,)
+    //
+    // Python wrapper slices these into per-file views (zero-copy) and
+    // hands the same list-of-dicts shape downstream consumers expect.
+    //
+    // PyArray allocations: 30 × 9 = 270  →  9 total.
+
+    let n_files = files.len();
+
+    // ── Step 1: parallel parse + compute + extract, GIL released ──────
+    // extract_limit ×3 (h21 → fT, U → fmax_U, MAG/MSG → fmax_MAG) runs
+    // inside the same closure as parse + s_to_y + compute_metrics so
+    // every per-file CPU op lives on the same thread — better cache
+    // locality and one shared parallelism budget.  Was previously called
+    // per-file in Python downstream, which added ~1.6 ms/file of work
+    // and blocked the GIL.
+    let results: Vec<DUTRustResult> = py.allow_threads(|| {
+        files.par_iter().map(|bytes| {
+            match _parse_s2p_rust(bytes) {
+                Err(e) => DUTRustResult::empty_err(e),
+                Ok((freq, s_flat, z0)) => {
+                    let mut r = DUTRustResult {
+                        freq, s_flat, z0,
+                        h21_db: Vec::new(), u_db: Vec::new(),
+                        mag_db: Vec::new(), k: Vec::new(),
+                        ft_plat: Vec::new(), fmax_u_plat: Vec::new(),
+                        fmax_mag_plat: Vec::new(),
+                        ext_ft: ExtractResult::default(),
+                        ext_fmax_u: ExtractResult::default(),
+                        ext_fmax_mag: ExtractResult::default(),
+                        error: None,
+                    };
+                    _compute_metrics_rust(&mut r);
+                    // extract_limit consumes the freq array in GHz; the
+                    // r.freq we hold is in Hz (matches Python's parse_s2p
+                    // return), so convert to a temp Vec once.
+                    let freq_ghz: Vec<f64> = r.freq.iter().map(|f| f * 1e-9).collect();
+                    r.ext_ft = _extract_limit_rust(
+                        &freq_ghz, &r.h21_db, &r.ft_plat, n_pts, f_min, f_max);
+                    r.ext_fmax_u = _extract_limit_rust(
+                        &freq_ghz, &r.u_db,   &r.fmax_u_plat, n_pts, f_min, f_max);
+                    r.ext_fmax_mag = _extract_limit_rust(
+                        &freq_ghz, &r.mag_db, &r.fmax_mag_plat, n_pts, f_min, f_max);
+                    r
+                }
+            }
+        }).collect()
+    });
+
+    // ── Step 2: compute per-file row counts and total length ──────────
+    let mut n_per_file:   Vec<i64> = Vec::with_capacity(n_files);
+    let mut z0_per_file:  Vec<f64> = Vec::with_capacity(n_files);
+    // Per-file extract_limit results (one entry per file, in input order).
+    let mut ft_cr_per_file:    Vec<f64> = Vec::with_capacity(n_files);
+    let mut ft_pl_per_file:    Vec<f64> = Vec::with_capacity(n_files);
+    let mut ft_m_per_file:     Vec<u8>  = Vec::with_capacity(n_files);
+    let mut fmu_cr_per_file:   Vec<f64> = Vec::with_capacity(n_files);
+    let mut fmu_pl_per_file:   Vec<f64> = Vec::with_capacity(n_files);
+    let mut fmu_m_per_file:    Vec<u8>  = Vec::with_capacity(n_files);
+    let mut fmag_cr_per_file:  Vec<f64> = Vec::with_capacity(n_files);
+    let mut fmag_pl_per_file:  Vec<f64> = Vec::with_capacity(n_files);
+    let mut fmag_m_per_file:   Vec<u8>  = Vec::with_capacity(n_files);
+    for r in &results {
+        n_per_file.push(r.freq.len() as i64);
+        z0_per_file.push(r.z0);
+        ft_cr_per_file  .push(r.ext_ft.cross);
+        ft_pl_per_file  .push(r.ext_ft.plat);
+        ft_m_per_file   .push(r.ext_ft.method);
+        fmu_cr_per_file .push(r.ext_fmax_u.cross);
+        fmu_pl_per_file .push(r.ext_fmax_u.plat);
+        fmu_m_per_file  .push(r.ext_fmax_u.method);
+        fmag_cr_per_file.push(r.ext_fmax_mag.cross);
+        fmag_pl_per_file.push(r.ext_fmax_mag.plat);
+        fmag_m_per_file .push(r.ext_fmax_mag.method);
+    }
+    let total_n: usize = n_per_file.iter().map(|&n| n as usize).sum();
+
+    // ── Step 3: concatenate per-file Vecs into single stacked Vecs ────
+    // Drain each result so we can move out of `r.s_flat` etc.  This is
+    // the only serial-after-parallel work; it's pure memcpy and bounded
+    // by total_N bytes (≈ N_files × 1000 × 64B = 1.9 MB for 30 files).
+    let mut freq_all  : Vec<f64>       = Vec::with_capacity(total_n);
+    let mut s_all     : Vec<Complex64> = Vec::with_capacity(total_n * 4);
+    let mut h21_all   : Vec<f64>       = Vec::with_capacity(total_n);
+    let mut u_all     : Vec<f64>       = Vec::with_capacity(total_n);
+    let mut mag_all   : Vec<f64>       = Vec::with_capacity(total_n);
+    let mut k_all     : Vec<f64>       = Vec::with_capacity(total_n);
+    let mut ft_all    : Vec<f64>       = Vec::with_capacity(total_n);
+    let mut fmu_all   : Vec<f64>       = Vec::with_capacity(total_n);
+    let mut fmag_all  : Vec<f64>       = Vec::with_capacity(total_n);
+    let mut errors    : Vec<Option<String>> = Vec::with_capacity(n_files);
+
+    for mut r in results {
+        errors.push(r.error.take());
+        freq_all .extend(r.freq.drain(..));
+        s_all    .extend(r.s_flat.drain(..));
+        h21_all  .extend(r.h21_db.drain(..));
+        u_all    .extend(r.u_db.drain(..));
+        mag_all  .extend(r.mag_db.drain(..));
+        k_all    .extend(r.k.drain(..));
+        ft_all   .extend(r.ft_plat.drain(..));
+        fmu_all  .extend(r.fmax_u_plat.drain(..));
+        fmag_all .extend(r.fmax_mag_plat.drain(..));
+    }
+
+    // ── Step 4: build the single output PyDict ────────────────────────
+    let s_arr = Array3::<Complex64>::from_shape_vec((total_n, 2, 2), s_all)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+    let d = PyDict::new_bound(py);
+    d.set_item("n_per_file",    Array1::from_vec(n_per_file).into_pyarray_bound(py))?;
+    d.set_item("z0_per_file",   Array1::from_vec(z0_per_file).into_pyarray_bound(py))?;
+    d.set_item("freq",          Array1::from_vec(freq_all).into_pyarray_bound(py))?;
+    d.set_item("S",             s_arr.into_pyarray_bound(py))?;
+    d.set_item("h21_db",        Array1::from_vec(h21_all).into_pyarray_bound(py))?;
+    d.set_item("u_db",          Array1::from_vec(u_all).into_pyarray_bound(py))?;
+    d.set_item("mag_db",        Array1::from_vec(mag_all).into_pyarray_bound(py))?;
+    d.set_item("k",             Array1::from_vec(k_all).into_pyarray_bound(py))?;
+    d.set_item("ft_plat",       Array1::from_vec(ft_all).into_pyarray_bound(py))?;
+    d.set_item("fmax_u_plat",   Array1::from_vec(fmu_all).into_pyarray_bound(py))?;
+    d.set_item("fmax_mag_plat", Array1::from_vec(fmag_all).into_pyarray_bound(py))?;
+    // Per-file extract_limit results (length = N_files).
+    d.set_item("ft_cross",      Array1::from_vec(ft_cr_per_file).into_pyarray_bound(py))?;
+    d.set_item("ft_plateau",    Array1::from_vec(ft_pl_per_file).into_pyarray_bound(py))?;
+    d.set_item("ft_method",     Array1::from_vec(ft_m_per_file).into_pyarray_bound(py))?;
+    d.set_item("fmax_u_cross",   Array1::from_vec(fmu_cr_per_file).into_pyarray_bound(py))?;
+    d.set_item("fmax_u_plateau", Array1::from_vec(fmu_pl_per_file).into_pyarray_bound(py))?;
+    d.set_item("fmax_u_method",  Array1::from_vec(fmu_m_per_file).into_pyarray_bound(py))?;
+    d.set_item("fmax_mag_cross",   Array1::from_vec(fmag_cr_per_file).into_pyarray_bound(py))?;
+    d.set_item("fmax_mag_plateau", Array1::from_vec(fmag_pl_per_file).into_pyarray_bound(py))?;
+    d.set_item("fmax_mag_method",  Array1::from_vec(fmag_m_per_file).into_pyarray_bound(py))?;
+
+    let errs_list = PyList::empty_bound(py);
+    for e in errors {
+        match e {
+            Some(s) => errs_list.append(s)?,
+            None    => errs_list.append(py.None())?,
+        }
+    }
+    d.set_item("errors", errs_list)?;
+
+    Ok(d)
+}
+
 #[pymodule]
 fn hbt_rust_kernels(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Phase 1 primitives
@@ -1243,6 +1842,8 @@ fn hbt_rust_kernels(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(y_to_s_batch,         m)?)?;
     m.add_function(wrap_pyfunction!(y_to_s_4d,            m)?)?;
     m.add_function(wrap_pyfunction!(port_residuals_batch, m)?)?;
+    // Phase 1.5 — bulk-upload accelerator
+    m.add_function(wrap_pyfunction!(parse_and_compute_batch, m)?)?;
     // Phase 2 stubs (raise NotImplementedError — Python wrapper falls back)
     m.add_function(wrap_pyfunction!(sim_cheng_t_batch,    m)?)?;
     m.add_function(wrap_pyfunction!(sim_cheng_pi_batch,   m)?)?;

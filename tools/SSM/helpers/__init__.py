@@ -74,6 +74,8 @@ from .metrics import (
 # ── plotly_plots ─────────────────────────────────────────────────────────────
 from .plotly_plots import (
     PALETTE,
+    FT_FMAX_SYMBOLS,
+    FT_FMAX_COLORS,
     darken,
     bode_layout,
     make_smith,
@@ -81,6 +83,8 @@ from .plotly_plots import (
     make_plateau,
     make_smith_bode_slider_fig,
     make_smith_bode_joint_slider_html,
+    add_overlay_trace_with_markers,
+    thinned_indices,
 )
 
 # ── chart_export ─────────────────────────────────────────────────────────────
@@ -121,4 +125,5 @@ from .rust_kernels import (
     y_to_s_batch  as rust_y_to_s_batch,
     y_to_s_4d     as rust_y_to_s_4d,
     port_residuals_batch as rust_port_residuals_batch,
+    parse_and_compute_batch as rust_parse_and_compute_batch,
 )

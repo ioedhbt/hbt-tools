@@ -49,17 +49,8 @@ import plotly.graph_objects as go
 # Public API
 # ════════════════════════════════════════════════════════════════════════════════
 
-def _agg(arr, n0, n1, method, trim_pct=20):
-    a = np.asarray(arr[n0:n1], dtype=float)
-    a = a[np.isfinite(a)]
-    if len(a) == 0:
-        return np.nan
-    if method == "Trimmed mean":
-        k = max(0, int(len(a) * trim_pct / 100))
-        s = np.sort(a)
-        s = s[k: len(s) - k] if len(s) > 2 * k else s
-        return float(np.mean(s)) if len(s) > 0 else np.nan
-    return float(np.nanmedian(a))
+# `_agg` was a dead duplicate of `helpers/deembed_math.py::_agg_arr` —
+# defined here but never called within this module.  Removed.
 
 
 def _extract_ui(fname, key, freq, default_frac_lo=0.0, default_frac_hi=0.2):
@@ -662,8 +653,10 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             unsafe_allow_html=True)
         render_ft_fmax_overlay(S_raw, sim_results, freq, fname)
 
-    # ── S2P downloads ─────────────────────────────────────────────────────────
-    _render_s2p_downloads(fname, freq, z0, para_eff, sim_results)
+    # The standalone "Download Modeled DUT S2P" section used to live here;
+    # the same download button is now under each model's Measured-vs-Modeled
+    # Smith chart, beside the xlsx button (see
+    # SSMModelTemplate.render_override_and_smith).
 
     # ── Parameter summary table ───────────────────────────────────────────────
     _render_summary_table(fname, para_eff, cold_res, extract_results, REGISTRY)
@@ -676,44 +669,9 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
 # Private helpers (keep the main function readable)
 # ════════════════════════════════════════════════════════════════════════════════
 
-def _render_s2p_downloads(fname, freq, z0, para_eff, sim_results):
-    st.divider()
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#fbe9e7 0%,transparent 100%);"
-        "border-left:4px solid #bf360c;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📥 Download Modeled DUT S2P</strong></div>",
-        unsafe_allow_html=True)
-    st.caption(
-        "Forward-simulate the final DUT model.  \n"
-        "Files use Touchstone format: `# Hz S DB R 50`.  \n"
-        "Header `!` comment lines list all parameter values used.  \n"
-        "(Open and Short dummy downloads have moved to Section 1.)")
-
-    # ── DUT ──────────────────────────────────────────────────────────────────
-    with st.container():
-        st.markdown("**Modeled DUT S-parameters**")
-        avail = {short: S for short, S in sim_results.items() if S is not None}
-        if avail:
-            from .models import REGISTRY
-            choices = {REGISTRY[s].NAME: s for s in avail}
-            chosen_name  = st.selectbox("Model to download:", list(choices.keys()),
-                                         key=f"dl_model_sel_{fname}")
-            chosen_short = choices[chosen_name]
-            S_dut_sim    = avail[chosen_short]
-            dut_params   = {}
-            for k in ["Cpbe","Cpce","Cpbc"]: dut_params[k] = f"{para_eff.get(k,0)*1e15:.4f} fF"
-            for k in ["Rpb","Rpc","Rpe"]:
-                dut_params[{"Rpb":"Rb","Rpc":"Rc","Rpe":"Re"}[k]] = f"{para_eff.get(k,0):.4f} Ω"
-            for k in ["Lb","Lc","Le"]: dut_params[k] = f"{para_eff.get(k,0)*1e12:.4f} pH"
-            st.download_button("📥 DUT.s2p",
-                data=write_s2p(freq, S_dut_sim,
-                               title=f"DUT {chosen_name} — {Path(fname).stem}",
-                               params=dut_params),
-                file_name=f"model_dut_{Path(fname).stem}.s2p", mime="text/plain",
-                key=f"dl_dut_{fname}", width="stretch")
-            st.caption("Uses Smith chart fine-tune override values.")
-        else:
-            st.info("Run at least one model above to enable DUT download.")
+# `_render_s2p_downloads` was deleted — its functionality lives under
+# each model's Measured-vs-Modeled Smith chart now (📥 modeled S2P
+# button next to ⬇ xlsx, wired in `models/base_ui.py::render_smith_with_ftfmax`).
 
 
 def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):

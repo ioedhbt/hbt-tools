@@ -27,6 +27,91 @@ from .metrics import extrap_20dbdec, single_pole_extrap, compute_h21_U
 PALETTE = ["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd",
            "#8c564b","#e377c2","#7f7f7f","#bcbd22","#17becf"]
 
+# Standardised marker symbols for fT / fmax traces.  Every Bode / plateau
+# plot in the app (IOED Overlay + Individual, SSM raw-vs-deembedded,
+# SSM intrinsic, measured-vs-modeled, RF simulator) uses this same
+# mapping so users can identify a metric by shape alone, independent of
+# colour.  Modeled traces are intentionally rendered without markers and
+# rely on line dash patterns instead.
+#   |h21|²  → fT       → circle
+#   Mason U → fmax(U)  → square
+#   MAG/MSG → fmax(MAG)→ diamond
+FT_FMAX_SYMBOLS = {
+    "h21": "circle",
+    "U":   "square",
+    "MAG": "diamond",
+}
+
+# Standardised colours for fT / fmax traces.  Used by every Bode plot in
+# the app (SSM measured-vs-modeled, RF extraction Overlay / Individual,
+# RF simulator) so users can identify a metric by colour alone.
+#
+#   |h21|²  → fT       → blue   (#1f77b4)
+#   Mason U → fmax(U)  → red    (#d62728)
+#   MAG/MSG → fmax(MAG)→ red    (same family as Mason U; distinguished
+#                                 from U by dash style and marker shape)
+#
+# Convention for line style within a colour:
+#   measured            : solid + markers
+#   modeled             : dashed (no markers)
+#   extrapolated (20dB
+#     / single-pole)    : dotted (no markers)
+FT_FMAX_COLORS = {
+    "fT":   "#1f77b4",
+    "fmax": "#d62728",
+}
+
+
+def thinned_indices(n: int, max_markers: int = 25) -> np.ndarray:
+    """Log-spaced sample of indices into a length-`n` array.
+
+    Used by overlay plots to keep marker density manageable while the line
+    trace stays at full resolution.  Always includes the first and last
+    index so the marker sequence anchors at both endpoints of the line.
+
+    Returning the full range when ``n <= max_markers`` keeps single-trace
+    plots (Individual tab) visually identical to dense-marker traces.
+    """
+    if n <= max_markers:
+        return np.arange(n)
+    raw = np.geomspace(1, n, max_markers)
+    return np.unique(np.round(raw).astype(int).clip(1, n) - 1)
+
+
+def add_overlay_trace_with_markers(fig, x, y, *, name, color, symbol,
+                                     dash=None, line_width=2.5, marker_size=6,
+                                     opacity=1.0, hovertemplate=None,
+                                     legendgroup=None, max_markers=25,
+                                     show_legend=True):
+    """Add a Bode trace as (full-resolution line) + (thinned marker overlay).
+
+    Splitting the trace into two halves keeps the line crisp while cutting
+    marker WebGL primitives from ~1000 per trace down to ~25.  With 30 files
+    × 3 metrics that's a ~40× reduction in marker rendering load, which is
+    what actually causes the scroll-sluggishness when many files are loaded.
+
+    The marker trace owns the legend entry (so the legend shows the symbol
+    + colour); the line trace is hidden from the legend and grouped with
+    the marker via `legendgroup` so toggling visibility from the legend
+    affects both.
+    """
+    from plotly import graph_objects as _go
+    x = np.asarray(x)
+    y = np.asarray(y)
+    lg = legendgroup or name
+    fig.add_trace(_go.Scattergl(
+        x=x, y=y, mode="lines", name=name,
+        line=dict(color=color, width=line_width, dash=dash) if dash
+             else dict(color=color, width=line_width),
+        opacity=opacity, hovertemplate=hovertemplate,
+        legendgroup=lg, showlegend=False))
+    idx = thinned_indices(len(x), max_markers)
+    fig.add_trace(_go.Scattergl(
+        x=x[idx], y=y[idx], mode="markers", name=name,
+        marker=dict(symbol=symbol, size=marker_size, color=color),
+        opacity=opacity, hovertemplate=hovertemplate,
+        legendgroup=lg, showlegend=show_legend))
+
 
 # ── Small helpers ────────────────────────────────────────────────────────────
 
@@ -58,7 +143,7 @@ def bode_layout(title, ytitle, yr, xr):
         legend=dict(orientation="h", x=0.5, y=-0.22,
                     xanchor="center", yanchor="top",
                     bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
-                    borderwidth=1, font=dict(size=9)),
+                    borderwidth=1, font=dict(size=18)),
         plot_bgcolor="white", paper_bgcolor="white", height=560,
         margin=dict(l=55, r=25, t=45, b=160),
         hovermode="x unified", template="plotly_white")
@@ -188,31 +273,37 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color, *,
             hovertemplate=hov, showlegend=True))
         extrap_curves[key] = (f_ext, g_ext, f0)
 
+    # Standardised colours: fT-producing trace (|h21|²) in blue, every
+    # fmax-producing trace (Mason U, MAG/MSG) in red.  Marker shape
+    # (circle / square / diamond) still distinguishes within a colour.
+    # The `color` argument is preserved for callers that want per-file
+    # colouring but is overridden here; pass through `color=PALETTE[...]`
+    # at call sites unchanged.
+    _c_fT, _c_fmax = FT_FMAX_COLORS["fT"], FT_FMAX_COLORS["fmax"]
     if sh21:
         y = df["|h21|² (dB)"].values
         fig.add_trace(go.Scattergl(
             x=f, y=y, name="|h21|²", mode="lines+markers",
-            line=dict(color=color, width=1.4),
-            marker=dict(symbol="circle", size=6, color=color),
+            line=dict(color=_c_fT, width=1.4),
+            marker=dict(symbol=FT_FMAX_SYMBOLS["h21"], size=6, color=_c_fT),
             hovertemplate=hov))
-        if show_20db: _add_20db(y, color, "fT",      "h21_20db")
-        if show_sp:   _add_sp  (y, color, "fT",      "h21_sp")
+        if show_20db: _add_20db(y, _c_fT, "fT",      "h21_20db")
+        if show_sp:   _add_sp  (y, _c_fT, "fT",      "h21_sp")
     if su:
         y = df["Mason U (dB)"].values
-        col_u = darken(color)
         fig.add_trace(go.Scattergl(
             x=f, y=y, name="Mason U", mode="lines+markers",
-            line=dict(color=col_u, width=1.4),
-            marker=dict(symbol="square", size=6, color=col_u),
+            line=dict(color=_c_fmax, width=1.4),
+            marker=dict(symbol=FT_FMAX_SYMBOLS["U"], size=6, color=_c_fmax),
             hovertemplate=hov))
-        if show_20db: _add_20db(y, col_u, "fmax(U)", "U_20db")
-        if show_sp:   _add_sp  (y, col_u, "fmax(U)", "U_sp")
+        if show_20db: _add_20db(y, _c_fmax, "fmax(U)", "U_20db")
+        if show_sp:   _add_sp  (y, _c_fmax, "fmax(U)", "U_sp")
     if smag:
         y = df["MAG/MSG (dB)"].values
         fig.add_trace(go.Scattergl(
             x=f, y=y, name="MAG/MSG", mode="lines+markers",
-            line=dict(color="#2ca02c", width=1.4),
-            marker=dict(symbol="diamond", size=6, color="#2ca02c"),
+            line=dict(color=_c_fmax, width=1.4),
+            marker=dict(symbol=FT_FMAX_SYMBOLS["MAG"], size=6, color=_c_fmax),
             hovertemplate=hov))
 
     fig.add_hline(y=0, line_dash="dash", line_color="black")
@@ -288,20 +379,28 @@ def make_plateau(df, res, title, xr, sh21, su, smag, color):
     arr = np.array([v for v in cols if np.isfinite(v) and v > 0])
     ym  = float(np.quantile(arr, 0.97)) * 1.3 if len(arr) else 100
     hov = "Freq:%{x:.4f}GHz<br>GBP:%{y:.4f}GHz<extra></extra>"
+    # Standardised colours (see FT_FMAX_COLORS) — fT in blue, fmax in red.
+    # Within fmax, U and MAG use the same red but different marker shape
+    # + dash pattern for visual differentiation.
+    _c_fT, _c_fmax = FT_FMAX_COLORS["fT"], FT_FMAX_COLORS["fmax"]
     fig = go.Figure()
     if sh21:
         fig.add_trace(go.Scattergl(x=df["Freq (GHz)"], y=df["fT Plateau (GHz)"],
-                                 name="fT", line=dict(color=color, width=2.5),
+                                 name="fT", mode="lines+markers",
+                                 line=dict(color=_c_fT, width=2.5),
+                                 marker=dict(symbol=FT_FMAX_SYMBOLS["h21"], size=5, color=_c_fT),
                                  hovertemplate=hov))
     if su:
         fig.add_trace(go.Scattergl(x=df["Freq (GHz)"], y=df["fmax U Plateau (GHz)"],
-                                 name="fmax(U)",
-                                 line=dict(color=darken(color), width=2.5, dash="dash"),
+                                 name="fmax(U)", mode="lines+markers",
+                                 line=dict(color=_c_fmax, width=2.5, dash="dash"),
+                                 marker=dict(symbol=FT_FMAX_SYMBOLS["U"], size=5, color=_c_fmax),
                                  hovertemplate=hov))
     if smag:
         fig.add_trace(go.Scattergl(x=df["Freq (GHz)"], y=df["fmax MAG Plateau (GHz)"],
-                                 name="fmax(MAG)",
-                                 line=dict(color="#2ca02c", width=2, dash="dot"),
+                                 name="fmax(MAG)", mode="lines+markers",
+                                 line=dict(color=_c_fmax, width=2, dash="dot"),
+                                 marker=dict(symbol=FT_FMAX_SYMBOLS["MAG"], size=5, color=_c_fmax),
                                  hovertemplate=hov))
     fig.update_layout(**bode_layout(f"Plateau — {title}", "GBP (GHz)", [0, ym], xr))
     return fig
@@ -499,7 +598,7 @@ def make_smith_bode_slider_fig(*, S_batch, freq, model_name: str,
         showlegend=True,
         plot_bgcolor="white", paper_bgcolor="white",
         legend=dict(orientation="v", x=1.02, y=1.0, xanchor="left",
-                    font=dict(size=9)),
+                    font=dict(size=18)),
         margin=dict(l=50, r=30, t=50, b=80 + 60 * n_sliders),
         hovermode="closest",
     )
@@ -702,7 +801,7 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
         showlegend=True,
         plot_bgcolor="white", paper_bgcolor="white",
         legend=dict(orientation="v", x=1.02, y=1.0, xanchor="left",
-                    font=dict(size=9)),
+                    font=dict(size=18)),
         margin=dict(l=50, r=30, t=50, b=50),
         hovermode="closest",
     )

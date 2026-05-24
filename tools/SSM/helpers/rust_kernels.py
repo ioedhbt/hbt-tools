@@ -548,6 +548,179 @@ SIM_FOR_TOPOLOGY = {
 }
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Phase 1.5 — bulk-upload parse + compute_metrics, parallel across files
+# ════════════════════════════════════════════════════════════════════════════
+#
+# Replaces the per-file Python loop  parse_s2p → s_to_y → compute_metrics
+# that dominates first-upload wall-clock when many .s2p files are dropped
+# at once (the IOED bulk upload).  The Rust kernel runs all files through
+# a Rayon par_iter with the GIL released; the NumPy fallback below is a
+# faithful reference for parity tests and for the path taken when the
+# binary isn't built for the host platform.
+#
+# Output: list of dicts, one per input file, in input order.  Schema:
+#     {freq, S, z0, h21_db, u_db, mag_db, k, ft_plat, fmax_u_plat,
+#      fmax_mag_plat}     — all NumPy arrays (freq/h21/etc are float64,
+#                            S is complex128 with shape (N, 2, 2))
+#   or
+#     {error: str}        — on parse failure for that single file
+# The wrapper deliberately does NOT raise on a per-file error — callers
+# check `entry.get("error")` and surface it themselves, matching how
+# `IOED_HBT_RF_extract.process_dut` already collects per-file errors.
+
+# Method-code → string label.  Mirrors the strings the Python
+# `extract_limit` returned ("No Data", "No Gain", "0dB Cross",
+# "Extrap & Plat.").  The Rust kernel returns u8 codes per file to avoid
+# allocating a PyString per (file, metric) tuple.
+_EXTRACT_METHOD_LABELS = ["No Data", "No Gain", "0dB Cross", "Extrap & Plat."]
+
+
+def _np_parse_and_compute_batch(files_bytes: list[bytes],
+                                  n_pts: int = 2,
+                                  f_min: float = 0.01,
+                                  f_max: float = 50.0) -> list[dict]:
+    """NumPy reference for `parse_and_compute_batch`.
+
+    Reuses the existing helpers (`parse_s2p`, `s_to_y`, `compute_metrics`,
+    `extract_limit`) so the fallback path's numerical behaviour is
+    byte-identical to the pre-Rust implementation — no second source of
+    truth.
+    """
+    # Local imports avoid a top-level circular dep: rust_kernels.py is
+    # imported by helpers/__init__.py very early, before s2p_io/metrics
+    # finish initialising.
+    from .s2p_io  import parse_s2p
+    from .rf_math import s_to_y
+    from .metrics import compute_metrics, extract_limit
+
+    out: list[dict] = []
+    for raw in files_bytes:
+        try:
+            text = raw.decode("utf-8", errors="ignore")
+            freq, S, z0 = parse_s2p(text)
+            df = compute_metrics(s_to_y(S, z0), freq)
+            f_ghz = df["Freq (GHz)"].values
+            ft_cr,  ft_pl,  ft_m  = extract_limit(
+                f_ghz, df["|h21|² (dB)"].values,
+                df["fT Plateau (GHz)"].values, n_pts, f_min, f_max)
+            fmu_cr, fmu_pl, fmu_m = extract_limit(
+                f_ghz, df["Mason U (dB)"].values,
+                df["fmax U Plateau (GHz)"].values, n_pts, f_min, f_max)
+            fmg_cr, fmg_pl, fmg_m = extract_limit(
+                f_ghz, df["MAG/MSG (dB)"].values,
+                df["fmax MAG Plateau (GHz)"].values, n_pts, f_min, f_max)
+            out.append({
+                "freq":          np.asarray(freq, dtype=np.float64),
+                "S":             np.ascontiguousarray(S, dtype=np.complex128),
+                "z0":            float(z0),
+                "h21_db":        df["|h21|² (dB)"].values.astype(np.float64),
+                "u_db":          df["Mason U (dB)"].values.astype(np.float64),
+                "mag_db":        df["MAG/MSG (dB)"].values.astype(np.float64),
+                "k":             df["K Factor"].values.astype(np.float64),
+                "ft_plat":       df["fT Plateau (GHz)"].values.astype(np.float64),
+                "fmax_u_plat":   df["fmax U Plateau (GHz)"].values.astype(np.float64),
+                "fmax_mag_plat": df["fmax MAG Plateau (GHz)"].values.astype(np.float64),
+                "ft_cross":      ft_cr,  "ft_plateau":      ft_pl,  "ft_method":      ft_m,
+                "fmax_u_cross":  fmu_cr, "fmax_u_plateau":  fmu_pl, "fmax_u_method":  fmu_m,
+                "fmax_mag_cross": fmg_cr, "fmax_mag_plateau": fmg_pl, "fmax_mag_method": fmg_m,
+            })
+        except Exception as e:
+            out.append({"error": f"{type(e).__name__}: {e}"})
+    return out
+
+
+def _expand_soa_to_per_file(soa: dict) -> list[dict]:
+    """Convert the SoA (struct-of-arrays) dict returned by the Rust
+    kernel back into the per-file dict list that callers consume.
+
+    The per-file dicts hold **zero-copy NumPy views** into the underlying
+    stacked arrays — NumPy's ``.base`` attribute keeps the big array
+    alive as long as any view is held.  Slicing 30 files this way costs
+    ~300 µs total versus the ~62 ms of PyArray-allocation overhead the
+    earlier list-of-dicts return shape paid at the PyO3 boundary.
+
+    Per-file ``ft_*`` / ``fmax_u_*`` / ``fmax_mag_*`` scalars are taken
+    straight from the ``cross``/``plateau``/``method`` arrays so callers
+    can skip the Python `extract_limit` calls entirely.
+    """
+    n_per_file   = np.asarray(soa["n_per_file"])
+    z0_per_file  = np.asarray(soa["z0_per_file"])
+    errors       = soa["errors"]
+    ft_cr        = np.asarray(soa["ft_cross"])
+    ft_pl        = np.asarray(soa["ft_plateau"])
+    ft_m         = np.asarray(soa["ft_method"])
+    fmu_cr       = np.asarray(soa["fmax_u_cross"])
+    fmu_pl       = np.asarray(soa["fmax_u_plateau"])
+    fmu_m        = np.asarray(soa["fmax_u_method"])
+    fmag_cr      = np.asarray(soa["fmax_mag_cross"])
+    fmag_pl      = np.asarray(soa["fmax_mag_plateau"])
+    fmag_m       = np.asarray(soa["fmax_mag_method"])
+    offsets = np.concatenate(([0], np.cumsum(n_per_file))).astype(np.int64)
+    out: list[dict] = []
+    for i, err in enumerate(errors):
+        if err is not None:
+            out.append({"error": err})
+            continue
+        s, e = int(offsets[i]), int(offsets[i + 1])
+        out.append({
+            "freq":          soa["freq"][s:e],
+            "S":             soa["S"][s:e],
+            "z0":            float(z0_per_file[i]),
+            "h21_db":        soa["h21_db"][s:e],
+            "u_db":          soa["u_db"][s:e],
+            "mag_db":        soa["mag_db"][s:e],
+            "k":             soa["k"][s:e],
+            "ft_plat":       soa["ft_plat"][s:e],
+            "fmax_u_plat":   soa["fmax_u_plat"][s:e],
+            "fmax_mag_plat": soa["fmax_mag_plat"][s:e],
+            "ft_cross":      float(ft_cr[i]),
+            "ft_plateau":    float(ft_pl[i]),
+            "ft_method":     _EXTRACT_METHOD_LABELS[int(ft_m[i])],
+            "fmax_u_cross":  float(fmu_cr[i]),
+            "fmax_u_plateau": float(fmu_pl[i]),
+            "fmax_u_method": _EXTRACT_METHOD_LABELS[int(fmu_m[i])],
+            "fmax_mag_cross":  float(fmag_cr[i]),
+            "fmax_mag_plateau": float(fmag_pl[i]),
+            "fmax_mag_method": _EXTRACT_METHOD_LABELS[int(fmag_m[i])],
+        })
+    return out
+
+
+def parse_and_compute_batch(files_bytes: list[bytes],
+                              n_pts: int = 2,
+                              f_min: float = 0.01,
+                              f_max: float = 50.0) -> list[dict]:
+    """Bulk-upload accelerator.  Parses every .s2p file in `files_bytes`,
+    computes |h21|² / Mason U / MAG-MSG / K factor / plateau curves,
+    AND runs ``extract_limit`` 3× per file (h21 → fT, U → fmax_U,
+    MAG/MSG → fmax_MAG) all inside the same Rayon-parallel section.
+    Returns one dict per input file with the metric arrays + the three
+    extract scalars (cross, plateau, method).
+
+    Uses the Rust kernel when available — Rayon-parallel across files,
+    GIL released, single stacked-array return shape to amortise the
+    PyO3 boundary cost across all files — and the NumPy reference
+    otherwise.  Falls back to NumPy *for the entire batch* if the Rust
+    call raises any exception.
+    """
+    if HAS_RUST and hasattr(_rk, "parse_and_compute_batch"):
+        try:
+            soa = _rk.parse_and_compute_batch(list(files_bytes),
+                                                int(n_pts),
+                                                float(f_min),
+                                                float(f_max))
+            return _expand_soa_to_per_file(soa)
+        except Exception as e:                                # pragma: no cover
+            import warnings
+            warnings.warn(
+                f"Rust parse_and_compute_batch raised {type(e).__name__}: "
+                f"{e}.  Falling back to NumPy for this batch.",
+                RuntimeWarning, stacklevel=2,
+            )
+    return _np_parse_and_compute_batch(list(files_bytes), n_pts, f_min, f_max)
+
+
 __all__ = [
     "HAS_RUST",
     "inv2x2_batch",
@@ -555,6 +728,7 @@ __all__ = [
     "y_to_s_batch",
     "y_to_s_4d",
     "port_residuals_batch",
+    "parse_and_compute_batch",
     # Phase 2 (scaffolding)
     "sim_cheng_t_batch",
     "sim_cheng_pi_batch",

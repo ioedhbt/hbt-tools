@@ -25,12 +25,14 @@ The submodule paths below are for jump-to-definition only.
 
 | Function | Line | Purpose |
 |---|---|---|
-| `_agg(arr, n0, n1, method, trim_pct=20)` | 48 | Median / trimmed-mean reducer used by Step 1 UI controls. |
-| `_extract_ui(fname, key, freq, default_frac_lo, default_frac_hi)` | 61 | Frequency-range + method selector. Returns `(n0, n1, method, trim_pct)`. |
-| `render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)` | 86 | Public entry — renders the complete SSM extraction tab for one DUT file (Steps 1–3, all model panels, downloads, summary). |
-| `_render_s2p_downloads(fname, freq, z0, para_eff, sim_results)` | 652 | Modeled-DUT `.s2p` Touchstone download UI per registered model. |
-| `_render_summary_table(fname, para_eff, cold_res, extract_results, registry)` | 692 | Multi-layer parameter summary table + CSV download. Pulls live (post fine-tune) values when available. |
-| `_render_fit_cache_panel(fname)` | 788 | Fit-cache UI: list cached `(file, model)` entries for this DUT (with delete buttons), plus whole-cache export/import (sync local ↔ Streamlit Cloud). |
+| `_extract_ui(fname, key, freq, default_frac_lo, default_frac_hi)` | 56 | Frequency-range + method selector. Returns `(n0, n1, method, trim_pct)`. |
+| `render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)` | 77 | Public entry — renders the complete SSM extraction tab for one DUT file (Steps 1–3, all model panels, summary, fit cache). |
+| `_render_summary_table(fname, para_eff, cold_res, extract_results, registry)` | 677 | Multi-layer parameter summary table + CSV download. Pulls live (post fine-tune) values when available. |
+| `_render_fit_cache_panel(fname)` | 793 | Fit-cache UI: list cached `(file, model)` entries for this DUT (with delete buttons), plus whole-cache export/import (sync local ↔ Streamlit Cloud). |
+
+**Removed since the previous index:**
+- `_agg` — was a dead duplicate of `helpers/deembed_math.py::_agg_arr`; never called within this module.
+- `_render_s2p_downloads` — its functionality lives under each model's measured-vs-modeled Smith chart now (📥 modeled S2P button beside ⬇ xlsx, wired in `models/base_ui.py::render_smith_with_ftfmax`).
 
 ### [`ssm_override.py`](../ssm_override.py) — pre-extraction series-R picker
 
@@ -43,51 +45,59 @@ The submodule paths below are for jump-to-definition only.
 | Function | Line | Purpose |
 |---|---|---|
 | `render_rz12_section(all_data, para_eff, fname)` | 41 | Z-parameter method UI: Re(Z₁₂) vs 1/IE → Re. (Gao Ch. 5.5.1) |
-| `render_open_collector_section(all_data, para_eff, fname)` | 191 | Open-collector method UI: Re(Z₁₁−Z₁₂)/Re(Z₂₂−Z₁₂)/Re(Z₁₂) vs 1/IB → Rb/Rc/Re. Writes `ocm_R*_{fname}` session keys. |
-| `_render_cold_hbt(fname, open_data, para_step1, do_measured, freq, re_zparam=None, open_arr=None, short_arr=None)` | 316 | Cold-HBT extraction UI (Gao §5.5.2). Strips pad caps + lead L + Re from Z_cor before A/B/C/D. Returns a `cold_res` dict or `None`. |
-| `_cold_input(container, label, key, init_disp, fmt, step, arr_si=None, scale=1.0, unit="")` | 350 | Cold-HBT inner helper: `number_input` paired with quickset buttons for one parasitic. |
+| `render_open_collector_section(all_data, para_eff, fname)` | 194 | Open-collector method UI: Re(Z₁₁−Z₁₂)/Re(Z₂₂−Z₁₂)/Re(Z₁₂) vs 1/IB → Rb/Rc/Re. Writes `ocm_R*_{fname}` session keys. |
+| `_render_cold_hbt(fname, open_data, para_step1, do_measured, freq, re_zparam=None, open_arr=None, short_arr=None)` | 321 | Cold-HBT extraction UI (Gao §5.5.2). Strips pad caps + lead L + Re from Z_cor before A/B/C/D. Returns a `cold_res` dict or `None`. |
 
 ### [`ssm_plots.py`](../ssm_plots.py) — Step 1 / Step 2 diagnostic Streamlit blocks
 
 | Function | Line | Purpose |
 |---|---|---|
-| `render_open_plots(open_data, para_caps, open_arr, fname="")` | 32 | Five expanders for Open dummy: extra-element controls, capacitance plot, conductance plot, Im(Y)/ω vs 1/ω², measured vs modeled Smith. Returns `{cap: (mode, extra_SI)}`. |
-| `_get_mode_extra(cap)` | 74 | Inner helper — return `(mode, extra_SI)` pulled from session state for one cap. |
-| `render_short_plots(short_arr, para_short, fname="", freq=None)` | 196 | Lead-inductance plot for Short dummy (Lb/Lc/Le vs frequency, fixed 0–150 pH). |
-| `_rlc_params_summary(p, fname)` | 254 | Build header param dict for a de-embedded `.s2p` file. |
-| `_compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix, label_a, label_b, color_a, color_b, smith_meas_label, smith_sim_label, gain_title)` | 275 | Side-by-side Bode (h21²+U) and Smith chart comparing two S-param datasets. Returns `(fT, fmax)` of the right-hand trace. |
-| `render_os_deemb_preview(S_raw, freq, z0, para_step1, fname)` | 371 | Step 2 — Raw vs Open/Short de-embedded preview + download. Returns `S_step1`. |
-| `render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname, S_step1=None)` | 442 | Step 3 footer — OS de-embedded vs Intrinsic preview + download. |
-| `render_ft_fmax_card(S_mea, S_sim, freq, *, model_name, key, height=560)` | 502 | Compact per-model fT/fmax mini-plot used beside each Smith chart (legend reports both meas + model fT/fmax with extrap annotation). |
-| `_apply_text_autoformat(text, pattern, replacement)` | 657 | Regex substitution with `\1..\9` capture-group templating (used for Smith-label mathtext). |
-| `_smith_grid_values(n)` | 686 | Return `(r_values, x_values)` for N evenly-spaced Smith-chart grid lines. |
-| `_draw_mpl_smith_background(ax, line_lw, grid_lw, density)` | 698 | Draw constant-R / constant-X grid arcs for a unit Smith chart on a matplotlib axis. |
-| `render_matplotlib_smith(S_mea=None, S_sim=None, fname="", topo_key="", *, sets=None, default_multiplier=1.0, phase="both", freq_hz=None)` | 750 | Publication-style matplotlib Smith chart. Backward-compatible (mea/sim) and extensible (`sets=[…]`) call forms. Per-trace decimation, color modes, free-text overlays. `phase="controls"` renders widgets only; `phase="chart"` renders the figure only (reads pre-staged session_state); `phase="both"` is the legacy combined form. Callers in the split layout invoke this function twice (right column = controls, left column = chart) — the previous `render_matplotlib_smith_controls` / `render_matplotlib_smith_chart` wrappers have been removed. When `freq_hz` is passed, seeds a default `"{lo:g}~{hi:g} GHz"` annotation at (0.0, -1.1) on first render. S-param text annotations have an **independent text color** per S-param (default = darker variant of the trace color, persists across coloring-mode switches). |
-| `render_ft_fmax_overlay(S_raw, sim_results, freq, fname)` | 1266 | Bode plot showing |h21|² and Mason U for the measured DUT plus every simulated model, with auto 20 dB/dec extrapolation past the band. |
+| `render_open_plots(open_data, para_caps, open_arr, fname="")` | 33 | Five expanders for Open dummy: extra-element controls, capacitance plot, conductance plot, Im(Y)/ω vs 1/ω², measured vs modeled Smith. Returns `{cap: (mode, extra_SI)}`. |
+| `render_short_plots(short_arr, para_short, fname="", freq=None)` | 199 | Lead-inductance plot for Short dummy (Lb/Lc/Le vs frequency, fixed 0–150 pH). |
+| `_rlc_params_summary(p, fname)` | 257 | Build header param dict for a de-embedded `.s2p` file. |
+| `_compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix, label_a, label_b, color_a, color_b, smith_meas_label, smith_sim_label, gain_title)` | 278 | Side-by-side Bode (h21²+U) and Smith chart comparing two S-param datasets. **`color_a`/`color_b` kwargs are kept in the signature but ignored** — colours now come from `FT_FMAX_COLORS` (fT=blue, fmax=red); A vs B is distinguished by **dash** (A=solid, B=dashed). Returns `(fT, fmax)` of the right-hand trace. |
+| `render_os_deemb_preview(S_raw, freq, z0, para_step1, fname)` | 374 | Step 2 — Raw vs Open/Short de-embedded preview + download. Returns `S_step1`. |
+| `render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname, S_step1=None)` | 446 | Step 3 footer — OS de-embedded vs Intrinsic preview + download. |
+| `render_ft_fmax_card(S_mea, S_sim, freq, *, model_name, key, height=560, compact=False)` | 507 | **Per-model fT/fmax mini-card with standardised colour scheme + 2x2 legend + extrap method radio.** Colour: fT (|h21|²) = blue, fmax (Mason U) = red (`FT_FMAX_COLORS`). Dash: measured = solid+markers, modeled = dashed, extrap = dotted. Legend: horizontal with `entrywidth=0.5, entrywidthmode="fraction"` → 2 cols × 2 rows. When any trace needs extrap, a Streamlit radio above the chart picks 20 dB/dec or single-pole (the latter shows a frequency-window slider). |
+| `_apply_text_autoformat(text, pattern, replacement)` | 671 | Regex substitution with `\1..\9` capture-group templating (used for Smith-label mathtext). |
+| `_smith_grid_values(n)` | 700 | Return `(r_values, x_values)` for N evenly-spaced Smith-chart grid lines. |
+| `_draw_mpl_smith_background(ax, line_lw, grid_lw, density)` | 712 | Draw constant-R / constant-X grid arcs for a unit Smith chart on a matplotlib axis. |
+| `render_matplotlib_smith(S_mea=None, S_sim=None, fname="", topo_key="", *, sets=None, default_multiplier=1.0, phase="both", freq_hz=None)` | 751 | Publication-style matplotlib Smith chart. Backward-compatible (mea/sim) and extensible (`sets=[…]`) call forms. `phase="controls"` renders widgets only; `phase="chart"` renders the figure only; `phase="both"` is the legacy combined form. Both SSM (`models/base_ui.py::render_override_and_smith`) and RF simulator now call this twice (right column = controls, left column = chart) **inside a single side-by-side expander**. |
+| `render_ft_fmax_overlay(S_raw, sim_results, freq, fname)` | 1433 | Multi-model Bode plot using `FT_FMAX_COLORS` — all fT traces blue, all fmax traces red. Models are distinguished by line name in the legend; modeled traces are dashed, extrap traces dotted. |
 
 ---
 
 ## Helpers (`helpers/*.py`)
+
+### [`helpers/_array_utils.py`](_array_utils.py) — Shared array helpers (NEW)
+
+Canonical home for the small shape/broadcast utilities formerly duplicated across `helpers/deembed_math.py`, `models/_shared.py`, and `models/degachi.py`. Placed under `helpers/` (not `models/`) so the helpers package — which can't reach back into `models/` without a load-order cycle — can use them directly. `models/_shared.py` re-exports the names so `from ._shared import _b1, _detect_B, _stack22` keeps working everywhere it used to.
+
+| Function | Line | Purpose |
+|---|---|---|
+| `_b1(p, key, default, xp, dtype=None)` | 29 | Fetch `p[key]` (or default), reshape `(B,)` → `(B,1)`; scalars stay scalar. Optional `dtype=` coerces for the fp32 sweep path. |
+| `_detect_B(p, xp)` | 46 | Determine batch size B from any `(B,)`-shaped value in `p`. |
+| `_stack22(a00, a01, a10, a11, xp)` | 66 | Stack four planes into a `(..., 2, 2)` tensor in 3 launches. |
 
 ### [`helpers/rf_math.py`](rf_math.py) — Pure RF math (no Streamlit, no plotting)
 
 | Function | Line | Purpose |
 |---|---|---|
 | `s_to_y(S, z0=50.0)` | 14 | S → Y conversion, vectorised across all frequency points. |
-| `_inv2(M)` | 25 | Per-row 2×2 analytic inverse (no per-matrix Python loop). |
-| `y_to_z`, `z_to_y` | 39, 40 | Aliases for `_inv2`. |
-| `y_to_s_single(Y, z0=50.0)` | 43 | Y → S for a single 2×2 matrix. |
-| `y_to_s_batch(Y, z0=50.0)` | 49 | Y → S over a batch (delegates to `y_to_s_vec`). |
-| `y_to_s_vec(Y, z0=50.0, xp=None)` | 54 | GPU-aware vectorised Y → S using hand-inlined 2×2 algebra (numpy or cupy). |
-| `inv2x2(M, xp=None)` | 97 | Analytic 2×2 batched inverse — bypasses cuSOLVER. |
-| `mm2x2(A, B, xp=None)` | 124 | Analytic 2×2 batched matmul — bypasses cuBLAS. |
-| `safe_median(arr, n=None)` | 149 | Median of finite values, returns `0.0` if empty. |
-| `strict_freq_check(f_dut, f_dummy, label)` | 156 | Raise `ValueError` if frequency grids differ. |
-| `open_elem_Y(C, mode, extra, w)` | 164 | Pad capacitor admittance — None / Parallel L / Series L / Series R. |
-| `short_lead_Z(R, L, Cpar, w)` | 184 | Series-lead impedance with optional parallel cap. |
-| `_smith_grid_xy(max_r=1.0)` | 200 | Cached coordinate arrays for the Smith-chart background. |
-| `extended_smith_grid(max_r=1.0)` | 241 | Plotly Smith chart background traces (built fresh each call from cached coords). |
-| `params_hash(p)` | 258 | MD5 hash of a parameter dict, for caching. |
+| `_inv2(M)` | 36 | Per-row 2×2 analytic inverse (no per-matrix Python loop). |
+| `y_to_z`, `z_to_y` | 50, 51 | Aliases for `_inv2`. |
+| `y_to_s_single(Y, z0=50.0)` | 54 | Y → S for a single 2×2 matrix. |
+| `y_to_s_batch(Y, z0=50.0)` | 60 | Y → S over a batch (delegates to `y_to_s_vec`). |
+| `y_to_s_vec(Y, z0=50.0, xp=None)` | 65 | GPU-aware vectorised Y → S using hand-inlined 2×2 algebra (numpy or cupy). |
+| `inv2x2(M, xp=None)` | 108 | Analytic 2×2 batched inverse — bypasses cuSOLVER. |
+| `mm2x2(A, B, xp=None)` | 135 | Analytic 2×2 batched matmul — bypasses cuBLAS. |
+| `safe_median(arr, n=None)` | 160 | Median of finite values, returns `0.0` if empty. |
+| `strict_freq_check(f_dut, f_dummy, label)` | 167 | Raise `ValueError` if frequency grids differ. |
+| `open_elem_Y(C, mode, extra, w)` | 175 | Pad capacitor admittance — None / Parallel L / Series L / Series R. |
+| `short_lead_Z(R, L, Cpar, w)` | 195 | Series-lead impedance with optional parallel cap. |
+| `_smith_grid_xy(max_r=1.0)` | 211 | Cached coordinate arrays for the Smith-chart background. |
+| `extended_smith_grid(max_r=1.0)` | 252 | Plotly Smith chart background traces (built fresh each call from cached coords). |
+| `params_hash(p)` | 269 | MD5 hash of a parameter dict, for caching. |
 
 ### [`helpers/s2p_io.py`](s2p_io.py) — Touchstone / CSV I/O and dummy simulators
 
@@ -100,7 +110,7 @@ The submodule paths below are for jump-to-definition only.
 | `parse_s2p_bytes(raw)` | 138 | Bytes-only alias of `parse_s2p` (backwards-compat). |
 | `parse_csv(content, z0=50.0)` | 143 | Parse VNA CSV export (RI columns) → `(freq, S, z0)`. |
 | `interpolate_s2f(f_src, S_src, f_tgt)` | 159 | Interpolate S to a new frequency grid. |
-| `load_cal(fobj)` | 172 | Streamlit-aware S2P loader (handles `UploadedFile`, sidebar error on parse fail). |
+| `load_cal(fobj)` | 172 | Streamlit-aware S2P loader. |
 | `simulate_open(p, freq, z0=50.0)` | 192 | Forward-simulate Open dummy from pad params (cached). |
 | `simulate_short(p, freq, z0=50.0)` | 208 | Forward-simulate Short dummy from pad+lead params (cached). |
 
@@ -115,92 +125,117 @@ The submodule paths below are for jump-to-definition only.
 | `build_Z_ser_vec(p, omega, xp)` | 85 | `(N,2,2)` series-lead impedance — fully vectorised. |
 | `_open_elem_Y_batch(C, mode, extra, omega, xp)` | 103 | `_open_elem_Y_vec` variant where C may be `(B,1)`. |
 | `_short_lead_Z_batch(R, L, Cpar, omega, xp)` | 116 | `_short_lead_Z_vec` variant where R/L may be `(B,1)`. |
-| `_b1(p, key, default, xp)` | 124 | Fetch `p[key]` (or default), reshape `(B,)` → `(B,1)`; scalars stay scalar. |
-| `build_Y_pad_batch(p, omega, B, N, xp)` | 133 | Pad admittance as 4 broadcast planes for sweep tuning. |
-| `build_Z_ser_batch(p, omega, B, N, xp)` | 151 | Series-lead impedance as 4 broadcast planes for sweep tuning. |
-| `step_open(open_data, n0, n1, method, trim_pct)` | 165 | Extract Cpbe/Cpce/Cpbc + diagnostic conductance arrays from Open dummy. |
-| `step_short(short_data, freq, Cpbe, Cpce, Cpbc, ...)` | 209 | Extract Lb/Lc/Le, Rpb/Rpc/Rpe from Short dummy (Open subtracted first). |
-| `peel_parasitics(S_raw, freq, z0, p)` | 284 | Remove pad+lead parasitics → Y_intrinsic (cached). |
-| `deembed_open_short(Y_dut, Y_open, Y_short)` | 307 | Standard open-short de-embedding (Gao §4.2). |
-| `deembed_thru_half(Y_dut, Y_thru_deemb)` | 312 | THRU/2 half-impedance subtraction. |
+| `_b1` | (re-export) | Imported from `helpers/_array_utils.py` (was a stale local copy that lacked the `dtype=` arg). |
+| `build_Y_pad_batch(p, omega, B, N, xp)` | 127 | Pad admittance as 4 broadcast planes for sweep tuning. |
+| `build_Z_ser_batch(p, omega, B, N, xp)` | 145 | Series-lead impedance as 4 broadcast planes for sweep tuning. |
+| `step_open(open_data, n0, n1, method, trim_pct)` | 159 | Extract Cpbe/Cpce/Cpbc + diagnostic conductance arrays from Open dummy. |
+| `step_short(short_data, freq, Cpbe, Cpce, Cpbc, ...)` | 203 | Extract Lb/Lc/Le, Rpb/Rpc/Rpe from Short dummy (Open subtracted first). |
+| `peel_parasitics(S_raw, freq, z0, p)` | 278 | Remove pad+lead parasitics → Y_intrinsic (cached). |
+| `deembed_open_short(Y_dut, Y_open, Y_short)` | 301 | Standard open-short de-embedding (Gao §4.2). |
+| `deembed_thru_half(Y_dut, Y_thru_deemb)` | 306 | THRU/2 half-impedance subtraction. |
 
 ### [`helpers/metrics.py`](metrics.py) — Gain figures of merit
 
 | Function | Line | Purpose |
 |---|---|---|
 | `compute_h21_U(S)` | 20 | Compute |h21|² (dB) and Mason U (dB) from S-parameters (z0 = 50 Ω). |
-| `find_ft_fmax(f_ghz, h21_db, U_db)` | 37 | Linear interpolation of 0 dB crossings → `(fT, fmax)`; either may be `None`. |
-| `extrap_20dbdec(f_ghz, gain_db, n_pts=60, f_max_target=None)` | 52 | Slope-locked −20 dB/dec extrapolation → `(f_ext, g_ext, f_zero)`. |
-| `single_pole_extrap(f_ghz, gain_db, idx_lo, idx_hi, n_pts=60, f_max_target=None)` | 87 | Log-linear (single-pole) fit over a user index window → `(f_ext, g_ext, f_zero, slope, intercept)`. Slope may differ from −20 — that disagreement is itself diagnostic. |
-| `compute_metrics(Y, freq_hz)` | 154 | Build DataFrame: Freq, |h21|², Mason U, MAG/MSG, K, fT/fmax plateaus. |
-| `extract_limit(freq_ghz, gain_db, plateau_arr, n_pts, f_min, f_max)` | 185 | Genuine-crossing fT/fmax extractor with extrapolation fallback (≥10 consecutive points above 0 dB). |
+| `find_ft_fmax(f_ghz, h21_db, U_db)` | 37 | Vectorised search for the first 0 dB crossing (boolean masks + `np.flatnonzero`) → `(fT, fmax)`. The earlier Python `for i in range(len(arr))` loop ate ~30 ms × N_DUTs in the SSM tab; the vectorised version is ~50× faster. |
+| `extrap_20dbdec(f_ghz, gain_db, n_pts=60, f_max_target=None)` | 62 | Slope-locked −20 dB/dec extrapolation → `(f_ext, g_ext, f_zero)`. |
+| `single_pole_extrap(f_ghz, gain_db, idx_lo, idx_hi, n_pts=60, f_max_target=None)` | 97 | Log-linear (single-pole) fit over a user index window → `(f_ext, g_ext, f_zero, slope, intercept)`. Slope may differ from −20 — that disagreement is itself diagnostic. |
+| `compute_metrics(Y, freq_hz)` | 164 | Build DataFrame: Freq, |h21|², Mason U, MAG/MSG, K, fT/fmax plateaus. |
+| `extract_limit(freq_ghz, gain_db, plateau_arr, n_pts, f_min, f_max)` | 195 | Genuine-crossing fT/fmax extractor with extrapolation fallback (≥10 consecutive points above 0 dB). Ported to Rust as `_extract_limit_rust` inside `parse_and_compute_batch` — see `helpers/rust_kernels.py`. |
 
 ### [`helpers/plotly_plots.py`](plotly_plots.py) — Plotly Smith / Bode / Plateau builders
 
-| Function | Line | Purpose |
+| Function / Constant | Line | Purpose |
 |---|---|---|
 | `PALETTE` | 27 | 10-color hex palette for trace cycling. |
-| `darken(c)` | 33 | Darken a `#rrggbb` color by 45 units per channel. |
-| `bode_layout(title, ytitle, yr, xr)` | 43 | Plotly layout dict for Bode/plateau plots (log-x). |
-| `make_smith(S, f_array, f_min, f_max, toggles, scales, title, max_r=1.0)` | 59 | Plotly Smith chart with up to 4 selectable S-param traces. |
-| `make_bode(df, title, xr, yr, sh21, su, smag, color, *, show_20db=True, show_sp=False, sp_window_idx=None, extrap_f_max=None, return_extrap_df=False)` | 112 | Plotly Bode plot with optional −20 dB/dec and single-pole-fit extrapolations. May return `(fig, extrap_df)`. |
-| `_add_20db(y_vals, color_, kind, key)` | 149 | Inner helper inside `make_bode` — append a slope-locked extrap trace. |
-| `_add_sp(y_vals, color_, kind, key)` | 163 | Inner helper inside `make_bode` — append a single-pole-fit extrap trace. |
-| `_build_bode_extrap_df(df, extrap_curves, sh21, su)` | 219 | Combine measured + extrapolated values into one stitched DataFrame for download. |
-| `make_plateau(df, res, title, xr, sh21, su, smag, color)` | 269 | Plotly GBP plateau plot (fT, fmax(U), fmax(MAG)). |
-| `make_smith_bode_slider_fig(*, S_batch, freq, model_name, slider_specs=None, sweep_disp=None, …, S_meas=None, height=560)` | 306 | Smith chart + fT/fmax bode side-by-side **with Plotly frames + Plotly sliders**.  Multi-slider semantics: each spec scans its axis with the others held at midpoint (independent, not joint).  Used by the *embed-all-frames* path of the legacy slider preview. |
-| `_decimate_freq(S_batch, freq, max_points=200)` | 512 | Stride-decimate the frequency axis to `≤ max_points` so the Plotly slider build doesn't blow up the browser payload. |
-| `_compact_json_1d(arr, digits=5)` | 526 | Format a 1-D float array as compact JSON (`%.5g`, no whitespace) — ~3× smaller than `json.dumps(arr.tolist())`. |
-| `make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs, model_name, S_meas=None, decimate_points=120, json_digits=5)` | 538 | **HTML-slider variant**: builds a Plotly figure with NO frames + NO Plotly sliders, embeds the full cartesian sweep as a JS array, and injects HTML `<input type="range">` per axis.  Slider drag → `Plotly.restyle` directly (no Plotly animation, no feedback loop).  Returns a self-contained HTML string for `st.iframe(html, height=…)` (replaces the deprecated `st.components.v1.html`). |
+| `FT_FMAX_SYMBOLS` | 39 | Standardised marker symbols for fT / fmax traces: `{"h21": "circle", "U": "square", "MAG": "diamond"}`. |
+| `FT_FMAX_COLORS` | 59 | **Standard colour map** — `{"fT": "#1f77b4", "fmax": "#d62728"}` (blue / red). Applied everywhere a Bode plot draws fT/fmax measurements so users can identify a metric by colour alone. Modeled traces use the same colour with `dash="dash"`; extrap uses `dash="dot"`. |
+| `thinned_indices(n, max_markers=25)` | 65 | Log-spaced sample of indices into a length-`n` array. Lets overlay plots cut WebGL marker primitives ~40× while keeping the line trace at full resolution. |
+| `add_overlay_trace_with_markers(fig, x, y, *, name, color, symbol, ...)` | 81 | Add a Bode trace as (full-resolution line, hidden from legend) + (thinned marker overlay, owns the legend entry). |
+| `darken(c)` | 118 | Darken a `#rrggbb` color by 45 units per channel. |
+| `bode_layout(title, ytitle, yr, xr)` | 128 | Plotly layout dict for Bode/plateau plots (log-x). Legend font is 18 pt. |
+| `make_smith(S, f_array, f_min, f_max, toggles, scales, title, max_r=1.0)` | 154 | Plotly Smith chart with up to 4 selectable S-param traces. |
+| `make_bode(df, title, xr, yr, sh21, su, smag, color, *, show_20db=True, show_sp=False, sp_window_idx=None, extrap_f_max=None, return_extrap_df=False)` | 207 | Plotly Bode plot with optional −20 dB/dec and single-pole-fit extrapolations. **Uses `FT_FMAX_COLORS`** — `color` arg kept for back-compat but ignored. |
+| `_build_bode_extrap_df(df, extrap_curves, sh21, su)` | 320 | Combine measured + extrapolated values into one stitched DataFrame for download. |
+| `make_plateau(df, res, title, xr, sh21, su, smag, color)` | 370 | Plotly GBP plateau plot (fT, fmax(U), fmax(MAG)). Uses `FT_FMAX_COLORS` + `FT_FMAX_SYMBOLS`. |
+| `make_smith_bode_slider_fig(...)` | 415 | Smith chart + fT/fmax bode side-by-side with multi-slider semantics. |
+| `_decimate_freq(S_batch, freq, max_points=200)` | 621 | Stride-decimate the frequency axis to `≤ max_points`. |
+| `_compact_json_1d(arr, digits=5)` | 635 | Format a 1-D float array as compact JSON (~3× smaller). |
+| `make_smith_bode_joint_slider_html(...)` | 647 | HTML-slider variant — embeds full joint sweep as JS array, injects `<input type="range">` per axis. |
 
 ### [`helpers/widgets.py`](widgets.py) — Streamlit input widgets
 
 | Function | Line | Purpose |
 |---|---|---|
-| `info_icon_html(text, label="ⓘ")` | 28 | Return a small `<span>` HTML snippet with the given text as a hover tooltip (browser-native `title=` attribute).  Use inside section-heading HTML blocks to attach context help that's hidden by default and revealed on hover. |
-| `apply_pending(target_key)` | 43 | Promote a pending quickset value into the widget's session-state key. **Call BEFORE the paired `number_input`.** |
+| `info_icon_html(text, label="ⓘ")` | 28 | Hover-tooltip span snippet. |
+| `apply_pending(target_key)` | 43 | Promote a pending quickset value into the widget's session-state key. Call BEFORE the paired `number_input`. |
 | `_candidates(arr_disp, default_disp, cold_disp=None)` | 52 | Build `[(label, value), …]` list from optional sources. |
-| `quickset_buttons(*, container, key_prefix, target_key, arr_disp=None, default_disp=None, cold_disp=None, unit="", fmt="%.4g", layout="side")` | 69 | Row of one-click buttons (mean / median / low f / high f / default / cold) that overwrite a paired `number_input` via the pending session-state + rerun pattern. |
+| `quickset_buttons(...)` | 69 | Row of one-click buttons (mean / median / low f / high f / default / cold). |
 
 ### [`helpers/fit_cache.py`](fit_cache.py) — Persistent per-(DUT, model) fitted-value cache
 
 | Function | Line | Purpose |
 |---|---|---|
-| `cache_path_str()` | 80 | Return the cache **root** directory string (per-DUT folders live in `fits/` underneath). |
-| `_basename_no_ext(fname)` | 85 | Strip directory + trailing `.s2p` — used as both the per-DUT folder name and the filename prefix. |
-| `_dut_dir(fname, create=False)` | 100 | Resolve the per-DUT folder `<root>/fits/<basename_no_ext>/`. |
-| `_model_file(fname, model_short)` | 107 | Resolve the per-model file `<dut_dir>/<basename_no_ext>_<model_short>.json`. |
-| `_migrate_legacy_if_present()` | 140 | One-shot migrator: split a v1 monolithic `fit_cache.json` into per-(DUT, model) files and rename the legacy file `fit_cache.legacy.json`.  Idempotent. |
-| `load_cache()` | 194 | Walk `fits/` and aggregate into `{basename_no_ext: {model_short: {saved_at, params}}}`.  Keys are extension-stripped (canonical form). |
-| `get_fit(fname, model_short)` | 230 | Return cached SI-unit param dict for `(file, model)`, or `None`. |
-| `get_fit_timestamp(fname, model_short)` | 240 | Return ISO timestamp string of the cached fit, or `None`. |
-| `list_fits(fname)` | 246 | Return `{model_short: timestamp}` for the given s2p basename. |
-| `_all_numeric_zero(params)` | 266 | True if every numeric value in `params` is exactly `0.0` — used as the save-fit zero-guard. |
-| `save_fit(fname, model_short, params_si)` | 282 | Persist a fine-tuned param dict to its own JSON file.  **Refuses to save** (returns `False`) when every numeric value is `0.0` — guards against the self-perpetuating all-zero cache the v1 layout was vulnerable to. |
-| `delete_fit(fname, model_short=None)` | 317 | Drop one model's file (or the whole DUT folder).  Removes empty parent folders best-effort. |
-| `export_cache_bytes()` | 351 | Serialize all per-model files into one unified JSON (v1 schema) for the "Export cache" download. |
-| `import_cache_bytes(raw, merge=True)` | 357 | Parse a unified JSON blob and write back as per-model files (merge or replace).  Returns `(n_DUTs, n_fits)`. |
-| `differs_from(p_si, ref_si, keys=None, …)` | 406 | True if any numeric value in `p_si` deviates from `ref_si`.  Used as the auto-save gate. |
+| `_detect_cache_disabled()` | 79 | Honor `HBT_DISABLE_FIT_CACHE=1` env var. |
+| `is_cache_disabled()` | 97 | Public predicate — cached during the session. |
+| `_resolve_cache_dir()` | 107 | Pick the cache root: `$HBT_FIT_CACHE_DIR` ?: `~/.hbt-tools/`. |
+| `_fits_dir()` | 124 | The `fits/` subdir under the cache root. |
+| `cache_path_str()` | 130 | Return the cache **root** directory string. |
+| `_basename_no_ext(fname)` | 135 | Strip directory + trailing `.s2p`. |
+| `_norm_key(fname)` | 144 | Canonicalise to the extension-stripped basename. |
+| `_dut_dir(fname, create=False)` | 150 | Resolve the per-DUT folder. |
+| `_model_file(fname, model_short)` | 157 | Resolve the per-model JSON file path. |
+| `_read_model_file(path)` | 164 | Tolerant JSON load → `{saved_at, params}` or `None`. |
+| `_atomic_write_json(path, payload)` | 177 | Temp-file + rename so a crashed write never leaves a corrupt cache. |
+| `_migrate_legacy_if_present()` | 190 | One-shot migrator: split a v1 monolithic `fit_cache.json` into per-(DUT, model) files. |
+| `load_cache()` | 244 | Walk `fits/` and aggregate into `{basename: {model_short: {saved_at, params}}}`. |
+| `get_fit(fname, model_short)` | 282 | Return cached SI-unit param dict, or `None`. |
+| `get_fit_timestamp(fname, model_short)` | 294 | Return ISO timestamp string, or `None`. |
+| `list_fits(fname)` | 302 | Return `{model_short: timestamp}` for the given s2p basename. |
+| `_all_numeric_zero(params)` | 324 | True if every numeric value in `params` is exactly `0.0`. |
+| `save_fit(fname, model_short, params_si)` | 340 | Persist a fine-tuned param dict. Refuses to save when every numeric value is `0.0`. |
+| `delete_fit(fname, model_short=None)` | 377 | Drop one model's file (or the whole DUT folder). |
+| `export_cache_bytes()` | 413 | Serialize all per-model files into one unified JSON. |
+| `import_cache_bytes(raw, merge=True)` | 419 | Parse a unified JSON blob and write back as per-model files. |
+| `differs_from(p_si, ref_si, keys=None, ...)` | 472 | True if any numeric value in `p_si` deviates from `ref_si`. |
 
 ### [`helpers/rust_kernels.py`](rust_kernels.py) — Optional Rust SIMD/Rayon acceleration
 
 | Symbol | Line | Purpose |
 |---|---|---|
-| `HAS_RUST` (bool) | 32 | `True` iff the `hbt_rust_kernels` Rust extension is built and loaded.  Honors the `HBT_DISABLE_RUST=1` env var (force NumPy path). |
-| `_np_inv2x2_batch(Y)` | 42 | NumPy reference for the (B,2,2) analytic inverse. |
-| `_np_mm2x2_batch(A, B)` | 56 | NumPy reference for the (B,2,2)×(B,2,2) matmul. |
-| `_np_y_to_s_batch(Y, z0=50.0)` | 69 | NumPy reference for batched Y → S. |
-| `_np_y_to_s_4d(Y, z0=50.0)` | 78 | NumPy reference for 4-D (B,N,2,2) Y → S. |
-| `_np_port_residuals_batch(S_mea, S_mod_batch)` | 82 | NumPy reference for the (B,5) `[Total, S11, S12, S21, S22]` residual table. |
-| `inv2x2_batch(Y)` | 109 | Public wrapper — Rust if available, NumPy fallback. |
-| `mm2x2_batch(A, B)` | 116 | Public wrapper — Rust if available, NumPy fallback. |
-| `y_to_s_batch(Y, z0=50.0)` | 122 | Public wrapper — Rust if available, NumPy fallback. |
-| `y_to_s_4d(Y, z0=50.0)` | 128 | Public wrapper — Rust if available, NumPy fallback.  Primary entry from the visual-tuning sweep loop. |
-| `port_residuals_batch(S_mea, S_mod_batch)` | 137 | Public wrapper — Rust if available, NumPy fallback. |
+| `HAS_RUST` (bool) | (module) | `True` iff the `hbt_rust_kernels` Rust extension is built and loaded. |
+| `_arch_tag()` | 49 | Map platform → bin subfolder name (e.g. `win_amd64`). |
+| `rust_diagnostic()` | 149 | Snapshot of the loading state (HAS_RUST, binary path, import error if any). |
+| `_np_inv2x2_batch(Y)` | 184 | NumPy reference for the (B,2,2) analytic inverse. |
+| `_np_mm2x2_batch(A, B)` | 199 | NumPy reference for the (B,2,2)×(B,2,2) matmul. |
+| `_np_y_to_s_batch(Y, z0=50.0)` | 212 | NumPy reference for batched Y → S. |
+| `_np_y_to_s_4d(Y, z0=50.0)` | 221 | NumPy reference for 4-D (B,N,2,2) Y → S. |
+| `_np_port_residuals_batch(S_mea, S_mod_batch)` | 225 | NumPy reference for the (B,5) `[Total, S11, S12, S21, S22]` residual table. |
+| `_c128(arr)` | 248 | Coerce to complex128 + C-contiguous. |
+| `inv2x2_batch(Y)` | 255 | Public wrapper — Rust if available, NumPy fallback. |
+| `mm2x2_batch(A, B)` | 263 | Public wrapper — Rust if available, NumPy fallback. |
+| `y_to_s_batch(Y, z0=50.0)` | 270 | Public wrapper — Rust if available, NumPy fallback. |
+| `y_to_s_4d(Y, z0=50.0)` | 277 | Public wrapper — Rust if available, NumPy fallback. Primary entry from the visual-tuning sweep loop. |
+| `port_residuals_batch(S_mea, S_mod_batch)` | 286 | Public wrapper — Rust if available, NumPy fallback. |
+| `_phase2_dispatch_enabled()` | 323 | Env-gate for the Phase 2 sim_*_batch kernels. |
+| `_phase2_parity_check_enabled()` | 348 | Env-gate for the optional parity check on every Phase 2 call. |
+| `_normalize_params_for_rust(params)` | 361 | Broadcast + flatten multi-dim sweep tensors to 1-D float64. |
+| `_phase2_dispatch(rust_fn_name, params, freq, z0, np_fallback)` | 420 | Common dispatch helper for all topology wrappers. |
+| `sim_cheng_t_batch(params, freq, z0=50.0, *, np_fallback)` | 478 | Cheng T-topology end-to-end batched simulation. |
+| `sim_cheng_pi_batch(params, freq, z0=50.0, *, np_fallback)` | 507 | Cheng π-topology end-to-end batched simulation. |
+| `sim_xu_t_batch(params, freq, z0=50.0, *, np_fallback)` | 516 | Xu T-topology end-to-end batched simulation (parallel `Rbcx ∥ Cbcx`). |
+| `sim_kunyang_batch(params, freq, z0=50.0, *, np_fallback)` | 526 | Kun-Yang HEMT pi-topology end-to-end batched simulation. |
+| `SIM_FOR_TOPOLOGY` | 543 | `{topology_short → wrapper}` lookup consumed by `SSMModelTemplate.simulate_batch`. |
+| `_EXTRACT_METHOD_LABELS` | (module) | u8 method code → string label ("No Data" / "No Gain" / "0dB Cross" / "Extrap & Plat."). |
+| `_np_parse_and_compute_batch(files_bytes, n_pts=2, f_min=0.01, f_max=50.0)` | 579 | NumPy reference for the bulk-upload accelerator (parse_s2p + s_to_y + compute_metrics + extract_limit). Byte-identical fallback. |
+| `_expand_soa_to_per_file(soa)` | 633 | Convert the SoA dict returned by the Rust kernel into per-file dict list with **zero-copy NumPy views**. ~300 µs vs ~62 ms PyArray-alloc overhead in the earlier list-of-dicts shape. |
+| `parse_and_compute_batch(files_bytes, n_pts=2, f_min=0.01, f_max=50.0)` | 690 | **Public bulk-upload accelerator.** Parses every `.s2p`, computes metric columns, runs `extract_limit ×3` per file — all in one Rayon-parallel section. Used by the IOED bulk-upload loop. |
 
-Re-exported from `helpers/__init__.py` with a `rust_` prefix (e.g. `rust_inv2x2_batch`) and `RUST_KERNELS_AVAILABLE` for `HAS_RUST`.
+Re-exported from `helpers/__init__.py` with a `rust_` prefix (e.g. `rust_inv2x2_batch`, `rust_parse_and_compute_batch`) and `RUST_KERNELS_AVAILABLE` for `HAS_RUST`.
 
-Build instructions, expected speedups, and the `benchmark.py` script live in [`rust_kernels/README.md`](../rust_kernels/README.md).  The crate is **optional** — when not built, every wrapper takes the NumPy branch and the tool runs identically to before.
+Build instructions live in [`rust_kernels/README.md`](../rust_kernels/README.md). The Linux x86_64 binary is built by `.github/workflows/build-rust-linux.yml` and committed back to `bin/linux_x86_64/`. The CI smoke test exercises both `y_to_s_4d` and `parse_and_compute_batch` (verifies the SoA dict has all 20 expected keys).
 
 ---
 
@@ -211,14 +246,12 @@ Build instructions, expected speedups, and the `benchmark.py` script live in [`r
 ├── fit_cache.legacy.json                  # one-shot rename of the v1 file (if any)
 └── fits/
     └── <basename_no_ext>/                 # one folder per DUT
-        ├── <basename_no_ext>_T.json       # one JSON per (DUT, model)
+        ├── <basename_no_ext>_T.json
         ├── <basename_no_ext>_pi.json
         └── <basename_no_ext>_XuT.json
 ```
 
 Each per-model file: `{"saved_at": "<ISO>", "params": {<SI-unit dict>}}`.
-
-**Why per-model files instead of one monolithic JSON?**  In v1 a single `{DUT: {model: …}}` mutation could clobber a sibling model's good cache (fresh-render zero state for an un-edited model would persist, then auto-restore zeros into session_state on next open).  v2 isolates each model on disk **and** adds a zero-guard in `save_fit` so all-zero writes are rejected at the API boundary.
 
 ### [`helpers/chart_export.py`](chart_export.py) — Excel export & Streamlit UI helpers
 
@@ -228,12 +261,12 @@ Each per-model file: `{"saved_at": "<ISO>", "params": {<SI-unit dict>}}`.
 | `_axis_text(axis_obj)` | 26 | Safely fetch a Plotly axis title text. |
 | `_is_smith(fig)` | 33 | True when the figure is a Smith chart (Re(Γ) / Im(Γ) axes). |
 | `_smith_col_name(trace_name)` | 38 | Map a Smith-trace name → compact Excel column prefix (e.g. `S11_meas`). |
-| `_freq_sheet_name(x_lbl, x_arr)` | 61 | Build an Excel sheet name from the frequency range (e.g. `100m_to_67g`). |
-| `_collect_traces(fig)` | 108 | Return `[(name, x, y), …]` for exportable traces, filtering grid lines and constant references. |
+| `_freq_sheet_name(x_lbl, x_arr)` | 61 | Build an Excel sheet name from the frequency range. |
+| `_collect_traces(fig)` | 108 | Return `[(name, x, y), …]` for exportable traces. |
 | `fig_to_excel_bytes(fig)` | 141 | Extract Plotly traces → `.xlsx` bytes (smart Smith vs normal layout). |
-| `plotly_with_dl(fig, key, filename="", width="stretch", container=None, **kwargs)` | 225 | Render Plotly chart + compact xlsx download button below it. |
-| `build_excel(summary_df, all_data)` | 267 | Multi-sheet workbook: Summary + per-DUT DataFrames. |
-| `metric_card(col, title, val, sub, color="#4A90D9")` | 291 | Styled HTML metric tile (used in IOED tab_ind, batch tab). |
+| `plotly_with_dl(fig, key, filename="", width="stretch", container=None, extra_download=None, **kwargs)` | 225 | Render Plotly chart + compact xlsx download button below it. **`extra_download=(label, data_bytes, file_name, mime)`** adds a second button alongside xlsx (used by the SSM measured-vs-modeled Smith chart to expose a "📥 modeled S2P" button). |
+| `build_excel(summary_df, all_data)` | 299 | Multi-sheet workbook: Summary + per-DUT DataFrames. |
+| `metric_card(col, title, val, sub, color="#4A90D9")` | 323 | Styled HTML metric tile (used in IOED tab_ind, batch tab). |
 
 ---
 
@@ -243,16 +276,27 @@ Each per-model file: `{"saved_at": "<ISO>", "params": {<SI-unit dict>}}`.
 
 | Class / function | Line | Purpose |
 |---|---|---|
-| `class AbstractSSMModel(ABC)` | 18 | Public API every SSM model must implement (`extract`, `simulate`, `render_*`). Class attrs `NAME`, `SHORT`, `TOPOLOGY_CHAR`. |
+| `class AbstractSSMModel(ABC)` | 18 | Public API every SSM model must implement. Class attrs `NAME`, `SHORT`, `TOPOLOGY_CHAR`. |
 | `AbstractSSMModel.extract(Y_ex1, freq, n_low, **kwargs)` | 37 | Extract intrinsic params from the de-embedded admittance. Returns `(params, arrays)`. |
 | `AbstractSSMModel.simulate(params, freq, z0=50.0)` | 59 | Forward-simulate S-parameters from a fully populated params dict. |
 | `AbstractSSMModel.render_step_formulas(cls)` | 72 | Render extraction-step LaTeX in Streamlit. |
 | `AbstractSSMModel.render_results_table(cls, params)` | 81 | Render extracted scalar parameters as a Streamlit dataframe. |
 | `AbstractSSMModel.render_formula_trace(cls)` | 86 | Render a collapsible expander with the full extraction + simulation chain. |
 | `AbstractSSMModel.render_override_and_smith(cls, fname, S_raw, freq, z0, para_eff, extract_result, **kwargs)` | 94 | Render fine-tune override UI + Smith chart. Returns `S_sim` or `None`. |
-| `AbstractSSMModel.get_s2p_header_params(cls, params, para_eff)` | 118 | Default human-readable param dict for `.s2p` header (override to customise). |
+| `AbstractSSMModel.get_s2p_header_params(cls, params, para_eff)` | 118 | Default human-readable param dict for `.s2p` header. |
 | `REGISTRY` | 140 | `{SHORT: ModelClass}` — drives the model UI loop in `main_ssm_extraction.py`. |
 | `DEFAULT_SELECTION` | 149 | List of model SHORTs shown on first run. |
+
+### [`models/_shared.py`](../models/_shared.py) — Font helpers (`_b1`/`_detect_B`/`_stack22` re-exports)
+
+After the array-utility consolidation, this module is mostly font code. The three array helpers (`_b1`, `_detect_B`, `_stack22`) are now re-exported from `helpers/_array_utils.py` so existing call sites (`from ._shared import _b1, ...`) keep working unchanged.
+
+| Function | Line | Purpose |
+|---|---|---|
+| `_b1, _detect_B, _stack22` | (re-export) | See `helpers/_array_utils.py`. |
+| `_try_download_inter()` | 35 | One-time fetch of Inter font into `models/fonts/`. |
+| `has_inter()` | 58 | True if Inter is installed locally or successfully cached. |
+| `_load_font(size)` | 68 | Load a TrueType font with Inter → Arial → fallback chain. |
 
 ### [`models/base_ui.py`](../models/base_ui.py) — Shared Streamlit UI helpers for all models
 
@@ -261,55 +305,38 @@ Each per-model file: `{"saved_at": "<ISO>", "params": {<SI-unit dict>}}`.
 | `PAD_SPECS` | 63 | Tuple list `(key, label, SI_scale, unit, fmt, step)` for the nine pad parameters. |
 | `ssm_residual(S_mea, S_mod)` | 79 | RMS relative S-parameter residual across all four ports (%). |
 | `_port_residuals(S_mea, S_mod)` | 93 | Per-port residual dict (`Total`, S11, S12, S21, S22) in %. |
-| `_port_residuals_batch(S_mea, S_mod_batch, xp)` | 110 | Batched fused per-port residuals — minimises GPU kernel launches. |
-| `render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="smith", show_title=True, meas_label="Meas.", sim_label="Model")` | 140 | Per-model Plotly Smith with measured markers + dashed model traces. |
-| `render_smith_with_ftfmax(S_raw, S_sim, freq, model_name, model_short, fname, scales=None)` | 177 | 2-column: Smith chart (left) + fT/fmax mini-card (right) + residual line. |
-| `smith_scale_controls(fname, topo_key)` | 209 | Four `number_input` fields for per-trace Smith display scaling (S11/S12/S21/S22 ×). |
-| `sync_pad_from_preov(fname, topo_key, para_eff)` | 227 | Copy current pre-extraction pad values into per-topology session state when the upstream MD5 hash changes. |
-| `_render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v, cbex_scale, cbex_unit, cbex_param_key, model_short, fname, g_idx, rng_tag, cbex_sweep_fn, param_groups)` | 240 | Min/Step/Max + Calculate UI for the Cbex sweep that minimises std(Cbcx) over the Cbcx group's frequency window. Stages the result into a pending key + rerun. |
-| `render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups, cold_res=None, cold_param_map=None, reextract_fn=None, cbex_sweep_fn=None)` | 378 | The big interactive expander: per-group section heading, dependency info, "same range as previous" button, frequency-range slider, per-frequency line plots with median dashed line, per-param `number_input`, optional Cbex-sweep tool. Returns a copy of `params` with all overrides applied (SI). |
-| `_FRAGMENT` (module-level) | 922 | `st.fragment` (≥ 1.37) / `st.experimental_fragment` (1.33–1.36) / identity fallback.  Used to decorate the slider-preview render functions so slider drags re-run **only** that fragment instead of the full SSM script — order-of-magnitude speedup for the Live tuning mode. |
-| `_make_sweep_values(min_val, max_val, step)` | 929 | Generate sweep values (always includes `max_val` as the last point). |
-| `_render_slider_preview(model_cls, all_p, S_raw, freq, z0, tuning_specs, fname, topo_key)` | 944 | Dispatcher inside the Visual Tuning expander: shows the **mode radio** (🐢 Live / ⚡ Plotly) and delegates to the appropriate leaf preview function. |
-| `_slider_default_range(current_disp)` | 985 | Sane `(min, max, step)` for a slider given the param's current display-unit value — 0.1× to 10× of `current`, or `±1` when the value is zero. |
-| `_multi_metric_top_n(arr, per_metric=10)` | 996 | Take an `(N, n_cols)` residual table and return the union of top-`per_metric` rows by each of the first five columns (Total, S11, S12, S21, S22), deduped and sorted by Total Residual.  Result row count: 10 ≤ R ≤ 50. |
-| `_render_live_slider_preview(model_cls, all_p, S_raw, freq, z0, tuning_specs, fname, topo_key)` *@fragment* | 1025 | Streamlit-rerun-per-drag preview.  **Layout (v2): 2-column grid of bordered variable cards** — each card has a 4-sub-column header (name / min / step / max number_inputs) and the slider below.  Odd selection count puts the last card alone in the left column.  Replaces the legacy `📏 Slider ranges` expander + separate slider row.  Uses pre-baked static cache (`model_cls.build_static_cache`) + `simulate_batch(B=1)` with `xp=cupy` when CUDA is available. |
-| `_quantize_S_batch_int16(S_batch)` | 1217 | Per-element int16 quantization scaled by `\|element\|.max()` over all frames.  Returns `{re_q, im_q, re_max, im_max}`.  4× memory savings vs complex128, ~3e-5 round-trip error. |
-| `_dequantize_S_frame(quant, joint)` | 1243 | Inverse of `_quantize_S_batch_int16`: reconstruct one frame's S-matrix from the int16 store. |
-| `_chunked_simulate_batch_to_host(model_cls, p_batch, freq, z0, *, xp, chunk_size=5000, dtype=np.complex64)` | 1253 | Run `simulate_batch` in slabs so OOM doesn't bite on million-frame sweeps.  Default storage dtype = complex64 (2× memory savings vs. complex128). |
-| `_render_plotly_server_cached_view(state, S_raw, freq, model_cls, fname, topo_key, decim_n_max)` *@fragment* | 1295 | Server-cached rendering: Streamlit `st.slider` per axis + Plotly figure with the single current frame.  Per-drag round-trip is ~100-300 ms but supports arbitrary sweep sizes (only bounded by server RAM).  Handles both complex64 and int16-quantized state. |
-| `_render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0, tuning_specs, fname, topo_key)` *@fragment* | 1430 | Pre-computed Plotly slider — joint cartesian sweep.  **Layout (v2): 2-column grid of bordered variable cards** — each card has a 4-sub-column header (name / min / max / frames number_inputs).  Has a "📡 Server-cached mode" toggle that switches between **embed all frames in browser** (fast scrub, 200 MB cap) and **server-cached** (Streamlit reruns, arbitrary size).  Build path uses `_chunked_simulate_batch_to_host`. |
-| `render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0, tuning_specs, fname, topo_key)` | 1758 | 🎚️ Visual Tuning expander — wraps `_render_slider_preview`. |
-| `render_tuning_expander(model_cls, all_p, S_raw, freq, z0, tuning_specs, fname, topo_key)` | 1771 | 🔧 Auto Tuning for Minimum Residuals — grid sweep + per-metric top-10 ranking + residual table.  Optionally fp32 main loop with fp64 top-K rerank.  See `_run_one_sweep` inside. |
+| `_port_residuals_batch(S_mea, S_mod_batch, xp)` | 110 | Batched fused per-port residuals. |
+| `render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="smith", show_title=True, meas_label="Meas.", sim_label="Model", *, compact=False, height=None, extra_download=None)` | 140 | Per-model Plotly Smith with measured markers + dashed model traces. **`extra_download`** is forwarded to `plotly_with_dl` so the download row can host a second button (📥 modeled S2P beside ⬇ xlsx). |
+| `render_smith_with_ftfmax(S_raw, S_sim, freq, model_name, model_short, fname, scales=None, *, s2p_bytes=None, s2p_filename=None)` | 210 | 2-column: Smith chart (left) + fT/fmax mini-card (right). When `s2p_bytes` is supplied, the Smith chart's download row gains a `📥 modeled S2P` button beside the xlsx — this replaced the standalone "Download Modeled DUT S2P" section at the bottom of the SSM tab. |
+| `smith_scale_controls(fname, topo_key)` | 252 | Four `number_input` fields for per-trace Smith display scaling. |
+| `sync_pad_from_preov(fname, topo_key, para_eff)` | 275 | Copy pre-extraction pad values into per-topology session state when the upstream MD5 hash changes. |
+| `_render_cbex_sweep_tool(...)` | 288 | Cbex sweep UI for the Cbcx stability search. |
+| `render_interactive_param_groups(...)` | 426 | The big interactive expander: per-group section heading, dependency info, "same range as previous" button, frequency-range slider, per-frequency line plots, per-param `number_input`, optional Cbex-sweep tool. |
+| `_FRAGMENT` (module-level) | ~984 | `st.fragment` (≥ 1.37) / `st.experimental_fragment` (1.33–1.36) / identity fallback. |
+| `_make_sweep_values(min_val, max_val, step)` | 991 | Generate sweep values. |
+| `_render_slider_preview(model_cls, all_p, S_raw, freq, z0, tuning_specs, fname, topo_key)` | 1006 | Dispatcher inside the Visual Tuning expander. |
+| `_slider_default_range(current_disp)` | 1047 | Sane `(min, max, step)` for a slider. |
+| `_multi_metric_top_n(arr, per_metric=10)` | 1058 | Take an `(N, n_cols)` residual table and return the union of top-`per_metric` rows by each metric. |
+| `_render_live_slider_preview(...)` *@fragment* | 1087 | Streamlit-rerun-per-drag preview with pre-baked static cache + `simulate_batch(B=1)`. |
+| `_quantize_S_batch_int16(S_batch)` | 1327 | Per-element int16 quantization. 4× memory savings vs complex128. |
+| `_dequantize_S_frame(quant, joint)` | 1353 | Inverse of `_quantize_S_batch_int16`. |
+| `_chunked_simulate_batch_to_host(...)` | 1363 | Run `simulate_batch` in slabs so OOM doesn't bite on million-frame sweeps. |
+| `_render_plotly_server_cached_view(...)` *@fragment* | 1405 | Server-cached rendering. |
+| `_render_plotly_slider_preview(...)` *@fragment* | 1540 | Pre-computed Plotly slider — joint cartesian sweep. |
+| `render_visual_tuning_expander(...)` | 1875 | 🎚️ Visual Tuning expander — wraps `_render_slider_preview`. |
+| `render_tuning_expander(...)` | 1944 | 🔧 Auto Tuning for Minimum Residuals — grid sweep + per-metric top-10 ranking + residual table. Toolbar above the table (under "Compute backend" line) has `Use default values` + `Select all` + `De-select all` buttons. |
+| `class SSMModelTemplate` | 4318 | Mixin parent for SSM model classes. |
+| `SSMModelTemplate.prebake_static_keys(cls, swept_keys)` | 4347 | Truth-table query: given which params are sweeping, return the list of pre-bakeable sub-network names. |
+| `SSMModelTemplate.build_static_cache(cls, all_p, freq, *, xp=None, swept_keys=())` | 4360 | Build the `cache` dict matching `_sim_wrap_batch`'s lookup keys. |
+| `SSMModelTemplate._build_intrinsic_static_cache(...)` | 4396 | Default no-op — concrete classes override. |
+| `SSMModelTemplate.simulate_vec(...)` | 4405 | Default vectorised forward sim. |
+| `SSMModelTemplate.simulate_batch(...)` | 4412 | Default batched forward sim. |
+| `SSMModelTemplate._cached_simulate_vec(...)` | 4478 | Cached scalar→vector simulation with `params_hash` keying. |
+| `SSMModelTemplate.render_results_table(cls, params)` | 4513 | Default — concrete classes override. |
+| `SSMModelTemplate.render_formula_trace / _render_results_trace / has_formula_trace` | 4526 / 4536 / 4542 | Template hooks for the formula-trace expander. |
+| `SSMModelTemplate.render_override_and_smith(cls, fname, S_raw, freq, z0, para_eff, extract_result)` | 4553 | Default — extracts param dict + simulates + writes a modeled S2P bytes blob, then renders **two top-level expanders** below the measured-vs-modeled Smith chart: "🖼️ Topology illustration" (the schematic with live param values) and **"🍩 Smith Chart (Matplotlib)"** which contains the controls (right column) AND the chart (left column) side-by-side — matches the RF simulator layout. The measured-vs-modeled Smith chart now exposes a `📥 modeled S2P` download next to its xlsx button (s2p bytes built from `S_sim + freq + para_eff` using the same template the deleted `_render_s2p_downloads` used). |
 
-`class SSMModelTemplate` (line 3980):
-
-Mixin-style parent class for SSM model classes. Provides default implementations of `simulate_vec`, `simulate_batch`, `_cached_simulate_vec`, `render_results_table`, and `render_override_and_smith`. Concrete model classes inherit from both `SSMModelTemplate` and `AbstractSSMModel`, then supply per-model behaviour via class attributes (`_INT_SPECS`, `_EXT_SPECS`, `_Y_INT_VEC_FN`, `_Y_INT_BATCH_FN`, `_SIM_WRAP_VEC_FN`, `_SIM_WRAP_BATCH_FN`, optional `_TUNING_PAD_SPECS`) and four classmethod hooks (`_do_override_ui`, `_render_topology`, `_results_rows`, optional `_render_results_trace`). See the docstring in `base_ui.py` for the full contract.
-
-**Pre-bake truth table API (new):**
-
-| Member | Where defined | Line | Purpose |
-|---|---|---|---|
-| `STATIC_SUBNETWORKS` (class attr) | concrete model | — | `{subnet_name: frozenset(param_keys)}` — declarative dependency map.  When *none* of a sub-network's deps are in `swept_keys`, it can be pre-baked once and re-used per slider tick. |
-| `prebake_static_keys(cls, swept_keys)` | `SSMModelTemplate` | 4009 | Truth-table query: given which params are sweeping, return the list of pre-bakeable sub-network names. |
-| `build_static_cache(cls, all_p, freq, *, xp=None, swept_keys=())` | `SSMModelTemplate` | 4022 | Build the `cache` dict matching `_sim_wrap_batch`'s lookup keys.  Default fills `Y_pad` + `Z_ser`; concrete classes extend via `_build_intrinsic_static_cache`. |
-| `_build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable)` | concrete model | 1149 (ChengT) · 1400 (ChengPi) · 880 (XuT) | Per-model override — populates intrinsic sub-networks (`Zbe`/`Zbc`/`alpha`/`T_int_planes` for ChengT and XuT; `Ybe`/`Ybc`/`gm`/`Pi_int_planes` for ChengPi).  XuT also adds `Ybcx`. |
-| `simulate_vec(cls, params, freq, z0=50.0, xp=None)` | `SSMModelTemplate` | 4067 | Default vectorised forward sim — dispatches to `cls._SIM_WRAP_VEC_FN(cls._Y_INT_VEC_FN, ...)`. |
-| `simulate_batch(cls, params, freq, z0=50.0, xp=None, cache=None)` | `SSMModelTemplate` | 4074 | Default batched forward sim — dispatches to `cls._SIM_WRAP_BATCH_FN(cls._Y_INT_BATCH_FN, ...)`. |
-| `_cached_simulate_vec(cls, all_p, freq, z0, fname)` | `SSMModelTemplate` | 4088 | Cached scalar→vector simulation with `params_hash` keying — re-uses prior result when none of the params changed.  Used by `render_override_and_smith`. |
-
-**Render-method change:** `render_override_and_smith` now splits the post-Smith view into two columns — left = "🖼️ Topology / Smith Chart" (topology illustration + matplotlib chart from `render_matplotlib_smith(..., phase="chart")`), right = "📐 Smith Chart Controls" (widgets from `render_matplotlib_smith(..., phase="controls")`).  The split is a direct twin-call into `render_matplotlib_smith` — the previous thin-wrapper pair (`render_matplotlib_smith_controls` / `render_matplotlib_smith_chart`) has been deleted.  Cache restore + auto-save logic unchanged.
-
-### [`models/_shared.py`](../models/_shared.py) — Helpers lifted from cheng.py / xu.py
-
-| Function | Line | Purpose |
-|---|---|---|
-| `_b1(p, key, default, xp, dtype=None)` | 16 | Reshape `(B,)` → `(B,1)`; scalars stay scalar. Optional dtype coercion for fp32 sweep path. |
-| `_detect_B(p, xp)` | 33 | Determine batch size B from any `(B,)`-shaped value in `p`. |
-| `_stack22(a00, a01, a10, a11, xp)` | 48 | Stack four planes into a `(..., 2, 2)` tensor in 3 launches. |
-| `_try_download_inter()` | 73 | One-time fetch of Inter font into `models/fonts/` (used for topology illustration overlay). |
-| `has_inter()` | 96 | True if Inter is installed locally or successfully cached. |
-| `_load_font(size)` | 105 | Load a TrueType font with Inter → Arial → fallback chain. |
+**Pre-bake truth table API** — `SSMModelTemplate` exposes `STATIC_SUBNETWORKS` (declarative dependency map, set per concrete model) and uses it to skip re-computing static sub-networks across slider ticks. Per-model `_build_intrinsic_static_cache` overrides in `cheng.py:1149` (ChengT), `cheng.py:1400` (ChengPi), `xu.py:880` (XuT), and `kunyang.py:686` (KunYangHEMT).
 
 ### [`models/cheng.py`](../models/cheng.py) — Cheng (2022) T and π topologies
 
@@ -317,42 +344,27 @@ Module-level helpers:
 
 | Function | Line | Purpose |
 |---|---|---|
-| `_sweep_cbex_stds_cheng(Y_ex1, freq, cbex_SI_array, mask)` | 35 | For each candidate Cbex, rebuild Y_ex2 and return std(Cbcx_arr[mask]). Shared by ChengT and ChengPi (both use the same Cbcx formula post-peel). |
-| `_step2_T(Y_ex1, freq, n_low)` | 74 | Cheng [Eq. 13, 22] — Cbex_T (T variant) and Cbcx. Returns Y_ex2 in arrays. |
-| `_step2_pi(Y_ex1, freq, n_low)` | 110 | Cheng [Eqs. 26–28] — Cbex_π (π variant) and Cbcx (same Eq. 22). |
+| `_sweep_cbex_stds_cheng(Y_ex1, freq, cbex_SI_array, mask)` | 35 | For each candidate Cbex, rebuild Y_ex2 and return std(Cbcx_arr[mask]). Shared by ChengT and ChengPi. |
+| `_step2_T(Y_ex1, freq, n_low)` | 74 | Cheng [Eq. 13, 22] — Cbex_T (T variant) and Cbcx. |
+| `_step2_pi(Y_ex1, freq, n_low)` | 110 | Cheng [Eqs. 26–28] — Cbex_π and Cbcx. |
 | `_step3_T(Y_ex2, freq, Cbcx, n_low)` | 149 | Cheng [Eqs. 16, 29–31] — T-topology intrinsic Rbi/Rbe/Cbe/Rbc/Cbc/α₀/τB/τC. |
 | `_step3_pi(Y_ex2, freq, Cbcx, n_low)` | 209 | Zhang et al. — π-topology intrinsic Rbi/Rbe/Cbe/Cbc/Gm0/τ. |
 | `_sim_wrap(Y_int_fn, p, freq, z0)` | 259 | Add extrinsic caps + pad/lead parasitics around an intrinsic-Y matrix (per-freq loop, scalar). |
-| `_sim_wrap_vec(Y_int_vec_fn, p, freq, z0, xp)` | 280 | Vectorised forward sim — no per-freq loop. Works on numpy or cupy. |
+| `_sim_wrap_vec(Y_int_vec_fn, p, freq, z0, xp)` | 280 | Vectorised forward sim. Works on numpy or cupy. |
 | `_Y_int_T_vec(p, omega, xp)` | 319 | Vectorised T-topology intrinsic-Y matrix → (N,2,2). |
 | `_Y_int_Pi_vec(p, omega, xp)` | 334 | Vectorised π-topology intrinsic-Y matrix → (N,2,2). |
-| `_sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None)` | 355 | Batched forward sim over (param_combo × freq). Hand-inlined 2×2 algebra, optional fp32 path via `cache["_cdtype"]`. |
+| `_sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None)` | 355 | Batched forward sim over (param_combo × freq). |
 | `_Y_int_T_batch(p, omega, B, N, xp, cache=None)` | 469 | Batched T-topology intrinsic-Y, returns 4 broadcastable planes. |
 | `_Y_int_Pi_batch(p, omega, B, N, xp, cache=None)` | 534 | Batched π-topology intrinsic-Y, returns 4 broadcastable planes. |
-| `_fmt_param(key, val_si)` | 715 | Format a parameter SI value for display on the topology illustration (uses `_PARAM_DISPLAY` ladder). |
-| `_render_topology_illustration(all_p, topology, fname)` | 733 | Overlay live parameter values on the schematic template PNG; render via `st.image`. `topology` is `"T"` or `"pi"`. |
-| `_override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS)` | 823 | Render the fine-tune override expander (Pad / Extrinsic / Intrinsic) for one Cheng topology. Returns `all_p` dict in SI. |
+| `_fmt_param(key, val_si)` | 715 | Format a parameter SI value for display on the topology illustration. |
+| `_render_topology_illustration(all_p, topology, fname)` | 733 | Overlay live parameter values on the schematic template PNG. |
+| `_override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS)` | 823 | Render the fine-tune override expander (Pad / Extrinsic / Intrinsic) for one Cheng topology. |
 
 Shared helpers `_b1`, `_detect_B`, `_stack22`, `_try_download_inter`, `has_inter`, `_load_font` are imported from [`models/_shared.py`](../models/_shared.py).
 
-`class ChengT(SSMModelTemplate, AbstractSSMModel)` (line 875):
+`class ChengT(SSMModelTemplate, AbstractSSMModel)` (line 875): methods at lines 978 (extract), 991 (sweep_cbex), 1001 (simulate), 1022 (reextract), 1098 (_results_rows), 1115 (_render_results_trace), 1140 (_do_override_ui), 1145 (_render_topology), 1149 (_build_intrinsic_static_cache).
 
-Inherited from `SSMModelTemplate` (in `base_ui.py`):
-`simulate_vec`, `simulate_batch`, `render_results_table`, `render_override_and_smith`.
-
-| Method | Line | Purpose |
-|---|---|---|
-| `extract(Y_ex1, freq, n_low, **kwargs)` | 978 | Step 2 (Cbex_T, Cbcx) → Step 3 (intrinsic T params). |
-| `sweep_cbex(Y_ex1, freq, cbex_SI_array, mask)` | 991 | Wrapper around `_sweep_cbex_stds_cheng` for the interactive Cbex stability search. |
-| `simulate(params, freq, z0=50.0)` | 1001 | Scalar forward sim using the analytic T intrinsic-Y. |
-| `reextract(Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays)` | 1022 | Cascade re-extract when an upstream interactive group is overridden (Cbex → Cbcx → Step 3 → τB → τC). |
-| `_results_rows(params)` | 1098 | Template hook — list of `(symbol, value, unit)` rows for the results table. |
-| `_render_results_trace()` | 1115 | Template hook — formula-trace expander (📐 LaTeX dependency chain). |
-| `_do_override_ui(fname, calc_vals)` | 1140 | Template hook — call `_override_ui` with Cheng-T specs. |
-| `_render_topology(all_p, fname)` | 1145 | Template hook — render T-topology schematic illustration. |
-| `_build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable)` | 1149 | Populate intrinsic sub-networks (Zbe, Zbc, alpha, T_int_planes) into the static cache when not in `swept_keys`. |
-
-`class ChengPi(SSMModelTemplate, AbstractSSMModel)` (line 1195): π variant. Methods at lines 1275 (extract), 1284 (sweep_cbex), 1290 (simulate), 1322 (reextract), 1373 (_results_rows), 1391 (_do_override_ui), 1396 (_render_topology), 1400 (_build_intrinsic_static_cache). No formula-trace expander.
+`class ChengPi(SSMModelTemplate, AbstractSSMModel)` (line 1195): methods at lines 1275 (extract), 1284 (sweep_cbex), 1290 (simulate), 1322 (reextract), 1373 (_results_rows), 1391 (_do_override_ui), 1396 (_render_topology), 1400 (_build_intrinsic_static_cache).
 
 ### [`models/xu.py`](../models/xu.py) — Xu's T (2014)
 
@@ -360,101 +372,57 @@ Module-level helpers:
 
 | Function | Line | Purpose |
 |---|---|---|
-| `_step2_T(Y_ex1, freq)` | 36 | Xu — Cbcx direct from Y_ex1 (no Cbex peel). Rbcx defaults to 285 kΩ (user-tunable, not extracted). |
-| `_step3_T(Y_ex1, freq, Cbcx, Rbcx, n_low)` | 59 | Xu — peel Ybcx (=1/Rbcx + jωCbcx) then run the Cheng-style Step 3 intrinsic extraction. |
+| `_step2_T(Y_ex1, freq)` | 36 | Xu — Cbcx direct from Y_ex1 (no Cbex peel). Rbcx defaults to 285 kΩ. |
+| `_step3_T(Y_ex1, freq, Cbcx, Rbcx, n_low)` | 59 | Xu — peel Ybcx then run the Cheng-style Step 3 intrinsic extraction. |
 | `_sim_wrap(Y_int_fn, p, freq, z0)` | 127 | Scalar forward sim with Ybcx parallel network. |
 | `_sim_wrap_vec(Y_int_vec_fn, p, freq, z0, xp)` | 143 | Vectorised forward sim. |
 | `_sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None)` | 182 | Batched forward sim for tuning sweeps. |
 | `_Y_int_T_vec(p, omega, xp)` | 292 | Vectorised T-topology intrinsic-Y (shared formula with Cheng-T). |
 | `_Y_int_T_batch(p, omega, B, N, xp, cache=None)` | 307 | Batched intrinsic-Y planes. |
-| `_aka(cheng_lbl, xu_lbl)` | 381 | Render combined "Cheng / Xu" symbol label for the override UI. |
+| `_aka(cheng_lbl, xu_lbl)` | 381 | Render combined "Cheng / Xu" symbol label. |
 | `_fmt_param(key, val_si)` | 486 | Format a parameter SI value for display on the topology illustration. |
 | `_render_topology_illustration(all_p, fname)` | 505 | Overlay live values on the Xu schematic template PNG. |
 | `_override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS)` | 592 | Fine-tune override expander for the Xu T topology. |
 
-Shared helpers `_b1`, `_detect_B`, `_stack22`, `_try_download_inter`, `has_inter`, `_load_font` are imported from [`models/_shared.py`](../models/_shared.py).
-
-`class XuModel(SSMModelTemplate, AbstractSSMModel)` (line 641, `SHORT="XuT"`):
-
-Inherited from `SSMModelTemplate` (in `base_ui.py`):
-`simulate_vec`, `simulate_batch`, `render_results_table`, `render_override_and_smith`.
-Overrides class attribute `_TUNING_PAD_SPECS = _XU_PAD_SPECS` so the tuning expander uses Xu's relabelled pad-cap names.
-
-| Method | Line | Purpose |
-|---|---|---|
-| `extract(Y_ex1, freq, n_low, **kwargs)` | 727 | Step 2 (Cbcx; Rbcx defaulted) → Step 3 (intrinsic T params). |
-| `simulate(params, freq, z0=50.0)` | 741 | Scalar forward sim with parallel Rbcx ∥ Cbcx. |
-| `reextract(Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays)` | 762 | Cascade re-extract; Rbcx read from overrides or 285 kΩ default. |
-| `_results_rows(params)` | 830 | Template hook — list of `(symbol, value, unit)` rows for the results table. |
-| `_render_results_trace()` | 847 | Template hook — formula-trace expander (📐 LaTeX dependency chain). |
-| `_do_override_ui(fname, calc_vals)` | 871 | Template hook — call `_override_ui` with Xu specs. |
-| `_render_topology(all_p, fname)` | 876 | Template hook — render Xu schematic illustration. |
-| `_build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable)` | 880 | Populate intrinsic sub-networks (Zbe, Zbc, alpha, T_int_planes, Ybcx) into the static cache when not in `swept_keys`. |
+`class XuModel(SSMModelTemplate, AbstractSSMModel)` (line 641, `SHORT="XuT"`): methods at lines 727 (extract), 741 (simulate), 762 (reextract), 830 (_results_rows), 847 (_render_results_trace), 871 (_do_override_ui), 876 (_render_topology), 880 (_build_intrinsic_static_cache).
 
 ### [`models/kunyang.py`](../models/kunyang.py) — Kun-Yang HEMT (pi-model, forward sim only)
 
-Forward-simulation-only model — no extraction is performed.  Built inside → out:
+Forward-simulation-only model — no extraction is performed. Built inside → out:
 
-1. Intrinsic 3-component pi:  series Cgs/Ri (gate-source shunt), series Cgd/Rgd (gate-drain), parallel Rds∥Cds + transconductance gm = Gm0·exp(−jωτ) (drain-source).
-2. Z_ser wrap with gate/drain/source lead L+R (re-uses HBT Lb/Lc/Le, Rpb/Rpc/Rpe keys; relabelled in the UI).
-3. Kun-Yang custom substrate pad in parallel:  Cgsp series Rsub1 (port-1 shunt), Cdsp series Rsub2 (port-2 shunt), Cgdp (port-1 to port-2 shunt cap).
+1. Intrinsic 3-component pi: series Cgs/Ri (gate-source shunt), series Cgd/Rgd (gate-drain), parallel Rds∥Cds + transconductance gm = Gm0·exp(−jωτ) (drain-source).
+2. Z_ser wrap with gate/drain/source lead L+R.
+3. Kun-Yang custom substrate pad in parallel: Cgsp series Rsub1, Cdsp series Rsub2, Cgdp (port-1 to port-2).
 4. Standard open-dummy pad (Cpbe, Cpce, Cpbc) on top → S.
 
 Module-level helpers:
 
 | Function | Line | Purpose |
 |---|---|---|
-| `_Y_int_KY_vec(p, omega, xp)` | 41 | Vectorised intrinsic pi-model Y matrix → (N, 2, 2). |
-| `_Y_int_KY_batch(p, omega, B, N, xp, cache=None)` | 70 | Batched intrinsic Y → 4 (B, N) planes; cache-aware. |
-| `_Y_kypad_vec(p, omega, xp)` | 122 | Vectorised Kun-Yang substrate pad Y → (N, 2, 2). |
-| `_Y_kypad_batch(p, omega, B, N, xp, cache=None)` | 153 | Batched Kun-Yang substrate pad as 4 (B, N) planes. |
-| `_sim_wrap(Y_int_fn, p, freq, z0)` | 185 | Per-frequency scalar forward sim. |
-| `_sim_wrap_vec(Y_int_vec_fn, p, freq, z0, xp)` | 218 | Vectorised forward sim — numpy or cupy. |
-| `_sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None)` | 240 | Batched (param_combo × freq) forward sim — fully inlined 2×2 algebra; powers visual / auto tuning. |
-| `_override_ui(fname, tK, calc_vals, int_specs, label, ext_specs)` | 339 | Fine-tune override UI: HEMT-labelled pads, Kun-Yang custom pad, intrinsic pi. |
+| `_render_topology_illustration(all_p, fname)` | 51 | Render Kun-Yang topology illustration (placeholder — no schematic shipped). |
+| `_Y_int_KY_vec(p, omega, xp)` | 64 | Vectorised intrinsic pi-model Y matrix. |
+| `_Y_int_KY_batch(p, omega, B, N, xp, cache=None)` | 98 | Batched intrinsic Y → 4 (B, N) planes; cache-aware. |
+| `_Y_kypad_vec(p, omega, xp)` | 155 | Vectorised Kun-Yang substrate pad Y. |
+| `_Y_kypad_batch(p, omega, B, N, xp, cache=None)` | 187 | Batched Kun-Yang substrate pad as 4 (B, N) planes. |
+| `_sim_wrap(Y_int_fn, p, freq, z0)` | 219 | Per-frequency scalar forward sim. |
+| `_sim_wrap_vec(Y_int_vec_fn, p, freq, z0, xp)` | 261 | Vectorised forward sim. |
+| `_sim_wrap_batch(Y_int_batch_fn, p, freq, z0, xp, cache=None)` | 295 | Batched (param_combo × freq) forward sim. |
+| `_override_ui(fname, tK, calc_vals, int_specs, label, ext_specs)` | 432 | Fine-tune override UI. |
 
-`class KunYangHEMT(SSMModelTemplate, AbstractSSMModel)` (line 410, `SHORT="KY"`):
-
-Inherited from `SSMModelTemplate` (in `base_ui.py`):
-`simulate_vec`, `simulate_batch`, `_cached_simulate_vec`, `render_results_table`, `render_override_and_smith`.
-Overrides class attribute `_TUNING_PAD_SPECS = _KY_PAD_SPECS` so the tuning expander relabels pad caps and leads to HEMT terminology (Lg/Ld/Ls, Rg/Rd/Rs, Cpg/Cpd/Cpgd) while keeping the underlying storage keys identical to the HBT models.
-
-| Method | Line | Purpose |
-|---|---|---|
-| `extract(Y_ex1, freq, n_low, **kwargs)` | 450 | Returns default starting parameters; no measurement-based extraction. |
-| `simulate(params, freq, z0=50.0)` | 459 | Scalar forward sim (per-freq loop). |
-| `render_step_formulas()` | 474 | LaTeX formulas for the four layers. |
-| `_results_rows(params)` | 502 | Template hook — table rows for extracted/tuned parameters. |
-| `_render_results_trace()` | 522 | Template hook — 📐 LaTeX dependency chain expander. |
-| `_do_override_ui(fname, calc_vals)` | 546 | Template hook — call `_override_ui` with Kun-Yang specs. |
-| `_render_topology(all_p, fname)` | 552 | Template hook — placeholder note (no schematic shipped). |
-| `_build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable)` | 559 | Pre-bake Y_gs / Y_gd / Y_ds / gm / KY_int_planes / KY_pad_planes when their deps are not in the sweep. |
-| `get_s2p_header_params(params, para_eff)` | 600 | Customised `.s2p` header: HEMT pad labels (Lg/Ld/Ls, Rg/Rd/Rs), Kun-Yang substrate caps, intrinsic pi. |
+`class KunYangHEMT(SSMModelTemplate, AbstractSSMModel)` (line 517, `SHORT="KY"`): methods at 566 (extract), 575 (simulate), 590 (render_step_formulas), 624 (_results_rows), 648 (_render_results_trace), 676 (_do_override_ui), 682 (_render_topology), 686 (_build_intrinsic_static_cache), 737 (get_s2p_header_params).
 
 ### [`models/degachi.py`](../models/degachi.py) — Degachi & Ghannouchi (2008) augmented π *(currently disabled in the registry — uncomment in `models/__init__.py` to re-enable)*
 
-Module-level helpers (Eqs. follow the 2008 IEEE TED paper):
-
 | Function | Line | Purpose |
 |---|---|---|
-| `_h_Tbi(Z1, Z3, omega, omega2, n_fit)` | 59 | [Eq. 8, 12] Fbi = ω/Im(Z₁/Z₃) = A₀+ω²B₀ → Tbi = √(B₀/A₀). |
-| `_h_Tbe(Z1, omega, omega2, Tbi, n_fit)` | 76 | [Eq. 19–20] F1 fit → Tbe = √(B/A). |
-| `_h_ratios(Z1, Z3, omega, Tbi)` | 93 | [Eq. 13–14] Rbi/Rbc and Rbi·Cbc per-freq arrays. |
-| `_h_R_RT(Z1, omega, Tbi, Tbe)` | 102 | [Eq. 23–24] R, R·T arrays from F2. |
-| `_h_solve_pf(ror_arr, rbc_arr, R_arr, RT_arr, Tbi, Tbe)` | 111 | [Eq. 25] per-frequency 2×2 solve for Rbe, Rbi. |
-| `_h_solve_sc(ror, rbc, R, RT, Tbi, Tbe, Z1, Z3, n_low)` | 129 | [Eq. 25] scalar solve with heuristic fallback. |
-| `_h_derived_pf(Rbe_a, Rbi_a, ror_a, rbc_a, Tbi, Tbe)` | 144 | Per-freq Rbc, Cbc, Cbe, Cbi arrays from Rbe/Rbi arrays. |
-| `_h_derived_sc(Rbi, Rbe, ror, rbc, Tbi, Tbe)` | 154 | Scalar Rbc, Cbc, Cbe, Cbi from Rbe/Rbi scalars. |
-| `_h_Rcx(Z4, Rbc, Cbc, omega)` | 163 | [Eq. 26] 1/Rcx = Re(1/Z4 − 1/Z2), Z2 = Rbc/(1+jωRbcCbc). |
-| `_h_Gm0_tau(Y_ex1, freq)` | 174 | Gm0 = Re(Y22)|f→0, τ = −(1/2π)·d∠Y21/df. |
-| `_h_Ccx(Y_ex1, omega, n_hi)` | 184 | Ccx ≈ −Im(Y12)/ω at high frequency. |
+| `_h_Tbi / _h_Tbe / _h_ratios / _h_R_RT / _h_solve_pf / _h_solve_sc / _h_derived_pf / _h_derived_sc / _h_Rcx / _h_Gm0_tau / _h_Ccx` | 59 / 76 / 93 / 102 / 111 / 129 / 144 / 154 / 163 / 174 / 184 | Per-equation helpers following the 2008 IEEE TED paper. |
 | `_extract(Y_ex1, freq, n_low, n_fit=None, n_fit_f1=None)` | 195 | Run all helper steps end-to-end → `(params, arrays)`. |
 | `_simulate(p, freq, z0=50.0)` | 250 | 5-layer inside-out scalar forward sim. |
 | `_simulate_vec(p, freq, z0=50.0, xp=None)` | 293 | Vectorised forward sim. |
-| `_b1(p, key, default, xp)` / `_detect_B(p, xp)` | 355 / 364 | Batched-tuning utilities. |
+| `_b1, _detect_B` | (re-export) | Imported from `models/_shared.py` (which re-exports from `helpers/_array_utils.py`) — formerly duplicated here. |
 | `_simulate_batch(p, freq, z0=50.0, xp=None, cache=None)` | 378 | Batched forward sim for tuning sweeps. |
 
-`class Degachi(AbstractSSMModel)` (line 550, `SHORT="D"`): cascade re-extraction across 9 PARAM_GROUPS (Step 1 / Fbi fit / Tbi / Part A / F1 fit + Tbe / Part C / Part D / Part E / Part F). Methods at lines 692, 698, 702, 709, 718, 830, 851, 856.
+`class Degachi(AbstractSSMModel)` (line 550, `SHORT="D"`): cascade re-extraction across 9 PARAM_GROUPS.
 
 ---
 
@@ -472,6 +440,8 @@ Module-level helpers (Eqs. follow the 2008 IEEE TED paper):
 | `make_smith`, `make_bode`, `make_plateau`, `_layout`, `_darken`, `PALETTE` | `IOED_HBT_RF_extract.py` | `helpers/plotly_plots.py` |
 | `fig_to_excel_bytes`, `plotly_with_dl`, `_EXCEL_MIME` | `ssm_chart_utils.py` | `helpers/chart_export.py` |
 | `build_excel`, `_card` | `IOED_HBT_RF_extract.py` | `helpers/chart_export.py` (renamed `_card` → `metric_card`) |
+| `_b1`, `_detect_B`, `_stack22` (was duplicated in 3 places) | `models/_shared.py`, `helpers/deembed_math.py`, `models/degachi.py` | `helpers/_array_utils.py` (canonical) — `_shared.py` re-exports for back-compat |
+| `_render_s2p_downloads` (Download Modeled DUT S2P section) | `main_ssm_extraction.py` | **Deleted** — replaced by `📥 modeled S2P` button beside `⬇ xlsx` under each model's measured-vs-modeled Smith chart (`models/base_ui.py::render_smith_with_ftfmax`). |
 
 > **Status:** migration complete. `ssm_core.py`, `ssm_s2p.py`, and
 > `ssm_chart_utils.py` have been deleted. `ssm_deembedding.py` and the

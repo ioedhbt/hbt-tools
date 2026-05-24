@@ -121,13 +121,7 @@ def _short_lead_Z_batch(R, L, Cpar, omega, xp):
     return Z
 
 
-def _b1(p, key, default, xp):
-    """Fetch p[key] (or default) and reshape (B,) → (B,1).  Scalars stay scalar."""
-    v = p.get(key, default)
-    a = xp.asarray(v)
-    if a.ndim == 1:
-        return a.reshape(-1, 1)
-    return a
+from ._array_utils import _b1  # canonical impl (supports `dtype=`)
 
 
 def build_Y_pad_batch(p, omega, B, N, xp):
