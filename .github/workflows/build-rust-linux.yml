@@ -72,6 +72,19 @@ jobs:
         # maturin builds the wheel; numpy is needed for the smoke test below.
         run: python -m pip install --upgrade pip "maturin>=1.5,<2.0" numpy
 
+      - name: Purge any cached wheels before building
+        # The cache restore brings back the previous run's `target/`
+        # directory, which may still contain a wheel from an earlier
+        # build (different platform tag → different filename, e.g.
+        # `linux_x86_64.whl` vs `manylinux_2_17_x86_64.whl`).  If we
+        # don't delete the stale wheel here, the extract step's
+        # `ls ... | head -n1` (alphabetical sort) picks the OLDER name
+        # first, then commits a binary that doesn't have whichever
+        # kernels were added since the cached run.  That's how the
+        # `parse_and_compute_batch` regression slipped through.
+        run: |
+          rm -rf tools/SSM/rust_kernels/target/wheels
+
       - name: Build wheel (release, abi3-py39)
         working-directory: tools/SSM/rust_kernels
         run: maturin build --release --out target/wheels
@@ -80,9 +93,13 @@ jobs:
         # Pull the compiled extension out of the wheel and drop it into
         # the committed-binary directory.  Mirrors what
         # `build_rust_kernels.py::_extract_binary` does locally.
+        #
+        # `ls -t` (most-recent-first) is belt-and-braces in case the
+        # purge step above ever fails to fire — picking by mtime
+        # guarantees we always grab the wheel maturin just produced.
         run: |
           set -euo pipefail
-          WHEEL=$(ls tools/SSM/rust_kernels/target/wheels/hbt_rust_kernels-*.whl | head -n1)
+          WHEEL=$(ls -t tools/SSM/rust_kernels/target/wheels/hbt_rust_kernels-*.whl | head -n1)
           echo "Wheel: $WHEEL"
           mkdir -p tools/SSM/rust_kernels/bin/linux_x86_64
           # Remove any stale binaries first so we don't leave abi3-py38
