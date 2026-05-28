@@ -952,6 +952,16 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
 
         },
         {
+            # Multi-file 1/(2πfT) vs 1/IC reference fit — rendered only when
+            # ≥2 s2p files are loaded.  Reference Cje / τB+τC / τCC / τE;
+            # does NOT feed back into the model fit.  See
+            # ``base_ui._render_tau_total_fit_section``.
+            "label":              "Reference: Cje / τB+τC / τCC / τE from 1/(2πfT) vs 1/IC",
+            "params":             [],
+            "depends_on":         [],
+            "tau_total_fit_group": True,
+        },
+        {
             "label":      "τB  (depends on α₀)",
             "params":     [("tauB", "tauB", "τB", 1e12, "ps")],
             "depends_on": ["alpha0"],
@@ -1022,11 +1032,14 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
     def reextract(cls, Y_ex1, freq, n_low, overrides, changed_group_idx, live_arrays):
         """
         Re-derive all downstream parameters when an upstream group is overridden.
+        Group indices match PARAM_GROUPS (note: index 3 is the multi-file
+        tau_total_fit reference group inserted between Step 3 and τB; it
+        contains no params and never triggers reextract):
           changed_group_idx=0 (Cbex changed)  → recompute Y_ex2, Cbcx, all Step 3
           changed_group_idx=2 (Cbcx changed)  → keep Y_ex2 from overrides["Cbex"],
                                                  use overrides["Cbcx"], re-run Step 3
-          changed_group_idx=3 (α₀ changed)   → recompute τB and τC arrays
-          changed_group_idx=4 (τB changed)   → recompute τC array only
+          changed_group_idx=4 (α₀ changed)   → recompute τB and τC arrays
+          changed_group_idx=5 (τB changed)   → recompute τC array only
         """
         omega = 2.0 * np.pi * freq
 
@@ -1059,7 +1072,7 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
         # ── Handle within-Step-3 overrides (α₀ → τB → τC) ───────────────────
         alpha_arr = arr_int["alpha"]   # complex, per-frequency
 
-        if changed_group_idx >= 3 and "alpha0" in overrides:
+        if changed_group_idx >= 4 and "alpha0" in overrides:
             alpha0_ov = float(overrides["alpha0"])
             U_arr     = (alpha0_ov / (np.abs(alpha_arr) + 1e-30)) ** 2
             tauB_arr  = np.sqrt(np.maximum(U_arr - 1.0, 0.0)) / omega
@@ -1073,7 +1086,7 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
             arr_int["tauB"] = tauB_arr;  res_int["tauB"] = tauB_ov
             arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
 
-        elif changed_group_idx >= 4 and "tauB" in overrides:
+        elif changed_group_idx >= 5 and "tauB" in overrides:
             alpha0_cur = float(overrides.get("alpha0", res_int["alpha0"]))
             U_arr      = (alpha0_cur / (np.abs(alpha_arr) + 1e-30)) ** 2
             tauB_ov    = float(overrides["tauB"])

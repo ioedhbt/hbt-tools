@@ -11,6 +11,60 @@ entry under that tool below.
 
 ## RF S-Parameter Extraction — [`tools/IOED_HBT_RF_extract.py`](tools/IOED_HBT_RF_extract.py)
 
+### v6.2
+- ⏱️ **Transit-time extraction (Liu et al. method)** for T-topology
+  models (ChengT / XuT): when ≥ 2 s2p files are loaded, a new
+  "1/(2π f_T) vs 1/I_C" reference fit renders inside the Step-3
+  intrinsic expander, just before the τ_B group. For each bias
+  file we compute τ_total = 1/(2π f_T) from the Open+Short pad/lead
+  de-embedded |h21|² 0-dB crossing — **access R retained**
+  (Rpb/Rpc/Rpe forced to zero during the peel) so the formula's
+  (R_C + R_EE)·C_BC intercept correction stays self-consistent; the
+  peel is an algebraic no-op when no caps/Ls were set in Section 1,
+  so pre-de-embedded files are handled transparently
+- 📈 Linear fit → reference **C_JE = slope / (η · k T/q)** and
+  **τ_B + τ_C = intercept − (R_C + R_E)·C_BC**. Re / Rc / Cbc / η /
+  T are user-editable with defaults from the current file's
+  extraction (Rpe, Rpc, Cbc + Cbcx, 1.0, 300 K). Per-file table of
+  r_E = ηkT/(qI_C), τ_CC = (r_E + R_E + R_C)·C_BC, and
+  τ_E = r_E · C_JE
+- 🚀 **v_c split** (Liu, Tao, Watkins, Bolognesi, IEEE EDL 25(12),
+  2004): inputs for the collector depletion width **W_C (nm,
+  default 120)** and average collector velocity **v_c (cm/s,
+  default 4×10⁷ for 2000 Å InP collectors)** → τ_C = W_C/(2 v_c),
+  τ_B = (τ_B + τ_C) − τ_C
+- 🔘 **One-click quickset buttons** on the τ_B / τ_C `number_input`s
+  (label "v_c = …") populated from the v_c split, and on the **Rbe**
+  input (label "Z-param = …") populated from the Z-parameter method
+  when the current DUT participates in the fit
+- 🩹 **Z-parameter method UI cleanup**: the Z₁₂ extraction frequency
+  is now a `selectbox` of the 10 lowest measured frequencies
+  (default = lowest) instead of a free-form `number_input`.
+  Removed the slope-based ideality factor (η) display and
+  persistence — derived η from Re(Z₁₂) vs 1/I_E disagrees with the
+  Gummel-plot diode ideality when the simple T-model formula
+  doesn't apply, so showing it was misleading. Set η in the
+  τ-total fit from a Gummel-plot fit instead (typical InP HBT
+  1.0–1.2)
+- 🐞 **Cold-HBT → intrinsic-model parameter mapping fix**: Gao
+  §5.5.2 "C_ex" is the extrinsic base–collector cap (= our **Cbcx**
+  in intrinsic-model nomenclature). Previous versions routed
+  C_ex_cold into the **Cbex** slot, so the green "Cold: …"
+  reference line surfaced on the wrong parameter card. Corrected
+  in `main_ssm_extraction._cold_map`
+- 🎨 **Per-variable bordered containers** in the Cold-HBT extraction
+  panel (`_cold_plot` wraps each of C_ex / C_bc / R_bi / C_be /
+  R_b / R_c in its own card) and in the intrinsic-model per-param
+  loop (`render_interactive_param_groups` wraps each parameter's
+  plot + input + quickset row in its own bordered card)
+- 🩹 Excel-export safety: trace name `"1/(2π f_T)"` in the τ-total
+  plot was rejected by openpyxl (Excel forbids `/` in sheet
+  titles); renamed to `"τ_total"`
+- 📚 `helpers/INDEX.md` updated to document the new
+  `_render_tau_total_fit_section` helper, the new `all_data` /
+  `para_eff` kwargs on `render_interactive_param_groups`, and the
+  Z-parameter / Cold-HBT UI changes
+
 ### v6.1
 - ➕ New SSM model: **Kun-Yang HEMT** (pi-topology, forward simulation
   only). Inside → out: intrinsic pi (Cgs/Ri + Cgd/Rgd + Cds∥Rds + gm) →

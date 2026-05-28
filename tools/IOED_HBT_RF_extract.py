@@ -13,7 +13,7 @@ which is then called once inside the "SSM Extraction" sub-tab.
 Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
 repo root.
 """
-__version__ = "6.1"
+__version__ = "6.2"
 
 import hashlib, io, re, zipfile
 from pathlib import Path
@@ -48,28 +48,14 @@ st.title(f"📡 IOED HBT RF Extraction Tool (v{__version__})")
 
 with st.expander(f"What's new in v{__version__}", expanded=False):
     st.markdown(
-        "- 🦀 **Rust acceleration**: native CPU kernels for batched SSM "
-        "sweeps (~25× faster Auto Tuning); auto-built by the launcher, "
-        "with backend status chips on Visual & Auto Tuning\n"
-        "- 🎚️ **Visual Tuning with live sliders** (new section): "
-        "drag-to-see preview with two modes — 🐢 Live (Streamlit "
-        "rerun per drag, multi-param) and ⚡ Plotly slider "
-        "(pre-computed frames, instant client-side scrub); "
-        "side-by-side Smith + Bode preview, sticky right column, "
-        "fixed-height scrollable variable cards\n"
-        "- 💾 **Fit caching**: auto-saves extracted parameters per "
-        "DUT/model so re-opening a file restores the prior fit; "
-        "\"Use saved\" button on the fine-tune section\n"
-        "- 🎨 **Visual improvements**: Smith chart per-S-param "
-        "text-color picker, table-style scale controls, color-mode "
-        "persistence; WebGL multi-file S-parameter overlay; larger "
-        "Bode preview; fragment-scoped reruns (~10× faster per slider "
-        "drag)\n"
-        "- 🩹 Streamlit deprecation migrations (`width=\"stretch\"`, "
-        "`st.iframe`, accessible widget labels) and assorted bug "
-        "fixes (revert-when-editing, RuntimeWarning floods, "
-        "Auto-Tuning sticky badge)\n\n"
-        "Full version history: [`CHANGELOG.md`](CHANGELOG.md)"
+        "- ⏱️ **Transit-time extraction from Liu et al.**: in T-model "
+        "extraction (ChengT / XuT) with ≥ 2 s2p files loaded, the SSM "
+        "tab now renders a 1/(2π f_T) vs 1/I_C reference fit before τ_B. "
+        "Linear fit → reference C_JE, τ_B + τ_C; assumed collector "
+        "velocity v_c (default 4×10⁷ cm/s for 2000 Å InP collectors per "
+        "Liu, Tao, Watkins, Bolognesi, IEEE EDL 25(12), 2004) and W_C "
+        "input split τ_B from τ_C, and surface as one-click \"v_c = …\" "
+        "quickset buttons on the τ_B / τ_C inputs."
     )
 
 # ═════════════════════════════════════════════════════════════════════════════

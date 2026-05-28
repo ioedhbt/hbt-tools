@@ -61,13 +61,35 @@ def render_rz12_section(all_data, para_eff, fname):
 
     ref_fn  = list(all_data.keys())[0]
     f_ref   = all_data[ref_fn]["freq"] * 1e-9
-    f_min_v = float(f_ref[max(1, np.searchsorted(f_ref, 0.01))])
-    f_max_v = float(f_ref[-1])
+    # Z-parameter method assumes ω·R·C ≪ 1, so we offer the low-frequency
+    # points only — concretely the 10 lowest measured frequencies (after
+    # dropping a DC/low-noise point at index 0 when present, matching the
+    # previous behavior).
+    _lo_idx = max(1, int(np.searchsorted(f_ref, 0.01)))
+    _freq_opts = f_ref[_lo_idx:_lo_idx + 100].astype(float).tolist()
+    if not _freq_opts:
+        st.warning("No usable low-frequency points (>0.01 GHz) in the reference file.")
+        return
+
+    # If a stale session value (e.g. from a different file with different
+    # freq grid) is not in the current option list, drop it so the
+    # selectbox falls back to the computed default index.
+    _sess_key = f"rz12_fext_{fname}"
+    _prev_v   = st.session_state.get(_sess_key)
+    _in_opts  = (_prev_v is not None
+                 and any(abs(float(_prev_v) - o) < 1e-9 for o in _freq_opts))
+    if _prev_v is not None and not _in_opts:
+        st.session_state.pop(_sess_key, None)
+
     col_fq, _ = st.columns([1, 2])
-    f_extract = col_fq.number_input(
-        "Z₁₂ freq (GHz)", min_value=f_min_v, max_value=f_max_v,
-        value=min(1.0, f_max_v*0.05), step=0.5, format="%.2f",
-        key=f"rz12_fext_{fname}")
+    f_extract = col_fq.selectbox(
+        "Z₁₂ freq (GHz)", options=_freq_opts,
+        index=0,                               # default = lowest available point
+        format_func=lambda v: f"{v:.4f} GHz",
+        key=_sess_key,
+        help="Pick one of the 10 lowest measured frequencies — the "
+             "Z-parameter method assumes ω·R·C ≪ 1, so the lowest "
+             "available frequency is the safest default.")
 
     st.markdown("**Files:**")
     for h, t in zip(st.columns([0.3,2.3,1.2,1.4,1.4]),
@@ -135,17 +157,16 @@ def render_rz12_section(all_data, para_eff, fname):
             marker=dict(size=11, symbol="circle-open", color="#1f77b4",
                         line=dict(color="#0d4a7a", width=1.5))))
 
-    slope, Re_fit, eta = None, None, None
+    slope, Re_fit = None, None
     if len(points) >= 2:
         try:
             x = np.array([p[0] for p in points])
             y = np.array([p[1] for p in points])
             slope, Re_fit = np.polyfit(x, y, 1)
-            eta = slope / (1.381e-23 * 300 / 1.602e-19)
             x_fit = np.linspace(0, max(x)*1.08, 200)
             y_fit = slope*x_fit + Re_fit
             fig.add_trace(go.Scattergl(x=x_fit, y=y_fit, mode="lines",
-                name=f"Fit Re={Re_fit:.4f} Ω  η={eta:.3f}",
+                name=f"Fit Re={Re_fit:.4f} Ω",
                 line=dict(color="#d62728", width=2, dash="dash")))
             fig.add_trace(go.Scattergl(x=[0], y=[Re_fit], mode="markers",
                 name=f"Re={Re_fit:.4f} Ω",
@@ -517,7 +538,13 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
             def _cold_plot(col_w, arr, res_key, label, scale, unit, formulas, upstream_tag=""):
                 """Render formula + slider + Plotly chart + number_input.
                 upstream_tag changes the widget key when an upstream scalar changes,
-                which resets this input to the new median automatically."""
+                which resets this input to the new median automatically.
+
+                Each variable is wrapped in a bordered ``st.container`` so the
+                Cold-HBT extracted parameters appear as visually distinct
+                cards within their column slot.
+                """
+                col_w = col_w.container(border=True)
                 for kind, content in formulas:
                     if kind == "latex":
                         col_w.latex(content)

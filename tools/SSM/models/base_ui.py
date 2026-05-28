@@ -423,9 +423,334 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
             f"Cbcx window {last['f_lo']:.2f}–{last['f_hi']:.2f} GHz)")
 
 
+def _render_tau_total_fit_section(*, all_data, fname, model_short,
+                                  params, para_eff):
+    """
+    Multi-file 1/(2πfT) vs 1/IC linear fit (T-model reference only).
+
+    For each bias file in ``all_data``, computes τ_total = 1/(2π f_T) from
+    the de-embedded |h21|² 0-dB crossing.  Plots τ_total (ps) versus 1/IC
+    (1/mA), linear-fits, and reports:
+      - Cje (from slope):  slope = (η kT/q) · CJE  →  CJE = slope / (η · Vt).
+        (Cbc contribution to slope is neglected per Cheng et al., paper Eq. 1.)
+      - τB + τC (from intercept): intercept − (RC + REE) · CBC.
+      - Per-file τCC = (rE + REE + RC) · CBC and τE = rE · CJE,
+        with rE = η kT / (q IC).
+
+    References:
+      - Equation (1) of K. Y. D. Cheng et al., "Hot electron injection
+        effect on the microwave performance of type-I/II AlInP/GaAsSb/InP
+        DHBTs" — supplies the total-delay formula.  Paper notation:
+        REE/RC/rE → code: Rpe/Rpc/(ηkT/qIC).
+      - H. G. Liu, N. Tao, S. P. Watkins, C. R. Bolognesi, "Extraction
+        of the Average Collector Velocity in High-Speed Type-II
+        InP–GaAsSb–InP DHBTs," IEEE EDL 25(12), 2004 — supplies the
+        v_c = W_C/(2 τ_C) split with default v_c = 4×10⁷ cm/s (peak
+        across a 2000 Å InP collector).
+
+    Hidden when ``all_data`` has < 2 files (the fit needs ≥ 2 bias points).
+    The extracted Cje is for reference only — it does NOT feed back into
+    the model's own extracted parameters.
+    """
+    import pandas as pd
+    from pathlib import Path
+    from ..helpers import peel_parasitics, compute_metrics, extract_limit
+
+    if not all_data or len(all_data) < 2:
+        return
+
+    with st.expander("📐 Cje / τB+τC / τCC / τE from 1/(2πfT) vs 1/IC fit  "
+                     "(T-model reference)",
+                     expanded=False):
+        st.caption(
+            "Reference extraction (extracted values do NOT feed back into "
+            "the model fit). Liu, Tao, Watkins, Bolognesi, IEEE EDL 25(12), 2004 'Extraction of the average collector velocity in high-speed Type-II InP-GaAsSb-InP_DHBTs.pdf'")
+        st.latex(
+            r"\frac{1}{2\pi f_T}=\tau_B+\tau_C+\frac{\eta k T}{q I_C}\,C_{JE}"
+            r"+\left(R_C+R_{EE}+\frac{\eta k T}{q I_C}\right)C_{BC}")
+        st.caption(
+            "Notation: REE → emitter access resistance (Rpe here); "
+            "RC → collector access (Rpc here); rE = ηkT/(qIC) → intrinsic "
+            "base-emitter resistance.")
+
+        # ── fT per file (Open+Short de-embedded, access R RETAINED) ─────────
+        # The Cheng formula's RC/REE refer to the access resistance that the
+        # device sees at the fT-measurement plane.  If we used the same
+        # `para_eff` that the model extraction uses, ``peel_parasitics`` would
+        # also strip Rpb/Rpc/Rpe (when sourced from Z-param / open-collector
+        # / Cold-HBT) — that puts the fT plane past the access R and the
+        # (RC+REE)·CBC intercept correction over-subtracts.
+        #
+        # Smart behavior: zero out Rpb/Rpc/Rpe before peeling.  When the user
+        # has NOT entered any pad caps / lead L in the previous section
+        # (because the files are already pre-de-embedded), every C and L in
+        # ``para_eff`` is zero — and peel_parasitics becomes an algebraic
+        # no-op (Y_pad=0, Z_ser=0 → returns Y_dut unchanged).  Otherwise it
+        # peels only the caps and leads, exactly as requested.
+        _para_pad_lead_only = dict(para_eff)
+        _para_pad_lead_only["Rpb"] = 0.0
+        _para_pad_lead_only["Rpc"] = 0.0
+        _para_pad_lead_only["Rpe"] = 0.0
+
+        recs = []
+        for fn, d in all_data.items():
+            try:
+                Y     = peel_parasitics(d["S_raw"], d["freq"], d["z0"],
+                                        _para_pad_lead_only)
+                dfm   = compute_metrics(Y, d["freq"])
+                f_ghz = dfm["Freq (GHz)"].to_numpy()
+                fT_v, _, _ = extract_limit(
+                    f_ghz, dfm["|h21|² (dB)"].to_numpy(),
+                    dfm["fT Plateau (GHz)"].to_numpy(),
+                    n_pts=2,
+                    f_min=float(f_ghz[0]), f_max=float(f_ghz[-1]))
+                fT_GHz   = float(fT_v) if np.isfinite(fT_v) else np.nan
+                tau_tot  = (1.0 / (2.0 * np.pi * fT_GHz * 1e9)
+                            if (np.isfinite(fT_GHz) and fT_GHz > 0) else np.nan)
+                recs.append({"fn": fn, "stem": Path(fn).stem,
+                             "fT_GHz": fT_GHz, "tau_s": tau_tot})
+            except Exception as ex:
+                recs.append({"fn": fn, "stem": Path(fn).stem,
+                             "fT_GHz": np.nan, "tau_s": np.nan,
+                             "err": str(ex)})
+
+        # Sort by fT descending (matches Z-param method's "sort by extracted-
+        # quantity desc" convention — higher fT files appear first).
+        recs.sort(key=lambda r: (r["fT_GHz"] if np.isfinite(r["fT_GHz"])
+                                  else -np.inf),
+                  reverse=True)
+
+        # st.markdown(
+        #     "**Files (fT measured after Open+Short pad/lead de-embedding "
+        #     "— access R RETAINED so RC/REE in the formula remain meaningful; "
+        #     "no-op when the file is already pre-de-embedded):**")
+        hcols = st.columns([0.3, 2.0, 1.2, 1.4, 1.4])
+        for h, t in zip(hcols, ["", "File", "fT (GHz)",
+                                  "τ_total (ps)", "IC (mA)"]):
+            h.markdown(f"<small><b>{t}</b></small>", unsafe_allow_html=True)
+
+        # Per-file checkbox + IC input.  Seed IC from rz12_Ie_{fn} (Z-param's
+        # IE input) since IE ≈ IC in normal HBT operation; the user can refine.
+        points = []   # list of (1/IC[1/mA], τ_total[ps], stem, IC_mA)
+        for r in recs:
+            c0, c1, c2, c3, c4 = st.columns([0.3, 2.0, 1.2, 1.4, 1.4])
+            use_key = f"taut_use_{r['fn']}__{fname}__{model_short}"
+            if use_key not in st.session_state:
+                st.session_state[use_key] = True
+            use = c0.checkbox(f"Use {r['stem']}",
+                              key=use_key + "_w",
+                              value=st.session_state[use_key],
+                              label_visibility="collapsed")
+            st.session_state[use_key] = use
+
+            c1.markdown(f"<small>{r['stem']}</small>", unsafe_allow_html=True)
+            c2.markdown(
+                (f"<small>{r['fT_GHz']:.3f}</small>"
+                 if np.isfinite(r["fT_GHz"]) else "<small>—</small>"),
+                unsafe_allow_html=True)
+            c3.markdown(
+                (f"<small>{r['tau_s']*1e12:.4f}</small>"
+                 if np.isfinite(r["tau_s"]) else "<small>—</small>"),
+                unsafe_allow_html=True)
+
+            ic_key = f"taut_Ic_{r['fn']}__{fname}__{model_short}"
+            if ic_key not in st.session_state:
+                # Default to Z-param Ie (≈ Ic in normal mode), else 0.
+                st.session_state[ic_key] = float(
+                    st.session_state.get(f"rz12_Ie_{r['fn']}", 0.0))
+            ic_mA = c4.number_input(
+                f"IC for {r['stem']}",
+                min_value=0.0, step=0.1, format="%.3f",
+                value=float(st.session_state[ic_key]),
+                key=ic_key + "_w",
+                label_visibility="collapsed")
+            st.session_state[ic_key] = ic_mA
+
+            if use and ic_mA > 0 and np.isfinite(r["tau_s"]):
+                points.append((1.0 / ic_mA,
+                                r["tau_s"] * 1e12,
+                                r["stem"], ic_mA))
+
+        if len(points) < 2:
+            st.info("Enter IC for at least two enabled files to fit.")
+            return
+
+        x = np.array([p[0] for p in points])     # 1/IC (1/mA)
+        y = np.array([p[1] for p in points])     # τ_total (ps)
+        lbls = [p[2] for p in points]
+        try:
+            slope, intercept = np.polyfit(x, y, 1)    # slope: ps·mA, int: ps
+        except Exception as ex:
+            st.error(f"Linear fit failed: {ex}")
+            return
+
+        # ── Plot ──────────────────────────────────────────────────────────────
+        x_fit = np.linspace(0.0, float(x.max() * 1.08), 200)
+        y_fit = slope * x_fit + intercept
+        fig = go.Figure()
+        # Trace names become Excel sheet names in the xlsx download, so they
+        # must avoid characters Excel forbids in sheet titles: / \ ? * [ ]
+        fig.add_trace(go.Scattergl(
+            x=x, y=y, mode="markers+text", text=lbls,
+            textposition="top center", name="τ_total",
+            marker=dict(size=11, color="#1f77b4",
+                        line=dict(color="#0d4a7a", width=1.5))))
+        fig.add_trace(go.Scattergl(
+            x=x_fit, y=y_fit, mode="lines",
+            name=f"Fit  slope={slope:.4g} ps·mA   int={intercept:.4g} ps",
+            line=dict(color="#d62728", width=2, dash="dash")))
+        fig.add_trace(go.Scattergl(
+            x=[0.0], y=[intercept], mode="markers",
+            name=f"Intercept = {intercept:.4f} ps",
+            marker=dict(size=14, symbol="star", color="#d62728")))
+        fig.update_layout(
+            title=f"1/(2π f_T) vs 1/I_C  —  {model_short} model (reference)",
+            xaxis=dict(title="1/I_C (1/mA)", rangemode="tozero",
+                       showgrid=True, gridcolor="#ebebeb"),
+            yaxis=dict(title="τ_total = 1/(2π f_T) (ps)",
+                       showgrid=True, gridcolor="#ebebeb"),
+            plot_bgcolor="white", paper_bgcolor="white", height=380,
+            legend=dict(x=0.45, y=0.05,
+                        xanchor="left", yanchor="bottom",
+                        bgcolor="rgba(255,255,255,0.9)",
+                        bordercolor="#ccc", borderwidth=1,
+                        font=dict(size=10)),
+            margin=dict(l=55, r=20, t=50, b=50))
+        plotly_with_dl(fig,
+                       key=f"taut_fit_{model_short}_{fname}",
+                       filename=f"taut_fit_{model_short}_{fname}")
+
+        # ── Inputs (defaults from current file's extraction) ─────────────────
+        st.markdown("**Inputs (defaults from this file's extraction):**")
+        Re_def  = float(para_eff.get("Rpe", 0.0))
+        Rc_def  = float(para_eff.get("Rpc", 0.0))
+        Cbc_def = (float(params.get("Cbc",  0.0))
+                   + float(params.get("Cbcx", 0.0)))   # total = intrinsic + extrinsic
+
+        ci1, ci2, ci3, ci4, ci5 = st.columns(5)
+        Re_val = ci1.number_input(
+            "Re — REE (Ω)", min_value=0.0, value=Re_def, format="%.4f",
+            key=f"taut_Re_{model_short}_{fname}",
+            help="Emitter access resistance.  Default = Rpe used in extraction.")
+        Rc_val = ci2.number_input(
+            "Rc (Ω)", min_value=0.0, value=Rc_def, format="%.4f",
+            key=f"taut_Rc_{model_short}_{fname}",
+            help="Collector access resistance.  Default = Rpc used in extraction.")
+        Cbc_val_fF = ci3.number_input(
+            "Cbc total (fF)", min_value=0.0,
+            value=Cbc_def * 1e15, format="%.4f",
+            key=f"taut_Cbc_{model_short}_{fname}",
+            help="Total base-collector cap.  Default = Cbc + Cbcx (intrinsic + extrinsic).")
+        eta_val = ci4.number_input(
+            "η (ideality)", min_value=0.5, max_value=3.0,
+            value=1.0, step=0.05, format="%.3f",
+            key=f"taut_eta_{model_short}_{fname}",
+            help="Ideality factor for r_E = η kT/(q IC).  Set this from a "
+                 "Gummel-plot fit of your device (typical InP HBT: 1.0–1.2).")
+        T_K = ci5.number_input(
+            "T (K)", min_value=1.0, value=300.0, step=5.0, format="%.1f",
+            key=f"taut_T_{model_short}_{fname}",
+            help="Temperature for kT/q.")
+
+        Cbc_val = Cbc_val_fF * 1e-15
+        Vt = 1.380649e-23 * T_K / 1.602176634e-19         # kT/q  (V)
+
+        # ── Derived (slope → Cje; intercept → τB+τC) ─────────────────────────
+        # Units conversion: slope is in ps·mA = (s·1e-12)·(A·1e-3) = s·A · 1e-15.
+        # In SI, slope_SI = (η · Vt) · Cje  with  [V · F] = [s · A].
+        # ⇒ Cje[F] = slope_SI / (η · Vt) = slope[ps·mA] · 1e-15 / (η · Vt).
+        # ⇒ Cje[fF] = slope[ps·mA] / (η · Vt[V]).
+        Cje_fF = (slope / (eta_val * Vt)) if (eta_val * Vt) > 0 else 0.0
+        Cje_F  = Cje_fF * 1e-15
+
+        tau_BC_ps = intercept - (Re_val + Rc_val) * Cbc_val * 1e12
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Slope", f"{slope:.4g} ps·mA",
+                  help="d(τ_total)/d(1/I_C) — drives Cje.")
+        m2.metric("Intercept", f"{intercept:.4f} ps",
+                  help="τ_total extrapolated to 1/I_C → 0.")
+        m3.metric("Cje  (ref.)", f"{Cje_fF:.4f} fF",
+                  help="Cje = slope / (η · kT/q).  Reference only.")
+        m4.metric("τB + τC  (ref.)", f"{tau_BC_ps:.4f} ps",
+                  help="τB+τC = intercept − (Rc + Re) · Cbc.")
+
+        # ── Split τB / τC using assumed collector velocity v_c ───────────────
+        # Liu, Tao, Watkins, Bolognesi, IEEE EDL 25(12), 2004 — "Extraction
+        # of the Average Collector Velocity in High-Speed Type-II
+        # InP–GaAsSb–InP DHBTs" — found v_c peaks at 4×10⁷ cm/s across a
+        # 2000 Å InP collector at V_CB ≈ 0.4 V.  Using the same definition
+        # v_c = W_C / (2 τ_C):
+        #     τ_C = W_C / (2 v_c)
+        #     τ_B = (τ_B + τ_C)_intercept − τ_C
+        # Default v_c is the Liu peak for InP collectors; user can edit for
+        # other collector materials / thicknesses / biases.  Publishes to
+        # session state so the τB / τC number_inputs farther down offer a
+        # "v_c = …" quickset button.
+        st.markdown("**Split τB / τC using assumed average collector velocity "
+                    "(Liu et al. 2004 — default for InP collector):**")
+        cv1, cv2, cv3, cv4 = st.columns(4)
+        Wc_nm = cv1.number_input(
+            "W_C (nm)", min_value=1.0, value=120.0, step=10.0, format="%.2f",
+            key=f"taut_Wc_{model_short}_{fname}",
+            help="Collector depletion width.")
+        v_c_cms = cv2.number_input(
+            "v_c (cm/s)", min_value=1.0e5, value=4.0e7,
+            step=1.0e6, format="%.3e",
+            key=f"taut_vc_{model_short}_{fname}",
+            help="Average collector velocity.  Default 4×10⁷ cm/s — peak "
+                 "value extracted for 2000 Å InP collectors in Liu, Tao, "
+                 "Watkins, Bolognesi, IEEE EDL 25(12), 2004.  Adjust for "
+                 "other collector materials / thicknesses / biases.")
+        v_c_ms     = v_c_cms * 1e-2                      # cm/s → m/s
+        Wc_m       = Wc_nm * 1e-9
+        tauC_vc_s  = Wc_m / (2.0 * v_c_ms)               # seconds
+        tauC_vc_ps = tauC_vc_s * 1e12
+        tauB_vc_ps = tau_BC_ps - tauC_vc_ps              # ps
+        tauB_vc_s  = tauB_vc_ps * 1e-12
+
+        cv3.metric("τC  (from v_c)", f"{tauC_vc_ps:.4f} ps",
+                   help="τ_C = W_C / (2 v_c).")
+        cv4.metric("τB  (from v_c)", f"{tauB_vc_ps:.4f} ps",
+                   help="τ_B = (τ_B+τ_C) − τ_C.")
+
+        # Publish v_c-derived values (SI seconds) so τB / τC number_inputs
+        # can read them via the "v_c = …" quickset button.  Stored only when
+        # finite; deleted otherwise so the button auto-hides when the fit
+        # degrades.
+        for pub_key, val in (
+            (f"taut_pub_tauB_{model_short}_{fname}", tauB_vc_s),
+            (f"taut_pub_tauC_{model_short}_{fname}", tauC_vc_s),
+        ):
+            if np.isfinite(val) and abs(val) > 0:
+                st.session_state[pub_key] = float(val)
+            else:
+                st.session_state.pop(pub_key, None)
+
+        # ── Per-file τCC and τE ─────────────────────────────────────────────
+        rows = []
+        for _, tau_total_ps, stem, ic_mA in points:
+            ic_A   = ic_mA * 1e-3
+            rE_i   = (eta_val * Vt) / ic_A if ic_A > 0 else np.nan
+            tau_cc = (rE_i + Re_val + Rc_val) * Cbc_val * 1e12  # ps
+            tau_E  = rE_i * Cje_F * 1e12                         # ps
+            rows.append({
+                "File":              stem,
+                "IC (mA)":           f"{ic_mA:.4f}",
+                "rE = ηkT/(qIC) (Ω)": f"{rE_i:.4f}",
+                "τCC = (rE+Re+Rc)·Cbc (ps)": f"{tau_cc:.4f}",
+                "τE = rE·Cje (ps)":  f"{tau_E:.4f}",
+                "τ_total measured (ps)": f"{tau_total_ps:.4f}",
+            })
+        st.markdown("**Per-file derived delays (using inputs above):**")
+        st.dataframe(pd.DataFrame(rows),
+                     use_container_width=True, hide_index=True)
+
+
 def render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups,
                                     cold_res=None, cold_param_map=None, reextract_fn=None,
-                                    cbex_sweep_fn=None):
+                                    cbex_sweep_fn=None,
+                                    all_data=None, para_eff=None):
 
     """
     For each parameter group, render:
@@ -437,6 +762,10 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
       - (Groups flagged `cbex_sweep_group` only) a Cbex sweep tool that
         searches for the Cbex value that minimises std(Cbcx_arr) across
         the Cbcx-group's selected frequency window.
+      - (Groups flagged `tau_total_fit_group` only) the multi-file
+        1/(2πfT) vs 1/IC reference fit — auto-hidden when only one s2p
+        file is loaded.  Needs ``all_data`` and ``para_eff`` to be passed
+        through; otherwise the group is silently skipped.
     Returns a copy of params with all overrides applied (SI units).
     """
     
@@ -455,6 +784,20 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
             g_label  = group["label"]
             g_params = group["params"]
             g_deps   = group.get("depends_on", [])
+
+            # ── tau_total_fit_group: multi-file 1/(2πfT) vs 1/IC reference ──
+            # Rendered as its own nested expander, so no leading heading.
+            # Silently skips when called from a single-file context or
+            # when the caller didn't pass all_data/para_eff.
+            if group.get("tau_total_fit_group"):
+                if all_data is not None and para_eff is not None:
+                    _render_tau_total_fit_section(
+                        all_data=all_data, fname=fname,
+                        model_short=model_short,
+                        params=live_params, para_eff=para_eff)
+                if g_idx < len(param_groups) - 1:
+                    st.markdown("---")
+                continue
 
             st.markdown(f"**{g_label}**")
 
@@ -796,7 +1139,11 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
             for row_start in range(0, len(valid_specs), 2):
                 row  = valid_specs[row_start:row_start + 2]
                 cols = st.columns(2)
-                for col_w, (arr_key, param_key, label, scale, unit) in zip(cols, row):
+                for _col_outer, (arr_key, param_key, label, scale, unit) in zip(cols, row):
+                    # Wrap each parameter's plot + input + quickset buttons in
+                    # a bordered container so individual extracted parameters
+                    # are visually distinct from each other within a group.
+                    col_w = _col_outer.container(border=True)
                     raw_masked = live_arrays[arr_key][mask]
                     arr_plot   = (np.abs(raw_masked) if np.iscomplexobj(raw_masked)
                                   else np.real(raw_masked)) * scale
@@ -904,6 +1251,35 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                                       cold_disp=_cold_disp,
                                       unit=unit,
                                       fmt="%.4g", layout="below")
+
+                    # Extra quickset buttons sourced from elsewhere in the UI:
+                    #   - τB / τC : v_c-method values published by the
+                    #     tau_total_fit_group section (T-models, ≥2 files).
+                    #   - Rbe     : Z-parameter method result (when run and
+                    #     this DUT is part of the fit).
+                    _extra_qs = []
+                    if param_key in ("tauB", "tauC"):
+                        _pub = st.session_state.get(
+                            f"taut_pub_{param_key}_{model_short}_{fname}")
+                        if _pub is not None and np.isfinite(_pub):
+                            _extra_qs.append(("v_c", float(_pub) * scale))
+                    elif param_key == "Rbe":
+                        _rz_rbe = st.session_state.get(f"rz12_Rbe_{fname}")
+                        if _rz_rbe is not None and np.isfinite(_rz_rbe) \
+                                and abs(_rz_rbe) > 0:
+                            _extra_qs.append(("Z-param", float(_rz_rbe) * scale))
+
+                    if _extra_qs:
+                        _bcols = col_w.columns(len(_extra_qs))
+                        for _bc, (_lbl, _val) in zip(_bcols, _extra_qs):
+                            _btn_text = (f"{_lbl} = {_val:.4g} {unit}"
+                                         if unit else f"{_lbl} = {_val:.4g}")
+                            if _bc.button(_btn_text,
+                                          key=f"{inp_key}_qs_extra_{_lbl}",
+                                          width="stretch",
+                                          help=f"Set {label} to the {_lbl} reference value"):
+                                st.session_state[inp_key + "_pending"] = float(_val)
+                                st.rerun()
 
                     params_out[param_key] = actual_val / scale
 

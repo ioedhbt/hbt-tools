@@ -575,8 +575,13 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                             return _cls.sweep_cbex(_Y, _f, cbex_SI_array, mask)
                         return _fn
                     _cbex_sweep_fn = _make_sweep_fn(ModelClass, Y_ex1, freq)
+                # Gao §5.5.2 cold-HBT "Cex" is the extrinsic base–collector
+                # cap (between the external base and collector contacts) —
+                # i.e. Cbcx in our intrinsic-model nomenclature, NOT Cbex
+                # (extrinsic base–emitter).  Earlier versions of this map
+                # mis-routed Cex_cold into the Cbex slot; corrected here.
                 _cold_map = {
-                    "Cbex": "Cex_cold",
+                    "Cbcx": "Cex_cold",
                     "Rbi":  "Rbi_cold",
                     "Cbc":  "Cbc_cold",
                     "Cbe":  "Cbe_cold",
@@ -585,7 +590,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                     params, arrays, freq, fname, short, ModelClass.PARAM_GROUPS,
                     cold_res=cold_res, cold_param_map=_cold_map,
                     reextract_fn=_reextract_fn,
-                    cbex_sweep_fn=_cbex_sweep_fn)
+                    cbex_sweep_fn=_cbex_sweep_fn,
+                    all_data=all_data, para_eff=para_eff)
 
         # Lay the extracted-parameters table side-by-side with the
         # 📐 Full formula trace expander when the model provides one.
