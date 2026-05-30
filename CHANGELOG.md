@@ -191,6 +191,21 @@ entry under that tool below.
 
 ## B1500A Plot & TLM — [`tools/B1500A_Plot.py`](tools/B1500A_Plot.py)
 
+### v1.1
+- **Diode:** η ideality window now drawn as dashed markers on the plot;
+  extracted saturation current Is, knee/turn-on voltage, rectification ratio,
+  plus forward- and leakage-current readouts at user-set voltages (default
+  ±1 V, clamped to the sweep).
+- **Gummel:** dashed η-window markers on the plot; added β(max) value, the Vb
+  and Ic at which it occurs; switched ideality symbol to η.
+- **Family:** hover shows per-curve DC gain β (parsed from the `Ib=…` column
+  label) and per-curve offset voltage (Ic zero-crossing); added average offset
+  voltage, saturation/output resistance with an adjustable Vc fit window
+  (default = upper 40 % of the sweep, shaded on the plot), Early voltage |VA|,
+  and knee voltage.
+- Extraction controls and results grouped into bordered containers under each
+  plot.
+
 ### v1.0
 - Initial version tracking
 
