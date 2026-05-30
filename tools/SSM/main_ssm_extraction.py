@@ -522,6 +522,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         ModelClass.render_step_formulas()
 
         if use_cache:
+            snap_key = f"ssm_cache_params_snap_{short}_{fname}"
             col_msg, col_btn = st.columns([3, 1])
             col_msg.success(f"📌 Using cached fit (saved {cached_ts}). "
                             "Extraction + interactive section skipped — "
@@ -536,6 +537,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                                    "stays put and will reload next time the "
                                    "file is opened."):
                 st.session_state[reextract_key] = True
+                st.session_state.pop(snap_key, None)
                 st.rerun()
             # Pad keys are owned by Step 1's para_eff — never let a cached
             # pad value (which may legitimately be zero or be stale from a
@@ -544,9 +546,22 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             # also the matching `_PAD_KEYS` exclusion in the cache restore
             # and the auto-save block in base_ui.py.
             from .models.base_ui import _PAD_KEYS as _PAD_KEYS_FILTER
-            params = {k: float(v) for k, v in cached_fit.items()
-                      if isinstance(v, (int, float))
-                      and k not in _PAD_KEYS_FILTER}
+            # Snapshot the cached params ONCE per Run-SSM session.  The
+            # fine-tune section's auto-save (base_ui) rewrites the on-disk
+            # cache on every keystroke; if we re-read `cached_fit` here each
+            # render, `calc_vals` (= para_eff + params) would follow those
+            # saves with a one-render lag, shifting `_override_ui`'s sync
+            # hash and re-syncing — i.e. clobbering the user's NEXT edit
+            # back to the just-saved value (the "type every value twice"
+            # bug).  A stable per-session snapshot keeps calc_vals constant,
+            # so the sync fires once on load and never re-clobbers; live
+            # edits live in the fine-tune widgets' own session_state.
+            if snap_key not in st.session_state:
+                st.session_state[snap_key] = {
+                    k: float(v) for k, v in cached_fit.items()
+                    if isinstance(v, (int, float))
+                    and k not in _PAD_KEYS_FILTER}
+            params = dict(st.session_state[snap_key])
             arrays = {}
         else:
             params, arrays = ModelClass.extract(Y_ex1, freq, n_low)

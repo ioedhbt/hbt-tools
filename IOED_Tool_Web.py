@@ -46,6 +46,7 @@ if not _LOCAL_LAUNCH and not check_password():
 ebeam_calculator = st.Page("tools/ebeam_calculator.py", title="EBL Calculator", icon="🧮")
 gummel_page = st.Page("tools/IOED_Gummel_Analyzer.py", title="Sim Gummel Plot Analyzer", icon="📈")
 rf_page = st.Page("tools/IOED_HBT_RF_extract.py", title="RF S-Parameter Extraction", icon="📡")
+ssm_page = st.Page("tools/SSM_extraction.py", title="HBT SSM Extraction", icon="🔬")
 rf_sim_page = st.Page("tools/RF_simulator.py", title="RF Forward Simulator", icon="🛠️")
 
 # [新增功能]
@@ -56,7 +57,7 @@ csv_process_page = st.Page("tools/csv_process.py", title="Measurement Data Muti-
 
 # 3. 建立側邊欄群組導航選單
 pg = st.navigation({
-    "高頻量測 (RF)": [rf_page, rf_sim_page],
+    "高頻量測 (RF)": [rf_page, ssm_page, rf_sim_page],
     "製程  (Process)": [ebeam_calculator],
     "元件模擬 (TCAD)": [gummel_page],
     "直流量測 (DC)": [b1500a_page, hp4155a_page],

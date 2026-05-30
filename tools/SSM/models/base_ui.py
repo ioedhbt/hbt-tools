@@ -1379,6 +1379,31 @@ def _make_sweep_values(min_val, max_val, step):
     return values
 
 
+def _fmt_eta(seconds) -> str:
+    """Human-readable ETA: seconds under a minute, ``Xm Ys`` under an hour,
+    ``Xh Ym Zs`` beyond an hour."""
+    s = max(0.0, float(seconds))
+    if s < 60.0:
+        return f"{s:.1f}s"
+    total = int(round(s))
+    if total < 3600:
+        m, sec = divmod(total, 60)
+        return f"{m}m {sec}s"
+    h, rem = divmod(total, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}h {m}m {sec}s"
+
+
+def _fmt_eval_time(seconds) -> str:
+    """Total run time as ``xx s (xx h: xx m: xx s)`` — raw seconds plus an
+    hours:minutes:seconds breakdown."""
+    s = max(0.0, float(seconds))
+    total = int(s)
+    h, rem = divmod(total, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{s:.1f} s ({h} h: {m:02d} m: {sec:02d} s)"
+
+
 def _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
                            tuning_specs, fname, topo_key):
     """Sandbox-style slider preview at the top of the Tuning expander.
@@ -2529,6 +2554,9 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         #    so the user doesn't have to read button labels to know
         #    what's what.
         _cpu_tag = "🦀 Rust" if _rust_active_here else "🐢 NumPy"
+        # The backend (Rust vs NumPy) is no longer shown on the CPU button
+        # face — it's surfaced in the hover tooltip instead.
+        _cpu_help_suffix = f"\n\nCPU backend: {_cpu_tag}."
 
         # Modes share a 2-column inner grid (CPU left, CUDA right).
         # When no CUDA is available the right column is dropped.
@@ -2549,14 +2577,14 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 unsafe_allow_html=True)
             _c_cpu, _c_cuda = _action_cols()
             cpu_clicked = _c_cpu.button(
-                f"CPU — {_cpu_tag}",
+                "Brute force with CPU",
                 key=f"tune_calc_{topo_key}_{fname}",
-                help=_calc_all_help,
+                help=_calc_all_help + _cpu_help_suffix,
                 width="stretch")
             cuda_clicked = (
                 _HAS_CUDA
                 and _c_cuda.button(
-                    "⚡ CUDA",
+                    "⚡ Brute force with CUDA",
                     key=f"tune_calc_cuda_{topo_key}_{fname}",
                     help=_calc_all_help,
                     width="stretch"))
@@ -2579,14 +2607,14 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 unsafe_allow_html=True)
             _c_cpu, _c_cuda = _action_cols()
             opt_cpu_clicked = _c_cpu.button(
-                f"CPU — {_cpu_tag}",
+                "Optimized with CPU",
                 key=f"tune_calc_opt_{topo_key}_{fname}",
-                help=_opt_help,
+                help=_opt_help + _cpu_help_suffix,
                 width="stretch")
             opt_cuda_clicked = (
                 _HAS_CUDA
                 and _c_cuda.button(
-                    "⚡ CUDA",
+                    "⚡ Optimized with CUDA",
                     key=f"tune_calc_opt_cuda_{topo_key}_{fname}",
                     help=_opt_help,
                     width="stretch"))
@@ -2616,14 +2644,14 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 key=f"tune_prio_metric_{topo_key}_{fname}")
             _c_cpu, _c_cuda = _action_cols()
             prio_cpu_clicked = _c_cpu.button(
-                f"CPU — {_cpu_tag}",
+                "Prioritized with CPU",
                 key=f"tune_calc_prio_{topo_key}_{fname}",
-                help=_prio_help,
+                help=_prio_help + _cpu_help_suffix,
                 width="stretch")
             prio_cuda_clicked = (
                 _HAS_CUDA
                 and _c_cuda.button(
-                    "⚡ CUDA",
+                    "⚡ Prioritized with CUDA",
                     key=f"tune_calc_prio_cuda_{topo_key}_{fname}",
                     help=_prio_help,
                     width="stretch"))
@@ -3778,7 +3806,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             min(1.0, processed / max(n_total, 1)),
                             text=(f"Tuning{_phase_str} ({_mode_label})… "
                                   f"{processed:,}/{n_total:,} combos  "
-                                  f"({rate:,.0f}/s, ETA {eta:.1f}s)  "
+                                  f"({rate:,.0f}/s, ETA {_fmt_eta(eta)})  "
                                   f"slab={B_inner:,}  ({last_chunk_ms:.1f} ms/iter)"))
                         top_arr_host = _sync_topk_host()
                         if top_arr_host is not None:
@@ -3884,6 +3912,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 # Clear any stale prior-sweep results so the table below
                 # doesn't misleadingly show data from a different setting.
                 st.session_state.pop(sess_key, None)
+                st.session_state.pop(f"tune_elapsed_{topo_key}_{fname}", None)
             else:
                 best_box.empty()
             print(f"\n[tune] done   processed={'?' if cancelled else f'{n_total:,}'}  "
@@ -3990,6 +4019,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             except Exception:
                 pass
             _release_gpu_memory()
+
+            # Persist total wall-clock run time so the results panel can show
+            # "Evaluated in …" above the best-residual line (survives reruns).
+            st.session_state[f"tune_elapsed_{topo_key}_{fname}"] = (
+                _time.time() - _t_start)
 
         # ── Nelder-Mead "Auto" tuning ──────────────────────────────────
         def _run_nelder_mead(*, max_iter: int, restart: bool,
@@ -4503,6 +4537,9 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         df = st.session_state.get(f"tune_df_{topo_key}_{fname}")
         if df is not None:
             best = df.iloc[0]
+            _elapsed = st.session_state.get(f"tune_elapsed_{topo_key}_{fname}")
+            if _elapsed is not None:
+                st.markdown(f"**Evaluated in {_fmt_eval_time(_elapsed)}**")
             st.markdown(
                 _best_summary_md(best, label="Best residual"),
                 unsafe_allow_html=True,
@@ -5009,10 +5046,19 @@ class SSMModelTemplate:
         #    (applied_key resides in session_state, which IOED's "Clear SSM
         #    results" button wipes for the file; so a fresh Run SSM cycle
         #    re-applies the cache).
-        if (cached
-                and not st.session_state.get(applied_key)
+        #
+        #    `applied_key` is set on this first render *whether or not* a cache
+        #    existed.  Critically, when NO cache exists yet, the user's first
+        #    fine-tune edit triggers the auto-save below, which creates a cache
+        #    file.  If `applied_key` were still unset on the next render, this
+        #    branch would see the freshly-written cache and re-apply it —
+        #    clobbering the user's in-progress edit with the previous value
+        #    (the "have to type every value twice" bug).  Setting the flag now
+        #    guarantees the override widgets own session_state from here on.
+        if (not st.session_state.get(applied_key)
                 and not st.session_state.get(dismissed_key)):
-            _apply_cached_to_simstate(cached)
+            if cached:
+                _apply_cached_to_simstate(cached)
             st.session_state[applied_key] = True
 
         # Banner whenever a cache entry exists for this (file, model)
@@ -5063,6 +5109,25 @@ class SSMModelTemplate:
                                  fname=fname, scales=sc,
                                  s2p_bytes=s2p_bytes,
                                  s2p_filename=s2p_filename)
+
+        # τ_total + calculated fmax expander (HBT T/π models only — Kun-Yang
+        # HEMT has no Cbcx/Cbc/Rbi/Rb to evaluate the fmax formula).
+        if cls.SHORT in ("T", "pi", "XuT"):
+            from ..ssm_plots import render_tau_fmax_expander
+            _CBC = float(all_p.get("Cbcx", 0.0)) + float(all_p.get("Cbc", 0.0))
+            _Rbb = float(all_p.get("Rbi", 0.0)) + float(all_p.get("Rpb", 0.0))
+            if cls.SHORT == "pi":
+                _tau_sum = float(all_p.get("tau", 0.0))
+                _tau_lbl, _tau_tex = "τ", r"\tau"
+            else:
+                _tau_sum = float(all_p.get("tauB", 0.0)) + float(all_p.get("tauC", 0.0))
+                _tau_lbl, _tau_tex = "τB + τC", r"\tau_B+\tau_C"
+            render_tau_fmax_expander(key=f"taufmax_{cls.SHORT}_{fname}",
+                                     freq=freq, S_meas=S_raw, S_model=S_sim,
+                                     CBC=_CBC, Rbb=_Rbb,
+                                     tau_sum=_tau_sum, tau_sum_label=_tau_lbl,
+                                     tau_sum_tex=_tau_tex,
+                                     extrap_key=f"ftfmax_card_{cls.SHORT}_{fname}")
 
         # Persist the *current* (post-override) param dict so the Complete
         # Parameter Summary can read live values instead of extraction-time ones.

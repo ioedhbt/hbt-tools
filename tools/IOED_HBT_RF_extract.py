@@ -3,17 +3,17 @@ hbt_rf_tool.py
 ============================
 Main Streamlit application for HBT RF extraction.
 
-SSM Extraction functionality lives entirely in ssm_extraction.py.
-The only SSM-related line in this file is:
-
-    from cheng_extraction import render_ssm_tab
-
-which is then called once inside the "SSM Extraction" sub-tab.
+SSM extraction has moved to its own portal page,
+``tools/SSM_extraction.py`` (sidebar → "HBT SSM Extraction").  The
+Individual tab's "🔬 SSM Extraction" sub-tab here is now just a pointer
+with a "Go there!" button.  This file covers the RF metrics workflow:
+overlay / individual Bode·Plateau·Smith, summary, bulk upload, and the
+3-step de-embedding + batch de-embed tabs.
 
 Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
 repo root.
 """
-__version__ = "6.2"
+__version__ = "1.0"
 
 import hashlib, io, re, zipfile
 from pathlib import Path
@@ -24,7 +24,6 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 
-from tools.SSM.main_ssm_extraction import render_ssm_tab   # ← SSM module (Cheng 2022)
 from tools.SSM.ssm_plots      import render_matplotlib_smith
 from tools.batch_deembedding  import render_batch_deembedding_tab
 from tools.SSM.helpers        import (
@@ -48,14 +47,13 @@ st.title(f"📡 IOED HBT RF Extraction Tool (v{__version__})")
 
 with st.expander(f"What's new in v{__version__}", expanded=False):
     st.markdown(
-        "- ⏱️ **Transit-time extraction from Liu et al.**: in T-model "
-        "extraction (ChengT / XuT) with ≥ 2 s2p files loaded, the SSM "
-        "tab now renders a 1/(2π f_T) vs 1/I_C reference fit before τ_B. "
-        "Linear fit → reference C_JE, τ_B + τ_C; assumed collector "
-        "velocity v_c (default 4×10⁷ cm/s for 2000 Å InP collectors per "
-        "Liu, Tao, Watkins, Bolognesi, IEEE EDL 25(12), 2004) and W_C "
-        "input split τ_B from τ_C, and surface as one-click \"v_c = …\" "
-        "quickset buttons on the τ_B / τ_C inputs."
+        "- 🪧 **SSM extraction moved to its own page.**  The Individual "
+        "tab's \"🔬 SSM Extraction\" sub-tab is now a pointer — find "
+        "**HBT SSM Extraction** in the left sidebar (under 高頻量測 / RF) "
+        "to upload DUT files and run the small-signal model fit.\n"
+        "- This tool keeps the RF metrics workflow: overlay / individual "
+        "Bode · Plateau · Smith, the summary table, bulk upload, and the "
+        "3-step de-embedding + batch de-embed tabs."
     )
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -183,10 +181,10 @@ with st.sidebar:
     f1o=st.file_uploader("Probe Open",  type=["s2p"],key="p1o") if sw1 else None
     f1s=st.file_uploader("Probe Short", type=["s2p"],key="p1s") if sw1 else None
     st.divider()
-    sw2=st.toggle("② Device Dummy (Open-Short)",value=False,help="Required for SSM extraction")
+    sw2=st.toggle("② Device Dummy (Open-Short)",value=False,help="Open-short de-embedding of the device pad parasitics")
     f2o=st.file_uploader("Dev Open",  type=["s2p"],key="d2o") if sw2 else None
     f2s=st.file_uploader("Dev Short", type=["s2p"],key="d2s") if sw2 else None
-    if sw2: st.caption("✅ SSM Extraction tab enabled.")
+    if sw2: st.caption("✅ Device-dummy de-embedding enabled.")
     st.divider()
     sw3=st.toggle("③ Device Thru (Half-Z)",value=False)
     f3t=st.file_uploader("Dev Thru",  type=["s2p"],key="d3t") if sw3 else None
@@ -235,8 +233,8 @@ with col_up2:
 
 s1o=load_cal(f1o) if sw1 else None
 s1s=load_cal(f1s) if sw1 else None
-s2o=load_cal(f2o) if sw2 else None   # passed to render_ssm_tab
-s2s=load_cal(f2s) if sw2 else None   # passed to render_ssm_tab
+s2o=load_cal(f2o) if sw2 else None   # device-dummy open (de-embedding)
+s2s=load_cal(f2s) if sw2 else None   # device-dummy short (de-embedding)
 s3t=load_cal(f3t) if sw3 else None
 
 all_data,errors={},{}
@@ -788,52 +786,15 @@ with tab_ind:
                     default_multiplier=1.0,
                 )
         with td:
-            # Gate key unique per file
-            run_key = f"ssm_run_{n}"
-
-            if not st.session_state.get(run_key, False):
-                st.markdown(" ")
-                col_ctr, _, _ = st.columns([1, 2, 2])
-                if col_ctr.button(
-                    "▶ Run SSM Extraction",
-                    key=f"ssm_btn_{n}",
-                    width="stretch",
-                    type="primary",
-                ):
-                    st.session_state[run_key] = True
-                    # Force cache restore to re-run on this Run SSM cycle:
-                    # if `cache_applied_<short>_<n>` is left over from a
-                    # previous cycle (or a prior session), the auto-restore
-                    # would skip and the fine-tune fields would stay at
-                    # their last-rendered values (often 0).
-                    for _k in list(st.session_state.keys()):
-                        if (_k.startswith("cache_applied_")
-                                or _k.startswith("cache_dismissed_")) \
-                                and _k.endswith(f"_{n}"):
-                            del st.session_state[_k]
-                    st.rerun()
-                st.caption(
-                    "SSM extraction is skipped until activated to keep the app fast. "
-                    "Click above to run it for this file."
-                )
-            else:
-                # Optional: allow the user to reset / clear the results
-                if st.button(
-                    "✕ Clear SSM results",
-                    key=f"ssm_clear_{n}",
-                    help="Frees cached computation for this file.",
-                ):
-                    st.session_state[run_key] = False
-                    # Also clear any downstream caches for this file
-                    for k in list(st.session_state.keys()):
-                        if k.endswith(f"_{n}") and k != run_key:
-                            del st.session_state[k]
-                    st.rerun()
-
-                render_ssm_tab(
-                    n, d["S_raw"], d["freq"], d["z0"],
-                    s2o, s2s, all_data=all_data,
-                )
+            # SSM extraction moved to its own portal page — see the sidebar.
+            st.info(
+                "🔬 **SSM extraction now lives on its own page.**  "
+                "Look for **HBT SSM Extraction** in the left sidebar "
+                "(under 高頻量測 / RF) and upload your DUT files there."
+            )
+            if st.button("Go there! 🔬", key=f"ssm_goto_{n}",
+                         type="primary"):
+                st.switch_page("tools/SSM_extraction.py")
 
         with st.expander("📋 Data Table"):
             if d["df_fin"] is not None:

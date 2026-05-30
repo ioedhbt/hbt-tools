@@ -537,22 +537,23 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
 
     Legend layout
     -------------
-    Plotly horizontal legend with `entrywidth=0.5` (fraction) → 2 entries
-    per row, 2 rows total = the 2x2 grid users asked for (instead of the
-    earlier single-column list of four entries).
+    Vertical legend pinned to the bottom-left INSIDE the plot area (rather
+    than below the chart).  A vertical stack is used instead of a 2x2 grid so
+    the long "Meas. (fT=… GHz)" entries don't overlap in the narrow in-plot box.
 
     Extrapolation
     -------------
     When at least one of the four traces still has gain > 0 dB at the
-    highest measured frequency, a Streamlit radio above the chart lets
+    highest measured frequency, a Streamlit radio UNDERNEATH the chart lets
     the user pick the extrapolation method:
-      • "20 dB/dec"   — slope-locked line anchored at the last data point.
+      • "−20 dB/dec"  — slope-locked line anchored at the last data point.
       • "Single-pole" — log-linear (least-squares) fit over a user-chosen
-                        frequency window (slider).
+                        frequency window (slider, default = final 5 GHz),
+                        placed to the right of the radio.
     Both render as dotted lines in the metric's colour.
 
-    ``compact=True`` widens the bottom margin so the 2x2 legend doesn't
-    clip the X-axis title in narrow-column layouts (Visual Tuning preview).
+    ``compact=True`` is retained for API compatibility (callers still pass it)
+    but no longer changes the margin now that the legend sits inside the plot.
     """
     f_ghz = np.asarray(freq) * 1e-9
     h21_m, U_m = compute_h21_U(S_mea)
@@ -573,28 +574,20 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
         (fT_m_in, h21_m), (fmax_m_in, U_m),
         (fT_s_in, h21_s), (fmax_s_in, U_s)))
 
-    # ── Extrapolation method radio + (optional) single-pole window slider ──
-    extrap_method = "20 dB/dec"
+    # ── Extrapolation method — READ the current selection from session_state
+    #    so the figure can be built BEFORE the radio/slider are drawn.  Those
+    #    widgets live UNDERNEATH the chart (rendered after plotly_with_dl), so
+    #    a Streamlit rerun on change feeds the new value back up here.
+    #    Defaults: −20 dB/dec; single-pole window = final 5 GHz.
+    extrap_method = "−20 dB/dec"
     sp_window: tuple[float, float] | None = None
     if any_needs and len(f_ghz) >= 2:
-        ec1, ec2 = st.columns([1, 2])
-        extrap_method = ec1.radio(
-            "Extrap. method", ["20 dB/dec", "Single-pole"],
-            key=f"{key}_extrap_method", horizontal=True,
-            help="20 dB/dec anchors a slope-locked line at the last data "
-                 "point (textbook fT/fmax projection).  Single-pole fits a "
-                 "log-linear least-squares line over the chosen frequency "
-                 "window — slope is determined by the data and may differ "
-                 "from −20.")
+        extrap_method = st.session_state.get(f"{key}_extrap_method",
+                                             "−20 dB/dec")
         if extrap_method == "Single-pole" and len(f_ghz) >= 4:
             f_lo, f_hi = float(f_ghz[0]), float(f_ghz[-1])
-            sp_default = (max(f_lo, f_hi * 0.5), f_hi)
-            sp_window = ec2.slider(
-                "Single-pole fit window (GHz)",
-                min_value=f_lo, max_value=f_hi,
-                value=st.session_state.get(f"{key}_sp_window", sp_default),
-                step=max((f_hi - f_lo) / 400.0, 1e-3),
-                key=f"{key}_sp_window")
+            sp_default = (max(f_lo, f_hi - 5.0), f_hi)
+            sp_window = st.session_state.get(f"{key}_sp_window", sp_default)
 
     def _do_extrap(gain_db):
         """Return ``(f_ext, g_ext, f0)`` per the selected method, or
@@ -689,8 +682,6 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
 
     x_min = max(float(f_ghz[0]), 1e-2)
     x_max = float(f_high_track) * 1.25 if extrap_used else float(f_ghz[-1])
-    legend_y = -0.32 if compact else -0.22
-    bottom_m = 230 if compact else 200
     fig.update_layout(
         title=dict(text=f"fT / fmax — {model_name}", font=dict(size=12)),
         xaxis=dict(title="Frequency (GHz)", type="log",
@@ -699,17 +690,226 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
         yaxis=dict(title="Gain (dB)", range=[0, 50],
                    showgrid=True, gridcolor="#ebebeb"),
         plot_bgcolor="white", paper_bgcolor="white", height=height,
-        # 2x2 legend via horizontal orientation + entrywidth=50%.
-        # Plotly wraps entries at the legend container width, so with
-        # 4 entries and 50% per entry we get 2 columns × 2 rows.
-        legend=dict(orientation="h", x=0.0, y=legend_y,
-                    xanchor="left", yanchor="top",
-                    entrywidth=0.5, entrywidthmode="fraction",
-                    bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
-                    borderwidth=1, font=dict(size=14)),
+        # Legend pinned bottom-left INSIDE the plot area.  Vertical stack
+        # (not the 2x2 horizontal grid) so the long "Meas. (fT=… GHz)" entries
+        # don't overlap inside the narrow in-plot box.
+        legend=dict(orientation="v", x=0.01, y=0.01,
+                    xanchor="left", yanchor="bottom",
+                    bgcolor="rgba(255,255,255,0.85)", bordercolor="#ccc",
+                    borderwidth=1, font=dict(size=11)),
         hovermode="x unified",
-        margin=dict(l=55, r=20, t=40, b=bottom_m))
+        margin=dict(l=55, r=20, t=40, b=50))
     plotly_with_dl(fig, key=key, filename=key)
+
+    # ── Extrapolation controls UNDERNEATH the chart (radio left, single-pole
+    #    window slider right).  Rendered after the figure so they sit below
+    #    it; the figure above reads these values from session_state on rerun.
+    if any_needs and len(f_ghz) >= 2:
+        ec1, ec2 = st.columns([1, 2])
+        if f"{key}_extrap_method" not in st.session_state:
+            st.session_state[f"{key}_extrap_method"] = "−20 dB/dec"
+        ec1.radio(
+            "Extrap. method", ["−20 dB/dec", "Single-pole"],
+            key=f"{key}_extrap_method", horizontal=True,
+            help="−20 dB/dec anchors a slope-locked line at the last data "
+                 "point (textbook fT/fmax projection).  Single-pole fits a "
+                 "log-linear least-squares line over the chosen window "
+                 "(default = final 5 GHz); slope is set by the data.")
+        if (st.session_state[f"{key}_extrap_method"] == "Single-pole"
+                and len(f_ghz) >= 4):
+            f_lo, f_hi = float(f_ghz[0]), float(f_ghz[-1])
+            sp_default = (max(f_lo, f_hi - 5.0), f_hi)
+            ec2.slider(
+                "Single-pole fit window (GHz)",
+                min_value=f_lo, max_value=f_hi,
+                value=st.session_state.get(f"{key}_sp_window", sp_default),
+                step=max((f_hi - f_lo) / 400.0, 1e-3),
+                key=f"{key}_sp_window")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Helper: τ_total and calculated fmax expander
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _extrap_f0(f_ghz, gain_db, extrap_method, sp_window):
+    """0-dB crossing (GHz) via the selected extrapolation method."""
+    if (extrap_method == "Single-pole" and sp_window is not None
+            and len(f_ghz) >= 4):
+        il = int(np.searchsorted(f_ghz, sp_window[0], side="left"))
+        ih = int(np.searchsorted(f_ghz, sp_window[1], side="right")) - 1
+        il = max(0, min(il, len(f_ghz) - 2))
+        ih = max(il + 1, min(ih, len(f_ghz) - 1))
+        return single_pole_extrap(f_ghz, gain_db, il, ih)[2]
+    return extrap_20dbdec(f_ghz, gain_db)[2]
+
+
+def _eff_ft_fmax_ghz(f_ghz, h21_db, U_db,
+                     extrap_method="−20 dB/dec", sp_window=None):
+    """Effective fT / fmax in GHz: in-band 0-dB crossing if present, else the
+    extrapolated 0-dB frequency using the *selected* method (so this tracks the
+    Bode plot's −20 dB/dec ⇄ single-pole radio)."""
+    fT, fmax = find_ft_fmax(f_ghz, h21_db, U_db)
+    if fT is None:
+        fT = _extrap_f0(f_ghz, h21_db, extrap_method, sp_window)
+    if fmax is None:
+        fmax = _extrap_f0(f_ghz, U_db, extrap_method, sp_window)
+    return fT, fmax
+
+
+def _read_extrap_selection(extrap_key, f_ghz):
+    """Read the extrap-method radio / single-pole window the Bode plot wrote to
+    session_state under ``extrap_key`` so the τ/fmax numbers use the same fT.
+
+    The Bode card is rendered *before* this expander, so its session_state keys
+    already exist on the same run.  Defaults mirror the Bode card: −20 dB/dec,
+    single-pole window = final 5 GHz.
+    """
+    if not extrap_key:
+        return "−20 dB/dec", None
+    method = st.session_state.get(f"{extrap_key}_extrap_method", "−20 dB/dec")
+    sp_window = None
+    if method == "Single-pole" and len(f_ghz) >= 4:
+        f_lo, f_hi = float(f_ghz[0]), float(f_ghz[-1])
+        sp_window = st.session_state.get(f"{extrap_key}_sp_window",
+                                         (max(f_lo, f_hi - 5.0), f_hi))
+    return method, sp_window
+
+
+def _tau_total_ps(fT_ghz):
+    """τ_total = 1/(2π fT) in ps, or None when fT is unavailable."""
+    if fT_ghz is None or fT_ghz <= 0:
+        return None
+    return 1.0 / (2.0 * np.pi * fT_ghz * 1e9) * 1e12
+
+
+def _calc_fmax_ghz(fT_ghz, CBC, Rbb):
+    """fmax = sqrt(fT / (8π·C_BC·R_bb)) in GHz, or None when inputs invalid."""
+    if fT_ghz is None or fT_ghz <= 0 or CBC <= 0 or Rbb <= 0:
+        return None
+    fT_hz = fT_ghz * 1e9
+    return float(np.sqrt(fT_hz / (8.0 * np.pi * CBC * Rbb))) * 1e-9
+
+
+def _fmt_val(v, unit, fmt="{:.3f}"):
+    return f"{fmt.format(v)} {unit}" if v is not None else "n/a"
+
+
+def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
+                             tau_sum=None, tau_sum_label="τB + τC",
+                             tau_sum_tex=r"\tau_B+\tau_C", extrap_key=None):
+    """Expander "Calculated Tau_total and fmax".
+
+    Left column — τ_total = 1/(2π fT), plus the transit-time decomposition
+
+        τ_total = τ_B + τ_C + (nkT/qI_c)·C_je + (R_c + R_e + nkT/qI_c)·C_bc
+
+      where the model's ``tau_sum`` (= τ_B+τ_C for T models, τ for π) is shown
+      and the remaining (charge-storage) term is computed as τ_total − tau_sum.
+
+    Right column — calculated fmax = sqrt(fT / (8π·C_BC·R_bb)) compared with the
+      real (0-dB crossing) fmax.  C_BC / R_bb default to the extracted values
+      (Cbcx+Cbc / Rbi+Rb) but a radio lets the user supply custom values.
+
+    ``S_model`` given (SSM extraction) → measured **and** modeled values (4 fmax
+    values).  Omitted (RF simulator) → single dataset.  ``extrap_key`` points at
+    the Bode card's session_state so fT/fmax follow the selected extrap method.
+    """
+    f_ghz = np.asarray(freq) * 1e-9
+    extrap_method, sp_window = _read_extrap_selection(extrap_key, f_ghz)
+    h21_m, U_m = compute_h21_U(S_meas)
+    fT_m, fmax_m = _eff_ft_fmax_ghz(f_ghz, h21_m, U_m, extrap_method, sp_window)
+    has_model = S_model is not None
+    if has_model:
+        h21_s, U_s = compute_h21_U(S_model)
+        fT_s, fmax_s = _eff_ft_fmax_ghz(f_ghz, h21_s, U_s,
+                                        extrap_method, sp_window)
+
+    tau_m_ps = _tau_total_ps(fT_m)
+    tau_s_ps = _tau_total_ps(fT_s) if has_model else None
+    tau_sum_ps = tau_sum * 1e12 if tau_sum is not None else None
+
+    def _rem(tau_ps):
+        if tau_ps is None or tau_sum_ps is None:
+            return None
+        return tau_ps - tau_sum_ps
+
+    with st.expander("Calculated Tau_total and fmax", expanded=False):
+        col_tau, col_fmax = st.columns(2)
+
+        # ── τ_total ───────────────────────────────────────────────────────
+        with col_tau:
+            st.markdown("**Tau_total**")
+            st.latex(r"\tau_{total}=\frac{1}{2\pi f_T}")
+            st.latex(r"\tau_{total}=\tau_B+\tau_C+\frac{nkT}{qI_c}C_{je}"
+                     r"+\left(R_c+R_e+\frac{nkT}{qI_c}\right)C_{bc}")
+            if has_model:
+                st.markdown(f"Measured: **{_fmt_val(tau_m_ps, 'ps')}**  "
+                            f"(fT = {_fmt_val(fT_m, 'GHz', '{:.2f}')})")
+                st.markdown(f"Modeled: **{_fmt_val(tau_s_ps, 'ps')}**  "
+                            f"(fT = {_fmt_val(fT_s, 'GHz', '{:.2f}')})")
+            else:
+                st.markdown(f"**{_fmt_val(tau_m_ps, 'ps')}**  "
+                            f"(fT = {_fmt_val(fT_m, 'GHz', '{:.2f}')})")
+
+            if tau_sum_ps is not None:
+                st.markdown(f"{tau_sum_label} = **{tau_sum_ps:.4f} ps**")
+
+                # τ_total − (τ_B+τ_C) on the LEFT, the computed charging-time
+                # value on the RIGHT, as a latex equation.
+                def _rem_latex(prefix_lbl, tau_ps):
+                    rem = _rem(tau_ps)
+                    rhs = (f"{rem:.4f}" + r"\,\text{ps}"
+                           if rem is not None else r"\text{n/a}")
+                    lead = (r"\text{" + prefix_lbl + r":}\;") if prefix_lbl else ""
+                    st.latex(lead + r"\tau_{total}-\left(" + tau_sum_tex
+                             + r"\right)=" + rhs)
+
+                if has_model:
+                    _rem_latex("Measured", tau_m_ps)
+                    _rem_latex("Modeled", tau_s_ps)
+                else:
+                    _rem_latex("", tau_m_ps)
+
+                st.caption("Emitter charging time (the nkT/qI_c · C_je term) + "
+                           "collector charging time "
+                           "((R_c+R_e+nkT/qI_c) · C_bc).")
+
+        # ── calculated fmax ───────────────────────────────────────────────
+        with col_fmax:
+            st.markdown("**Calculated fmax**")
+            st.latex(r"f_{max}=\sqrt{\frac{f_T}{8\pi C_{BC} R_{bb}}}")
+
+            src = st.radio("C_BC / R_bb source", ["Extracted", "Custom"],
+                           key=f"{key}_cbcrbb_src", horizontal=True)
+            if src == "Custom":
+                cc1, cc2 = st.columns(2)
+                sk_cbc, sk_rbb = f"{key}_cbc_fF", f"{key}_rbb"
+                if sk_cbc not in st.session_state:
+                    st.session_state[sk_cbc] = float(CBC * 1e15)
+                if sk_rbb not in st.session_state:
+                    st.session_state[sk_rbb] = float(Rbb)
+                cc1.number_input("C_BC (fF)", min_value=0.0, step=0.1,
+                                 format="%.4f", key=sk_cbc)
+                cc2.number_input("R_bb (Ω)", min_value=0.0, step=0.1,
+                                 format="%.4f", key=sk_rbb)
+                CBC_use = float(st.session_state[sk_cbc]) * 1e-15
+                Rbb_use = float(st.session_state[sk_rbb])
+            else:
+                CBC_use, Rbb_use = CBC, Rbb
+                st.caption(f"C_BC = Cbcx + Cbc = {CBC * 1e15:.4f} fF , "
+                           f"R_bb = Rbi + Rb = {Rbb:.4f} Ω")
+
+            if has_model:
+                st.markdown(
+                    f"Measured: calc **{_fmt_val(_calc_fmax_ghz(fT_m, CBC_use, Rbb_use), 'GHz', '{:.2f}')}** "
+                    f"| real **{_fmt_val(fmax_m, 'GHz', '{:.2f}')}**")
+                st.markdown(
+                    f"Modeled: calc **{_fmt_val(_calc_fmax_ghz(fT_s, CBC_use, Rbb_use), 'GHz', '{:.2f}')}** "
+                    f"| real **{_fmt_val(fmax_s, 'GHz', '{:.2f}')}**")
+            else:
+                st.markdown(
+                    f"calc **{_fmt_val(_calc_fmax_ghz(fT_m, CBC_use, Rbb_use), 'GHz', '{:.2f}')}** "
+                    f"| real **{_fmt_val(fmax_m, 'GHz', '{:.2f}')}**")
 
 
 # ════════════════════════════════════════════════════════════════════════════════

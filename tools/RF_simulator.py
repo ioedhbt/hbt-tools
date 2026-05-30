@@ -11,7 +11,7 @@ repo root.
 """
 from __future__ import annotations
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 import numpy as np
 import streamlit as st
@@ -31,11 +31,12 @@ from tools.SSM.models.kunyang  import (KunYangHEMT,
                                         _EXT_KY_SPECS, _INT_KY_SPECS,
                                         _KY_PAD_SPECS, _DEFAULT_PARAMS as _KY_DEFAULT_PARAMS)
 from tools.SSM.models.base_ui  import PAD_SPECS
-from tools.SSM.ssm_plots       import render_matplotlib_smith
+from tools.SSM.ssm_plots       import (render_matplotlib_smith,
+                                        render_tau_fmax_expander)
 from tools.SSM.helpers         import (extended_smith_grid,
                                         write_s2p, simulate_open, simulate_short,
                                         compute_h21_U, find_ft_fmax,
-                                        extrap_20dbdec,
+                                        extrap_20dbdec, single_pole_extrap,
                                         FT_FMAX_SYMBOLS, FT_FMAX_COLORS,
                                         plotly_with_dl, fig_to_excel_bytes,
                                         make_smith_bode_slider_fig)
@@ -350,7 +351,7 @@ def _render_rfsim_live_slider_preview(model_cls, all_p, freq, mults, prefix: str
                             key=f"rfsim_slpreview_smith_{prefix}")
         with col_b:
             st.markdown("**Preview fT / fmax**")
-            st.plotly_chart(_build_bode(S_prev, freq, model_cls.NAME),
+            st.plotly_chart(_build_bode(S_prev, freq, model_cls.NAME)[0],
                             width="stretch",
                             key=f"rfsim_slpreview_bode_{prefix}")
 
@@ -638,10 +639,37 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
         st.iframe(html, height=iframe_height)
 
 
-def _build_bode(S, freq_hz, title: str):
+def _build_bode(S, freq_hz, title: str, *,
+                extrap_method: str = "−20 dB/dec", sp_window=None):
+    """Build the fT/fmax Bode figure.
+
+    Returns ``(fig, any_needs)`` where ``any_needs`` is True when at least one
+    trace still has positive gain at the top of the band (i.e. extrapolation is
+    required to project a 0-dB crossing).  ``extrap_method`` selects the
+    projection: ``"−20 dB/dec"`` (slope-locked) or ``"Single-pole"`` (log-linear
+    least-squares fit over ``sp_window=(f_lo, f_hi)`` in GHz).
+    """
     f_ghz_local = freq_hz * 1e-9
     h21_db, U_db = compute_h21_U(S)
     fT, fmax = find_ft_fmax(f_ghz_local, h21_db, U_db)
+
+    def _needs(in_val, gain):
+        if in_val is not None:
+            return False
+        with np.errstate(invalid="ignore"):
+            return bool(np.nanmax(gain) > 0)
+    any_needs = _needs(fT, h21_db) or _needs(fmax, U_db)
+
+    def _extrap(y):
+        if (extrap_method == "Single-pole" and sp_window is not None
+                and len(f_ghz_local) >= 4):
+            il = int(np.searchsorted(f_ghz_local, sp_window[0], side="left"))
+            ih = int(np.searchsorted(f_ghz_local, sp_window[1], side="right")) - 1
+            il = max(0, min(il, len(f_ghz_local) - 2))
+            ih = max(il + 1, min(ih, len(f_ghz_local) - 1))
+            r = single_pole_extrap(f_ghz_local, y, il, ih)
+            return r[0], r[1], r[2]
+        return extrap_20dbdec(f_ghz_local, y)
 
     fig = go.Figure()
     f_high_track = float(f_ghz_local[-1])
@@ -659,7 +687,7 @@ def _build_bode(S, freq_hz, title: str):
         into the legend entry so fT/fmax always show.
         """
         nonlocal f_high_track, extrap_used
-        f_ext, g_ext, f0 = extrap_20dbdec(f_ghz_local, y)
+        f_ext, g_ext, f0 = _extrap(y)
         ext_val = f0 if f_ext is not None else None
         legend_name = f"{base_name}  [{_meas_lbl(kind, in_val, ext_val)}]"
         fig.add_trace(go.Scatter(x=f_ghz_local, y=y, mode="lines+markers",
@@ -696,13 +724,54 @@ def _build_bode(S, freq_hz, title: str):
         yaxis=dict(title="Gain (dB)", range=[0, 50],
                    showgrid=True, gridcolor="#ebebeb"),
         plot_bgcolor="white", paper_bgcolor="white", height=560,
-        legend=dict(orientation="h", x=0.5, y=-0.18,
-                    xanchor="center", yanchor="top",
+        # Legend pinned bottom-left INSIDE the plot area (paper coords,
+        # anchored bottom-left) instead of below the chart.
+        legend=dict(orientation="v", x=0.01, y=0.01,
+                    xanchor="left", yanchor="bottom",
                     bgcolor="rgba(255,255,255,0.92)",
-                    bordercolor="#ccc", borderwidth=1, font=dict(size=18)),
-        hovermode="x unified", margin=dict(l=55, r=20, t=40, b=180),
+                    bordercolor="#ccc", borderwidth=1, font=dict(size=13)),
+        hovermode="x unified", margin=dict(l=55, r=20, t=40, b=50),
     )
-    return fig
+    return fig, any_needs
+
+
+def _render_bode_block(S, freq_hz, title: str, key: str):
+    """Render the fT/fmax Bode plot, then (if extrapolation is needed) an
+    extrapolation-method radio (left) and single-pole window slider (right)
+    UNDERNEATH the chart.  The figure reads the current selection from
+    session_state, so a Streamlit rerun on widget change feeds it back here.
+    """
+    f_ghz_local = freq_hz * 1e-9
+    method = st.session_state.get(f"{key}_extrap_method", "−20 dB/dec")
+    sp_window = None
+    if method == "Single-pole" and len(f_ghz_local) >= 4:
+        f_lo, f_hi = float(f_ghz_local[0]), float(f_ghz_local[-1])
+        sp_window = st.session_state.get(f"{key}_sp_window",
+                                         (max(f_lo, f_hi - 5.0), f_hi))
+    fig, any_needs = _build_bode(S, freq_hz, title,
+                                 extrap_method=method, sp_window=sp_window)
+    plotly_with_dl(fig, key=key, filename=key)
+
+    if any_needs and len(f_ghz_local) >= 2:
+        ec1, ec2 = st.columns([1, 2])
+        if f"{key}_extrap_method" not in st.session_state:
+            st.session_state[f"{key}_extrap_method"] = "−20 dB/dec"
+        ec1.radio(
+            "Extrap. method", ["−20 dB/dec", "Single-pole"],
+            key=f"{key}_extrap_method", horizontal=True,
+            help="−20 dB/dec anchors a slope-locked line at the last data "
+                 "point.  Single-pole fits a log-linear line over the chosen "
+                 "window (default = final 5 GHz).")
+        if (st.session_state[f"{key}_extrap_method"] == "Single-pole"
+                and len(f_ghz_local) >= 4):
+            f_lo, f_hi = float(f_ghz_local[0]), float(f_ghz_local[-1])
+            sp_default = (max(f_lo, f_hi - 5.0), f_hi)
+            ec2.slider(
+                "Single-pole fit window (GHz)",
+                min_value=f_lo, max_value=f_hi,
+                value=st.session_state.get(f"{key}_sp_window", sp_default),
+                step=max((f_hi - f_lo) / 400.0, 1e-3),
+                key=f"{key}_sp_window")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -915,9 +984,25 @@ else:
         )
     with col_bode:
         st.markdown(f"**fT / fmax — {model_cls.NAME}**")
-        plotly_with_dl(_build_bode(S_sim, freq, model_cls.NAME),
-                       key=f"rfsim_bode_{prefix}",
-                       filename=f"rfsim_bode_{prefix}")
+        _render_bode_block(S_sim, freq, model_cls.NAME,
+                           key=f"rfsim_bode_{prefix}")
+
+    # τ_total + calculated fmax expander — every SSM model except Kun-Yang
+    # HEMT (which lacks Cbcx/Cbc/Rbi/Rb for the fmax formula).
+    if model_cls is not KunYangHEMT:
+        _CBC = float(p.get("Cbcx", 0.0)) + float(p.get("Cbc", 0.0))
+        _Rbb = float(p.get("Rbi", 0.0)) + float(p.get("Rpb", 0.0))
+        if model_cls is ChengPi:
+            _tau_sum = float(p.get("tau", 0.0))
+            _tau_lbl, _tau_tex = "τ", r"\tau"
+        else:
+            _tau_sum = float(p.get("tauB", 0.0)) + float(p.get("tauC", 0.0))
+            _tau_lbl, _tau_tex = "τB + τC", r"\tau_B+\tau_C"
+        render_tau_fmax_expander(key=f"rfsim_taufmax_{prefix}", freq=freq,
+                                 S_meas=S_sim, CBC=_CBC, Rbb=_Rbb,
+                                 tau_sum=_tau_sum, tau_sum_label=_tau_lbl,
+                                 tau_sum_tex=_tau_tex,
+                                 extrap_key=f"rfsim_bode_{prefix}")
 
     from tools.SSM.ssm_plots import render_matplotlib_smith
 

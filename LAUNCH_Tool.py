@@ -87,6 +87,209 @@ def cupy_pip_name(cuda_major):
     return mapping.get(cuda_major)
 
 
+# ── Auto-update from the canonical GitHub repo ────────────────────────────────
+# Updates always come from the project's OFFICIAL repository below, regardless
+# of how the user obtained the files (zip download, or a git clone of a fork).
+# Two code paths:
+#   • git checkout present  → safe `git fetch <canonical> + merge --ff-only`
+#     (never clobbers a contributor's uncommitted work; needs git, which a
+#      cloner already has);
+#   • no .git/ (zip install) → pure-Python GitHub API + zipball download via
+#     urllib (NO git binary required), overlaid onto the install folder.
+
+REPO_OWNER  = "ioedhbt"
+REPO_NAME   = "hbt-tools"
+REPO_BRANCH = "IOED-Tools"
+CANONICAL_URL = f"https://github.com/{REPO_OWNER}/{REPO_NAME}.git"
+_GH_API       = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
+_HTTP_UA      = f"{REPO_NAME}-launcher"
+_SHA_MARKER   = ROOT / ".hbttools_update_sha"   # last-applied commit (zip path)
+
+# Top-level names the zip overlay must NEVER overwrite/recurse into.
+_PROTECT_TOP  = {".hbttools", ".hbttools_build", ".git", _SHA_MARKER.name}
+
+
+def _autoupdate_disabled():
+    return os.environ.get("HBT_NO_AUTOUPDATE", "").strip().lower() in {
+        "1", "true", "yes", "on"}
+
+
+# ---- git checkout path (safe, ff-only, forces the canonical remote) ----------
+
+def _git(args, timeout=30):
+    """Run `git -C ROOT <args>`; return (returncode, combined_output) or
+    (None, "") when git isn't installed / times out."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(ROOT), *args],
+            capture_output=True, text=True, timeout=timeout)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None, ""
+
+
+def _update_git_checkout():
+    rc, _ = _git(["rev-parse", "--is-inside-work-tree"])
+    if rc != 0:
+        print("  Git checkout but git isn't available — skipping. "
+              "(install git, or set HBT_NO_AUTOUPDATE=1 to silence.)")
+        return
+    # Never update over uncommitted *tracked* edits (a developer at work).
+    rc, dirty = _git(["status", "--porcelain", "--untracked-files=no"])
+    if rc == 0 and dirty.strip():
+        print("  Local changes detected — skipping auto-update. "
+              "(commit/stash, or set HBT_NO_AUTOUPDATE=1 to silence.)")
+        return
+    print("  Checking for updates…")
+    # Fetch the canonical branch explicitly (NOT `origin`), so updates come
+    # from the official repo even if the user cloned a fork.
+    rc, _ = _git(["fetch", CANONICAL_URL, REPO_BRANCH, "--quiet"], timeout=30)
+    if rc != 0:
+        print("  Offline or GitHub unreachable — using the local version.")
+        return
+    rc, counts = _git(["rev-list", "--count", "--left-right",
+                       "FETCH_HEAD...HEAD"])
+    try:
+        behind, ahead = (int(x) for x in counts.split())
+    except (ValueError, AttributeError):
+        return
+    if behind == 0:
+        print("  Already up to date.")
+        return
+    if ahead > 0:
+        print(f"  Local branch is ahead by {ahead} commit(s) — skipping "
+              "to avoid a merge.")
+        return
+    print(f"  {behind} new commit(s) available — updating…")
+    rc, out = _git(["merge", "--ff-only", "FETCH_HEAD", "--quiet"], timeout=60)
+    if rc == 0:
+        print("  ✓ Updated to the latest version. "
+              "(launcher changes apply next run)")
+    else:
+        reason = (out.strip().splitlines() or ["unknown error"])[0]
+        print(f"  Could not fast-forward ({reason}); keeping current version.")
+
+
+# ---- zip-install path (pure Python, no git binary needed) --------------------
+
+def _http_get(url, timeout, accept):
+    import urllib.request
+    req = urllib.request.Request(
+        url, headers={"Accept": accept, "User-Agent": _HTTP_UA})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def _remote_head_sha():
+    """Latest commit SHA of the canonical branch (GitHub REST API)."""
+    import json
+    raw = _http_get(f"{_GH_API}/commits/{REPO_BRANCH}", 20,
+                    "application/vnd.github+json")
+    return json.loads(raw.decode("utf-8")).get("sha")
+
+
+def _stored_sha():
+    try:
+        return (_SHA_MARKER.read_text(encoding="utf-8").strip() or None)
+    except OSError:
+        return None
+
+
+def _overlay_tree(src, dst):
+    """Copy every file from `src` over `dst` (add/replace only — never delete),
+    skipping protected top-level entries (venv, .git, the SHA marker)."""
+    import shutil, stat as _stat
+    for item in src.rglob("*"):
+        rel = item.relative_to(src)
+        if rel.parts and rel.parts[0] in _PROTECT_TOP:
+            continue
+        target = dst / rel
+        if item.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if target.exists():
+                try:
+                    os.chmod(target, _stat.S_IWRITE)   # clear read-only (Win)
+                except OSError:
+                    pass
+            shutil.copy2(item, target)
+        except OSError as e:
+            # One locked/in-use file shouldn't abort the whole update.
+            print(f"    (skipped {rel}: {e})")
+
+
+def _purge_project_pycache():
+    """Drop project __pycache__ so freshly-overlaid .py files aren't shadowed
+    by stale bytecode.  The venv's caches are left untouched."""
+    import shutil
+    targets = [ROOT / "__pycache__"]
+    tools = ROOT / "tools"
+    if tools.is_dir():
+        targets += list(tools.rglob("__pycache__"))
+    for pc in targets:
+        if pc.is_dir():
+            shutil.rmtree(pc, ignore_errors=True)
+
+
+def _update_zip_install():
+    import io, zipfile, tempfile
+    print("  Checking for updates…")
+    try:
+        remote = _remote_head_sha()                 # also the connectivity test
+    except Exception:
+        print("  Offline or GitHub unreachable — using the local version.")
+        return
+    if not remote:
+        return
+    if _stored_sha() == remote:
+        print("  Already up to date.")
+        return
+    print(f"  New version available ({remote[:7]}) — downloading…")
+    try:
+        blob = _http_get(f"{_GH_API}/zipball/{REPO_BRANCH}", 180,
+                         "application/zip")
+    except Exception as e:
+        print(f"  Download failed ({e}); keeping current version.")
+        return
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+                zf.extractall(tdp)
+            tops = [p for p in tdp.iterdir() if p.is_dir()]
+            if len(tops) != 1:                      # GitHub wraps in one folder
+                raise RuntimeError("unexpected archive layout")
+            _overlay_tree(tops[0], ROOT)
+    except Exception as e:
+        print(f"  Update failed ({e}); keeping current version.")
+        return
+    try:
+        _SHA_MARKER.write_text(remote, encoding="utf-8")
+    except OSError:
+        pass
+    _purge_project_pycache()
+    print("  ✓ Updated to the latest version. (launcher changes apply next run)")
+
+
+def auto_update():
+    """Update the install to the latest canonical commit (best-effort).
+
+    Picks the git path for git checkouts (safe, never clobbers local edits)
+    and the pure-Python zip path otherwise (works with no git installed).
+    Any failure is non-fatal — the launcher continues with the current code.
+    """
+    if _autoupdate_disabled():
+        print("Auto-update disabled (HBT_NO_AUTOUPDATE set).")
+        return
+    print(f"Auto-update — source: {REPO_OWNER}/{REPO_NAME}@{REPO_BRANCH}")
+    if (ROOT / ".git").exists():
+        _update_git_checkout()
+    else:
+        _update_zip_install()
+
+
 # ── Venv helpers ──────────────────────────────────────────────────────────────
 
 def run(cmd, **kwargs):
@@ -189,6 +392,15 @@ def main():
         print("Make sure LAUNCH_Tool.py and IOED_Tool_Web.py are in the same folder.")
         _pause_if_interactive()
         sys.exit(1)
+
+    # ── Pull the latest version from GitHub (best-effort) ─────────────────────
+    # Runs before venv setup so any updated requirements / code are picked up
+    # this same launch.  Works with or without git installed; silently skipped
+    # when offline, opted out, or when a git checkout has local edits.
+    try:
+        auto_update()
+    except Exception as _upd_exc:        # never let an update hiccup block launch
+        print(f"Auto-update skipped ({_upd_exc}).")
 
     # ── Detect CUDA and build the full package list ───────────────────────────
     cuda_major = detect_cuda_major()

@@ -11,6 +11,60 @@ entry under that tool below.
 
 ## RF S-Parameter Extraction — [`tools/IOED_HBT_RF_extract.py`](tools/IOED_HBT_RF_extract.py)
 
+### v1.0
+- 🪧 **SSM extraction split out into its own page**
+  ([`tools/SSM_extraction.py`](tools/SSM_extraction.py), versioned
+  independently from v6.3 — see below). The Individual tab's
+  "🔬 SSM Extraction" sub-tab is now a pointer with a **Go there!**
+  button that switches to the new page. This tool retains the RF
+  metrics workflow (overlay / individual Bode·Plateau·Smith, summary,
+  bulk upload, 3-step de-embedding + batch de-embed). The version
+  history below (v4–v6) predates the split and is preserved under the
+  **HBT SSM Extraction** heading, since that line of work became the
+  SSM page.
+
+---
+
+## HBT SSM Extraction — [`tools/SSM_extraction.py`](tools/SSM_extraction.py)
+
+### v6.3
+- 🪧 **Promoted to its own portal page** (split out of the RF
+  S-Parameter Extraction tool's Individual tab). Upload DUT
+  `.s2p`/`.csv` bias files — plus an optional device-dummy Open/Short
+  pair for pad de-embedding — directly on this page
+- 🧮 **"Calculated Tau_total and fmax" expander** under the
+  measured-vs-modeled fT/fmax card for HBT T/π models (ChengT /
+  ChengPi / XuT — not Kun-Yang). Left column: τ_total = 1/(2π f_T)
+  with the full transit-time decomposition
+  τ_total = τ_B + τ_C + (nkT/qI_c)·C_je + (R_c + R_e + nkT/qI_c)·C_bc;
+  the model's τ_B+τ_C (T) or τ (π) is shown and the charge-storage
+  term is reported as τ_total − (τ_B+τ_C), i.e. the emitter + collector
+  charging times. Right column: calculated
+  **f_max = √(f_T / (8π·C_BC·R_bb))** (C_BC = Cbcx+Cbc, R_bb = Rbi+Rb)
+  compared against the real 0-dB-crossing f_max — for **both** measured
+  and modeled (4 f_max values) — with a radio to switch C_BC / R_bb
+  between the extracted values and custom inputs
+- 📈 **Bode extrapolation control** rendered beneath the fT/fmax card:
+  when a trace needs extrapolation, a radio picks **−20 dB/dec** or
+  **single-pole** (least-squares fit over a window slider to the radio's
+  right, defaulting to the final 5 GHz). The τ_total / f_max numbers in
+  the expander follow whichever method is selected. The legend moved to
+  the bottom-left **inside** the plot (vertical stack) instead of below it
+- ⏱️ **Auto Tuning**: live ETA now rolls into minutes past 60 s and
+  hours past 60 min; a total **"Evaluated in xx s (xx h: xx m: xx s)"**
+  run time is shown above the best-residual line and persists across
+  reruns. The six sweep buttons were relabeled to **Brute force /
+  Optimized / Prioritized with CPU / CUDA** (the Rust/NumPy backend
+  moved from the button face into the hover tooltip)
+- 🐞 **Fine-tune cache fix**: fine-tune values no longer have to be
+  entered twice. Two coupled causes were fixed — (1) the base_ui cache
+  auto-restore now runs exactly once per Run-SSM cycle (the applied flag
+  is set even when no cache existed); (2) the cache-first flow now
+  **snapshots the cached params once per session** instead of re-reading
+  the on-disk cache every render, so the per-keystroke auto-save can't
+  feed back into `calc_vals`, shift the override sync hash, and clobber
+  the next keystroke with the just-saved value
+
 ### v6.2
 - ⏱️ **Transit-time extraction (Liu et al. method)** for T-topology
   models (ChengT / XuT): when ≥ 2 s2p files are loaded, a new
@@ -170,6 +224,16 @@ entry under that tool below.
 
 ## RF Forward Simulator — [`tools/RF_simulator.py`](tools/RF_simulator.py)
 
+### v1.1
+- 🧮 **"Calculated Tau_total and fmax" expander** below the Smith /
+  fT-fmax row for every SSM model except Kun-Yang: τ_total = 1/(2π f_T)
+  with the τ_B+τ_C (or τ) split and charge-storage residual, plus
+  calculated f_max = √(f_T / (8π·C_BC·R_bb)) vs the real f_max, with an
+  Extracted/Custom C_BC / R_bb toggle (shared helper with the SSM tab)
+- 📈 **Bode extrapolation control** beneath the fT/fmax plot: −20 dB/dec
+  or single-pole (window slider, default = final 5 GHz); the legend now
+  sits bottom-left inside the plot
+
 ### v1.0
 - Initial version tracking
 
@@ -222,3 +286,23 @@ entry under that tool below.
 
 ### v1.0
 - Initial version tracking
+
+---
+
+## Launcher & Portal — [`LAUNCH_Tool.py`](LAUNCH_Tool.py) / [`IOED_Tool_Web.py`](IOED_Tool_Web.py)
+
+### 2026-05-31
+- ⬇️ **Auto-update on local launch** from the **canonical repo**
+  (`ioedhbt/hbt-tools@IOED-Tools`, hardcoded — not the user's `origin`),
+  run before venv setup so app/code/requirement updates land the same
+  launch. Two paths: a **git checkout** does a safe
+  `git fetch <canonical> + merge --ff-only` (never clobbers uncommitted
+  tracked edits); a **zip install with no git** uses a pure-Python
+  GitHub API + zipball download via `urllib` (no git binary, no extra
+  pip deps) overlaid onto the folder, with the last-applied commit
+  tracked in `.hbttools_update_sha`. Best-effort and non-destructive:
+  protects the venv / `.git` / user data, never deletes files, and is
+  silently skipped when offline. Opt out with `HBT_NO_AUTOUPDATE=1`.
+  (Launcher self-changes apply on the next run.)
+- 🔬 **HBT SSM Extraction registered as its own portal page** (sidebar →
+  高頻量測 / RF), split out of the RF S-Parameter Extraction tool.
