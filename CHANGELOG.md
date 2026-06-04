@@ -242,7 +242,21 @@ entry under that tool below.
 ## EBL Calculator — [`tools/ebeam_calculator.py`](tools/ebeam_calculator.py)
 
 ### v1.2
-- Fixed out-of-memory crash on Streamlit Cloud when uploading large GDS files: coordinates are now stored as compact numpy arrays instead of Python lists, the gdstk library is freed (with `gc.collect()`) right after parsing, and a polygon/vertex budget surfaces a clear error instead of OOM-killing the app. GDS parse cache bounded to one entry.
+- Fixed out-of-memory crash on Streamlit Cloud when uploading large (heavily
+  arrayed) GDS files. The parser now flattens array/AREF references by tiling
+  coordinates with numpy (`_flatten_local`) instead of materializing millions
+  of polygon objects, and stores each layer as flat float64 arrays
+  (`_PolyLayer`, ~16 B/vertex, no per-polygon Python objects). A 27 MB file
+  expanding to ~3 M polygons / 12 M vertices now parses in <0.1 s at ~250 MB
+  peak (was ~940 MB+). The gdstk library is freed with `gc.collect()` after
+  parsing, the parse cache is bounded to one entry, and a polygon/vertex
+  budget surfaces a clear error instead of OOM-killing the app.
+- Workflow modes (Dose Time / First Exposure / Second Alignment) now gate on
+  polygon count: layers above 50 k polygons render as a dashed bounding box
+  (Plotly can't draw millions of polygons) and the Time Calculator uses a
+  vectorized per-cell area estimate (exact total for non-overlapping masks)
+  instead of the per-polygon gdstk clip. Bounding-box / area helpers and
+  `_layer_bbox_mm` are vectorized for `_PolyLayer`.
 
 ### v1.1
 - Chip Size selector switched to μm presets; resolution is now displayed live
