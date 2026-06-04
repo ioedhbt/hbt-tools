@@ -10,8 +10,9 @@ repo root.
 """
 from __future__ import annotations
 
-__version__ = "1.1"
+__version__ = "1.2"
 
+import gc
 import math
 import os
 import tempfile
@@ -283,9 +284,27 @@ def _hex_to_rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({r}, {g}, {b}, {alpha})"
 
 
-@st.cache_data(show_spinner="Parsing GDS…")
+# Safety budget so a pathological GDS (e.g. arrays/references that
+# flatten into tens of millions of polygons) fails with a clear message
+# instead of OOM-killing the whole app on memory-limited hosts like
+# Streamlit Community Cloud. Tuned to stay well under ~1 GB: each stored
+# polygon costs raw coordinate bytes (~16 B/vertex) plus per-polygon
+# Python/numpy object overhead, and polygon count dominates that overhead.
+_MAX_POLYGONS = 3_000_000
+_MAX_VERTICES = 25_000_000
+
+
+@st.cache_data(show_spinner="Parsing GDS…", max_entries=1)
 def _load_gds(file_bytes: bytes):
-    """Parse GDS → (unit_meters, {cell_name: {(l,d): [(xs, ys), ...]}})."""
+    """Parse GDS → (unit_meters, {cell_name: {(l,d): [(xs, ys), ...]}}).
+
+    Coordinates are stored as numpy ``float64`` arrays (not Python lists)
+    to keep memory down — ``.tolist()`` would create one Python float
+    object per coordinate, roughly quadrupling RAM and crashing on large
+    masks. Raises ``ValueError`` if the flattened geometry exceeds the
+    polygon/vertex budget, so the caller can surface a friendly error
+    rather than letting the process get OOM-killed.
+    """
     # gdstk.read_gds requires a filesystem path, so spill to a temp file.
     with tempfile.NamedTemporaryFile(suffix=".gds", delete=False) as tmp:
         tmp.write(file_bytes)
@@ -298,17 +317,44 @@ def _load_gds(file_bytes: bytes):
         except OSError:
             pass
 
+    unit = float(lib.unit)
     out: dict = {}
-    for cell in lib.top_level():
-        by_layer: dict = {}
-        for p in cell.get_polygons(depth=None):
-            key = (int(p.layer), int(p.datatype))
-            pts = p.points
-            by_layer.setdefault(key, []).append(
-                (pts[:, 0].tolist(), pts[:, 1].tolist())
-            )
-        out[cell.name] = by_layer
-    return float(lib.unit), out
+    total_polys = 0
+    total_verts = 0
+    try:
+        for cell in lib.top_level():
+            by_layer: dict = {}
+            # depth=None flattens the full hierarchy; on masks built from
+            # arrays of references this can explode, so meter it against
+            # the budget as we go.
+            for p in cell.get_polygons(depth=None):
+                key = (int(p.layer), int(p.datatype))
+                pts = p.points
+                total_polys += 1
+                total_verts += pts.shape[0]
+                if (total_polys > _MAX_POLYGONS
+                        or total_verts > _MAX_VERTICES):
+                    raise ValueError(
+                        f"GDS is too large to render in this app "
+                        f"(reached {total_polys:,} polygons / "
+                        f"{total_verts:,} vertices after flattening). "
+                        "Flatten/merge the hierarchy or expose a single "
+                        "layer in a smaller file, then re-upload."
+                    )
+                # Store owning column copies (raw float64, not Python
+                # float objects). Copies — not views — so the data
+                # survives after the gdstk polygon/library is freed and
+                # we don't retain the parent (N, 2) array.
+                by_layer.setdefault(key, []).append(
+                    (pts[:, 0].copy(), pts[:, 1].copy())
+                )
+            out[cell.name] = by_layer
+    finally:
+        # Drop the gdstk library (and its internal C++ geometry) before
+        # returning so its memory isn't held alongside our copy.
+        del lib
+        gc.collect()
+    return unit, out
 
 
 def _layer_trace(name: str, polys: list, color: str) -> go.Scatter:

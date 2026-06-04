@@ -241,6 +241,9 @@ entry under that tool below.
 
 ## EBL Calculator — [`tools/ebeam_calculator.py`](tools/ebeam_calculator.py)
 
+### v1.2
+- Fixed out-of-memory crash on Streamlit Cloud when uploading large GDS files: coordinates are now stored as compact numpy arrays instead of Python lists, the gdstk library is freed (with `gc.collect()`) right after parsing, and a polygon/vertex budget surfaces a clear error instead of OOM-killing the app. GDS parse cache bounded to one entry.
+
 ### v1.1
 - Chip Size selector switched to μm presets; resolution is now displayed live
 - Added Time Calculator to each workflow mode — computes filled resolution boxes, exposure + stage-movement time, total as HH:MM:SS; empty grids are hidden in the result plot
