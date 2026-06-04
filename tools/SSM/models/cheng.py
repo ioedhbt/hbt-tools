@@ -912,13 +912,13 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
     }
     PARAM_GROUPS  = [
         {
-            "label":      "Step 2 — Cbex  (from Im(Y₁₁+Y₁₂)/ω, low-freq range)",
+            "label":      "Step 2 — Cbex  (from Im(Y₁₁+Y₁₂)/ω)",
             "params":     [("Cbex_arr", "Cbex", "Cbex", 1e15, "fF")],
             "depends_on": [],
             "cbex_sweep_group": True,
             "formulas": [
                 ("markdown", "**[Eq. 13]:**"),
-                ("latex", r"C_{bex}^T=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}\big|_{\omega\to0}"),
+                ("latex", r"C_{bex}^T=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}"),
             ],
         },
         {

@@ -21,28 +21,30 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
     """
     Show and return the unified pad parameter set used by all models.
 
-    Priority for Rb/Rc/Re: highest value among available sources
-    (Short Step 1b, Cold-HBT, Z-parameter method) is pre-selected.
+    Rb/Rc/Re default to Custom = 0 Ω.  Available extracted sources
+    (Cold-HBT, Z-parameter method, Open-collector) can be selected
+    instead; Short (Step 1b) is intentionally not offered.
 
     Returns
     -------
     para_eff : dict   Effective pad parameters (SI units).
     """
     # st.divider()
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
-        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>⚙️ Choose Series Resistance</strong></div>",
-        unsafe_allow_html=True)
+    # st.markdown(
+    #     "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
+    #     "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
+    #     "margin-bottom:2px'><strong>⚙️ Choose Series Resistance</strong></div>",
+    #     unsafe_allow_html=True)
     # st.caption(
     #     "All pad parameters feeding every model extraction.  \n"
     #     "For Rb/Rc/Re the source with the highest value is pre-selected.")
     para_eff = para_step1.copy()
 
-    # Collect all available resistance sources
-    src_Rb = {"Short (Step 1b)": para_step1.get("Rpb", 0.0)}
-    src_Rc = {"Short (Step 1b)": para_step1.get("Rpc", 0.0)}
-    src_Re = {"Short (Step 1b)": para_step1.get("Rpe", 0.0)}
+    # Collect available resistance sources.  Short (Step 1b) is intentionally
+    # NOT offered — series R defaults to Custom = 0 Ω (see below).
+    src_Rb: dict[str, float] = {}
+    src_Rc: dict[str, float] = {}
+    src_Re: dict[str, float] = {}
     if cold_res is not None:
         src_Rb["Cold-HBT"] = float(cold_res.get("Rb_cold", 0.0))
         src_Rc["Cold-HBT"] = float(cold_res.get("Rc_cold", 0.0))
@@ -56,7 +58,6 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
     if ocm_Re is not None: src_Re["Open-collector"] = float(ocm_Re)
 
 
-    def _best(d): return max(d, key=lambda k: d[k])
     def _src_lbl(k, v): return f"{k}: {v:.4f} Ω"
 
     _cap_keys = ["Cpbe","Cpce","Cpbc"]
@@ -74,26 +75,25 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
             st.session_state[f"preov_{k}_{fname}"] = para_step1.get(k, 0.0) * 1e12
         st.session_state[f"preov_step1_hash_{fname}"] = _step1_hash
 
-    for var, sources in [("Rb",src_Rb),("Rc",src_Rc),("Re",src_Re)]:
+    for var in ("Rb", "Rc", "Re"):
         sk_src = f"preov_src_{var}_{fname}"
         sk_val = f"preov_{var}_{fname}"
+        # Default to Custom = 0 Ω (Short Step 1b is no longer an option).
         if sk_src not in st.session_state:
-            st.session_state[sk_src] = _best(sources)
+            st.session_state[sk_src] = "Custom"
         if sk_val not in st.session_state:
-            st.session_state[sk_val] = sources.get(st.session_state[sk_src],
-                                                    list(sources.values())[0])
+            st.session_state[sk_val] = 0.0
 
     with st.expander("✏️ Choose series resistance", expanded=False):
-        if st.button("↩️ Reset all to defaults (highest source)",
+        if st.button("↩️ Reset all to defaults (Custom = 0 Ω)",
                      key=f"preov_reset_{fname}"):
             for k in _cap_keys:
                 st.session_state[f"preov_{k}_{fname}"] = para_step1.get(k,0.0) * 1e15
             for k in _ind_keys:
                 st.session_state[f"preov_{k}_{fname}"] = para_step1.get(k,0.0) * 1e12
-            for var, sources in [("Rb",src_Rb),("Rc",src_Rc),("Re",src_Re)]:
-                bk = _best(sources)
-                st.session_state[f"preov_src_{var}_{fname}"] = bk
-                st.session_state[f"preov_{var}_{fname}"]     = sources[bk]
+            for var in ("Rb", "Rc", "Re"):
+                st.session_state[f"preov_src_{var}_{fname}"] = "Custom"
+                st.session_state[f"preov_{var}_{fname}"]     = 0.0
             st.rerun()
 
         # st.markdown("**Pad capacitances** *(from Open, single source)*")
@@ -110,7 +110,7 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
         #                              ("Le","Le (pH)")]):
         #     col_w.number_input(lbl, key=f"preov_{k}_{fname}", format="%.3f", step=0.1)
 
-        st.markdown("**Series resistances** *(choose source — default = highest)*")
+        st.markdown("**Series resistances** *(choose source — default = Custom 0 Ω)*")
         for var, sources, label in [
             ("Rb", src_Rb, "**Rb = Rpb** — base"),
             ("Rc", src_Rc, "**Rc = Rpc** — collector"),
@@ -119,8 +119,10 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
             src_opts  = list(sources.keys()) + ["Custom"]
             sk_src    = f"preov_src_{var}_{fname}"
             sk_val    = f"preov_{var}_{fname}"
-            cur_src   = st.session_state.get(sk_src, _best(sources))
-            if cur_src not in src_opts: cur_src = src_opts[0]
+            cur_src   = st.session_state.get(sk_src, "Custom")
+            # Fall back to Custom (not the first source) for stale/invalid
+            # selections — e.g. a previously-stored "Short (Step 1b)".
+            if cur_src not in src_opts: cur_src = "Custom"
             radio_lbls = [_src_lbl(k, v) for k, v in sources.items()] + ["Custom"]
             cur_idx    = src_opts.index(cur_src)
             st.markdown(label)

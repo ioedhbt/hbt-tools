@@ -209,7 +209,8 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color, *,
               show_sp: bool = False,
               sp_window_idx=None,
               extrap_f_max=None,
-              return_extrap_df: bool = False):
+              return_extrap_df: bool = False,
+              return_excel_bytes: bool = False):
     """
     Individual Bode plot.
 
@@ -233,6 +234,11 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color, *,
     (method, gain) pair.  Measured values are used below the highest measured
     frequency; extrapolated values are used above it.  Empty if no extrap is
     enabled or possible.
+
+    When ``return_excel_bytes`` is true, returns ``(fig, xlsx_bytes)`` using the
+    standardised fT/fmax export (:func:`bode_excel_bytes`): a simulated block
+    (freq + each gain trace) plus, when extrapolation is in play, a
+    side-by-side extrapolated block.  ``None`` when there is nothing to export.
     """
     fig = go.Figure(); f = df["Freq (GHz)"].values
     hov = "Freq:%{x:.4f}GHz<br>Gain:%{y:.4f}dB<extra></extra>"
@@ -240,6 +246,7 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color, *,
     f_high_track = float(f[-1]) if len(f) else float(xr[1])
     extrap_used  = False
     extrap_curves: dict = {}  # key -> (f_ext, g_ext, f_zero)
+    sim_traces: list = []     # (label, y_db) for the standardised xlsx export
 
     def _add_20db(y_vals, color_, kind, key):
         nonlocal f_high_track, extrap_used
@@ -287,6 +294,7 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color, *,
             line=dict(color=_c_fT, width=1.4),
             marker=dict(symbol=FT_FMAX_SYMBOLS["h21"], size=6, color=_c_fT),
             hovertemplate=hov))
+        sim_traces.append(("|h21|² (dB)", y))
         if show_20db: _add_20db(y, _c_fT, "fT",      "h21_20db")
         if show_sp:   _add_sp  (y, _c_fT, "fT",      "h21_sp")
     if su:
@@ -296,6 +304,7 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color, *,
             line=dict(color=_c_fmax, width=1.4),
             marker=dict(symbol=FT_FMAX_SYMBOLS["U"], size=6, color=_c_fmax),
             hovertemplate=hov))
+        sim_traces.append(("Mason U (dB)", y))
         if show_20db: _add_20db(y, _c_fmax, "fmax(U)", "U_20db")
         if show_sp:   _add_sp  (y, _c_fmax, "fmax(U)", "U_sp")
     if smag:
@@ -305,12 +314,28 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color, *,
             line=dict(color=_c_fmax, width=1.4),
             marker=dict(symbol=FT_FMAX_SYMBOLS["MAG"], size=6, color=_c_fmax),
             hovertemplate=hov))
+        sim_traces.append(("MAG/MSG (dB)", y))
 
     fig.add_hline(y=0, line_dash="dash", line_color="black")
 
     # Auto-extend x-range if extrapolation pushes past xr[1]
     xr_eff = (xr[0], max(float(xr[1]), float(f_high_track) * 1.05)) if extrap_used else xr
     fig.update_layout(**bode_layout(f"Bode — {title}", "Gain (dB)", yr, xr_eff))
+
+    if return_excel_bytes:
+        from .chart_export import bode_excel_bytes
+        # Map the internal extrap-curve keys to stable, human-readable column
+        # labels for the side-by-side extrapolated block.
+        _extrap_labels = {
+            "h21_20db": "|h21|² −20 dB/dec (dB)",
+            "h21_sp":   "|h21|² Single-pole (dB)",
+            "U_20db":   "Mason U −20 dB/dec (dB)",
+            "U_sp":     "Mason U Single-pole (dB)",
+        }
+        extrap_traces = [
+            (_extrap_labels.get(k, k), c[0], c[1])
+            for k, c in extrap_curves.items()]
+        return fig, bode_excel_bytes(f, sim_traces, extrap_traces)
 
     if return_extrap_df:
         return fig, _build_bode_extrap_df(df, extrap_curves, sh21, su)

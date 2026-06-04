@@ -90,6 +90,7 @@ from .plotly_plots import (
 # ── chart_export ─────────────────────────────────────────────────────────────
 from .chart_export import (
     fig_to_excel_bytes,
+    bode_excel_bytes,
     plotly_with_dl,
     build_excel,
     metric_card,

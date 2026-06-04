@@ -702,12 +702,12 @@ with tab_ind:
                           bool(show_20db), bool(show_sp), sp_window_idx,
                           xr, yr, bool(sh21), bool(su), bool(smag), c,
                           f_max_target)
-            fig_bode, extrap_df = _cached_fig(_bode_key, lambda: make_bode(
+            fig_bode, bode_xl = _cached_fig(_bode_key, lambda: make_bode(
                 df_p, Path(n).stem, xr, yr, sh21, su, smag, c,
                 show_20db=show_20db, show_sp=show_sp,
                 sp_window_idx=sp_window_idx,
                 extrap_f_max=f_max_target,
-                return_extrap_df=True))
+                return_excel_bytes=True))
             st.plotly_chart(fig_bode, width="stretch")
 
             # ── K-factor sub-plot (controlled by the global "K factor"
@@ -749,14 +749,14 @@ with tab_ind:
                     _build_ind_kfactor)
                 st.plotly_chart(_k_fig, width="stretch")
 
-            # ── Excel download for extrapolated/fitted data ──────────────────
-            if extrap_df is not None and not extrap_df.empty:
-                _buf = io.BytesIO()
-                extrap_df.to_excel(_buf, index=False, engine="openpyxl")
+            # ── Excel download (standardised fT/fmax export) ─────────────────
+            # One xlsx button: simulated columns (freq + each gain trace) and,
+            # when extrapolation is in play, a side-by-side extrapolated block.
+            if bode_xl is not None:
                 st.download_button(
-                    "📥 Download extrapolated data (Excel)",
-                    data=_buf.getvalue(),
-                    file_name=f"{Path(n).stem}_bode_extrap.xlsx",
+                    "⬇ xlsx",
+                    data=bode_xl,
+                    file_name=f"{Path(n).stem}_bode.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key=f"bode_dl_{n}")
         with tb:
@@ -779,12 +779,27 @@ with tab_ind:
                     Path(n).stem, max_r=smith_max_r))
                 st.plotly_chart(_smith_fig, width="stretch")
             with smith_sub_mpl:
-                render_matplotlib_smith(
-                    fname=n, topo_key="meas",
-                    sets=[{"S": d["S_fin"], "label": Path(n).stem,
-                           "kind": "line", "style": "solid"}],
-                    default_multiplier=1.0,
-                )
+                # Two-column split (chart left, controls right) + auto
+                # frequency-range annotation — same pattern as the SSM
+                # extraction tab and RF simulator.  freq_hz is in Hz.
+                _mpl_freq_hz = df_p["Freq (GHz)"].values * 1e9
+                col_mpl_left, col_mpl_right = st.columns([1.2, 1])
+                with col_mpl_right:
+                    render_matplotlib_smith(
+                        fname=n, topo_key="meas",
+                        sets=[{"S": d["S_fin"], "label": Path(n).stem,
+                               "kind": "line", "style": "solid"}],
+                        default_multiplier=1.0,
+                        phase="controls", freq_hz=_mpl_freq_hz,
+                    )
+                with col_mpl_left:
+                    render_matplotlib_smith(
+                        fname=n, topo_key="meas",
+                        sets=[{"S": d["S_fin"], "label": Path(n).stem,
+                               "kind": "line", "style": "solid"}],
+                        default_multiplier=1.0,
+                        phase="chart", freq_hz=_mpl_freq_hz,
+                    )
         with td:
             # SSM extraction moved to its own portal page — see the sidebar.
             st.info(

@@ -527,7 +527,7 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
             st.pyplot(fig_abcd)
             plt.close(fig_abcd)
 
-        with st.expander("📊 Extracted Parameters vs Frequency — Interactive", expanded=False):
+        with st.expander("📊 Interactive Parameter Extraction", expanded=False):
             f_ghz_c = f_grid * 1e-9
             f_min_v = float(f_ghz_c[0])
             f_max_v = float(f_ghz_c[-1])

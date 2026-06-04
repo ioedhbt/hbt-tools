@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 
 from .helpers          import (open_elem_Y, s_to_y, y_to_z,
                                 peel_parasitics, simulate_open,
-                                plotly_with_dl, info_icon_html,
+                                plotly_with_dl, bode_excel_bytes, info_icon_html,
                                 compute_h21_U, find_ft_fmax, extrap_20dbdec,
                                 single_pole_extrap,
                                 FT_FMAX_SYMBOLS, FT_FMAX_COLORS)
@@ -278,10 +278,17 @@ def _rlc_params_summary(p, fname):
 
 def _compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix,
                         label_a, label_b, color_a, color_b,
-                        smith_meas_label, smith_sim_label, gain_title):
+                        smith_meas_label, smith_sim_label, gain_title,
+                        extra_download_fn=None):
     """Render a side-by-side bode (h21² + Mason U) and Smith chart comparing
     two S-parameter datasets.  Used by both the OS-deembedded and intrinsic
-    preview sections."""
+    preview sections.
+
+    ``extra_download_fn`` (optional) is called as ``fn(fT_b, fmax_b)`` once the
+    right-hand trace's fT/fmax are known, and must return a
+    ``(label, data_bytes, file_name, mime)`` tuple.  It is forwarded to the
+    Smith chart's ``plotly_with_dl`` so the download sits beside that chart's
+    ⬇ xlsx button (used to expose the S2P download next to the Smith chart)."""
     from .models.base_ui import smith_scale_controls
 
     f_ghz = freq * 1e-9
@@ -301,6 +308,10 @@ def _compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix,
     fig = go.Figure()
     f_high_track = float(f_ghz[-1])
     extrap_used = False
+    # Collected for the standardised fT/fmax xlsx export (simulated +
+    # extrapolated columns).  Labels match across the two lists.
+    sim_traces:    list[tuple[str, np.ndarray]] = []
+    extrap_traces: list[tuple[str, np.ndarray, np.ndarray]] = []
 
     # Standardised colours (FT_FMAX_COLORS):  fT trace (h21) = blue, fmax
     # trace (U) = red.  The two datasets A vs B differ by **line dash**
@@ -314,9 +325,10 @@ def _compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix,
     _c_fT, _c_fmax = FT_FMAX_COLORS["fT"], FT_FMAX_COLORS["fmax"]
     del color_a, color_b  # explicitly drop — they no longer drive trace colour
 
-    def _add(y_arr, name_fmt, color, symbol, kind, in_val, dash=None):
+    def _add(y_arr, name_fmt, color, symbol, kind, in_val, dl_label, dash=None):
         """Plot one trace and append the (in-band or extrap) value to its
         legend name.  ``name_fmt`` must include a ``{lbl}`` placeholder.
+        ``dl_label`` is the stable column header used in the xlsx export.
         """
         nonlocal f_high_track, extrap_used
         f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, y_arr)
@@ -329,18 +341,20 @@ def _compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix,
             x=f_ghz, y=y_arr, mode="lines+markers", name=legend_name,
             line=line_kw,
             marker=dict(symbol=symbol, size=6, color=color)))
+        sim_traces.append((dl_label, y_arr))
         if f_ext is not None:
             extrap_used = True
             f_high_track = max(f_high_track, f0)
+            extrap_traces.append((dl_label, f_ext, g_ext))
             fig.add_trace(go.Scattergl(
                 x=f_ext, y=g_ext, mode="lines", name=f"{legend_name} extrap",
                 line=dict(color=color, width=1.6, dash="dot"),
                 showlegend=False))
 
-    _add(h21_a, f"|h21|² {label_a}  [{{lbl}}]", _c_fT,   FT_FMAX_SYMBOLS["h21"], "fT",   fT_a)
-    _add(U_a,   f"Mason U {label_a}  [{{lbl}}]", _c_fmax, FT_FMAX_SYMBOLS["U"],   "fmax", fmax_a)
-    _add(h21_b, f"|h21|² {label_b}  [{{lbl}}]", _c_fT,   FT_FMAX_SYMBOLS["h21"], "fT",   fT_b, dash="dash")
-    _add(U_b,   f"Mason U {label_b}  [{{lbl}}]", _c_fmax, FT_FMAX_SYMBOLS["U"],   "fmax", fmax_b, dash="dash")
+    _add(h21_a, f"|h21|² {label_a}  [{{lbl}}]", _c_fT,   FT_FMAX_SYMBOLS["h21"], "fT",   fT_a,   f"|h21|² {label_a} (dB)")
+    _add(U_a,   f"Mason U {label_a}  [{{lbl}}]", _c_fmax, FT_FMAX_SYMBOLS["U"],   "fmax", fmax_a, f"Mason U {label_a} (dB)")
+    _add(h21_b, f"|h21|² {label_b}  [{{lbl}}]", _c_fT,   FT_FMAX_SYMBOLS["h21"], "fT",   fT_b,   f"|h21|² {label_b} (dB)", dash="dash")
+    _add(U_b,   f"Mason U {label_b}  [{{lbl}}]", _c_fmax, FT_FMAX_SYMBOLS["U"],   "fmax", fmax_b, f"Mason U {label_b} (dB)", dash="dash")
 
     fig.add_hline(y=0, line_color="#333", line_width=1.2,
                   annotation_text="0 dB", annotation_position="right",
@@ -374,15 +388,19 @@ def _compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix,
     with col_gain:
         st.markdown(f"**{gain_title}**")
         plotly_with_dl(fig, key=f"bode_{key_suffix}_{fname}",
-                       filename=f"bode_{key_suffix}_{fname}")
+                       filename=f"bode_{key_suffix}_{fname}",
+                       excel_bytes=bode_excel_bytes(f_ghz, sim_traces, extrap_traces))
     with col_smith:
         st.markdown(f"**S-Parameters: {smith_meas_label} vs {smith_sim_label}**")
         err = ssm_residual(S_a, S_b)
+        _extra_dl = (extra_download_fn(fT_b, fmax_b)
+                     if extra_download_fn is not None else None)
         render_smith_chart(S_a, S_b, f"{smith_meas_label} vs {smith_sim_label}",
                            err, sc, key=f"smith_{key_suffix}_{fname}",
                            show_title=False,
                            meas_label=smith_meas_label,
-                           sim_label=smith_sim_label)
+                           sim_label=smith_sim_label,
+                           extra_download=_extra_dl)
 
     return fT_b, fmax_b   # return the right-hand trace's fT/fmax for download header
 
@@ -397,11 +415,11 @@ def render_os_deemb_preview(S_raw, freq, z0, para_step1, fname):
     """
     from .helpers import y_to_s_batch, write_s2p
 
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#e8f5e9 0%,transparent 100%);"
-        "border-left:4px solid #2e7d32;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📊 Raw vs Open/Short De-embedded</strong></div>",
-        unsafe_allow_html=True)
+    # st.markdown(
+    #     "<div style='background:linear-gradient(90deg,#e8f5e9 0%,transparent 100%);"
+    #     "border-left:4px solid #2e7d32;padding:8px 14px;border-radius:0 6px 6px 0;"
+    #     "margin-bottom:2px'><strong>📊 Raw vs Open/Short De-embedded</strong></div>",
+    #     unsafe_allow_html=True)
 
     Y_step1 = peel_parasitics(S_raw, freq, z0, para_step1)
     S_step1 = y_to_s_batch(Y_step1, z0)
@@ -431,30 +449,26 @@ def render_os_deemb_preview(S_raw, freq, z0, para_step1, fname):
             "**OS de-embedded** = Open+Short parasitics removed using Step 1a/1b "
             "extracted values (Cpbe/Cpce/Cpbc + Lb/Lc/Le + short-dummy Rs).")
 
+        # OS de-embedded S2P download — sits beside the Smith chart's
+        # ⬇ xlsx button (built from the right-hand trace's fT/fmax).
+        def _os_extra_dl(fT_b, fmax_b):
+            p_hdr = _rlc_params_summary(para_step1, fname)
+            p_hdr["fT"]   = f"{fT_b:.3f} GHz"   if fT_b   is not None else "n/a"
+            p_hdr["fmax"] = f"{fmax_b:.3f} GHz" if fmax_b is not None else "n/a"
+            return ("📥 OSdeembedded_*.s2p",
+                    write_s2p(freq, S_step1,
+                              title=f"OS de-embedded — {Path(fname).stem}",
+                              params=p_hdr),
+                    f"OSdeembedded_{Path(fname).stem}.s2p",
+                    "text/plain")
+
         fT_os, fmax_os = _compare_bode_smith(
             S_a=S_raw, S_b=S_step1, freq=freq, fname=fname, key_suffix="osdeemb",
             label_a="Raw", label_b="OS de-embedded",
             color_a="#2ca02c", color_b="#1f77b4",
             smith_meas_label="Raw", smith_sim_label="OS de-embedded",
-            gain_title="Gain vs Frequency — Raw vs OS De-embedded")
-
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#e8f5e9 0%,transparent 100%);"
-        "border-left:4px solid #2e7d32;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin:8px 0 2px 0'><strong>📥 Download Open/Short De-embedded S2P</strong></div>",
-        unsafe_allow_html=True)
-    p_hdr = _rlc_params_summary(para_step1, fname)
-    p_hdr["fT"]   = f"{fT_os:.3f} GHz"   if fT_os   is not None else "n/a"
-    p_hdr["fmax"] = f"{fmax_os:.3f} GHz" if fmax_os is not None else "n/a"
-    st.download_button(
-        "📥 OSdeembedded_*.s2p",
-        data=write_s2p(freq, S_step1,
-                       title=f"OS de-embedded — {Path(fname).stem}",
-                       params=p_hdr),
-        file_name=f"OSdeembedded_{Path(fname).stem}.s2p",
-        mime="text/plain",
-        key=f"dl_osdeemb_{fname}",
-        width="stretch")
+            gain_title="Gain vs Frequency — Raw vs OS De-embedded",
+            extra_download_fn=_os_extra_dl)
 
     return S_step1
 
@@ -470,13 +484,13 @@ def render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname,
     """
     from .helpers import y_to_s_batch, write_s2p
 
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#0d737722 0%,transparent 100%);"
-        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📊 OS De-embedded vs Intrinsic</strong>"
-        f"{info_icon_html('OS de-embedded = Open/Short calibration only (Step 2). Intrinsic = OS calibration + access-resistance Rb/Rc/Re removal using the values selected in Pre-Extraction Review above.')}"
-        "</div>",
-        unsafe_allow_html=True)
+    # st.markdown(
+    #     "<div style='background:linear-gradient(90deg,#0d737722 0%,transparent 100%);"
+    #     "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
+    #     "margin-bottom:2px'><strong>📊 OS De-embedded vs Intrinsic</strong>"
+    #     f"{info_icon_html('OS de-embedded = Open/Short calibration only (Step 2). Intrinsic = OS calibration + access-resistance Rb/Rc/Re removal using the values selected in Pre-Extraction Review above.')}"
+    #     "</div>",
+    #     unsafe_allow_html=True)
 
     if S_step1 is None:
         Y_step1 = peel_parasitics(S_raw, freq, z0, para_step1)
@@ -486,30 +500,26 @@ def render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname,
     S_pareff = y_to_s_batch(Y_pareff, z0)
 
     with st.expander("📊 Plots", expanded=False):
+        # Intrinsic S2P download — sits beside the Smith chart's ⬇ xlsx button
+        # (built from the right-hand trace's fT/fmax).
+        def _intrinsic_extra_dl(fT_b, fmax_b):
+            p_hdr = _rlc_params_summary(para_eff, fname)
+            p_hdr["fT"]   = f"{fT_b:.3f} GHz"   if fT_b   is not None else "n/a"
+            p_hdr["fmax"] = f"{fmax_b:.3f} GHz" if fmax_b is not None else "n/a"
+            return ("📥 intrinsic_*.s2p",
+                    write_s2p(freq, S_pareff,
+                              title=f"Intrinsic — {Path(fname).stem}",
+                              params=p_hdr),
+                    f"intrinsic_{Path(fname).stem}.s2p",
+                    "text/plain")
+
         fT_in, fmax_in = _compare_bode_smith(
             S_a=S_step1, S_b=S_pareff, freq=freq, fname=fname, key_suffix="intrinsic",
             label_a="OS de-embedded", label_b="Intrinsic",
             color_a="#1f77b4", color_b="#e67e22",
             smith_meas_label="OS de-embedded", smith_sim_label="Intrinsic",
-            gain_title="Gain vs Frequency — OS De-embedded vs Intrinsic")
-
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#0d737722 0%,transparent 100%);"
-        "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin:8px 0 2px 0'><strong>📥 Download Intrinsic S2P</strong></div>",
-        unsafe_allow_html=True)
-    p_hdr = _rlc_params_summary(para_eff, fname)
-    p_hdr["fT"]   = f"{fT_in:.3f} GHz"   if fT_in   is not None else "n/a"
-    p_hdr["fmax"] = f"{fmax_in:.3f} GHz" if fmax_in is not None else "n/a"
-    st.download_button(
-        "📥 intrinsic_*.s2p",
-        data=write_s2p(freq, S_pareff,
-                       title=f"Intrinsic — {Path(fname).stem}",
-                       params=p_hdr),
-        file_name=f"intrinsic_{Path(fname).stem}.s2p",
-        mime="text/plain",
-        key=f"dl_intrinsic_{fname}",
-        width="stretch")
+            gain_title="Gain vs Frequency — OS De-embedded vs Intrinsic",
+            extra_download_fn=_intrinsic_extra_dl)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -604,6 +614,10 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
     fig = go.Figure()
     f_high_track = float(f_ghz[-1])
     extrap_used  = False
+    # Collected for the standardised fT/fmax xlsx export (simulated +
+    # extrapolated columns).  Labels match across the two lists.
+    sim_traces:    list[tuple[str, np.ndarray]] = []
+    extrap_traces: list[tuple[str, np.ndarray, np.ndarray]] = []
 
     color_fT   = FT_FMAX_COLORS["fT"]
     color_fmax = FT_FMAX_COLORS["fmax"]
@@ -631,7 +645,9 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
         name=f"|h21|² Meas. ({_label('fT', fT_m_in, fT_m_ext)})",
         line=dict(color=color_fT, width=1.4),
         marker=dict(symbol=FT_FMAX_SYMBOLS["h21"], size=6, color=color_fT)))
+    sim_traces.append(("|h21|² Meas. (dB)", h21_m))
     if f_ext is not None:
+        extrap_traces.append(("|h21|² Meas. (dB)", f_ext, g_ext))
         fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines", showlegend=False,
             line=dict(color=color_fT, width=1.4, dash="dot")))
@@ -644,7 +660,9 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
         x=f_ghz, y=h21_s, mode="lines",
         name=f"|h21|² Model ({_label('fT', fT_s_in, fT_s_ext)})",
         line=dict(color=color_fT, width=2.0, dash="dash")))
+    sim_traces.append(("|h21|² Model (dB)", h21_s))
     if f_ext is not None:
+        extrap_traces.append(("|h21|² Model (dB)", f_ext, g_ext))
         fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines", showlegend=False,
             line=dict(color=color_fT, width=2.0, dash="dot")))
@@ -658,7 +676,9 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
         name=f"Mason U Meas. ({_label('fmax', fmax_m_in, fmax_m_ext)})",
         line=dict(color=color_fmax, width=1.4),
         marker=dict(symbol=FT_FMAX_SYMBOLS["U"], size=6, color=color_fmax)))
+    sim_traces.append(("Mason U Meas. (dB)", U_m))
     if f_ext is not None:
+        extrap_traces.append(("Mason U Meas. (dB)", f_ext, g_ext))
         fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines", showlegend=False,
             line=dict(color=color_fmax, width=1.4, dash="dot")))
@@ -671,7 +691,9 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
         x=f_ghz, y=U_s, mode="lines",
         name=f"Mason U Model ({_label('fmax', fmax_s_in, fmax_s_ext)})",
         line=dict(color=color_fmax, width=2.0, dash="dash")))
+    sim_traces.append(("Mason U Model (dB)", U_s))
     if f_ext is not None:
+        extrap_traces.append(("Mason U Model (dB)", f_ext, g_ext))
         fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines", showlegend=False,
             line=dict(color=color_fmax, width=2.0, dash="dot")))
@@ -699,7 +721,8 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
                     borderwidth=1, font=dict(size=11)),
         hovermode="x unified",
         margin=dict(l=55, r=20, t=40, b=50))
-    plotly_with_dl(fig, key=key, filename=key)
+    plotly_with_dl(fig, key=key, filename=key,
+                   excel_bytes=bode_excel_bytes(f_ghz, sim_traces, extrap_traces))
 
     # ── Extrapolation controls UNDERNEATH the chart (radio left, single-pole
     #    window slider right).  Rendered after the figure so they sit below
@@ -790,10 +813,6 @@ def _calc_fmax_ghz(fT_ghz, CBC, Rbb):
     return float(np.sqrt(fT_hz / (8.0 * np.pi * CBC * Rbb))) * 1e-9
 
 
-def _fmt_val(v, unit, fmt="{:.3f}"):
-    return f"{fmt.format(v)} {unit}" if v is not None else "n/a"
-
-
 def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
                              tau_sum=None, tau_sum_label="τB + τC",
                              tau_sum_tex=r"\tau_B+\tau_C", extrap_key=None):
@@ -833,50 +852,46 @@ def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
             return None
         return tau_ps - tau_sum_ps
 
-    with st.expander("Calculated Tau_total and fmax", expanded=False):
+    import pandas as pd
+    def _num(v, nd=4):
+        return f"{v:.{nd}f}" if (v is not None and np.isfinite(v)) else "n/a"
+
+    with st.expander("🔣 Calculated τ_total and fmax", expanded=False):
         col_tau, col_fmax = st.columns(2)
 
         # ── τ_total ───────────────────────────────────────────────────────
         with col_tau:
-            st.markdown("**Tau_total**")
+            st.markdown("**Total transit time, τ_total**")
             st.latex(r"\tau_{total}=\frac{1}{2\pi f_T}")
             st.latex(r"\tau_{total}=\tau_B+\tau_C+\frac{nkT}{qI_c}C_{je}"
                      r"+\left(R_c+R_e+\frac{nkT}{qI_c}\right)C_{bc}")
-            if has_model:
-                st.markdown(f"Measured: **{_fmt_val(tau_m_ps, 'ps')}**  "
-                            f"(fT = {_fmt_val(fT_m, 'GHz', '{:.2f}')})")
-                st.markdown(f"Modeled: **{_fmt_val(tau_s_ps, 'ps')}**  "
-                            f"(fT = {_fmt_val(fT_s, 'GHz', '{:.2f}')})")
-            else:
-                st.markdown(f"**{_fmt_val(tau_m_ps, 'ps')}**  "
-                            f"(fT = {_fmt_val(fT_m, 'GHz', '{:.2f}')})")
+            # τ_B+τ_C (transit-time sum) under the equation, as latex.
+            if tau_sum_ps is not None:
+                st.latex(tau_sum_tex + r"=" + f"{tau_sum_ps:.4f}" + r"\,\text{ps}")
+
+            # Table — rows = Measured / Modeled (single "Value" row when there
+            # is no model).  Columns: fT (first), τ_total, then
+            # τ_total − (τ_B+τ_C).
+            _rows = ["Measured", "Modeled"] if has_model else ["Value"]
+            _taus = [tau_m_ps, tau_s_ps] if has_model else [tau_m_ps]
+            _fts  = [fT_m, fT_s] if has_model else [fT_m]
+            _tau_tbl = {
+                "fT (GHz)":     [_num(v, 2) for v in _fts],
+                "τ_total (ps)": [_num(v) for v in _taus],
+            }
+            if tau_sum_ps is not None:
+                _tau_tbl[f"τ_total − ({tau_sum_label}) (ps)"] = [
+                    _num(_rem(v)) for v in _taus]
+            st.table(pd.DataFrame(_tau_tbl, index=_rows))
 
             if tau_sum_ps is not None:
-                st.markdown(f"{tau_sum_label} = **{tau_sum_ps:.4f} ps**")
-
-                # τ_total − (τ_B+τ_C) on the LEFT, the computed charging-time
-                # value on the RIGHT, as a latex equation.
-                def _rem_latex(prefix_lbl, tau_ps):
-                    rem = _rem(tau_ps)
-                    rhs = (f"{rem:.4f}" + r"\,\text{ps}"
-                           if rem is not None else r"\text{n/a}")
-                    lead = (r"\text{" + prefix_lbl + r":}\;") if prefix_lbl else ""
-                    st.latex(lead + r"\tau_{total}-\left(" + tau_sum_tex
-                             + r"\right)=" + rhs)
-
-                if has_model:
-                    _rem_latex("Measured", tau_m_ps)
-                    _rem_latex("Modeled", tau_s_ps)
-                else:
-                    _rem_latex("", tau_m_ps)
-
-                st.caption("Emitter charging time (the nkT/qI_c · C_je term) + "
-                           "collector charging time "
+                st.caption("τ_total − (τ_B+τ_C) = emitter charging time "
+                           "(nkT/qI_c · C_je) + collector charging time "
                            "((R_c+R_e+nkT/qI_c) · C_bc).")
 
         # ── calculated fmax ───────────────────────────────────────────────
         with col_fmax:
-            st.markdown("**Calculated fmax**")
+            st.markdown("**Maximum oscillation frequency, fmax**")
             st.latex(r"f_{max}=\sqrt{\frac{f_T}{8\pi C_{BC} R_{bb}}}")
 
             src = st.radio("C_BC / R_bb source", ["Extracted", "Custom"],
@@ -899,17 +914,19 @@ def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
                 st.caption(f"C_BC = Cbcx + Cbc = {CBC * 1e15:.4f} fF , "
                            f"R_bb = Rbi + Rb = {Rbb:.4f} Ω")
 
-            if has_model:
-                st.markdown(
-                    f"Measured: calc **{_fmt_val(_calc_fmax_ghz(fT_m, CBC_use, Rbb_use), 'GHz', '{:.2f}')}** "
-                    f"| real **{_fmt_val(fmax_m, 'GHz', '{:.2f}')}**")
-                st.markdown(
-                    f"Modeled: calc **{_fmt_val(_calc_fmax_ghz(fT_s, CBC_use, Rbb_use), 'GHz', '{:.2f}')}** "
-                    f"| real **{_fmt_val(fmax_s, 'GHz', '{:.2f}')}**")
-            else:
-                st.markdown(
-                    f"calc **{_fmt_val(_calc_fmax_ghz(fT_m, CBC_use, Rbb_use), 'GHz', '{:.2f}')}** "
-                    f"| real **{_fmt_val(fmax_m, 'GHz', '{:.2f}')}**")
+            # Table — rows = Measured / Modeled (single "Value" row when there
+            # is no model).  Columns: fT (first), fmax from the S-parameter
+            # 0-dB crossing (simulation), then fmax from the formula above
+            # (calculation).
+            _frows = ["Measured", "Modeled"] if has_model else ["Value"]
+            _fsim  = [fmax_m, fmax_s] if has_model else [fmax_m]
+            _fts2  = [fT_m, fT_s] if has_model else [fT_m]
+            _fcalc = [_calc_fmax_ghz(ft, CBC_use, Rbb_use) for ft in _fts2]
+            st.table(pd.DataFrame({
+                "fT (GHz)":               [_num(v, 2) for v in _fts2],
+                "fmax simulation (GHz)":  [_num(v, 2) for v in _fsim],
+                "fmax calculation (GHz)": [_num(v, 2) for v in _fcalc],
+            }, index=_frows))
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -1024,6 +1041,37 @@ _SPARAM_DEFAULT_POS = {
 }
 
 
+def _mult_label_text(sp: str, mult) -> str:
+    """On-chart label text implied by an S-param's multiplier.
+
+      mult == 1  → ``"S21"``            (no scaling annotation)
+      mult >  1  → ``"S21x3"``          (scaled up)
+      mult <  1  → ``"S21/5"``          (scaled down → reciprocal, e.g. 0.2→/5)
+
+    ``%g`` trims trailing zeros so 3.0 → "3" and 0.2 → "/5".  Falls back to the
+    bare S-param name for non-positive / unparseable multipliers.
+    """
+    try:
+        m = float(mult)
+    except (TypeError, ValueError):
+        return sp
+    if m <= 0 or abs(m - 1.0) < 1e-9:
+        return sp
+    if m > 1.0:
+        return f"{sp}x{m:g}"
+    return f"{sp}/{(1.0 / m):g}"
+
+
+def _sync_text_to_mult(skey: str, sp: str) -> None:
+    """on_change callback: rewrite an S-param's Text field from its multiplier.
+
+    Runs at the start of the rerun (before the Text widget is instantiated),
+    so writing its session_state key here is safe and shows up in the field.
+    """
+    st.session_state[f"{skey}_text_{sp}"] = _mult_label_text(
+        sp, st.session_state.get(f"{skey}_mult_{sp}"))
+
+
 def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                             topo_key: str = "", *,
                             sets=None, default_multiplier=1.0,
@@ -1128,7 +1176,11 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     for sp in sparams:
         x0, y0 = _SPARAM_DEFAULT_POS[sp]
         if f"{skey}_text_{sp}" not in st.session_state:
-            st.session_state[f"{skey}_text_{sp}"]  = sp
+            # Seed the label from the default multiplier so a non-unity
+            # default already reads "Sxx×N" / "Sxx/N" on the first render
+            # (matches the auto-update on later multiplier edits).
+            st.session_state[f"{skey}_text_{sp}"]  = _mult_label_text(
+                sp, default_mults[sp])
         if f"{skey}_x_{sp}" not in st.session_state:
             st.session_state[f"{skey}_x_{sp}"]     = float(x0)
         if f"{skey}_y_{sp}" not in st.session_state:
@@ -1391,7 +1443,12 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                 row[1].number_input(f"Multiplier {sp}",
                                     step=0.1, format="%.3f",
                                     key=f"{skey}_mult_{sp}",
-                                    label_visibility="collapsed")
+                                    on_change=_sync_text_to_mult,
+                                    args=(skey, sp),
+                                    label_visibility="collapsed",
+                                    help="Scales this S-param trace.  The Text "
+                                         "label auto-updates: >1 → “Sxx×N”, "
+                                         "<1 → “Sxx/N”.")
                 row[2].text_input(f"{sp} text", key=f"{skey}_text_{sp}",
                                   label_visibility="collapsed")
                 row[3].number_input(f"{sp} x position",
@@ -1436,23 +1493,26 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         # prevents re-seeding on subsequent reruns (so the user's edits
         # actually stick).
         _seed_key = f"{skey}_freq_default_seeded"
-        if (freq_hz is not None
-                and not st.session_state.get(_seed_key)
-                and int(st.session_state.get(extra_key, 0)) == 0):
+        if freq_hz is not None and not st.session_state.get(_seed_key):
             try:
                 _f = np.asarray(freq_hz, dtype=float)
                 _f = _f[np.isfinite(_f)]
                 if _f.size >= 2:
                     _lo = float(_f.min()) * 1e-9
                     _hi = float(_f.max()) * 1e-9
-                    st.session_state[extra_key]         = 1
-                    st.session_state[f"{skey}_etext_0"]  = f"{_lo:g}~{_hi:g} GHz"
-                    st.session_state[f"{skey}_ex_0"]     = 0.0
-                    st.session_state[f"{skey}_ey_0"]     = -1.1
-                    st.session_state[f"{skey}_ecolor_0"] = "#000000"
+                    # Append as a fresh slot (don't require zero existing slots,
+                    # so the freq label still seeds even if another slot exists).
+                    _idx = int(st.session_state.get(extra_key, 0))
+                    st.session_state[extra_key]                = _idx + 1
+                    st.session_state[f"{skey}_etext_{_idx}"]   = f"{_lo:g} ~ {_hi:g} GHz"
+                    st.session_state[f"{skey}_ex_{_idx}"]      = 0.0
+                    st.session_state[f"{skey}_ey_{_idx}"]      = -1.1
+                    st.session_state[f"{skey}_ecolor_{_idx}"]  = "#000000"
+                    # Mark seeded ONLY after a successful seed, so a transient
+                    # miss (freq_hz=None, <2 points) doesn't lock it out forever.
+                    st.session_state[_seed_key] = True
             except (TypeError, ValueError):
                 pass
-            st.session_state[_seed_key] = True
 
         n_extra = int(st.session_state.get(extra_key, 0))
         if n_extra > 0:
@@ -1651,6 +1711,10 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
     fig = go.Figure()
     f_high_track = float(f_ghz[-1])
     extrap_used  = False
+    # Collected for the standardised fT/fmax xlsx export (simulated +
+    # extrapolated columns).  Labels match across the two lists.
+    sim_traces:    list[tuple[str, np.ndarray]] = []
+    extrap_traces: list[tuple[str, np.ndarray, np.ndarray]] = []
 
     # ── Measured traces (markers + solid line, full colour intensity) ──
     fig.add_trace(go.Scattergl(
@@ -1658,10 +1722,12 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
         name="|h21|² Meas.",
         line=dict(color=_c_fT, width=1.4),
         marker=dict(symbol=FT_FMAX_SYMBOLS["h21"], size=6, color=_c_fT)))
+    sim_traces.append(("|h21|² Meas. (dB)", h21_mea))
     f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, h21_mea)
     if f_ext is not None:
         extrap_used = True
         f_high_track = max(f_high_track, f0)
+        extrap_traces.append(("|h21|² Meas. (dB)", f_ext, g_ext))
         fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines",
             name=f"|h21|² Meas. extrap (fT≈{f0:.1f} GHz)",
@@ -1672,10 +1738,12 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
         name="Mason U Meas.",
         line=dict(color=_c_fmax, width=1.4),
         marker=dict(symbol=FT_FMAX_SYMBOLS["U"], size=6, color=_c_fmax)))
+    sim_traces.append(("Mason U Meas. (dB)", U_mea))
     f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, U_mea)
     if f_ext is not None:
         extrap_used = True
         f_high_track = max(f_high_track, f0)
+        extrap_traces.append(("Mason U Meas. (dB)", f_ext, g_ext))
         fig.add_trace(go.Scattergl(
             x=f_ext, y=g_ext, mode="lines",
             name=f"Mason U Meas. extrap (fmax≈{f0:.1f} GHz)",
@@ -1692,10 +1760,12 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
             x=f_ghz, y=h21_s, mode="lines",
             name=f"|h21|² {short}",
             line=dict(color=_c_fT, width=2.0, dash="dash")))
+        sim_traces.append((f"|h21|² {short} (dB)", h21_s))
         f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, h21_s)
         if f_ext is not None:
             extrap_used = True
             f_high_track = max(f_high_track, f0)
+            extrap_traces.append((f"|h21|² {short} (dB)", f_ext, g_ext))
             fig.add_trace(go.Scattergl(
                 x=f_ext, y=g_ext, mode="lines",
                 name=f"|h21|² {short} extrap (fT≈{f0:.1f} GHz)",
@@ -1706,10 +1776,12 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
             x=f_ghz, y=U_s, mode="lines",
             name=f"Mason U {short}",
             line=dict(color=_c_fmax, width=2.0, dash="dash")))
+        sim_traces.append((f"Mason U {short} (dB)", U_s))
         f_ext, g_ext, f0 = extrap_20dbdec(f_ghz, U_s)
         if f_ext is not None:
             extrap_used = True
             f_high_track = max(f_high_track, f0)
+            extrap_traces.append((f"Mason U {short} (dB)", f_ext, g_ext))
             fig.add_trace(go.Scattergl(
                 x=f_ext, y=g_ext, mode="lines",
                 name=f"Mason U {short} extrap (fmax≈{f0:.1f} GHz)",
@@ -1734,7 +1806,8 @@ def render_ft_fmax_overlay(S_raw, sim_results: dict[str, np.ndarray], freq, fnam
                     bgcolor="rgba(255,255,255,0.92)", bordercolor="#ccc",
                     borderwidth=1, font=dict(size=18)),
         hovermode="x unified", margin=dict(l=55, r=20, t=50, b=50))
-    plotly_with_dl(fig, key=f"ftfmax_{fname}", filename=f"ftfmax_{fname}")
+    plotly_with_dl(fig, key=f"ftfmax_{fname}", filename=f"ftfmax_{fname}",
+                   excel_bytes=bode_excel_bytes(f_ghz, sim_traces, extrap_traces))
     cap = ("Measured: ○ = |h21|², □ = Mason U.   Modeled: dashed lines.   "
            "Y-axis fixed 0–50 dB.")
     if extrap_used:

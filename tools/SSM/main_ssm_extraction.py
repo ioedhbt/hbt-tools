@@ -399,7 +399,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         unsafe_allow_html=True)
 
 
-    with st.expander("Access Resistance Extraction", expanded=False):
+    with st.expander("🍊 Access Resistance Extraction", expanded=False):
 
         # ── Z-parameter method ────────────────────────────────────────────────────
         st.markdown(
@@ -619,12 +619,12 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         if _has_trace:
             _col_tbl, _col_trace = st.columns(2, gap="medium")
             with _col_tbl:
-                with st.expander("📊 Extracted parameters", expanded=False):
+                with st.expander("📁 Extracted Parameters Table", expanded=False):
                     ModelClass.render_results_table(params)
             with _col_trace:
                 ModelClass.render_formula_trace()
         else:
-            with st.expander("📊 Extracted parameters", expanded=False):
+            with st.expander("📁 Extracted Parameters Table", expanded=False):
                 ModelClass.render_results_table(params)
             ModelClass.render_formula_trace()
 

@@ -39,6 +39,7 @@ from tools.SSM.helpers         import (extended_smith_grid,
                                         extrap_20dbdec, single_pole_extrap,
                                         FT_FMAX_SYMBOLS, FT_FMAX_COLORS,
                                         plotly_with_dl, fig_to_excel_bytes,
+                                        bode_excel_bytes,
                                         make_smith_bode_slider_fig)
 
 try:
@@ -674,6 +675,11 @@ def _build_bode(S, freq_hz, title: str, *,
     fig = go.Figure()
     f_high_track = float(f_ghz_local[-1])
     extrap_used  = False
+    # Collected for the standardised fT/fmax xlsx export (simulated +
+    # extrapolated columns).  Labels match across the two lists so the
+    # workbook reads "<trace>" / "<trace> (extrap)".
+    sim_traces:    list[tuple[str, np.ndarray]] = []
+    extrap_traces: list[tuple[str, np.ndarray, np.ndarray]] = []
 
     def _meas_lbl(name, in_val, ext_val):
         if in_val is not None:
@@ -694,9 +700,11 @@ def _build_bode(S, freq_hz, title: str, *,
                                  name=legend_name,
                                  line=dict(color=color, width=2, dash=dash),
                                  marker=dict(symbol=symbol, size=6, color=color)))
+        sim_traces.append((f"{base_name} (dB)", np.asarray(y)))
         if f_ext is not None:
             extrap_used  = True
             f_high_track = max(f_high_track, f0)
+            extrap_traces.append((f"{base_name} (dB)", f_ext, g_ext))
             fig.add_trace(go.Scatter(x=f_ext, y=g_ext, mode="lines",
                                      name=f"{legend_name} extrap",
                                      line=dict(color=color, width=2,
@@ -708,6 +716,8 @@ def _build_bode(S, freq_hz, title: str, *,
     # so both are solid; extrap fall-throughs in `_add_trace` are dotted.
     _add_trace(h21_db, "|h21|²",  FT_FMAX_COLORS["fT"],   "solid", "fT",   fT,   FT_FMAX_SYMBOLS["h21"])
     _add_trace(U_db,   "Mason U", FT_FMAX_COLORS["fmax"], "solid", "fmax", fmax, FT_FMAX_SYMBOLS["U"])
+
+    bode_xl = bode_excel_bytes(f_ghz_local, sim_traces, extrap_traces)
 
     fig.add_hline(y=0, line_color="#333", line_width=1.2,
                   annotation_text="0 dB", annotation_position="right",
@@ -732,7 +742,7 @@ def _build_bode(S, freq_hz, title: str, *,
                     bordercolor="#ccc", borderwidth=1, font=dict(size=13)),
         hovermode="x unified", margin=dict(l=55, r=20, t=40, b=50),
     )
-    return fig, any_needs
+    return fig, any_needs, bode_xl
 
 
 def _render_bode_block(S, freq_hz, title: str, key: str):
@@ -748,9 +758,9 @@ def _render_bode_block(S, freq_hz, title: str, key: str):
         f_lo, f_hi = float(f_ghz_local[0]), float(f_ghz_local[-1])
         sp_window = st.session_state.get(f"{key}_sp_window",
                                          (max(f_lo, f_hi - 5.0), f_hi))
-    fig, any_needs = _build_bode(S, freq_hz, title,
-                                 extrap_method=method, sp_window=sp_window)
-    plotly_with_dl(fig, key=key, filename=key)
+    fig, any_needs, bode_xl = _build_bode(S, freq_hz, title,
+                                          extrap_method=method, sp_window=sp_window)
+    plotly_with_dl(fig, key=key, filename=key, excel_bytes=bode_xl)
 
     if any_needs and len(f_ghz_local) >= 2:
         ec1, ec2 = st.columns([1, 2])

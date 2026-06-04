@@ -320,12 +320,6 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
 
     st.markdown("---")
     st.markdown("**🔍 Cbex sweep — minimise std(Cbcx)**")
-    st.caption(
-        "Sweeps candidate Cbex values in the range below (inclusive), "
-        "recomputes Cbcx_arr for each, and picks the Cbex that yields the "
-        "lowest standard deviation of Cbcx over the Cbcx group's frequency "
-        "window.  Click Calculate to run the sweep and push the best value "
-        "into the Cbex input below.")
 
     c_min, c_step, c_max = st.columns(3)
     sweep_min = c_min.number_input(
@@ -457,7 +451,7 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
     from ..helpers import peel_parasitics, compute_metrics, extract_limit
 
     if not all_data or len(all_data) < 2:
-        return
+        return False
 
     with st.expander("📐 Cje / τB+τC / τCC / τE from 1/(2πfT) vs 1/IC fit  "
                      "(T-model reference)",
@@ -745,6 +739,7 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
         st.markdown("**Per-file derived delays (using inputs above):**")
         st.dataframe(pd.DataFrame(rows),
                      use_container_width=True, hide_index=True)
+    return True
 
 
 def render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups,
@@ -779,7 +774,23 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
     live_params = dict(params)   # updated mid-loop; used for change detection
     prev_range = (f_min_v, f_max_v)
 
-    with st.expander("📊 Extracted Parameters vs Frequency — Interactive", expanded=False):
+    with st.expander("📊 Interactive Parameter Extraction", expanded=False):
+        # Thick outline on the large per-group boxes so each parameter group
+        # reads as a bold card, set apart from the thin per-parameter
+        # sub-containers inside it.  Streamlit puts the user `key` class on the
+        # inner `stVerticalBlock` element (NOT the border wrapper), so we draw
+        # the border directly on that keyed element and disable Streamlit's own
+        # `border=True` wrapper (below) to avoid a double frame.  Scoped to the
+        # `st-key-pfp_groupbox_*` prefix, so no other container is affected.
+        st.markdown(
+            """<style>
+            div[class*="st-key-pfp_groupbox_"] {
+                border: 3px solid #9aa0a6 !important;
+                border-radius: 0.5rem !important;
+                padding: 0.75rem !important;
+            }
+            </style>""",
+            unsafe_allow_html=True)
         for g_idx, group in enumerate(param_groups):
             g_label  = group["label"]
             g_params = group["params"]
@@ -790,16 +801,27 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
             # Silently skips when called from a single-file context or
             # when the caller didn't pass all_data/para_eff.
             if group.get("tau_total_fit_group"):
+                _tau_rendered = False
                 if all_data is not None and para_eff is not None:
-                    _render_tau_total_fit_section(
+                    _tau_rendered = bool(_render_tau_total_fit_section(
                         all_data=all_data, fname=fname,
                         model_short=model_short,
-                        params=live_params, para_eff=para_eff)
-                if g_idx < len(param_groups) - 1:
+                        params=live_params, para_eff=para_eff))
+                # Only emit the trailing separator when the section actually
+                # rendered.  With a single s2p file the fit is hidden, so
+                # skipping the rule avoids a double "---" (the previous group
+                # already drew one) showing as two empty lines.
+                if _tau_rendered and g_idx < len(param_groups) - 1:
                     st.markdown("---")
                 continue
 
-            st.markdown(f"**{g_label}**")
+            # Heading: special fit groups (Z-plots / Fbi / F1) print it here;
+            # normal parameter groups print it inside their bordered box below.
+            _is_special_group = any(group.get(_k) for _k in
+                                    ("z_plots_group", "fbi_fit_group",
+                                     "f1_fit_group"))
+            if _is_special_group:
+                st.markdown(f"**{g_label}**")
 
             # ── z_plots_group: Z1, Z3, Z4 Re/Im plots ───────────────────────────
             if group.get("z_plots_group"):
@@ -1069,20 +1091,25 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     st.markdown("---")
                 continue
 
+            # Wrap the whole parameter group (title + slider + per-parameter
+            # plots) in one large card, so each group (Cbex, Cbcx, intrinsic,
+            # τB, τC, …) reads as distinct.  `border=False` here — the thick
+            # outline is drawn by the scoped `st-key-pfp_groupbox_*` CSS above
+            # (Streamlit's own border wrapper would otherwise add a second,
+            # thin frame).  All of this group's top-level widgets render into
+            # `box`; nested per-parameter plots inherit it via `box.columns()`.
+            box = st.container(
+                border=False,
+                key=f"pfp_groupbox_{model_short}_{g_idx}_{fname}")
+            box.markdown(f"**{g_label}**")
             if g_deps:
-                st.caption(f"Depends on: {', '.join(g_deps)}")
-            
-            # for kind, content in group.get("formulas", []):
-            #     if kind == "latex":
-            #         st.latex(content)
-            #     else:
-            #         st.markdown(content)
+                box.caption(f"Depends on: {', '.join(g_deps)}")
 
             slider_key = f"pfp_sl_{model_short}_{g_idx}_{fname}"
 
             # "Use previous range" button for dependent groups
             if g_deps:
-                if st.button(f"↩ Same range as previous group",
+                if box.button(f"↩ Same range as previous group",
                              key=f"pfp_useprev_{model_short}_{g_idx}_{fname}"):
                     st.session_state[slider_key] = prev_range
                     st.rerun()
@@ -1090,9 +1117,9 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
             # Render per-group formulas before the slider
             for formula_type, formula_content in group.get("formulas", []):
                 if formula_type == "markdown":
-                    st.markdown(formula_content)
+                    box.markdown(formula_content)
                 elif formula_type == "latex":
-                    st.latex(formula_content)
+                    box.latex(formula_content)
 
 
             # Initialize slider — pre-seed session_state and DO NOT
@@ -1114,7 +1141,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                 except (TypeError, ValueError, IndexError):
                     st.session_state[slider_key] = (f_min_v, f_max_v)
 
-            f_lo, f_hi = st.slider(
+            f_lo, f_hi = box.slider(
                 "Frequency range (GHz)",
                 min_value=f_min_v, max_value=f_max_v,
                 step=step_v, format="%.2f",
@@ -1138,7 +1165,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
 
             for row_start in range(0, len(valid_specs), 2):
                 row  = valid_specs[row_start:row_start + 2]
-                cols = st.columns(2)
+                cols = box.columns(2)
                 for _col_outer, (arr_key, param_key, label, scale, unit) in zip(cols, row):
                     # Wrap each parameter's plot + input + quickset buttons in
                     # a bordered container so individual extracted parameters

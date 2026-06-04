@@ -218,6 +218,80 @@ def fig_to_excel_bytes(fig) -> bytes | None:
     return buf.getvalue()
 
 
+def bode_excel_bytes(freq_ghz, sim_traces, extrap_traces=None) -> bytes | None:
+    """
+    Standardised fT/fmax Bode export → single-sheet .xlsx bytes.
+
+    This is the one canonical layout for every gain-vs-frequency (fT/fmax)
+    Bode plot across the RF simulator, SSM extraction and RF parameter
+    extraction.  A single "⬇ xlsx" button feeds these bytes to the user.
+
+    Layout — one "Data" sheet, wide format
+    --------------------------------------
+      * Simulated block : ``Freq (GHz)`` + one column per simulated/measured
+        gain trace (e.g. ``|h21|² (dB)``, ``Mason U (dB)``).
+      * Extrapolated block (written ONLY when ``extrap_traces`` is non-empty):
+        ``Freq (GHz) (extrap)`` + one ``… (extrap)`` column per extrapolated
+        trace, on a unified extrapolation frequency axis (NaN-padded where a
+        curve does not reach).
+
+    So when no extrapolation is required the workbook is just the simulated
+    block; when it is required the simulated and extrapolated blocks sit
+    side-by-side (e.g. freq, fT, fmax | freq, fT, fmax).
+
+    Parameters
+    ----------
+    freq_ghz      : 1-D array — simulated/measured frequency axis (GHz).
+    sim_traces    : list[(label, y_db)] — gain curves sharing ``freq_ghz``.
+    extrap_traces : list[(label, f_ext_ghz, g_ext_db)] | None — extrapolated
+                    curves; entries whose frequency array is None are skipped.
+                    ``label`` should match the corresponding simulated trace so
+                    the export reads ``<trace>`` / ``<trace> (extrap)``.
+
+    Returns xlsx bytes, or None when there is nothing exportable.
+    """
+    f = np.asarray(freq_ghz, dtype=float)
+    sim_traces = [t for t in (sim_traces or []) if t[1] is not None]
+    if f.size == 0 or not sim_traces:
+        return None
+
+    cols: dict[str, np.ndarray] = {"Freq (GHz)": f}
+    for label, y in sim_traces:
+        cols[label] = np.asarray(y, dtype=float)
+    max_len = f.size
+
+    extrap_traces = [t for t in (extrap_traces or [])
+                     if t[1] is not None and t[2] is not None]
+    ecols: dict[str, np.ndarray] = {}
+    if extrap_traces:
+        # Unified, sorted, de-duplicated extrapolation frequency axis spanning
+        # every extrap curve, so all extrap columns share one freq column.
+        f_union = np.unique(np.concatenate(
+            [np.asarray(fe, dtype=float) for _, fe, _ in extrap_traces]))
+        f_union = f_union[f_union > 0]
+        ecols["Freq (GHz) (extrap)"] = f_union
+        for label, fe, ge in extrap_traces:
+            ecols[f"{label} (extrap)"] = np.interp(
+                f_union, np.asarray(fe, dtype=float),
+                np.asarray(ge, dtype=float), left=np.nan, right=np.nan)
+        max_len = max(max_len, f_union.size)
+
+    def _pad(arr: np.ndarray) -> np.ndarray:
+        arr = np.asarray(arr, dtype=float)
+        if arr.size < max_len:
+            return np.concatenate([arr, np.full(max_len - arr.size, np.nan)])
+        return arr
+
+    data = {k: _pad(v) for k, v in cols.items()}
+    for k, v in ecols.items():
+        data[k] = _pad(v)
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        pd.DataFrame(data).to_excel(writer, sheet_name="Data", index=False)
+    return buf.getvalue()
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # Drop-in plotly_chart wrapper
 # ════════════════════════════════════════════════════════════════════════════════
@@ -229,6 +303,7 @@ def plotly_with_dl(
     width: str = "stretch",
     container=None,
     extra_download: tuple | None = None,
+    excel_bytes: bytes | None = None,
     **kwargs,
 ):
     """
@@ -247,12 +322,18 @@ def plotly_with_dl(
                 that adds a second download button next to the xlsx one
                 (used by the SSM measured-vs-modeled Smith chart to expose
                 a "Download modeled S2P" alongside the standard xlsx).
+    excel_bytes : optional pre-built .xlsx bytes to expose instead of
+                auto-extracting from the figure.  Bode/fT-fmax callers pass
+                :func:`bode_excel_bytes` output here so the download carries
+                the standardised simulated + extrapolated columns (the
+                extrapolation traces are hidden from the legend and would
+                otherwise be dropped by ``fig_to_excel_bytes``).
     **kwargs  : Extra keyword arguments forwarded to st.plotly_chart.
     """
     ctx = container if container is not None else st
     ctx.plotly_chart(fig, width=width, key=key, **kwargs)
 
-    xl = fig_to_excel_bytes(fig)
+    xl = excel_bytes if excel_bytes is not None else fig_to_excel_bytes(fig)
     if xl is None and extra_download is None:
         return
 
