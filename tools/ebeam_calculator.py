@@ -470,14 +470,18 @@ def _flatten_local(cell, cache, budget):
 
 @st.cache_data(show_spinner="Parsing GDS…", max_entries=1)
 def _load_gds(file_bytes: bytes):
-    """Parse GDS → ``(unit_meters, {cell_name: {(l,d): _PolyLayer}})``.
+    """Parse GDS → ``(unit_meters, {cell_name: {(l,d): (cx, cy, starts)}})``.
 
-    Uses a numpy flattener (``_flatten_local``) that expands array
-    references by tiling coordinates instead of building millions of
-    polygon objects, then frees the gdstk library before returning.
-    Raises ``ValueError`` if the flattened geometry exceeds the
-    polygon/vertex budget, so the caller can show a friendly error
-    instead of the process getting OOM-killed.
+    Returns only picklable primitives (numpy arrays) because
+    ``st.cache_data`` pickles the result; the flat arrays are wrapped into
+    ``_PolyLayer`` objects by ``_load_gds_layers`` outside the cache (a
+    custom class defined in the Streamlit script can't be re-imported by
+    pickle). Uses a numpy flattener (``_flatten_local``) that expands
+    array references by tiling coordinates instead of building millions of
+    polygon objects, then frees the gdstk library before returning. Raises
+    ``ValueError`` if the flattened geometry exceeds the polygon/vertex
+    budget, so the caller can show a friendly error instead of the process
+    getting OOM-killed.
     """
     # gdstk.read_gds requires a filesystem path, so spill to a temp file.
     with tempfile.NamedTemporaryFile(suffix=".gds", delete=False) as tmp:
@@ -501,13 +505,29 @@ def _load_gds(file_bytes: bytes):
             for key, (cx, cy, sizes) in geo.items():
                 starts = np.zeros(sizes.size + 1, dtype=np.int64)
                 np.cumsum(sizes, out=starts[1:])
-                by_layer[key] = _PolyLayer(cx, cy, starts)
+                by_layer[key] = (cx, cy, starts)
             out[cell.name] = by_layer
     finally:
         # Drop the gdstk library (and its internal C++ geometry) before
         # returning so its memory isn't held alongside our flat arrays.
         del lib
         gc.collect()
+    return unit, out
+
+
+def _load_gds_layers(file_bytes: bytes):
+    """Cached parse + wrap the flat arrays into ``_PolyLayer`` objects.
+
+    ``_PolyLayer`` instances aren't returned from the cached function
+    because pickle can't re-import a class defined in the Streamlit
+    script; we build them here from the cached numpy primitives instead.
+    """
+    unit, raw = _load_gds(file_bytes)
+    out = {
+        cell: {key: _PolyLayer(cx, cy, starts)
+               for key, (cx, cy, starts) in by_layer.items()}
+        for cell, by_layer in raw.items()
+    }
     return unit, out
 
 
@@ -1018,7 +1038,7 @@ with st.container(border=True):
             )
             if gds_upload is not None:
                 try:
-                    unit_m, cells_data = _load_gds(gds_upload.getvalue())
+                    unit_m, cells_data = _load_gds_layers(gds_upload.getvalue())
                     _gds_unit_to_mm = unit_m * 1000.0
                     _gds_cells_data = cells_data
                 except Exception as e:
