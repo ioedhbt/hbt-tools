@@ -10,7 +10,7 @@ repo root.
 """
 from __future__ import annotations
 
-__version__ = "1.2"
+__version__ = "1.3"
 
 import gc
 import math
@@ -372,116 +372,226 @@ def _apply_ref_transform(cx, cy, ref):
     return x, y
 
 
-def _flatten_local(cell, cache, budget):
-    """Return ``{(layer, datatype): (cx, cy, sizes)}`` for ``cell`` fully
-    flattened in its own coordinate frame.
+class _InstancedLayer:
+    """A layer kept in its *instanced* form: one or more groups, each a
+    small base pattern (``_PolyLayer``) plus an (K, 2) array of placement
+    offsets. This preserves the array/AREF structure that the GDS already
+    encodes instead of expanding it — so a unit cell tiled 150 k× stays a
+    ~30-polygon base + a 150 k-row offset table, not 4.6 M polygons.
 
-    Array references are expanded by *tiling coordinates with numpy*
-    rather than materializing each placed polygon as a gdstk object —
-    this is what keeps a 3 M-polygon arrayed mask at ~250 MB instead of
-    the ~940 MB peak ``Cell.get_polygons(depth=None)`` would cost.
-    Results are memoized per cell so a cell referenced many times is
-    flattened once.
+    Exposes ``len`` (total expanded polygon count), truthiness, and
+    ``bbox`` so it drops into the same gating/auto-fit code as
+    ``_PolyLayer``; the renderer and area helpers special-case it to draw
+    the base once + the array extent and to compute area as
+    base_area × instance_count.
+    """
+    __slots__ = ("groups", "_n", "_area", "_bbox", "_inst", "_base")
+
+    def __init__(self, groups):
+        # groups: list of (base_cx, base_cy, base_starts, offsets[K,2])
+        self.groups = groups
+        n = 0
+        inst = 0
+        base = 0
+        area = 0.0
+        xs0 = []
+        ys0 = []
+        xs1 = []
+        ys1 = []
+        for bcx, bcy, bst, off in groups:
+            b = _PolyLayer(bcx, bcy, bst)
+            k = int(off.shape[0])
+            np_base = len(b)
+            n += np_base * k
+            inst += k
+            base += np_base
+            area += float(b.poly_areas().sum()) * k
+            bb = b.bbox()
+            if bb is not None and k:
+                xs0.append(bb[0] + float(off[:, 0].min()))
+                ys0.append(bb[1] + float(off[:, 1].min()))
+                xs1.append(bb[2] + float(off[:, 0].max()))
+                ys1.append(bb[3] + float(off[:, 1].max()))
+        self._n = n
+        self._inst = inst
+        self._base = base
+        self._area = area
+        self._bbox = (None if not xs0 else
+                      (min(xs0), min(ys0), max(xs1), max(ys1)))
+
+    def __len__(self):
+        return self._n
+
+    def __bool__(self):
+        return self._n > 0
+
+    def bbox(self):
+        return self._bbox
+
+    def total_area_units2(self):
+        return self._area
+
+    def instance_count(self):
+        return self._inst
+
+    def base_poly_count(self):
+        return self._base
+
+
+def _flatten_instanced(cell, cache, budget):
+    """Return ``{(layer, datatype): [group, ...]}`` for ``cell``, where each
+    group is ``(base_cx, base_cy, base_starts, offsets)``: the base
+    geometry in this cell's frame plus the (K, 2) lattice of translations
+    it's placed at.
+
+    References are NOT expanded — the child's instanced geometry is reused
+    and its offset lattice is combined (outer sum) with this reference's
+    repetition offsets. Nesting multiplies the offset tables, never the
+    polygon arrays. Memoized per cell.
     """
     if cell.name in cache:
         return cache[cell.name]
 
-    acc: dict = {}  # key -> ([cx_chunks], [cy_chunks], [sizes_chunks])
+    acc: dict = {}            # key -> list of groups
+    own: dict = {}            # key -> ([cx], [cy], [sizes]) for this cell
 
-    def _add(key, cx, cy, sizes):
-        budget["verts"] += int(cx.size)
-        budget["polys"] += int(sizes.size)
-        if (budget["verts"] > _MAX_VERTICES
-                or budget["polys"] > _MAX_POLYGONS):
-            raise ValueError(
-                f"GDS is too large to render in this app "
-                f"(exceeds {_MAX_POLYGONS:,} polygons / "
-                f"{_MAX_VERTICES:,} vertices after flattening). "
-                "Flatten/merge the hierarchy or expose a smaller layer, "
-                "then re-upload."
-            )
-        slot = acc.get(key)
+    def _own(key, xs, ys, n):
+        slot = own.get(key)
         if slot is None:
-            acc[key] = ([cx], [cy], [sizes])
+            own[key] = ([xs], [ys], [n])
         else:
-            slot[0].append(cx)
-            slot[1].append(cy)
-            slot[2].append(sizes)
+            slot[0].append(xs); slot[1].append(ys); slot[2].append(n)
 
-    # Cell's own polygons (copies so they outlive the gdstk library).
+    # Cell's own polygons + paths become a single K=1 group per layer.
     for p in cell.polygons:
         pts = p.points
-        _add((int(p.layer), int(p.datatype)),
-             pts[:, 0].copy(), pts[:, 1].copy(),
-             np.array([pts.shape[0]], dtype=np.int64))
-
-    # Cell's own paths → polygons.
+        _own((int(p.layer), int(p.datatype)),
+             pts[:, 0].copy(), pts[:, 1].copy(), pts.shape[0])
     for path in cell.paths:
         for poly in path.to_polygons():
             pts = poly.points
-            _add((int(poly.layer), int(poly.datatype)),
-                 pts[:, 0].copy(), pts[:, 1].copy(),
-                 np.array([pts.shape[0]], dtype=np.int64))
+            _own((int(poly.layer), int(poly.datatype)),
+                 pts[:, 0].copy(), pts[:, 1].copy(), pts.shape[0])
+    for key, (cxs, cys, ns) in own.items():
+        bcx = cxs[0] if len(cxs) == 1 else np.concatenate(cxs)
+        bcy = cys[0] if len(cys) == 1 else np.concatenate(cys)
+        sizes = np.array(ns, dtype=np.int64)
+        starts = np.zeros(sizes.size + 1, dtype=np.int64)
+        np.cumsum(sizes, out=starts[1:])
+        budget["base_verts"] += int(bcx.size)
+        budget["polys"] += int(sizes.size)
+        acc.setdefault(key, []).append(
+            (bcx, bcy, starts, np.zeros((1, 2), dtype=np.float64)))
 
-    # References: flatten the child once, then tile across repetition
-    # offsets with a single broadcast.
+    # References: GROUP references that target the same child cell with
+    # the same transform, then treat their placement origins as one offset
+    # lattice. This is the key to detecting repetition that a CAD tool
+    # emitted as thousands of individual single-placement SREFs (the common
+    # case) rather than as one AREF with a `repetition` record — without it
+    # we'd recurse + expand once per placement. The origins are collected
+    # as plain tuples (fast) and turned into one array per group.
+    # Per-ref work is kept minimal because a file can hold ~1 M references:
+    # key on the cheap ``cell_name`` (not the ``cell`` wrapper) + transform,
+    # resolve the child cell only once per group, append placement origins
+    # as plain tuples, and only call the (slow) ``get_offsets()`` when a
+    # reference actually carries a non-trivial repetition (size > 0).
+    ref_groups: dict = {}   # key -> [sample_ref, child, [origin tuples], [extra placement arrays]]
     for ref in cell.references:
-        child = ref.cell
-        if child is None:
-            continue
-        child_geo = _flatten_local(child, cache, budget)
-        if ref.repetition is not None:
-            offs = np.asarray(ref.repetition.get_offsets(), dtype=np.float64)
-            if offs.ndim != 2 or offs.shape[0] == 0:
-                offs = np.zeros((1, 2), dtype=np.float64)
+        key = (ref.cell_name, ref.rotation or 0.0,
+               ref.magnification or 1.0, bool(ref.x_reflection))
+        slot = ref_groups.get(key)
+        if slot is None:
+            child = ref.cell
+            if child is None:
+                continue
+            slot = [ref, child, [], []]
+            ref_groups[key] = slot
+        rep = ref.repetition
+        if rep is None or rep.size == 0:
+            slot[2].append(ref.origin)
         else:
-            offs = np.zeros((1, 2), dtype=np.float64)
-        ox, oy = ref.origin
-        offs = offs + np.array([ox, oy], dtype=np.float64)
-        K = offs.shape[0]
-        for key, (ccx, ccy, csizes) in child_geo.items():
-            txc, tyc = _apply_ref_transform(ccx, ccy, ref)
-            if K == 1:
-                _add(key, txc + offs[0, 0], tyc + offs[0, 1], csizes)
-            else:
-                # Project the tiled size before building the broadcast.
-                if (budget["verts"] + K * txc.size > _MAX_VERTICES
-                        or budget["polys"] + K * csizes.size > _MAX_POLYGONS):
+            slot[3].append(
+                np.asarray(rep.get_offsets(), dtype=np.float64).reshape(-1, 2)
+                + np.asarray(ref.origin, dtype=np.float64))
+
+    for key, (ref, child, origins, extras) in ref_groups.items():
+        # All placements for this (child, transform): single-placement
+        # origins + any AREF repetition offsets.
+        parts = []
+        if origins:
+            parts.append(np.asarray(origins, dtype=np.float64))
+        parts.extend(extras)
+        if not parts:
+            continue
+        placements = parts[0] if len(parts) == 1 else np.concatenate(parts)
+        kp = placements.shape[0]
+        child_groups = _flatten_instanced(child, cache, budget)
+        for ckey, groups in child_groups.items():
+            for bcx, bcy, bst, coff in groups:
+                # Transform the base coords (mag/reflection/rotation) and
+                # the child's own offset vectors (linear part only).
+                tbx, tby = _apply_ref_transform(bcx, bcy, ref)
+                tcx, tcy = _apply_ref_transform(coff[:, 0], coff[:, 1], ref)
+                kc = tcx.shape[0]
+                np_base = int(bst.size - 1)
+                # Guard before building the (kc*kp, 2) combined lattice.
+                if (budget["polys"] + np_base * kc * kp > _MAX_POLYGONS):
                     raise ValueError(
                         f"GDS is too large to render in this app "
-                        f"(exceeds {_MAX_POLYGONS:,} polygons / "
-                        f"{_MAX_VERTICES:,} vertices after flattening). "
-                        "Flatten/merge the hierarchy or expose a smaller "
-                        "layer, then re-upload."
+                        f"(exceeds {_MAX_POLYGONS:,} polygons after "
+                        "flattening). Expose a smaller layer, then "
+                        "re-upload."
                     )
-                fx = (txc[None, :] + offs[:, 0][:, None]).ravel()
-                fy = (tyc[None, :] + offs[:, 1][:, None]).ravel()
-                _add(key, fx, fy, np.tile(csizes, K))
+                comb = (np.stack([tcx, tcy], axis=1)[:, None, :]
+                        + placements[None, :, :]).reshape(-1, 2)
+                budget["polys"] += np_base * comb.shape[0]
+                acc.setdefault(ckey, []).append((tbx, tby, bst, comb))
 
-    result = {}
-    for key, (cxs, cys, szs) in acc.items():
-        cx = cxs[0] if len(cxs) == 1 else np.concatenate(cxs)
-        cy = cys[0] if len(cys) == 1 else np.concatenate(cys)
-        sz = szs[0] if len(szs) == 1 else np.concatenate(szs)
-        result[key] = (cx, cy, sz)
-    cache[cell.name] = result
-    return result
+    cache[cell.name] = acc
+    return acc
+
+
+def _expand_groups_to_flat(groups):
+    """Tile every group's base by its offsets into one flat (cx, cy,
+    starts). Used when a layer is small enough that the plain ``_PolyLayer``
+    path is simpler than carrying the instanced structure."""
+    cxs, cys, szs = [], [], []
+    for bcx, bcy, bst, off in groups:
+        sizes = np.diff(bst)
+        k = off.shape[0]
+        if k == 1:
+            cxs.append(bcx + off[0, 0]); cys.append(bcy + off[0, 1])
+            szs.append(sizes)
+        else:
+            cxs.append((bcx[None, :] + off[:, 0][:, None]).ravel())
+            cys.append((bcy[None, :] + off[:, 1][:, None]).ravel())
+            szs.append(np.tile(sizes, k))
+    cx = np.concatenate(cxs) if cxs else np.zeros(0)
+    cy = np.concatenate(cys) if cys else np.zeros(0)
+    sizes = np.concatenate(szs) if szs else np.zeros(0, dtype=np.int64)
+    starts = np.zeros(sizes.size + 1, dtype=np.int64)
+    np.cumsum(sizes, out=starts[1:])
+    return cx, cy, starts
 
 
 @st.cache_data(show_spinner="Parsing GDS…", max_entries=1)
 def _load_gds(file_bytes: bytes):
-    """Parse GDS → ``(unit_meters, {cell_name: {(l,d): (cx, cy, starts)}})``.
+    """Parse GDS → ``(unit_meters, {cell_name: {(l,d): spec}})`` where each
+    ``spec`` is a picklable tuple:
 
-    Returns only picklable primitives (numpy arrays) because
-    ``st.cache_data`` pickles the result; the flat arrays are wrapped into
-    ``_PolyLayer`` objects by ``_load_gds_layers`` outside the cache (a
-    custom class defined in the Streamlit script can't be re-imported by
-    pickle). Uses a numpy flattener (``_flatten_local``) that expands
-    array references by tiling coordinates instead of building millions of
-    polygon objects, then frees the gdstk library before returning. Raises
-    ``ValueError`` if the flattened geometry exceeds the polygon/vertex
-    budget, so the caller can show a friendly error instead of the process
-    getting OOM-killed.
+      * ``("flat", cx, cy, starts)`` — fully expanded geometry, for layers
+        small enough (≤ ``_POLY_LIMIT``) or with no usable repetition;
+      * ``("inst", [(bcx, bcy, bstarts, offsets), ...])`` — the instanced
+        (array/AREF) structure kept intact, for dense layers built from a
+        small base pattern repeated many times.
+
+    Returns only numpy/tuple primitives because ``st.cache_data`` pickles
+    the result; ``_load_gds_layers`` wraps these into ``_PolyLayer`` /
+    ``_InstancedLayer`` objects outside the cache. The flattener
+    (``_flatten_instanced``) combines offset lattices instead of expanding
+    polygons, so a 4.6 M-polygon arrayed mask stays tiny in memory. Raises
+    ``ValueError`` past the polygon budget so the caller can show a
+    friendly error instead of getting OOM-killed.
     """
     # gdstk.read_gds requires a filesystem path, so spill to a temp file.
     with tempfile.NamedTemporaryFile(suffix=".gds", delete=False) as tmp:
@@ -497,35 +607,59 @@ def _load_gds(file_bytes: bytes):
 
     unit = float(lib.unit)
     out: dict = {}
-    budget = {"verts": 0, "polys": 0}
+    budget = {"polys": 0, "base_verts": 0}
     try:
         for cell in lib.top_level():
-            geo = _flatten_local(cell, {}, budget)
+            geo = _flatten_instanced(cell, {}, budget)
             by_layer: dict = {}
-            for key, (cx, cy, sizes) in geo.items():
-                starts = np.zeros(sizes.size + 1, dtype=np.int64)
-                np.cumsum(sizes, out=starts[1:])
-                by_layer[key] = (cx, cy, starts)
+            for key, groups in geo.items():
+                expanded = sum(int(bst.size - 1) * int(off.shape[0])
+                               for _, _, bst, off in groups)
+                base_polys = sum(int(bst.size - 1)
+                                 for _, _, bst, _ in groups)
+                repetitive = any(off.shape[0] > 1
+                                 for _, _, _, off in groups)
+                # Keep the instanced form only when it actually pays off:
+                # the layer is dense AND its unique base is small enough to
+                # draw. Otherwise expand to a flat _PolyLayer (small layers
+                # stay simple; huge non-repetitive dumps use the flat
+                # bbox/raster fallback).
+                if (expanded > _POLY_LIMIT and repetitive
+                        and base_polys <= _POLY_LIMIT):
+                    by_layer[key] = ("inst", [
+                        (bcx, bcy, bst, off) for bcx, bcy, bst, off in groups
+                    ])
+                else:
+                    cx, cy, starts = _expand_groups_to_flat(groups)
+                    by_layer[key] = ("flat", cx, cy, starts)
             out[cell.name] = by_layer
     finally:
         # Drop the gdstk library (and its internal C++ geometry) before
-        # returning so its memory isn't held alongside our flat arrays.
+        # returning so its memory isn't held alongside our arrays.
         del lib
         gc.collect()
     return unit, out
 
 
-def _load_gds_layers(file_bytes: bytes):
-    """Cached parse + wrap the flat arrays into ``_PolyLayer`` objects.
+def _spec_to_layer(spec):
+    """Build a _PolyLayer or _InstancedLayer from a cached ``spec`` tuple."""
+    if spec[0] == "inst":
+        return _InstancedLayer(spec[1])
+    _, cx, cy, starts = spec
+    return _PolyLayer(cx, cy, starts)
 
-    ``_PolyLayer`` instances aren't returned from the cached function
-    because pickle can't re-import a class defined in the Streamlit
-    script; we build them here from the cached numpy primitives instead.
+
+def _load_gds_layers(file_bytes: bytes):
+    """Cached parse + wrap into layer objects.
+
+    The layer objects (``_PolyLayer`` / ``_InstancedLayer``) aren't returned
+    from the cached function because pickle can't re-import a class defined
+    in the Streamlit script; we build them here from the cached primitives.
+    Wrapping is cheap (no coordinate copies).
     """
     unit, raw = _load_gds(file_bytes)
     out = {
-        cell: {key: _PolyLayer(cx, cy, starts)
-               for key, (cx, cy, starts) in by_layer.items()}
+        cell: {key: _spec_to_layer(spec) for key, spec in by_layer.items()}
         for cell, by_layer in raw.items()
     }
     return unit, out
@@ -551,7 +685,7 @@ def _layer_bbox_mm(polys, scale_to_mm: float):
     """Return (min_x, min_y, max_x, max_y) of polygons in mm, or None."""
     if not polys:
         return None
-    if isinstance(polys, _PolyLayer):
+    if isinstance(polys, (_PolyLayer, _InstancedLayer)):
         bb = polys.bbox()
         if bb is None:
             return None
@@ -589,6 +723,15 @@ def _bbox_rect_trace(bbox_mm, color: str, name: str) -> go.Scatter:
     )
 
 
+def _bin_points(out, px, py, weights, gx0, gy0, chip_size_mm, nx, ny):
+    """Accumulate ``weights`` into the flat (nx*ny) cell grid by the cell
+    each (px, py) falls in. Cell order i outer, j inner."""
+    i = np.floor((px - gx0) / chip_size_mm).astype(np.int64)
+    j = np.floor((py - gy0) / chip_size_mm).astype(np.int64)
+    valid = (i >= 0) & (i < nx) & (j >= 0) & (j < ny)
+    np.add.at(out, i[valid] * ny + j[valid], weights[valid])
+
+
 def _fast_cell_areas_binned(layer: "_PolyLayer", scale_to_mm: float,
                             ox: float, oy: float, gx0: float, gy0: float,
                             chip_size_mm: float, nx: int, ny: int) -> list:
@@ -601,14 +744,243 @@ def _fast_cell_areas_binned(layer: "_PolyLayer", scale_to_mm: float,
     are dropped (they aren't exposed)."""
     areas_mm2 = layer.poly_areas() * (scale_to_mm * scale_to_mm)
     fx, fy = layer.first_vertices()
-    px = fx * scale_to_mm + ox
-    py = fy * scale_to_mm + oy
-    i = np.floor((px - gx0) / chip_size_mm).astype(np.int64)
-    j = np.floor((py - gy0) / chip_size_mm).astype(np.int64)
-    valid = (i >= 0) & (i < nx) & (j >= 0) & (j < ny)
     out = np.zeros(nx * ny, dtype=np.float64)
-    np.add.at(out, i[valid] * ny + j[valid], areas_mm2[valid])
+    _bin_points(out, fx * scale_to_mm + ox, fy * scale_to_mm + oy,
+                areas_mm2, gx0, gy0, chip_size_mm, nx, ny)
     return out.tolist()
+
+
+def _instanced_cell_areas_binned(layer: "_InstancedLayer", scale_to_mm: float,
+                                 ox: float, oy: float, gx0: float, gy0: float,
+                                 chip_size_mm: float, nx: int, ny: int) -> list:
+    """Per-cell mm² area for an instanced layer, binned per *instance*
+    (O(#instances), never expands polygons). Each instance contributes its
+    whole base area to the cell containing the instance's center — exact
+    total, exact per-cell when each tile fits within a grid."""
+    out = np.zeros(nx * ny, dtype=np.float64)
+    for bcx, bcy, bst, off in layer.groups:
+        base = _PolyLayer(bcx, bcy, bst)
+        base_area = float(base.poly_areas().sum()) * (scale_to_mm ** 2)
+        bb = base.bbox()
+        if bb is None:
+            continue
+        cxc = 0.5 * (bb[0] + bb[2])
+        cyc = 0.5 * (bb[1] + bb[3])
+        px = (cxc + off[:, 0]) * scale_to_mm + ox
+        py = (cyc + off[:, 1]) * scale_to_mm + oy
+        w = np.full(off.shape[0], base_area, dtype=np.float64)
+        _bin_points(out, px, py, w, gx0, gy0, chip_size_mm, nx, ny)
+    return out.tolist()
+
+
+def _cell_areas_binned(layer, scale_to_mm, ox, oy, gx0, gy0,
+                       chip_size_mm, nx, ny) -> list:
+    """Dispatch per-cell area binning to the flat or instanced helper."""
+    if isinstance(layer, _InstancedLayer):
+        return _instanced_cell_areas_binned(
+            layer, scale_to_mm, ox, oy, gx0, gy0, chip_size_mm, nx, ny)
+    return _fast_cell_areas_binned(
+        layer, scale_to_mm, ox, oy, gx0, gy0, chip_size_mm, nx, ny)
+
+
+def _hex_rgb(hex_color: str):
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _rasterize_coverage(layer: "_InstancedLayer", scale_to_mm: float,
+                        ox: float, oy: float, color_hex: str, px: int = 360):
+    """Bin every instance into a low-res pixel grid (coverage raster) so the
+    full array footprint can be shown as ONE small image instead of tens of
+    thousands of vector points. Empty pixels are WHITE so the view reads the
+    same regardless of light/dark theme. Returns ``(rgba, x0, dx, y0, dy)``
+    for a ``go.Image`` trace (row 0 = bottom; pair with a non-reversed
+    y-axis), or None."""
+    grid = _coverage_grid(layer, scale_to_mm, ox, oy, px)
+    if grid is None:
+        return None
+    cnt, x0c, psz, y0c, _ = grid
+    r, g, b = _hex_rgb(color_hex)
+    rgba = np.empty((cnt.shape[0], cnt.shape[1], 4), dtype=np.uint8)
+    rgba[:] = (255, 255, 255, 255)          # white background
+    rgba[cnt > 0] = (r, g, b, 255)          # pattern coverage
+    return rgba, x0c, psz, y0c, psz
+
+
+def _coverage_grid(layer: "_InstancedLayer", scale_to_mm: float,
+                   ox: float, oy: float, px: int):
+    """Bin every instance center into a square-pixel grid over the placed
+    bbox. Returns ``(cnt, x0_center, psz, y0_center, psz)`` (row 0 =
+    bottom), or None."""
+    bb = _placed_bbox_mm(layer, scale_to_mm, ox, oy)
+    if bb is None:
+        return None
+    x0d, y0d, x1d, y1d = bb
+    w = x1d - x0d
+    h = y1d - y0d
+    if w <= 0 or h <= 0:
+        return None
+    ncols = int(px)
+    psz = w / ncols
+    nrows = max(1, int(round(h / psz)))
+    cnt = np.zeros((nrows, ncols), dtype=np.int64)
+    for bcx, bcy, bst, off in layer.groups:
+        base = _PolyLayer(bcx, bcy, bst)
+        bbb = base.bbox()
+        if bbb is None:
+            continue
+        cxc = 0.5 * (bbb[0] + bbb[2])
+        cyc = 0.5 * (bbb[1] + bbb[3])
+        pxs = (cxc + off[:, 0]) * scale_to_mm + ox
+        pys = (cyc + off[:, 1]) * scale_to_mm + oy
+        col = np.floor((pxs - x0d) / psz).astype(np.int64)
+        row = np.floor((pys - y0d) / psz).astype(np.int64)
+        m = (col >= 0) & (col < ncols) & (row >= 0) & (row < nrows)
+        np.add.at(cnt, (row[m], col[m]), 1)
+    return cnt, x0d + psz / 2, psz, y0d + psz / 2, psz
+
+
+def _coverage_heatmap_trace(layer, scale_to_mm: float, ox: float, oy: float,
+                            color: str, px: int = 260):
+    """A low-res coverage trace as a ``go.Heatmap`` (pattern = ``color``,
+    empty = transparent) for overlaying on the workflow / time-calculator
+    plots without flipping their y-axis the way ``go.Image`` would. Only for
+    instanced layers; returns None otherwise."""
+    if not isinstance(layer, _InstancedLayer):
+        return None
+    grid = _coverage_grid(layer, scale_to_mm, ox, oy, px)
+    if grid is None:
+        return None
+    cnt, x0c, dx, y0c, dy = grid
+    z = np.where(cnt > 0, 1.0, np.nan)
+    xs = x0c + dx * np.arange(cnt.shape[1])
+    ys = y0c + dy * np.arange(cnt.shape[0])
+    return go.Heatmap(
+        z=z, x=xs, y=ys, colorscale=[[0.0, color], [1.0, color]],
+        zmin=0.0, zmax=1.0, showscale=False, hoverinfo="skip",
+        name="Mask coverage",
+    )
+
+
+def _unit_pattern_traces(layer: "_InstancedLayer", color: str) -> list:
+    """One filled trace per group showing the base (unit) pattern at its
+    native scale — for a dedicated zoomed-in view of the repeated shape,
+    which is otherwise sub-pixel at the full-array scale. When a layer has
+    several distinct unit cells they're laid out left-to-right so they
+    don't overlap."""
+    palette = _PALETTE
+    traces = []
+    multi = len(layer.groups) > 1
+    x_cursor = 0.0
+    for gi, (bcx, bcy, bst, _off) in enumerate(layer.groups):
+        if bst.size <= 1:
+            continue
+        base = _PolyLayer(bcx, bcy, bst)
+        bb = base.bbox()
+        if bb is None:
+            continue
+        w = bb[2] - bb[0]
+        # Shift so this unit's left edge sits at the running cursor.
+        dx = x_cursor - bb[0]
+        xs, ys = _nan_xy_from_flat(bcx, bcy, bst, 1.0, dx, 0.0)
+        traces.append(go.Scatter(
+            x=xs, y=ys, mode="lines", fill="toself",
+            line=dict(color=palette[gi % len(palette)] if multi else color,
+                      width=1.2),
+            fillcolor=_hex_to_rgba(
+                palette[gi % len(palette)] if multi else color, 0.5),
+            name=f"unit {gi + 1} ({int(bst.size - 1)} polys)"
+                 if multi else "unit pattern",
+            hoverinfo="skip", showlegend=multi,
+        ))
+        x_cursor += w * 1.4 if w > 0 else 1.0
+    return traces
+
+
+def _nan_xy_from_flat(cx, cy, starts, scale_to_mm, ox, oy):
+    """Flat (cx, cy, starts) → NaN-separated, polygon-closed x/y lists in
+    placed mm coordinates, ready for a single filled Plotly line trace."""
+    px = cx * scale_to_mm + ox
+    py = cy * scale_to_mm + oy
+    xs, ys = [], []
+    s = starts
+    for a, b in zip(s[:-1].tolist(), s[1:].tolist()):
+        xs.extend(px[a:b].tolist()); xs.append(px[a]); xs.append(None)
+        ys.extend(py[a:b].tolist()); ys.append(py[a]); ys.append(None)
+    return xs, ys
+
+
+# Max polygons to draw at full detail inside a selected region (KLayout-
+# style inspect). Kept modest so the SVG detail plot stays responsive
+# (~15 k polys ≈ 90 k points); bigger selections are refused with a hint
+# to pick a smaller region.
+_MAX_REGION_POLYS = 15_000
+
+
+def _instances_in_window(layer: "_InstancedLayer", scale_to_mm: float,
+                         ox: float, oy: float,
+                         x0: float, x1: float, y0: float, y1: float):
+    """Expand only the instances whose placed unit center falls in the
+    window [x0,x1]×[y0,y1] to full per-polygon detail. Returns placed-mm
+    ``(cx, cy, starts)``, ``None`` if the window is empty, or
+    ``("over", n_polys)`` if it would exceed ``_MAX_REGION_POLYS``."""
+    if x1 < x0:
+        x0, x1 = x1, x0
+    if y1 < y0:
+        y0, y1 = y1, y0
+    sel_groups = []
+    total = 0
+    for bcx, bcy, bst, off in layer.groups:
+        base = _PolyLayer(bcx, bcy, bst)
+        bb = base.bbox()
+        if bb is None:
+            continue
+        cxc = 0.5 * (bb[0] + bb[2])
+        cyc = 0.5 * (bb[1] + bb[3])
+        px = (cxc + off[:, 0]) * scale_to_mm + ox
+        py = (cyc + off[:, 1]) * scale_to_mm + oy
+        m = (px >= x0) & (px <= x1) & (py >= y0) & (py <= y1)
+        sel = off[m]
+        if sel.shape[0]:
+            total += sel.shape[0] * int(bst.size - 1)
+            if total > _MAX_REGION_POLYS:
+                return ("over", total)
+            sel_groups.append((bcx, bcy, bst, sel))
+    if not sel_groups:
+        return None
+    cx, cy, starts = _expand_groups_to_flat(sel_groups)
+    return cx * scale_to_mm + ox, cy * scale_to_mm + oy, starts
+
+
+def _mask_overlay_traces(layer, scale_to_mm: float, ox: float, oy: float,
+                         color: str, name: str) -> list:
+    """Traces for a dense mask placed at (ox, oy): instanced layers draw
+    base + tiles; flat dense layers draw a single bounding box."""
+    if isinstance(layer, _InstancedLayer):
+        # Low-res coverage raster (same view as the GDS viewer footprint).
+        ht = _coverage_heatmap_trace(layer, scale_to_mm, ox, oy, color)
+        return [ht] if ht is not None else []
+    bb = _placed_bbox_mm(layer, scale_to_mm, ox, oy)
+    if bb is None:
+        return []
+    return [_bbox_rect_trace(bb, color, f"{name} (bbox, {len(layer):,} polys)")]
+
+
+def _dense_layer_note(layer) -> str:
+    """One-line caption describing how a dense layer is being shown."""
+    if isinstance(layer, _InstancedLayer):
+        return (
+            f":blue[Repetition detected: a {layer.base_poly_count():,}-polygon "
+            f"unit pattern tiled {layer.instance_count():,}× "
+            f"= {len(layer):,} polygons. Drawing the unit pattern + array "
+            "footprint; the time estimate uses unit area × tile count.]"
+        )
+    return (
+        f":orange[Layer has {len(layer):,} polygons (> {_POLY_LIMIT:,}); "
+        "showing the mask bounding box. The time estimate uses each "
+        "polygon's full area, binned to the grid cell holding its first "
+        "vertex.]"
+    )
 
 
 def _round_up_even(value: float) -> int:
@@ -715,8 +1087,16 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
                             extra_help_under_total: str | None = None,
                             disabled: bool = False,
                             disabled_reason: str | None = None,
-                            precomputed_cell_areas: list | None = None) -> None:
+                            precomputed_cell_areas: list | None = None,
+                            coverage_layer=None, coverage_scale: float = 1.0,
+                            coverage_ox: float = 0.0, coverage_oy: float = 0.0,
+                            coverage_color: str = "#2ca02c") -> None:
     """Render the per-mode Time Calculator section.
+
+    coverage_layer : optional ``_InstancedLayer`` whose low-res coverage
+        raster is overlaid on the result plot (placed at
+        ``coverage_ox/oy`` with ``coverage_scale``) — the same view shown
+        in the GDS viewer and workflow plots.
 
     precomputed_cell_areas : optional list of mm² per cell (aligned to
         ``cells``). When supplied, the expensive per-cell gdstk clip is
@@ -957,23 +1337,32 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
                 hoverinfo="skip",
             ))
 
-        # Mask clipped to grids: only the portion of each mask polygon
-        # that lands inside a grid cell, so what is plotted matches
-        # what is exposed and what was counted in the area total.
-        mxs, mys = [], []
-        for xs, ys in result.get("clipped_polys", []):
-            if not xs:
-                continue
-            mxs += list(xs) + [xs[0], None]
-            mys += list(ys) + [ys[0], None]
-        if mxs:
-            fig.add_trace(go.Scatter(
-                x=mxs, y=mys, mode="lines", fill="toself",
-                line=dict(color="#2ca02c", width=0.5),
-                fillcolor="rgba(44,160,44,0.4)",
-                name="Mask",
-                hoverinfo="skip",
-            ))
+        # Mask: for instanced layers overlay the low-res coverage raster
+        # (same view as the viewer / workflow). Otherwise draw the mask
+        # clipped to the grids (the portion that lands inside a cell, so
+        # what's plotted matches what was counted in the area total).
+        if coverage_layer is not None and isinstance(
+                coverage_layer, _InstancedLayer):
+            _cov = _coverage_heatmap_trace(
+                coverage_layer, coverage_scale, coverage_ox, coverage_oy,
+                coverage_color)
+            if _cov is not None:
+                fig.add_trace(_cov)
+        else:
+            mxs, mys = [], []
+            for xs, ys in result.get("clipped_polys", []):
+                if not xs:
+                    continue
+                mxs += list(xs) + [xs[0], None]
+                mys += list(ys) + [ys[0], None]
+            if mxs:
+                fig.add_trace(go.Scatter(
+                    x=mxs, y=mys, mode="lines", fill="toself",
+                    line=dict(color="#2ca02c", width=0.5),
+                    fillcolor="rgba(44,160,44,0.4)",
+                    name="Mask",
+                    hoverinfo="skip",
+                ))
 
         # Alignment-mark circle markers — drawn from ``mark_positions``
         # directly so all selected marks are always shown, regardless
@@ -1008,6 +1397,7 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
             margin=dict(l=40, r=20, t=20, b=40),
             height=500,
             showlegend=True,
+            plot_bgcolor="white",
         )
         st.plotly_chart(fig, width="stretch",
                         key=f"{prefix}_tc_chart")
@@ -1086,29 +1476,126 @@ with st.container(border=True):
             _gds_selected_token = (selected_cell, layer_key)
             n_polys = len(polys)
 
-            render = True
-            if n_polys > _POLY_LIMIT:
-                st.warning(
-                    f"Selected layer contains {n_polys:,} polygons "
-                    f"(limit {_POLY_LIMIT:,}). Rendering may be slow."
-                )
-                render = st.checkbox("Render anyway", key="ebc_gds_force")
+            if isinstance(polys, _InstancedLayer):
+                # Repetitive layer: show the unit pattern zoomed (so the
+                # repeated shape is actually visible) beside the full array
+                # footprint with a decimated sample of real patterns.
+                st.caption(_dense_layer_note(polys))
+                col_unit, col_full = st.columns([4, 6])
+                with col_unit:
+                    st.markdown("**Unit pattern (zoomed)**")
+                    ufig = go.Figure()
+                    for _t in _unit_pattern_traces(polys, _PALETTE[2]):
+                        ufig.add_trace(_t)
+                    ufig.update_layout(
+                        xaxis=dict(title="x (µm)"),
+                        yaxis=dict(title="y (µm)",
+                                   scaleanchor="x", scaleratio=1),
+                        margin=dict(l=40, r=20, t=20, b=40),
+                        height=550, showlegend=True, plot_bgcolor="white",
+                    )
+                    st.plotly_chart(ufig, width="stretch")
+                with col_full:
+                    st.markdown("**Array footprint** (low-res overview) — "
+                                "drag a box to inspect that region below at "
+                                "full detail")
+                    fig = go.Figure()
+                    _ras = _rasterize_coverage(
+                        polys, 1.0, 0.0, 0.0, _PALETTE[0])
+                    if _ras is not None:
+                        _rgba, _rx0, _rdx, _ry0, _rdy = _ras
+                        fig.add_trace(go.Image(
+                            z=_rgba, x0=_rx0, dx=_rdx, y0=_ry0, dy=_rdy,
+                            hoverinfo="skip",
+                        ))
+                    fig.update_xaxes(title="x (µm)", constrain="domain")
+                    fig.update_yaxes(title="y (µm)", autorange=True,
+                                     scaleanchor="x", scaleratio=1)
+                    fig.update_layout(
+                        margin=dict(l=40, r=20, t=20, b=40),
+                        height=550, showlegend=False, dragmode="select",
+                        plot_bgcolor="white",
+                    )
+                    _evt = st.plotly_chart(
+                        fig, width="stretch", key="ebc_gds_fp",
+                        on_select="rerun", selection_mode="box",
+                    )
 
-            if render:
+                # Box-select → redraw that region with every polygon.
+                _box = None
+                try:
+                    _boxes = _evt["selection"]["box"]
+                    if _boxes:
+                        _box = _boxes[0]
+                except (KeyError, TypeError, IndexError):
+                    _box = None
+                if _box is not None:
+                    _xr = sorted(_box["x"]); _yr = sorted(_box["y"])
+                    _res = _instances_in_window(
+                        polys, 1.0, 0.0, 0.0,
+                        _xr[0], _xr[1], _yr[0], _yr[1])
+                    if _res is None:
+                        st.info("No patterns in the selected region.")
+                    elif isinstance(_res[0], str):   # ("over", n_polys)
+                        st.warning(
+                            f"Selected region holds {_res[1]:,} polygons "
+                            f"(> {_MAX_REGION_POLYS:,}). Select a smaller "
+                            "region to inspect at full detail."
+                        )
+                    else:
+                        _cx, _cy, _starts = _res
+                        _n_sel = int(_starts.size - 1)
+                        st.markdown(
+                            f"**Selected region (full detail — "
+                            f"{_n_sel:,} polygons)**")
+                        _xs, _ys = _nan_xy_from_flat(
+                            _cx, _cy, _starts, 1.0, 0.0, 0.0)
+                        rfig = go.Figure(go.Scatter(
+                            x=_xs, y=_ys, mode="lines", fill="toself",
+                            line=dict(color=_PALETTE[0], width=0.8),
+                            fillcolor=_hex_to_rgba(_PALETTE[0], 0.4),
+                            hoverinfo="skip",
+                        ))
+                        rfig.update_layout(
+                            xaxis=dict(title="x (µm)",
+                                       range=[_xr[0], _xr[1]]),
+                            yaxis=dict(title="y (µm)", range=[_yr[0], _yr[1]],
+                                       scaleanchor="x", scaleratio=1),
+                            margin=dict(l=40, r=20, t=20, b=40),
+                            height=600, showlegend=False, plot_bgcolor="white",
+                        )
+                        st.plotly_chart(rfig, width="stretch",
+                                        key="ebc_gds_region")
+            else:
                 fig = go.Figure()
-                fig.add_trace(_layer_trace(
-                    selected_label, polys, _PALETTE[0],
-                ))
-                fig.update_layout(
-                    xaxis=dict(title="x (µm)"),
-                    yaxis=dict(title="y (µm)",
-                            scaleanchor="x", scaleratio=1),
-                    margin=dict(l=40, r=20, t=20, b=40),
-                    height=550,
-                    showlegend=True,
-                    legend=dict(itemsizing="constant"),
-                )
-                st.plotly_chart(fig, width="stretch")
+                render = True
+                if n_polys > _POLY_LIMIT:
+                    # Dense, non-repetitive layer: drawing every polygon
+                    # would stall the browser, so default off behind a box.
+                    st.warning(
+                        f"Selected layer contains {n_polys:,} polygons "
+                        f"(limit {_POLY_LIMIT:,}) with no detected "
+                        "repetition. Rendering every polygon may stall the "
+                        "browser."
+                    )
+                    render = st.checkbox("Render anyway", key="ebc_gds_force")
+                    if render:
+                        fig.add_trace(_layer_trace(
+                            selected_label, polys, _PALETTE[0]))
+                else:
+                    fig.add_trace(_layer_trace(
+                        selected_label, polys, _PALETTE[0]))
+                if render:
+                    fig.update_layout(
+                        xaxis=dict(title="x (µm)"),
+                        yaxis=dict(title="y (µm)",
+                                scaleanchor="x", scaleratio=1),
+                        margin=dict(l=40, r=20, t=20, b=40),
+                        height=550,
+                        showlegend=True,
+                        legend=dict(itemsizing="constant"),
+                    )
+                    st.plotly_chart(fig, width="stretch")
 
 
 # ─── Section 4: Mode selector ────────────────────────────────────────────────
@@ -1288,7 +1775,7 @@ with st.container(border=True):
             # Every grid carries the same mask (DT replicates it), so the
             # per-grid filled area is the single-grid mask area; compute
             # it once (binned into the single grid box) and broadcast.
-            _single_area = _fast_cell_areas_binned(
+            _single_area = _cell_areas_binned(
                 _gds_selected_polys, _gds_unit_to_mm, cel_x, cel_y,
                 origin_x - half, origin_y - half, chip_size, 1, 1)[0]
             _dt_precomp = [_single_area] * len(_dt_cells)
@@ -1493,12 +1980,22 @@ with st.container(border=True):
             st.plotly_chart(fig, width="stretch")
 
         if _dt_huge:
-            st.caption(
-                f":orange[Layer has {len(_gds_selected_polys):,} polygons "
-                f"(> {_POLY_LIMIT:,}); showing the mask bounding box. The "
-                "time estimate uses the single-grid mask area (sum of "
-                "polygon areas inside the grid), replicated per grid.]"
-            )
+            if isinstance(_gds_selected_polys, _InstancedLayer):
+                st.caption(
+                    f":blue[Repetition detected: a "
+                    f"{_gds_selected_polys.base_poly_count():,}-polygon unit "
+                    f"pattern tiled {_gds_selected_polys.instance_count():,}× "
+                    f"= {len(_gds_selected_polys):,} polygons. Showing the "
+                    "mask bounding box per grid; the time estimate uses the "
+                    "single-grid mask area replicated per grid.]"
+                )
+            else:
+                st.caption(
+                    f":orange[Layer has {len(_gds_selected_polys):,} polygons "
+                    f"(> {_POLY_LIMIT:,}); showing the mask bounding box. The "
+                    "time estimate uses the single-grid mask area (sum of "
+                    "polygon areas inside the grid), replicated per grid.]"
+                )
 
         _render_time_calculator(
             "ebc_dt", _dt_polys_mm, _dt_cells,
@@ -1666,7 +2163,7 @@ with st.container(border=True):
                 mask_ys += pys + [pys[0], None]
                 _fe_polys_mm.append((pxs, pys))
         elif _fe_huge:
-            _fe_precomp = _fast_cell_areas_binned(
+            _fe_precomp = _cell_areas_binned(
                 _gds_selected_polys, _gds_unit_to_mm,
                 cel_x + shift_x, cel_y + shift_y,
                 origin_x_v - half_v + shift_x,
@@ -1731,12 +2228,10 @@ with st.container(border=True):
                 hoverinfo="skip",
             ))
         elif _fe_huge:
-            _bb = _placed_bbox_mm(_gds_selected_polys, _gds_unit_to_mm,
-                                  cel_x + shift_x, cel_y + shift_y)
-            if _bb is not None:
-                fig.add_trace(_bbox_rect_trace(
-                    _bb, "#2ca02c",
-                    f"Mask bbox ({len(_gds_selected_polys):,} polys)"))
+            for _t in _mask_overlay_traces(
+                    _gds_selected_polys, _gds_unit_to_mm,
+                    cel_x + shift_x, cel_y + shift_y, "#2ca02c", "Mask"):
+                fig.add_trace(_t)
 
         # Chip corner dots (hover to read coords)
         fig.add_trace(go.Scatter(
@@ -1782,22 +2277,21 @@ with st.container(border=True):
             margin=dict(l=40, r=20, t=20, b=40),
             height=600,
             showlegend=True,
+            plot_bgcolor="white",
         )
         st.plotly_chart(fig, width="stretch")
 
         if _fe_huge:
-            st.caption(
-                f":orange[Layer has {len(_gds_selected_polys):,} polygons "
-                f"(> {_POLY_LIMIT:,}); showing the mask bounding box. The "
-                "time estimate uses each polygon's full area, binned to "
-                "the grid cell holding its first vertex.]"
-            )
+            st.caption(_dense_layer_note(_gds_selected_polys))
 
         _render_time_calculator(
             "ebc_fe", _fe_polys_mm, _fe_cells,
             chip_size_mm=chip_size_v,
             dotmap=int(st.session_state["ebc_dotmap"]),
             precomputed_cell_areas=_fe_precomp,
+            coverage_layer=_gds_selected_polys if _fe_huge else None,
+            coverage_scale=_gds_unit_to_mm,
+            coverage_ox=cel_x + shift_x, coverage_oy=cel_y + shift_y,
         )
 
     elif mode == "Second Alignment":
@@ -1951,12 +2445,10 @@ with st.container(border=True):
 
                 fig = go.Figure()
                 if polys and len(polys) > _POLY_LIMIT:
-                    _bb = _placed_bbox_mm(polys, scale_to_mm,
-                                          shift_x, shift_y)
-                    if _bb is not None:
-                        fig.add_trace(_bbox_rect_trace(
-                            _bb, "#1f77b4",
-                            f"Pattern bbox ({len(polys):,} polys)"))
+                    for _t in _mask_overlay_traces(
+                            polys, scale_to_mm, shift_x, shift_y,
+                            "#1f77b4", "Pattern"):
+                        fig.add_trace(_t)
                 elif polys:
                     xs_all, ys_all = [], []
                     for xs, ys in polys:
@@ -1993,6 +2485,7 @@ with st.container(border=True):
                     margin=dict(l=40, r=20, t=20, b=40),
                     height=500,
                     showlegend=True,
+                    plot_bgcolor="white",
                 )
                 with plot_col:
                     st.plotly_chart(fig, width="stretch",
@@ -2216,12 +2709,10 @@ with st.container(border=True):
                 ))
 
                 if _sa_huge:
-                    _bb = _placed_bbox_mm(sap_polys, scale_sap,
-                                          sap_cel_x, sap_cel_y)
-                    if _bb is not None:
-                        fig_sap.add_trace(_bbox_rect_trace(
-                            _bb, "#2ca02c",
-                            f"Mask bbox ({len(sap_polys):,} polys)"))
+                    for _t in _mask_overlay_traces(
+                            sap_polys, scale_sap, sap_cel_x, sap_cel_y,
+                            "#2ca02c", "Mask"):
+                        fig_sap.add_trace(_t)
                 else:
                     sap_mask_xs: list = []
                     sap_mask_ys: list = []
@@ -2261,6 +2752,7 @@ with st.container(border=True):
                 margin=dict(l=40, r=20, t=20, b=40),
                 height=500,
                 showlegend=True,
+                plot_bgcolor="white",
             )
             # Grid bounds in the SAP frame (no overlay shift).
             _gx_min_sap = origin_x_sap - half_sap
@@ -2410,7 +2902,7 @@ with st.container(border=True):
                 # Vectorized per-cell area in the overlay frame; the mask
                 # lands at (sap_cel + overlay_shift), grid starts at
                 # (origin − half + overlay_shift).
-                _ov_areas = _fast_cell_areas_binned(
+                _ov_areas = _cell_areas_binned(
                     sap_polys, scale_sap,
                     sap_cel_x + overlay_shift_x,
                     sap_cel_y + overlay_shift_y,
@@ -2474,12 +2966,10 @@ with st.container(border=True):
             # Existing pattern (with EP's user shift); kept un-clipped
             # for visual context (it's prior fabrication).
             if ep_polys and _ep_huge:
-                _bb = _placed_bbox_mm(ep_polys, _gds_unit_to_mm,
-                                      ep_shift_x, ep_shift_y)
-                if _bb is not None:
-                    fig_ov.add_trace(_bbox_rect_trace(
-                        _bb, "#1f77b4",
-                        f"Existing Pattern bbox ({len(ep_polys):,} polys)"))
+                for _t in _mask_overlay_traces(
+                        ep_polys, _gds_unit_to_mm, ep_shift_x, ep_shift_y,
+                        "#1f77b4", "Existing Pattern"):
+                    fig_ov.add_trace(_t)
             elif ep_polys:
                 ep_xs_all, ep_ys_all = [], []
                 for xs, ys in ep_polys:
@@ -2580,6 +3070,7 @@ with st.container(border=True):
                 margin=dict(l=40, r=20, t=20, b=40),
                 height=600,
                 showlegend=True,
+                plot_bgcolor="white",
             )
             with ov_plot_col:
                 st.plotly_chart(fig_ov, width="stretch",
@@ -2599,12 +3090,7 @@ with st.container(border=True):
                 if _sa_huge else None
             )
             if _sa_huge:
-                st.caption(
-                    f":orange[Layer has {len(sap_polys):,} polygons "
-                    f"(> {_POLY_LIMIT:,}); showing the mask bounding box. "
-                    "The time estimate uses each polygon's full area, "
-                    "binned to the grid cell holding its first vertex.]"
-                )
+                st.caption(_dense_layer_note(sap_polys))
             _render_time_calculator(
                 "ebc_sa", _ov_polys, _pattern_cells_ov,
                 chip_size_mm=chip_size_sap,
@@ -2624,4 +3110,8 @@ with st.container(border=True):
                     "before calculating."
                 ),
                 precomputed_cell_areas=_sa_precomp,
+                coverage_layer=sap_polys if _sa_huge else None,
+                coverage_scale=scale_sap,
+                coverage_ox=sap_cel_x + overlay_shift_x,
+                coverage_oy=sap_cel_y + overlay_shift_y,
             )

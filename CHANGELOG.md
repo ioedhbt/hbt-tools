@@ -241,22 +241,43 @@ entry under that tool below.
 
 ## EBL Calculator — [`tools/ebeam_calculator.py`](tools/ebeam_calculator.py)
 
-### v1.2
+### v1.3
 - Fixed out-of-memory crash on Streamlit Cloud when uploading large (heavily
-  arrayed) GDS files. The parser now flattens array/AREF references by tiling
-  coordinates with numpy (`_flatten_local`) instead of materializing millions
-  of polygon objects, and stores each layer as flat float64 arrays
-  (`_PolyLayer`, ~16 B/vertex, no per-polygon Python objects). A 27 MB file
-  expanding to ~3 M polygons / 12 M vertices now parses in <0.1 s at ~250 MB
-  peak (was ~940 MB+). The gdstk library is freed with `gc.collect()` after
-  parsing, the parse cache is bounded to one entry, and a polygon/vertex
-  budget surfaces a clear error instead of OOM-killing the app.
-- Workflow modes (Dose Time / First Exposure / Second Alignment) now gate on
-  polygon count: layers above 50 k polygons render as a dashed bounding box
-  (Plotly can't draw millions of polygons) and the Time Calculator uses a
-  vectorized per-cell area estimate (exact total for non-overlapping masks)
-  instead of the per-polygon gdstk clip. Bounding-box / area helpers and
-  `_layer_bbox_mm` are vectorized for `_PolyLayer`.
+  arrayed) GDS files. The parser flattens array/AREF references by tiling
+  coordinates with numpy instead of materializing millions of polygon
+  objects, and stores each layer as flat float64 arrays (`_PolyLayer`,
+  ~16 B/vertex, no per-polygon Python objects). The gdstk library is freed
+  with `gc.collect()` after parsing, the parse cache is bounded to one entry
+  (returning picklable numpy primitives wrapped into layer objects outside
+  the cache), and a polygon budget surfaces a clear error instead of
+  OOM-killing the app.
+- **Automatic repetition detection / instanced rendering.** Repeated
+  geometry is kept in instanced form (`_InstancedLayer`: a small base
+  pattern + an offset lattice) rather than expanded, so a unit cell tiled
+  ~1 M× stays a ~30-polygon base + offset table instead of millions of
+  polygons. Detection groups references by target cell + transform and
+  treats their origins as the lattice, so it catches both true AREF arrays
+  **and** the common case of a CAD tool emitting an array as hundreds of
+  thousands of individual single-placement SREFs (nested references combine
+  by multiplying offset lattices, never polygon arrays). A real 4.64 M-polygon
+  mask (969 k SREFs) parses in ~2 s (gdstk's own flatten alone takes ~15 s)
+  and renders instantly; count/area/bbox match gdstk exactly. The viewer and
+  workflow modes draw the **unit pattern + array footprint** instead of every
+  polygon, and the Time Calculator computes area as `unit_area × tile_count`
+  (exact, and independent of the on-screen rendering). Instanced layers are
+  shown as a **low-res coverage view** (pattern coloured, empty white) — a
+  white-background `go.Image` raster in the GDS viewer and a transparent
+  `go.Heatmap` overlay on the workflow grid plots and the Time Calculator
+  result plot — instead of tens of thousands of vector points, so the UI
+  stays fast. The viewer also has a **box-select region inspector**: drag a
+  box and that region redraws below with every polygon at full detail
+  (KLayout-style), capped at 15 k polygons. Layers classify automatically:
+  small → expanded
+  `_PolyLayer`; dense + repetitive → `_InstancedLayer`; dense +
+  non-repetitive → flat with a bounding-box / vectorized-area fallback.
+  Plot/area/bbox helpers
+  (`_layer_bbox_mm`, `_cell_areas_binned`, `_mask_overlay_traces`) dispatch
+  on the layer type.
 
 ### v1.1
 - Chip Size selector switched to μm presets; resolution is now displayed live
