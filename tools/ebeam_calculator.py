@@ -897,6 +897,29 @@ def _unit_pattern_traces(layer: "_InstancedLayer", color: str) -> list:
     return traces
 
 
+def _decimated_centers(layer: "_InstancedLayer", scale_to_mm: float,
+                       ox: float, oy: float, cap: int = 5000):
+    """Placed (x, y) of a decimated, evenly-spread sample of instance
+    centers — a light, selectable scatter layer for box-select."""
+    total = max(1, layer.instance_count())
+    xs, ys = [], []
+    for bcx, bcy, bst, off in layer.groups:
+        base = _PolyLayer(bcx, bcy, bst)
+        bb = base.bbox()
+        if bb is None:
+            continue
+        cxc = 0.5 * (bb[0] + bb[2])
+        cyc = 0.5 * (bb[1] + bb[3])
+        k = off.shape[0]
+        n = max(1, min(k, int(round(cap * k / total))))
+        idx = np.unique(np.linspace(0, k - 1, n).round().astype(np.int64))
+        xs.append((cxc + off[idx, 0]) * scale_to_mm + ox)
+        ys.append((cyc + off[idx, 1]) * scale_to_mm + oy)
+    if not xs:
+        return np.zeros(0), np.zeros(0)
+    return np.concatenate(xs), np.concatenate(ys)
+
+
 def _nan_xy_from_flat(cx, cy, starts, scale_to_mm, ox, oy):
     """Flat (cx, cy, starts) → NaN-separated, polygon-closed x/y lists in
     placed mm coordinates, ready for a single filled Plotly line trace."""
@@ -1302,7 +1325,8 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
         )
         st.markdown(
             f"### Estimated Time: `{_format_hms(result['total_us'] / 1e6)}`",
-            help="hh:mm:ss.sss (hours:minutes:seconds)"
+            help=(f"{result['total_us'] / 1e6:,.3f} seconds "
+                  "(hh:mm:ss.sss = hours:minutes:seconds)")
         )
         if result.get("extra_help_under_total"):
             st.caption(result["extra_help_under_total"])
@@ -1508,6 +1532,17 @@ with st.container(border=True):
                             z=_rgba, x0=_rx0, dx=_rdx, y0=_ry0, dy=_rdy,
                             hoverinfo="skip",
                         ))
+                    # A light, SELECTABLE scatter of decimated instance
+                    # centers so box-select fires reliably on every drag
+                    # (an image-only figure isn't selectable, which froze
+                    # the selection). The detail region is taken from the
+                    # box geometry, not these points.
+                    _scx, _scy = _decimated_centers(polys, 1.0, 0.0, 0.0)
+                    fig.add_trace(go.Scattergl(
+                        x=_scx, y=_scy, mode="markers",
+                        marker=dict(size=3, color=_PALETTE[0], opacity=0.45),
+                        hoverinfo="skip", showlegend=False,
+                    ))
                     fig.update_xaxes(title="x (µm)", constrain="domain")
                     fig.update_yaxes(title="y (µm)", autorange=True,
                                      scaleanchor="x", scaleratio=1)
@@ -1520,13 +1555,15 @@ with st.container(border=True):
                         fig, width="stretch", key="ebc_gds_fp",
                         on_select="rerun", selection_mode="box",
                     )
+                    st.caption("Double-click the plot to clear the selection.")
 
-                # Box-select → redraw that region with every polygon.
+                # Box-select → redraw that region with every polygon. Read the
+                # box geometry from the latest selection event.
                 _box = None
                 try:
                     _boxes = _evt["selection"]["box"]
                     if _boxes:
-                        _box = _boxes[0]
+                        _box = _boxes[-1]
                 except (KeyError, TypeError, IndexError):
                     _box = None
                 if _box is not None:
