@@ -36,6 +36,7 @@ from tools.SSM.helpers        import (
     PALETTE, FT_FMAX_SYMBOLS, FT_FMAX_COLORS, darken, bode_layout, make_smith, make_bode, make_plateau,
     add_overlay_trace_with_markers,
     metric_card, build_excel, load_cal,
+    xlsx_bytes_to_tsv, copy_button,
     rust_parse_and_compute_batch,
 )
 
@@ -753,12 +754,16 @@ with tab_ind:
             # One xlsx button: simulated columns (freq + each gain trace) and,
             # when extrapolation is in play, a side-by-side extrapolated block.
             if bode_xl is not None:
-                st.download_button(
+                _bode_tsv = xlsx_bytes_to_tsv(bode_xl)
+                _cx, _cc = st.columns(2)
+                _cx.download_button(
                     "⬇ xlsx",
                     data=bode_xl,
                     file_name=f"{Path(n).stem}_bode.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"bode_dl_{n}")
+                    key=f"bode_dl_{n}", width="stretch")
+                if _bode_tsv:
+                    copy_button(_bode_tsv, key=f"bode_{n}", container=_cc)
         with tb:
             _plat_fig = _cached_fig(
                 ("ind_plateau", _dut_keys.get(n, n.encode()),

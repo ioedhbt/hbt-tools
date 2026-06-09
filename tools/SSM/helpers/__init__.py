@@ -94,6 +94,10 @@ from .chart_export import (
     plotly_with_dl,
     build_excel,
     metric_card,
+    fig_to_tsv,
+    frames_to_tsv,
+    xlsx_bytes_to_tsv,
+    copy_button,
     EXCEL_MIME,
 )
 

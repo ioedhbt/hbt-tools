@@ -7,7 +7,9 @@ Consolidates:
   - IOED_HBT_RF_extract.py    (build_excel, _card → renamed to metric_card)
 """
 from __future__ import annotations
+import html
 import io
+import json
 import re
 from pathlib import Path
 
@@ -138,26 +140,29 @@ def _collect_traces(fig):
 # Excel export — single Plotly figure
 # ════════════════════════════════════════════════════════════════════════════════
 
-def fig_to_excel_bytes(fig) -> bytes | None:
+def _fig_frames(fig) -> list[tuple[str, pd.DataFrame]] | None:
     """
-    Extract trace data from a Plotly figure and return Excel (.xlsx) bytes.
+    Extract a Plotly figure's traces into ``[(sheet_name, DataFrame), …]``.
+
+    Single source of truth for both the .xlsx export (:func:`fig_to_excel_bytes`)
+    and the clipboard TSV (:func:`fig_to_tsv`) so the two never drift apart —
+    and so the TSV can be built directly from the trace arrays without the cost
+    of writing then re-reading a workbook.
 
     Layout
     ------
     Smith charts
-        All traces in one "Smith" sheet.  Each trace occupies two columns:
+        All traces in one "Smith" frame.  Each trace occupies two columns:
         ``S11_meas (re)`` and ``S11_meas (im)`` (Re(Γ) and Im(Γ)).
 
     Other plots — wide format (same shared x-axis)
-        One "Data" sheet: one x column followed by one column per trace.
+        One frame: one x column followed by one column per trace.
 
     Other plots — mixed x-axes
-        One sheet per trace (name capped at 31 chars for Excel).
+        One frame per trace (name capped at 31 chars for Excel sheets).
 
     Grid lines (showlegend=False) and constant reference lines (≤2 points)
-    are always excluded.
-
-    Returns None when no exportable data is found.
+    are always excluded.  Returns None when no exportable data is found.
     """
     traces = _collect_traces(fig)
     if not traces:
@@ -165,8 +170,6 @@ def fig_to_excel_bytes(fig) -> bytes | None:
 
     x_lbl = _axis_text(fig.layout.xaxis)
     y_lbl = _axis_text(fig.layout.yaxis)
-
-    buf = io.BytesIO()
 
     if _is_smith(fig):
         max_len = max(len(x) for _, x, _ in traces)
@@ -181,10 +184,7 @@ def fig_to_excel_bytes(fig) -> bytes | None:
             prefix = _smith_col_name(raw_name)
             data[f"{prefix} (re)"] = _pad(x)
             data[f"{prefix} (im)"] = _pad(y)
-
-        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-            pd.DataFrame(data).to_excel(writer, sheet_name="Smith", index=False)
-        return buf.getvalue()
+        return [("Smith", pd.DataFrame(data))]
 
     lengths = [len(x) for _, x, _ in traces]
     all_same_len = len(set(lengths)) == 1
@@ -194,27 +194,39 @@ def fig_to_excel_bytes(fig) -> bytes | None:
         x_ref = traces[0][1]
         use_wide = all(np.allclose(x_ref, x, equal_nan=True) for _, x, _ in traces)
 
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        if use_wide:
-            x_ref = traces[0][1]
-            sheet_name = _freq_sheet_name(x_lbl, x_ref)
-            data = {x_lbl or "x": x_ref}
-            for name, _, y in traces:
-                col_hdr = name if not y_lbl else f"{name} ({y_lbl})"
-                data[col_hdr] = y
-            pd.DataFrame(data).to_excel(writer, sheet_name=sheet_name, index=False)
-        else:
-            seen: dict[str, int] = {}
-            for name, x, y in traces:
-                base = name[:28]
-                count = seen.get(base, 0)
-                seen[base] = count + 1
-                sheet = base if count == 0 else f"{base}_{count}"
-                pd.DataFrame({
-                    x_lbl or "x": x,
-                    y_lbl or "y": y,
-                }).to_excel(writer, sheet_name=sheet, index=False)
+    if use_wide:
+        x_ref = traces[0][1]
+        sheet_name = _freq_sheet_name(x_lbl, x_ref)
+        data = {x_lbl or "x": x_ref}
+        for name, _, y in traces:
+            col_hdr = name if not y_lbl else f"{name} ({y_lbl})"
+            data[col_hdr] = y
+        return [(sheet_name, pd.DataFrame(data))]
 
+    frames: list[tuple[str, pd.DataFrame]] = []
+    seen: dict[str, int] = {}
+    for name, x, y in traces:
+        base = name[:28]
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        sheet = base if count == 0 else f"{base}_{count}"
+        frames.append((sheet, pd.DataFrame({x_lbl or "x": x, y_lbl or "y": y})))
+    return frames
+
+
+def fig_to_excel_bytes(fig) -> bytes | None:
+    """Extract trace data from a Plotly figure → Excel (.xlsx) bytes.
+
+    Layout and filtering are described in :func:`_fig_frames`.  Returns None
+    when no exportable data is found.
+    """
+    frames = _fig_frames(fig)
+    if not frames:
+        return None
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        for sheet, df in frames:
+            df.to_excel(writer, sheet_name=sheet, index=False)
     return buf.getvalue()
 
 
@@ -293,6 +305,147 @@ def bode_excel_bytes(freq_ghz, sim_traces, extrap_traces=None) -> bytes | None:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+# Clipboard copy — TSV built straight from plot data (no xlsx round-trip)
+# ════════════════════════════════════════════════════════════════════════════════
+
+def frames_to_tsv(frames) -> str | None:
+    """Join ``[(name, DataFrame), …]`` into tab-separated clipboard text.
+
+    A single frame (the common case: wide-format plot data) becomes one TSV
+    table.  Multiple frames are stacked vertically, each preceded by a
+    ``# <name>`` line and a blank separator, since a clipboard paste lands in
+    one grid.  Returns None when there is nothing to copy.
+    """
+    if not frames:
+        return None
+    multi = len(frames) > 1
+    parts: list[str] = []
+    for name, df in frames:
+        block = df.to_csv(sep="\t", index=False, lineterminator="\n").rstrip("\n")
+        parts.append(f"# {name}\n{block}" if multi else block)
+    text = "\n\n".join(parts)
+    return text or None
+
+
+def fig_to_tsv(fig) -> str | None:
+    """Plotly figure → tab-separated text ready to paste straight into Excel.
+
+    Reuses :func:`_fig_frames`, so the clipboard content matches
+    :func:`fig_to_excel_bytes` exactly — but is built directly from the trace
+    arrays, with no workbook write/read, so it is cheap to recompute on every
+    Streamlit rerun.
+    """
+    return frames_to_tsv(_fig_frames(fig))
+
+
+def xlsx_bytes_to_tsv(xl_bytes: bytes | None) -> str | None:
+    """Read .xlsx bytes back → tab-separated clipboard text.
+
+    Used when only the finished workbook is available (manually-built sheets
+    or pre-built fT/fmax Bode bytes), so the copy matches the download exactly.
+    Prefer :func:`fig_to_tsv` when a Plotly figure is in hand — it skips this
+    openpyxl read-back.  Returns None when there is nothing to copy.
+    """
+    if not xl_bytes:
+        return None
+    try:
+        sheets = pd.read_excel(io.BytesIO(xl_bytes), sheet_name=None)
+    except Exception:
+        return None
+    return frames_to_tsv(list(sheets.items()))
+
+
+def copy_button(
+    text: str,
+    key: str,
+    *,
+    container=None,
+    label: str = "📋 copy",
+    height: int = 46,
+):
+    """Render a "copy to clipboard" button styled like the xlsx download button.
+
+    Drops `text` onto the clipboard so the user can paste the exact same data
+    straight into Excel (or anywhere) without downloading a file, and flashes
+    an opaque "✓ Copied" toast over the button for ~1 s.  Built with
+    ``st.iframe`` + a tiny inline ``<button>`` because Streamlit has no native
+    clipboard widget.
+
+    Copy path: ``navigator.clipboard.writeText`` first (no focus change, so the
+    page does not scroll), falling back to a hidden-``<textarea>`` +
+    ``execCommand('copy')`` with ``focus({preventScroll:true})`` for browsers
+    where the async Clipboard API is blocked inside the component iframe.
+    """
+    target = container if container is not None else st
+    if not text:
+        return
+
+    payload = json.dumps(text)          # safely JS-escapes quotes/newlines/tabs
+    safe_label = html.escape(label)
+    doc = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  html,body{{margin:0;padding:0;background:transparent;overflow:hidden;}}
+  .wrap{{position:relative;}}
+  button{{
+    width:100%;box-sizing:border-box;cursor:pointer;
+    font-family:"Source Sans Pro","Segoe UI",sans-serif;font-size:0.875rem;
+    line-height:1.6;padding:0.25rem 0.75rem;min-height:38.4px;
+    border:1px solid rgba(49,51,63,0.2);border-radius:0.5rem;
+    background:#fff;color:rgb(38,39,48);transition:border-color .15s,color .15s;
+  }}
+  button:hover{{border-color:#4A90D9;color:#4A90D9;}}
+  button:active{{border-color:#357ABD;color:#357ABD;}}
+  #toast{{
+    position:absolute;left:50%;top:50%;
+    transform:translate(-50%,-50%) scale(0.96);
+    background:#1f8a4c;color:#fff;font-weight:600;font-size:0.8rem;
+    font-family:"Source Sans Pro","Segoe UI",sans-serif;
+    padding:5px 12px;border-radius:6px;white-space:nowrap;
+    box-shadow:0 2px 8px rgba(0,0,0,0.28);
+    opacity:0;pointer-events:none;
+    transition:opacity .15s ease,transform .15s ease;
+  }}
+  #toast.show{{opacity:1;transform:translate(-50%,-50%) scale(1);}}
+</style></head><body>
+<div class="wrap">
+  <button id="cb">{safe_label}</button>
+  <div id="toast">✓ Copied to clipboard</div>
+</div>
+<script>
+  const data = {payload};
+  const btn = document.getElementById("cb");
+  const toast = document.getElementById("toast");
+  let timer = null;
+  function flash() {{
+    toast.classList.add("show");
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function() {{ toast.classList.remove("show"); }}, 1000);
+  }}
+  function legacyCopy() {{
+    try {{
+      const ta = document.createElement("textarea");
+      ta.value = data;
+      ta.style.position = "fixed"; ta.style.top = "0"; ta.style.left = "0";
+      ta.style.width = "1px"; ta.style.height = "1px"; ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus({{preventScroll: true}}); ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }} catch (e) {{}}
+  }}
+  btn.addEventListener("click", function() {{
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+      navigator.clipboard.writeText(data).then(flash).catch(function() {{
+        legacyCopy(); flash();
+      }});
+    }} else {{
+      legacyCopy(); flash();
+    }}
+  }});
+</script></body></html>"""
+    target.iframe(doc, height=height)
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 # Drop-in plotly_chart wrapper
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -337,13 +490,19 @@ def plotly_with_dl(
     if xl is None and extra_download is None:
         return
 
-    # Center download buttons under the plot.  Layout adapts based on
-    # whether we have one or two buttons:
-    #   - 1 button : two side spacers + a narrow centred col [3,2,3]
-    #   - 2 buttons: tighter spacers + two centred cols     [2,2,2,2]
+    # Clipboard text mirrors the xlsx data exactly, so "copy" pastes the same
+    # content into Excel without downloading a file.  Build it straight from
+    # the figure (cheap, no workbook round-trip); only fall back to reading the
+    # pre-built bytes for the Bode case where extrapolation columns live in
+    # hidden traces that the figure extraction would drop.
+    tsv = xlsx_bytes_to_tsv(excel_bytes) if excel_bytes is not None else fig_to_tsv(fig)
+
+    # Center the action buttons under the plot.  Layout adapts to the count:
+    #   - xlsx + copy            : two centred cols          [2,2,2,2]
+    #   - xlsx + extra + copy    : three centred cols      [1,2,2,2,1]
     if extra_download is None:
-        _spL, _mid, _spR = ctx.columns([3, 2, 3])
-        _mid.download_button(
+        _spL, _c1, _c2, _spR = ctx.columns([2, 2, 2, 2])
+        _c1.download_button(
             label="⬇ xlsx",
             data=xl,
             file_name=f"{filename or key}.xlsx",
@@ -351,9 +510,11 @@ def plotly_with_dl(
             key=f"dl_xl_{key}",
             width="stretch",
         )
+        if tsv:
+            copy_button(tsv, key=key, container=_c2)
     else:
         ex_label, ex_data, ex_fname, ex_mime = extra_download
-        _spL, _c1, _c2, _spR = ctx.columns([2, 2, 2, 2])
+        _spL, _c1, _c2, _c3, _spR = ctx.columns([1, 2, 2, 2, 1])
         if xl is not None:
             _c1.download_button(
                 label="⬇ xlsx",
@@ -371,6 +532,8 @@ def plotly_with_dl(
             key=f"dl_extra_{key}",
             width="stretch",
         )
+        if tsv:
+            copy_button(tsv, key=key, container=_c3)
 
 
 # ════════════════════════════════════════════════════════════════════════════════

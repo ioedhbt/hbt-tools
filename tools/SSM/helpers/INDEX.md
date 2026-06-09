@@ -264,17 +264,22 @@ Each per-model file: `{"saved_at": "<ISO>", "params": {<SI-unit dict>}}`.
 
 | Function | Line | Purpose |
 |---|---|---|
-| `EXCEL_MIME` | 19 | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`. |
-| `_axis_text(axis_obj)` | 26 | Safely fetch a Plotly axis title text. |
-| `_is_smith(fig)` | 33 | True when the figure is a Smith chart (Re(Γ) / Im(Γ) axes). |
-| `_smith_col_name(trace_name)` | 38 | Map a Smith-trace name → compact Excel column prefix (e.g. `S11_meas`). |
-| `_freq_sheet_name(x_lbl, x_arr)` | 61 | Build an Excel sheet name from the frequency range. |
-| `_collect_traces(fig)` | 108 | Return `[(name, x, y), …]` for exportable traces. |
-| `fig_to_excel_bytes(fig)` | 141 | Extract Plotly traces → `.xlsx` bytes (smart Smith vs normal layout). |
-| `bode_excel_bytes(freq_ghz, sim_traces, extrap_traces=None)` | 221 | Canonical fT/fmax Bode export → single-sheet `.xlsx` bytes: simulated block (`Freq (GHz)` + each gain trace) plus, when extrapolation is present, a side-by-side `… (extrap)` block on a unified extrap freq axis. Used by every Bode plot (RF simulator, SSM, RF extraction) via `plotly_with_dl(excel_bytes=…)` / `make_bode(return_excel_bytes=True)`. |
-| `plotly_with_dl(fig, key, filename="", width="stretch", container=None, extra_download=None, excel_bytes=None, **kwargs)` | 299 | Render Plotly chart + compact xlsx download button below it. **`extra_download=(label, data_bytes, file_name, mime)`** adds a second button alongside xlsx (SSM measured-vs-modeled Smith → "📥 modeled S2P"). **`excel_bytes`** supplies pre-built xlsx (e.g. `bode_excel_bytes`) instead of auto-extracting from the figure. |
-| `build_excel(summary_df, all_data)` | 380 | Multi-sheet workbook: Summary + per-DUT DataFrames. |
-| `metric_card(col, title, val, sub, color="#4A90D9")` | 404 | Styled HTML metric tile (used in IOED tab_ind, batch tab). |
+| `EXCEL_MIME` | 21 | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`. |
+| `_axis_text(axis_obj)` | 28 | Safely fetch a Plotly axis title text. |
+| `_is_smith(fig)` | 35 | True when the figure is a Smith chart (Re(Γ) / Im(Γ) axes). |
+| `_smith_col_name(trace_name)` | 40 | Map a Smith-trace name → compact Excel column prefix (e.g. `S11_meas`). |
+| `_freq_sheet_name(x_lbl, x_arr)` | 63 | Build an Excel sheet name from the frequency range. |
+| `_collect_traces(fig)` | 110 | Return `[(name, x, y), …]` for exportable traces. |
+| `_fig_frames(fig)` | 143 | Extract Plotly traces → `[(sheet_name, DataFrame), …]` (smart Smith vs wide vs per-trace layout). **Single source of truth** shared by `fig_to_excel_bytes` and `fig_to_tsv` so xlsx and clipboard never drift. Returns None when no exportable data. |
+| `fig_to_excel_bytes(fig)` | 217 | Write `_fig_frames(fig)` → `.xlsx` bytes. |
+| `bode_excel_bytes(freq_ghz, sim_traces, extrap_traces=None)` | 233 | Canonical fT/fmax Bode export → single-sheet `.xlsx` bytes: simulated block (`Freq (GHz)` + each gain trace) plus, when extrapolation is present, a side-by-side `… (extrap)` block on a unified extrap freq axis. Used by every Bode plot (RF simulator, SSM, RF extraction) via `plotly_with_dl(excel_bytes=…)` / `make_bode(return_excel_bytes=True)`. |
+| `frames_to_tsv(frames)` | 311 | Join `[(name, DataFrame), …]` → tab-separated clipboard text (single → one table; multi → stacked with `# <name>` headers). Returns None when empty. |
+| `fig_to_tsv(fig)` | 330 | Plotly figure → TSV for clipboard paste, built directly from `_fig_frames` (no workbook write/read — cheap to recompute each rerun). Matches `fig_to_excel_bytes` content exactly. **Preferred** feed for `copy_button` whenever a figure is in hand. |
+| `xlsx_bytes_to_tsv(xl_bytes)` | 341 | Read `.xlsx` bytes back → TSV. Used only when just the finished workbook is available (manually-built sheets, or pre-built Bode bytes whose extrap columns are hidden traces). Prefer `fig_to_tsv` otherwise — it skips this openpyxl read-back. |
+| `copy_button(text, key, *, container=None, label="📋 copy", height=46)` | 358 | Clipboard "copy" button via `st.iframe` + inline JS. Copies with `navigator.clipboard.writeText` first (no focus → **page doesn't scroll to top**), falling back to a hidden-`<textarea>` + `execCommand('copy')` with `focus({preventScroll:true})`. Flashes an **opaque "✓ Copied" toast over the button for ~1 s**. Styled to match the xlsx button. Used beside every plot's xlsx download (in `plotly_with_dl`, plus RF Smith, IOED Bode, HP4155A export). |
+| `plotly_with_dl(fig, key, filename="", width="stretch", container=None, extra_download=None, excel_bytes=None, **kwargs)` | 452 | Render Plotly chart + an xlsx download button **and a 📋 copy button** below it. Copy text comes from `fig_to_tsv(fig)` (cheap) — or `xlsx_bytes_to_tsv(excel_bytes)` for the Bode `excel_bytes` path so hidden extrap columns are kept. **`extra_download=(label, data_bytes, file_name, mime)`** adds a button alongside xlsx (SSM measured-vs-modeled Smith → "📥 modeled S2P"); the copy button sits after it. **`excel_bytes`** supplies pre-built xlsx (e.g. `bode_excel_bytes`) instead of auto-extracting from the figure. |
+| `build_excel(summary_df, all_data)` | 543 | Multi-sheet workbook: Summary + per-DUT DataFrames. |
+| `metric_card(col, title, val, sub, color="#4A90D9")` | 567 | Styled HTML metric tile (used in IOED tab_ind, batch tab). |
 
 ---
 

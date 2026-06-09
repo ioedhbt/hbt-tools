@@ -40,6 +40,7 @@ from tools.SSM.helpers         import (extended_smith_grid,
                                         FT_FMAX_SYMBOLS, FT_FMAX_COLORS,
                                         plotly_with_dl, fig_to_excel_bytes,
                                         bode_excel_bytes,
+                                        fig_to_tsv, copy_button,
                                         make_smith_bode_slider_fig)
 
 try:
@@ -161,7 +162,8 @@ def _smith_chart_with_dl(fig, key: str, filename: str,
     """Render a smith chart and put xlsx + s2p download buttons side by side."""
     st.plotly_chart(fig, width="stretch", key=key)
     xl = fig_to_excel_bytes(fig)
-    col_xl, col_s2p = st.columns(2)
+    tsv = fig_to_tsv(fig)
+    col_xl, col_copy, col_s2p = st.columns(3)
     if xl is not None:
         col_xl.download_button(
             "⬇ xlsx",
@@ -171,6 +173,8 @@ def _smith_chart_with_dl(fig, key: str, filename: str,
             key=f"dl_xl_{key}",
             width="stretch",
         )
+    if tsv:
+        copy_button(tsv, key=key, container=col_copy)
     col_s2p.download_button(
         "📥 .s2p",
         data=s2p_data,

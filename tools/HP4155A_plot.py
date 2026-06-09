@@ -12,6 +12,7 @@ import numpy as np
 import io
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from tools.SSM.helpers import xlsx_bytes_to_tsv, copy_button
 
 st.title(f"🧪 SMU Interactive Plot Tool (v{__version__})")
 
@@ -291,9 +292,15 @@ if st.button("📊 Show", key="hp_show_btn"):
         st.stop()
 
     writer.close()
-    st.download_button(
+    _xl_bytes = buf.getvalue()
+    _tsv = xlsx_bytes_to_tsv(_xl_bytes)
+    _c_dl, _c_copy = st.columns(2)
+    _c_dl.download_button(
         "📥 Download Excel",
-        data=buf.getvalue(),
+        data=_xl_bytes,
         file_name=f"{st.session_state.hp_file_name}_processed.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        width="stretch",
     )
+    if _tsv:
+        copy_button(_tsv, key="hp4155a_export", container=_c_copy)
