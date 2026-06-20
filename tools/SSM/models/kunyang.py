@@ -41,20 +41,178 @@ from ..helpers       import (y_to_s_single, y_to_s_vec,
                               params_hash,
                               build_Z_ser, build_Z_ser_vec, build_Z_ser_batch)
 from .base_ui        import sync_pad_from_preov, PAD_SPECS, SSMModelTemplate
-from ._shared        import _b1, _detect_B, _stack22
+from ._shared        import _b1, _detect_B, _stack22, has_inter, _load_font
 from . import AbstractSSMModel
 
 
 _ILLUS_DIR = _Path(__file__).parent / "illus_template"
 
+ohm_sign = "Ω" if has_inter() else "Ohm"
+
+# Display units for each parameter key: (SI→display scale factor, base unit).
+# Lead keys re-use HBT storage names (Lb/Lc/Le, Rpb/Rpc/Rpe) but are the
+# HEMT gate/drain/source leads (Lg/Ld/Ls, Rg/Rd/Rs).
+_PARAM_DISPLAY: dict[str, tuple] = {
+    # Intrinsic pi-model
+    "Cgs":   (1e15, "fF"),  "Ri":    (1,    ohm_sign),
+    "Cgd":   (1e15, "fF"),  "Rgd":   (1,    ohm_sign),
+    "Cds":   (1e15, "fF"),  "Rds":   (1,    ohm_sign),
+    "Gm0":   (1e3,  "mS"),  "tau":   (1e12, "ps"),
+    # Source-side delay network
+    "R_delay": (1,    ohm_sign), "C_delay": (1e15, "fF"),
+    # Series leads (storage keys re-used from the HBT models)
+    "Lb":    (1e12, "pH"),  "Lc":    (1e12, "pH"),  "Le":    (1e12, "pH"),
+    "Rpb":   (1,    ohm_sign),   "Rpc":   (1,    ohm_sign),   "Rpe":   (1,    ohm_sign),
+    # Kun-Yang custom pad / substrate
+    "Cgsp":  (1e15, "fF"),  "Rsub1": (1,    ohm_sign),
+    "Cdsp":  (1e15, "fF"),  "Rsub2": (1,    ohm_sign),
+    "Cgdp":  (1e15, "fF"),
+}
+
+# Unit ladder: when display value >= 1000, scale to the next prefix.
+_UNIT_LADDER: dict[str, str] = {
+    "fF": "pF",  "pF": "nF",
+    "pH": "nH",  "nH": "μH",
+    "ps": "ns",  "ns": "μs",
+    "mS": "S",
+    f"{ohm_sign}":  f"k{ohm_sign}",  f"k{ohm_sign}": f"M{ohm_sign}",
+    f"M{ohm_sign}": f"G{ohm_sign}", f"G{ohm_sign}": f"T{ohm_sign}",
+}
+
+# ── Pixel (x, y[, anchor]) positions for overlaid value text ─────────────────
+# Image is KYHEMT_full.png — 1157 × 862 px.  anchor is a PIL anchor string
+# (default "mm"): first char l/m/r = horizontal align, second t/m/b = vertical.
+# Keys are *storage* keys (Lb/Lc/Le/Rpb/Rpc/Rpe are the HEMT leads).
+# ►► These are placeholder positions — adjust each (x, y) to sit beside the
+#    matching component label on KYHEMT_full.png. ◄◄
+_KY_OVERLAY: dict[str, tuple] = {
+    # Series leads (gate Lg/Rg, drain Rd/Ld)
+    "Lb":   (110, 165),          # Lg
+    "Rpb":  (245, 165),          # Rg
+    "Rpc":  (875, 165),          # Rd
+    "Lc":   (1005, 165),         # Ld
+
+    # Gate-side intrinsic
+    "Cgd":  (390, 165),
+    "Rgd":  (500, 165),
+    "Cgs":  (310, 275, "rm"),
+    "Ri":   (310, 340, "rm"),
+
+    # Drain-side intrinsic
+    "Cds":  (675, 320, "rm"),
+    "Rds":  (810, 320, "lm"),
+
+    # Top feedback / pad cap
+    "Cgdp": (565,  80),
+
+    # gm transconductance text block (bottom-left, after the "=" signs)
+    "Gm0":  (270, 575, "lm"),
+    "tau":  (270, 612   , "lm"),
+
+    # Source-side delay network (R_delay ∥ C_delay box)
+    "C_delay": (525, 500, "rm"),
+    "R_delay": (625, 500, "lm"),
+
+    # Source lead (Rs / Ls)
+    "Rpe":  (595, 610, "lm"),    # Rs
+    "Le":   (595, 685, "lm"),    # Ls
+
+    # Kun-Yang custom pad / substrate
+    "Cgsp":  (65,  490, "lm"),
+    "Rsub1": (65,  580, "lm"),
+    "Cdsp":  (1070, 490, "rm"),
+    "Rsub2": (1070, 572, "rm"),
+}
+
+
+def _fmt_param(key: str, val_si: float) -> str:
+    """Format a parameter SI value for display on the topology illustration."""
+    if not np.isfinite(val_si):
+        return "—"
+    if key not in _PARAM_DISPLAY:
+        return f"{val_si:.3g}"
+    scale, unit = _PARAM_DISPLAY[key]
+    display = val_si * scale
+    while abs(display) >= 1000 and unit in _UNIT_LADDER:
+        display /= 1000
+        unit = _UNIT_LADDER[unit]
+    if abs(display - round(display)) < 0.0005:
+        text = f"{int(round(display))}"
+    else:
+        text = f"{display:.3f}".rstrip("0").rstrip(".")
+    return f"{text} {unit}" if unit else text
+
 
 def _render_topology_illustration(all_p: dict, fname: str) -> None:
-    """Display the static Kun-Yang HEMT schematic JPG (no value overlay)."""
-    img_path = _ILLUS_DIR / "KYHEMT_full.jpg"
-    if not img_path.exists():
-        st.warning(f"Template not found: {img_path}")
+    """Overlay live parameter values on the Kun-Yang HEMT schematic and display
+    it via st.image().  Called inside a Streamlit expander by the override UI.
+
+    Parameters
+    ----------
+    all_p : dict — current (post Fine-tune) parameters in SI units.
+    fname : file name tag used only as an image key for Streamlit.
+    """
+    import io
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        st.info("Install *pillow* to see the topology illustration.")
         return
-    st.image(str(img_path), width="stretch")
+
+    tpl_path = _ILLUS_DIR / "KYHEMT_full.png"
+    if not tpl_path.exists():
+        st.warning(f"Template not found: {tpl_path}")
+        return
+
+    # Category colour sets (dark, readable on white)
+    _C_PAD = (180,  2,   2)   # red    — KY substrate pad + series leads
+    _R_ACC = (175, 90,   5)   # orange — access resistance (Rg/Rd/Rs)
+    _C_EXT = (  0, 130, 55)   # green  — source-side delay network
+    _C_INT = ( 20,  95, 160)  # blue   — intrinsic pi-model
+
+    _PAD_KEYS       = {"Cgsp", "Rsub1", "Cdsp", "Rsub2", "Cgdp",
+                       "Lb", "Lc", "Le"}
+    _ACCESSRES_KEYS = {"Rpb", "Rpc", "Rpe"}
+    _DELAY_KEYS     = {"R_delay", "C_delay"}
+
+    def _color(key: str) -> tuple:
+        if key in _PAD_KEYS:
+            return _C_PAD
+        if key in _ACCESSRES_KEYS:
+            return _R_ACC
+        if key in _DELAY_KEYS:
+            return _C_EXT
+        return _C_INT
+
+    font = _load_font(18)
+
+    img  = Image.open(tpl_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    for key, pos in _KY_OVERLAY.items():
+        val_si = all_p.get(key)
+        if val_si is None:
+            continue
+        try:
+            text = _fmt_param(key, float(val_si))
+        except Exception:
+            continue
+        px, py, *rest = pos
+        anchor = rest[0] if rest else "mm"
+        color = _color(key)
+        # White stroke for readability, then colored text on top
+        try:
+            draw.text((px, py), text, font=font, fill=color,
+                      anchor=anchor, stroke_width=2, stroke_fill=(255, 255, 255))
+        except TypeError:
+            # Older PIL: manual halo (no anchor support)
+            for dx, dy in [(-1,-1),(0,-1),(1,-1),(-1,0),(1,0),(-1,1),(0,1),(1,1)]:
+                draw.text((px+dx, py+dy), text, font=font, fill=(255, 255, 255))
+            draw.text((px, py), text, font=font, fill=color)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    st.image(buf.getvalue(), width="stretch")
 
 
 # ════════════════════════════════════════════════════════════════════════════════
