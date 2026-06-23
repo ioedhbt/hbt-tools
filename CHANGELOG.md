@@ -27,6 +27,33 @@ entry under that tool below.
 
 ## HBT SSM Extraction — [`tools/SSM_extraction.py`](tools/SSM_extraction.py)
 
+### v7.0
+- 🧩 **Custom model** added to the per-DUT **Model** selection (alongside the
+  built-in Cheng T/π, Xu, Kun-Yang extraction), with two sub-modes:
+  - **Build / modify a model** — a visual builder
+    ([`tools/SSM/custom_model/`](tools/SSM/custom_model/)): pick a device
+    (Bipolar HBT B/C/E or Unipolar HEMT G/D/S) and a π/T intrinsic core, edit
+    the B/C/E junction Networks + controlled source one part at a time against
+    a live abstracted illustration, then add delay/port extras, extrinsic caps,
+    access R/L and parasitic pad caps. Device switch auto-renames defaults
+    (Cbc→Cgd, Rb→Rg, …). Upload a saved `.json` to **modify** it (loads the full
+    setup, names it `…_modified`); export the schematic as PNG/SVG/📋-copy;
+    **Download .json** or **Send to Load/Fit** (auto-loads + navigates +
+    auto-downloads).
+  - **Load & fit to this device** — overlay measured-vs-simulated on the
+    **same** `render_smith_with_ftfmax` UI (Total/per-trace `ssm_residual` %
+    above the Smith + fT/fmax card, downloads/📋-copy below) + the topology
+    illustration + 2-column matplotlib Smith, and the **same grid-sweep Auto
+    Tuning** (`render_tuning_expander`: Brute force / Optimized / Prioritized,
+    per-parameter Min/Step/Max, "Use best values") via a generic
+    `simulate_batch` adapter over the netlist solver.
+- 🛠 Generic **netlist→Y→S solver** ([`custom_model/core.py`](tools/SSM/custom_model/core.py))
+  reproduces Cheng-π/T and Xu to machine precision (~4e-16) when the equivalent
+  topology is built; schema-v1 model files migrate automatically on load.
+- 🩹 Robustness: component value inputs floored at 0 (negatives clamp to 0),
+  stale tuning/value state cleared on every model change, and the schematic
+  spacing widened so component values never overlap.
+
 ### v6.3
 - 🪧 **Promoted to its own portal page** (split out of the RF
   S-Parameter Extraction tool's Individual tab). Upload DUT

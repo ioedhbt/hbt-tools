@@ -93,3 +93,79 @@ def _load_font(size: int):
         return ImageFont.load_default(size=size)
     except TypeError:
         return ImageFont.load_default()
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Smith-chart overlay for the no-parasitics topology illustration
+# ════════════════════════════════════════════════════════════════════════════════
+# When a model has *no* parasitics, the topology expander shows a second column:
+# the same schematic PNG with the user's CUSTOMIZED matplotlib Smith chart (the
+# one from the "🍩 Smith Chart (Matplotlib)" expander) composited at the
+# bottom-right.  Tune the two constants below to move / resize that inset so it
+# does not overlap the circuit:
+#
+#   SMITH_OVERLAY_SIZE_FRAC : inset WIDTH as a fraction of the schematic image
+#                             width.  Make this SMALLER to shrink the Smith chart
+#                             so it stops overlapping the circuit.
+#   SMITH_OVERLAY_POS_FRAC  : (x, y) of the inset's TOP-LEFT corner, as fractions
+#                             of (image width, image height).  (0, 0) = top-left;
+#                             larger x → further right, larger y → further down.
+#                             Increase x / y to push the chart toward the corner.
+SMITH_OVERLAY_SIZE_FRAC = 0.43
+SMITH_OVERLAY_POS_FRAC = (0.57, 0.47)
+
+# ── π-topology (Cheng π and any other Pi model) ─────────────────────────────
+# The π schematic has little empty space, so the Smith chart would cover the
+# circuit.  For Pi we FIRST extend the canvas with white space, THEN drop the
+# Smith chart into that new area.  Tune these THREE constants for the Pi model
+# (they do NOT affect the T-topology, which uses the generic constants above):
+#
+#   PI_SMITH_PAD_FRAC          : (right, bottom) white space to ADD, as fractions
+#                                of the ORIGINAL (width, height).  e.g. (0.0, 0.5)
+#                                adds 50% more height of white below the circuit.
+#                                Increase to make more room for the chart.
+#   PI_SMITH_OVERLAY_SIZE_FRAC : inset WIDTH as a fraction of the PADDED image
+#                                width.  Smaller → smaller Smith chart.
+#   PI_SMITH_OVERLAY_POS_FRAC  : (x, y) top-left corner of the inset, as fractions
+#                                of the PADDED image (width, height).
+PI_SMITH_PAD_FRAC = (0.3, 0.3)
+PI_SMITH_OVERLAY_SIZE_FRAC = 0.4
+PI_SMITH_OVERLAY_POS_FRAC = (0.4, 0.45)
+
+
+def composite_smith_overlay(img, smith_png: bytes, *, pad=(0.0, 0.0),
+                            size_frac=None, pos_frac=None):
+    """Return a copy of PIL image ``img`` with the user's customized Smith chart
+    (``smith_png`` — PNG bytes from ``render_matplotlib_smith(..., return_png=
+    True)``) composited near the bottom-right.
+
+    ``pad`` = (right_frac, bottom_frac) extends the canvas with WHITE space
+    before compositing (used by Pi topologies that lack empty space).
+    ``size_frac`` / ``pos_frac`` override the generic placement constants; when
+    None they default to ``SMITH_OVERLAY_SIZE_FRAC`` / ``SMITH_OVERLAY_POS_FRAC``.
+    Position fractions are measured on the *padded* image."""
+    import io
+    from PIL import Image
+
+    size_frac = SMITH_OVERLAY_SIZE_FRAC if size_frac is None else size_frac
+    pos_frac  = SMITH_OVERLAY_POS_FRAC  if pos_frac  is None else pos_frac
+
+    img = img.convert("RGB")
+    W0, H0 = img.size
+    add_w, add_h = int(W0 * pad[0]), int(H0 * pad[1])
+    if add_w or add_h:
+        canvas = Image.new("RGB", (W0 + add_w, H0 + add_h), "white")
+        canvas.paste(img, (0, 0))
+        img = canvas
+
+    W, H = img.size
+    size_px = max(60, int(W * size_frac))
+    inset = Image.open(io.BytesIO(smith_png)).convert("RGBA")
+    iw, ih = inset.size
+    inset = inset.resize((size_px, max(1, int(ih * size_px / iw))), Image.LANCZOS)
+
+    x = int(W * pos_frac[0])
+    y = int(H * pos_frac[1])
+    out = img.convert("RGBA").copy()
+    out.alpha_composite(inset, (x, y))
+    return out.convert("RGB")

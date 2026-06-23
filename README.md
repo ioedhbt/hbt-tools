@@ -8,14 +8,14 @@ The app is a multi-page Streamlit portal ([`IOED_Tool_Web.py`](IOED_Tool_Web.py)
 
 ### RF (高頻量測)
 
-**RF S-Parameter Extraction** ([`tools/IOED_HBT_RF_extract.py`](tools/IOED_HBT_RF_extract.py))
+**RF At a Glance** ([`tools/IOED_HBT_RF_extract.py`](tools/IOED_HBT_RF_extract.py))
 - Upload multi-bias S-parameter files (`.s2p`) or VNA CSV exports
 - Automatic Open / Short de-embedding (Gao §4.2); optional Thru-half for symmetric calibration
 - Gain & stability metrics: |h₂₁|², Mason's U, K-factor
 - Auto-extrapolated fT / fmax with 20 dB/dec fit; download fitted data and extrapolation traces
 - Smith and Bode chart generators (Plotly + a publication-style matplotlib Smith)
 - Multi-DUT batch de-embedding tab — same Open / Short calibration applied to many DUTs with per-element overrides
-- Small-signal model (SSM) extraction with three topologies built on a shared template class:
+- **Small Signal Model Extraction by Peeling** (its own page, [`tools/SSM_extraction.py`](tools/SSM_extraction.py)) with three topologies built on a shared template class:
   - **Cheng T-topology** — *Microelectronics Journal* 121 (2022)
   - **Cheng π-topology** — Step 2 from Cheng, Step 3 after Zhang et al. (2015)
   - **Xu's T (2014)** — parallel Rbcx ∥ Cbcx variant
@@ -25,7 +25,7 @@ The app is a multi-page Streamlit portal ([`IOED_Tool_Web.py`](IOED_Tool_Web.py)
 
 See [`tools/SSM/helpers/INDEX.md`](tools/SSM/helpers/INDEX.md) for a function-level catalog of every SSM submodule — read it before grep'ing the SSM tree.
 
-**RF Forward Simulator** ([`tools/RF_simulator.py`](tools/RF_simulator.py))
+**Small Signal Model Forward Simulation** ([`tools/RF_simulator.py`](tools/RF_simulator.py))
 - Simulate a small-signal model with customizable parameters
 - Topology illustration and Smith chart generator
 

@@ -1,0 +1,13 @@
+# IOED Lab Portal — unified theme.
+#
+# Why this file exists: without it Streamlit falls back to its default
+# #FF4B4B red for every primary button, the active sidebar item, selected
+# radios and tab underlines.  A scientific tool reads as "everything is an
+# alarm".  A calm blue primary keeps red reserved for genuinely destructive
+# actions and removes most of the visual noise across the app.
+[theme]
+primaryColor = "#2563EB"            # calm blue — actions & selection, not alarm
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F6F9"  # soft neutral for cards / sidebar
+textColor = "#1F2933"
+baseRadius = "0.5rem"

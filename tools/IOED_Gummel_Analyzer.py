@@ -5,16 +5,26 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+from tools import i18n
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# 初始化專屬 Key
+# Initialise this tool's uploader-reset key.
 if "gummel_uploader_key" not in st.session_state:
     st.session_state["gummel_uploader_key"] = 0
 
-st.title(f"📈 IOED Sim Gummel Plot Analyzer (v{__version__})")
-st.caption("**Core Features:** Real-time Ideality Factor (n) Calculation & Target Calibration. "
-           "See [`CHANGELOG.md`](CHANGELOG.md) for version history.")
+st.title(i18n.title("gummel"))
+st.caption(i18n.tool_desc("gummel"))
+
+with st.expander(i18n.t("how_it_works"), expanded=False):
+    from tools.diagrams import pipeline_png
+    st.image(pipeline_png((
+        ("Upload",     "sim Gummel CSV"),
+        ("Overlay",    "vs UIUC ref"),
+        ("Ideality n", "real-time"),
+        ("Summary",    "table"),
+    ), accent="#9467bd"), width="stretch")
 
 UIUC_CSV_STRING = """gummel_Ib,,gummel_Ic,,gummel_beta,
 Vbase,Ib,Vbase,Ic,Vbase,Beta
@@ -196,46 +206,47 @@ LINE_IB = "dash"
 LINE_BETA = "dashdot"
 
 with st.sidebar:
-    st.markdown("## ⚙️ Settings / 參數設定")
+    st.markdown(f"## {i18n.t('gm_settings')}")
 
-    st.markdown("#### 🔊 Noise Floor / 量測底噪")
-    add_noise = st.checkbox("Inject Noise / 啟用模擬底噪", value=True)
-    ic_noise = st.number_input("Ic Noise Limit (A)", value=2.34e-10, format="%.2e")
-    ib_noise = st.number_input("Ib Noise Limit (A)", value=2.34e-10, format="%.2e")
+    st.markdown(f"#### {i18n.t('gm_noise_head')}")
+    add_noise = st.checkbox(i18n.t("gm_inject_noise"), value=True)
+    ic_noise = st.number_input(i18n.t("gm_ic_noise"), value=2.34e-10, format="%.2e")
+    ib_noise = st.number_input(i18n.t("gm_ib_noise"), value=2.34e-10, format="%.2e")
 
-    st.markdown("#### 📏 Plot Scale & Axis / 圖表範圍控制")
-    y_scale = st.radio("Current Y-Axis Scale / 電流軸刻度", ["Log", "Linear"], index=0)
+    st.markdown(f"#### {i18n.t('gm_scale_head')}")
+    y_scale = st.radio(i18n.t("gm_y_scale"), ["Log", "Linear"], index=0)
 
     col_x1, col_x2 = st.columns(2)
-    x_min = col_x1.number_input("X Min (V)", value=0.2, step=0.1)
-    x_max = col_x2.number_input("X Max (V)", value=0.9, step=0.1)
+    x_min = col_x1.number_input(i18n.t("gm_xmin"), value=0.2, step=0.1)
+    x_max = col_x2.number_input(i18n.t("gm_xmax"), value=0.9, step=0.1)
 
     st.divider()
-    auto_y = st.checkbox("Auto Scale Y-Axes / Y軸自動縮放", value=True)
+    auto_y = st.checkbox(i18n.t("gm_auto_y"), value=True)
 
-    cur_ymin = st.number_input("Current Min (A)", value=1e-12, format="%.1e", disabled=auto_y)
-    cur_ymax = st.number_input("Current Max (A)", value=1e-2, format="%.1e", disabled=auto_y)
+    cur_ymin = st.number_input(i18n.t("gm_cur_min"), value=1e-12, format="%.1e", disabled=auto_y)
+    cur_ymax = st.number_input(i18n.t("gm_cur_max"), value=1e-2, format="%.1e", disabled=auto_y)
 
     col_by1, col_by2 = st.columns(2)
-    beta_ymin = col_by1.number_input("Beta Min", value=0.0, step=1.0, disabled=auto_y)
-    beta_ymax = col_by2.number_input("Beta Max", value=25.0, step=1.0, disabled=auto_y)
+    beta_ymin = col_by1.number_input(i18n.t("gm_beta_min"), value=0.0, step=1.0, disabled=auto_y)
+    beta_ymax = col_by2.number_input(i18n.t("gm_beta_max"), value=25.0, step=1.0, disabled=auto_y)
 
-    st.markdown("#### 🔬 Physics Params / 物理參數")
-    n_min = st.number_input("n Calc I_min (A) / 理想因子下限", value=1e-9, format="%.1e")
-    n_max = st.number_input("n Calc I_max (A) / 理想因子上限", value=1e-6, format="%.1e")
-    Vt = st.number_input("Thermal Voltage Vt (V)", value=0.02585, format="%.5f")
+    st.markdown(f"#### {i18n.t('gm_physics_head')}")
+    n_min = st.number_input(i18n.t("gm_n_imin"), value=1e-9, format="%.1e")
+    n_max = st.number_input(i18n.t("gm_n_imax"), value=1e-6, format="%.1e")
+    Vt = st.number_input(i18n.t("gm_vt"), value=0.02585, format="%.5f")
 
-    st.markdown("#### 💾 Export / 匯出設定")
-    file_prefix = st.text_input("Export File Name / 輸出檔名", value="Gummel_Results")
+    st.markdown(f"#### {i18n.t('gm_export_head')}")
+    file_prefix = st.text_input(i18n.t("gm_export_name"), value="Gummel_Results")
 
+st.subheader(i18n.t("gm_step1"))
 col_up1, col_up2 = st.columns([4, 1])
 with col_up1:
-    dut_files = st.file_uploader("Upload TonyPlot Gummel CSV / 上傳模擬 CSV", type=["csv"], accept_multiple_files=True,
+    dut_files = st.file_uploader(i18n.t("gm_upload"), type=["csv"], accept_multiple_files=True,
                                  key=st.session_state["gummel_uploader_key"])
 with col_up2:
     st.write("")
     st.write("")
-    if st.button("🗑️ 清除所有上傳檔案", width="stretch", key="gummel_clear_btn"):
+    if st.button(i18n.t("clear_uploads"), width="stretch", key="gummel_clear_btn"):
         st.session_state["gummel_uploader_key"] += 1
         if "gummel_ms_files" in st.session_state:
             st.session_state["gummel_ms_files"] = []
@@ -298,11 +309,11 @@ def update_axes(fig, y_title, log_y=False):
     )
 
 
-tab1, tab2, tab3 = st.tabs(["📊 Overlay with UIUC", "🔍 Single Check", "📋 Summary"])
+st.subheader(i18n.t("gm_step2"))
+tab1, tab2, tab3 = st.tabs([i18n.t("gm_tab_overlay"), i18n.t("gm_tab_single"),
+                            i18n.t("gm_tab_summary")])
 
 with tab1:
-    st.markdown("### 📊 Overlay simulated plots with UIUC Target")
-
     if all_data:
         file_options = list(all_data.keys())
         if "gummel_prev_uploaded" not in st.session_state:
@@ -324,21 +335,21 @@ with tab1:
 
         c_btn1, c_btn2, _ = st.columns([1.5, 1.5, 7])
         with c_btn1:
-            if st.button("✅ 全部選取", width="stretch", key="gummel_sel_all"):
+            if st.button(i18n.t("gm_select_all"), width="stretch", key="gummel_sel_all"):
                 st.session_state["gummel_ms_files"] = file_options
         with c_btn2:
-            if st.button("❌ 全部清除選取", width="stretch", key="gummel_clr_all"):
+            if st.button(i18n.t("gm_clear_sel"), width="stretch", key="gummel_clr_all"):
                 st.session_state["gummel_ms_files"] = []
 
         selected_files = st.multiselect(
-            "📂 選擇要疊加顯示的模擬檔案 (支援輸入關鍵字搜尋)：",
+            i18n.t("gm_multiselect"),
             options=file_options,
             key="gummel_ms_files",
             format_func=lambda x: Path(x).stem
         )
     else:
         selected_files = []
-        st.info("💡 等待上傳模擬資料中...下方為內建的 UIUC 基準曲線。")
+        st.info(i18n.t("gm_waiting"))
 
     f_cur = go.Figure()
 
@@ -383,13 +394,13 @@ with tab1:
     st.plotly_chart(f_beta, width="stretch")
 
 with tab2:
-    st.markdown("### 🔍 Single Check Calibration (Dual-Axis)")
+    st.markdown(f"### {i18n.t('gm_single_head')}")
     if not all_data:
-        st.info("請先上傳模擬 CSV 檔案才能進行單一比對分析。")
+        st.info(i18n.t("gm_need_single"))
     else:
         sc1, sc2 = st.columns([1, 4])
         with sc1:
-            sel_sim = st.selectbox("Choose a single simulation to analyze:", list(all_data.keys()),
+            sel_sim = st.selectbox(i18n.t("gm_choose_single"), list(all_data.keys()),
                                    key="gummel_sel_sim")
 
         with sc2:
@@ -451,21 +462,22 @@ with tab2:
                     return (sim - ref) / ref * 100
 
 
+                c_metric, c_sim = i18n.t("gm_col_metric"), i18n.t("gm_col_sim")
+                c_target, c_err = i18n.t("gm_col_target"), i18n.t("gm_col_err")
                 comp_rows = []
                 for lbl, s_val, u_val in zip(labels, sim_metrics, uiuc_metrics):
-                    comp_rows.append({"Metric / 指標": lbl, "Simulated / 模擬值": s_val, "UIUC Target / 目標值": u_val,
-                                      "Error (%) / 誤差": calc_err(s_val, u_val)})
+                    comp_rows.append({c_metric: lbl, c_sim: s_val, c_target: u_val,
+                                      c_err: calc_err(s_val, u_val)})
                 comp_df = pd.DataFrame(comp_rows)
 
-                st.markdown("#### 🎯 Calibration Error Table / 對位誤差表")
-                fmt_comp = {"Simulated / 模擬值": "{:.4e}", "UIUC Target / 目標值": "{:.4e}",
-                            "Error (%) / 誤差": "{:+.2f}%"}
+                st.markdown(f"#### {i18n.t('gm_err_table_head')}")
+                fmt_comp = {c_sim: "{:.4e}", c_target: "{:.4e}", c_err: "{:+.2f}%"}
                 st.dataframe(comp_df.style.format(fmt_comp, na_rep="—"), width="stretch", hide_index=True)
 
 with tab3:
-    st.markdown("### 📋 Summary")
+    st.markdown(f"### {i18n.t('gm_summary_head')}")
     if not all_data:
-        st.info("請先上傳模擬 CSV 檔案產生摘要報表。")
+        st.info(i18n.t("gm_need_summary"))
     else:
         summary_rows = []
         for k, d in all_data.items():
@@ -486,7 +498,7 @@ with tab3:
 
         col_d1, col_d2 = st.columns(2)
         with col_d1:
-            st.download_button("📥 Download Excel Report / 下載完整報告", data=buf.getvalue(),
+            st.download_button(i18n.t("gm_dl_excel"), data=buf.getvalue(),
                                file_name=f"{file_prefix}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                width="stretch")
@@ -495,5 +507,5 @@ with tab3:
             with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr("Summary.csv", sum_df.to_csv(index=False).encode())
                 for k, d in all_data.items(): zf.writestr(f"{Path(k).stem}.csv", d.to_csv(index=False).encode())
-            st.download_button("📦 Download ZIP (CSV) / 下載 CSV 壓縮包", data=zbuf.getvalue(),
+            st.download_button(i18n.t("gm_dl_zip"), data=zbuf.getvalue(),
                                file_name=f"{file_prefix}.zip", mime="application/zip", width="stretch")

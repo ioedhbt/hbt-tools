@@ -18,6 +18,8 @@ import os
 import tempfile
 import numpy as np
 import streamlit as st
+
+from tools import i18n
 import plotly.graph_objects as go
 
 try:
@@ -28,8 +30,8 @@ except ImportError:  # pragma: no cover
 
 # ─── Page header ─────────────────────────────────────────────────────────────
 
-st.title(f"🧮 E-Beam Lithography Calculator (v{__version__})")
-st.caption("Use this tool to calculate JEOL ELS-7000 EBL chip positions.")
+st.title(i18n.title("ebl"))
+st.caption(i18n.tool_desc("ebl"))
 
 # ─── Session-state defaults ──────────────────────────────────────────────────
 # Corner defaults:
@@ -51,6 +53,61 @@ for _k, _v in _DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
 
 
+@st.cache_data(show_spinner=False)
+def _chip_corner_guide_png() -> bytes:
+    """Static reference sketch explaining the chip-corner labelling + the two
+    diagonals that the "Editable diagonal" radio chooses between.  Drawn with
+    matplotlib (Agg, no pyplot global state) and cached — it never changes."""
+    import io
+    from matplotlib.figure import Figure
+
+    BLUE, ORANGE = "#1f77b4", "#ff7f0e"
+    x0, x1, y0, y1 = 0.30, 0.82, 0.30, 0.82
+    fig = Figure(figsize=(4.2, 4.0), dpi=130)
+    ax = fig.add_subplot(111)
+
+    # Chip body.
+    ax.fill([x0, x1, x1, x0], [y0, y0, y1, y1], color=BLUE, alpha=0.10, zorder=1)
+    ax.plot([x0, x1, x1, x0, x0], [y0, y0, y1, y1, y0],
+            color=BLUE, lw=2.0, zorder=3)
+    # The two diagonals the radio toggles between.
+    ax.plot([x0, x1], [y0, y1], ls="--", color=BLUE,   lw=1.6, zorder=2,
+            label="BL–TR diagonal")
+    ax.plot([x1, x0], [y0, y1], ls="--", color=ORANGE, lw=1.6, zorder=2,
+            label="BR–TL diagonal")
+
+    corners = {
+        "BL": (x0, y0, -0.02, -0.02, "right", "top"),
+        "BR": (x1, y0, +0.02, -0.02, "left",  "top"),
+        "TR": (x1, y1, +0.02, +0.02, "left",  "bottom"),
+        "TL": (x0, y1, -0.02, +0.02, "right", "bottom"),
+    }
+    for name, (cx, cy, dx, dy, ha, va) in corners.items():
+        ax.plot(cx, cy, "o", color=BLUE, ms=8, zorder=4)
+        ax.annotate(name, (cx + dx, cy + dy), ha=ha, va=va,
+                    fontsize=10, fontweight="bold", color=BLUE)
+
+    # Holder coordinate axes.
+    ax.annotate("", xy=(0.97, 0.10), xytext=(0.16, 0.10),
+                arrowprops=dict(arrowstyle="->", color="0.4"))
+    ax.text(0.97, 0.055, "x (mm)", ha="right", va="top", fontsize=8, color="0.4")
+    ax.annotate("", xy=(0.10, 0.97), xytext=(0.10, 0.16),
+                arrowprops=dict(arrowstyle="->", color="0.4"))
+    ax.text(0.055, 0.97, "y (mm)", rotation=90, ha="right", va="top",
+            fontsize=8, color="0.4")
+
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.01),
+              ncol=2, fontsize=7.5, frameon=False)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    return buf.getvalue()
+
+
 # ─── Section 1: Chip Position in the E-beam Holder ───────────────────────────
 with st.container(border=True):
     st.header("Chip Position in the E-beam Holder")
@@ -61,6 +118,10 @@ with st.container(border=True):
 
     with col_left:
         st.subheader("Corner Positions")
+
+        with st.expander(i18n.t("ebl_corner_guide"), expanded=False):
+            st.image(_chip_corner_guide_png(), width="stretch")
+            st.caption(i18n.t("ebl_corner_note"))
 
         shape_mode = st.radio(
             "Shape", ["Rectangular", "Custom"],

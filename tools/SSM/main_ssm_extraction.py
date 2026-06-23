@@ -49,6 +49,41 @@ import plotly.graph_objects as go
 # Public API
 # ════════════════════════════════════════════════════════════════════════════════
 
+# Models exposed in the built-in analytic-extraction flow.  Xu ("XuT") and
+# Kun-Yang ("KY") live under the Custom-model section as forward-simulation
+# views instead (render_builtin_forward_sim).
+BUILTIN_SHORTS = ("T", "pi")
+
+
+def render_builtin_forward_sim(short, S_raw, freq, z0, fname):
+    """Forward-simulation-only view for a built-in model (Xu / Kun-Yang),
+    surfaced under the Custom-model section.
+
+    Unlike the guided built-in extraction, this skips the Open/Short
+    de-embedding entirely: parameters are *seeded* from a one-shot guess on
+    THIS device (pads forced to zero), then the shared override → simulate →
+    Smith/residual/fT-fmax → grid-sweep tuning UI takes over so the user can
+    forward-simulate and fit by hand.
+    """
+    from .models.base_ui import PAD_SPECS
+    ModelClass = REGISTRY[short]
+    st.markdown(f"### 🧩 {ModelClass.NAME} — forward simulation")
+    st.caption("Starting values are guessed from this device (no Open/Short "
+               "de-embedding). Edit any parameter, read the residual, and use "
+               "the **Auto-tuning** expander (same grid sweep as the built-in "
+               "models) to fit this DUT.")
+    para_eff = {k: 0.0 for k, *_ in PAD_SPECS}     # no pad parasitics
+    try:
+        Y_seed = peel_parasitics(S_raw, freq, z0, para_eff)
+        params, arrays = ModelClass.extract(Y_seed, freq, 10)
+    except Exception as exc:                                  # noqa: BLE001
+        st.warning(f"Could not auto-seed from the device ({exc}); "
+                   "starting from zeros — set the values manually below.")
+        params, arrays = {}, {}
+    ModelClass.render_override_and_smith(
+        fname, S_raw, freq, z0, para_eff, (params, arrays))
+
+
 # `_agg` was a dead duplicate of `helpers/deembed_math.py::_agg_arr` —
 # defined here but never called within this module.  Removed.
 
@@ -471,10 +506,14 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         "border-left:4px solid #6a1b9a;padding:8px 14px;border-radius:0 6px 6px 0;"
         "margin-bottom:2px'><strong>🔘 Model Selection</strong></div>",
         unsafe_allow_html=True)
-    # One checkbox per registered model, default from DEFAULT_SELECTION
-    model_cols = st.columns(len(REGISTRY))
+    # One checkbox per built-in model, default from DEFAULT_SELECTION.  The
+    # built-in analytic extraction now covers only Cheng's T and π — Xu and
+    # Kun-Yang are reached through the Custom-model section's forward-simulation
+    # views (see render_builtin_forward_sim).
+    builtin = {s: REGISTRY[s] for s in BUILTIN_SHORTS if s in REGISTRY}
+    model_cols = st.columns(len(builtin))
     selected_models: list[str] = []
-    for col_w, (short, ModelClass) in zip(model_cols, REGISTRY.items()):
+    for col_w, (short, ModelClass) in zip(model_cols, builtin.items()):
         default = short in DEFAULT_SELECTION
         if col_w.checkbox(ModelClass.NAME, value=default, key=f"sel_{short}_{fname}"):
             selected_models.append(short)

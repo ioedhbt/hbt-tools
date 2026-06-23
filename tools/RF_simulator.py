@@ -15,6 +15,8 @@ __version__ = "1.1"
 
 import numpy as np
 import streamlit as st
+
+from tools import i18n
 import plotly.graph_objects as go
 
 from tools.SSM.models.cheng    import (ChengT, ChengPi,
@@ -30,7 +32,7 @@ from tools.SSM.models.kunyang  import (KunYangHEMT,
                                         _render_topology_illustration as _render_ky_illustration,
                                         _EXT_KY_SPECS, _INT_KY_SPECS,
                                         _KY_PAD_SPECS, _DEFAULT_PARAMS as _KY_DEFAULT_PARAMS)
-from tools.SSM.models.base_ui  import PAD_SPECS
+from tools.SSM.models.base_ui  import PAD_SPECS, render_finetune_diagram
 from tools.SSM.ssm_plots       import (render_matplotlib_smith,
                                         render_tau_fmax_expander)
 from tools.SSM.helpers         import (extended_smith_grid,
@@ -59,9 +61,30 @@ _EXCEL_MIME = ("application/vnd.openxmlformats-officedocument."
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-st.title(f"📡 RF Forward Simulator (v{__version__})")
-st.caption("Forward-simulate S-parameters from a small-signal model "
-           "(Cheng T, Cheng π, Xu T, Kun-Yang HEMT) or from open/short pad parasitics.")
+st.title(i18n.title("rf_sim"))
+st.caption(i18n.tool_desc("rf_sim"))
+
+with st.expander(i18n.t("how_it_works"), expanded=False):
+    from tools.diagrams import pipeline_png
+    st.image(pipeline_png((
+        ("Pick model",   "Cheng · Xu · KY"),
+        ("Set params",   "R · C · L"),
+        ("Simulate",     "Y → S"),
+        ("View · Export", "Smith · Bode · s2p"),
+    ), accent="#d62728"), width="stretch")
+
+
+# ─── Model selector ──────────────────────────────────────────────────────────
+# (Declared before the frequency axis so the "Custom" builder can take over the
+#  page without showing the global frequency controls it doesn't use.)
+MODEL_OPTIONS = ["Cheng's T", "Cheng's π", "Xu T", "Kun-Yang HEMT",
+                 "Open and Short Pad", "🧩 Custom model"]
+model_choice  = st.radio("Model", MODEL_OPTIONS, horizontal=True, index=0)
+
+if model_choice == "🧩 Custom model":
+    from tools.SSM.custom_model import render_custom_section
+    render_custom_section()
+    st.stop()
 
 
 # ─── Frequency axis ──────────────────────────────────────────────────────────
@@ -82,12 +105,6 @@ if f_end <= f_start:
 
 freq  = np.linspace(float(f_start) * 1e9, float(f_end) * 1e9, int(n_pts))
 f_ghz = freq * 1e-9
-
-
-# ─── Model selector ──────────────────────────────────────────────────────────
-
-MODEL_OPTIONS = ["Cheng's T", "Cheng's π", "Xu T", "Kun-Yang HEMT", "Open and Short Pad"]
-model_choice  = st.radio("Model", MODEL_OPTIONS, horizontal=True, index=0)
 
 
 # ─── Helpers to render and collect spec lists ────────────────────────────────
@@ -661,6 +678,8 @@ def _build_bode(S, freq_hz, title: str, *,
     def _needs(in_val, gain):
         if in_val is not None:
             return False
+        if not np.any(np.isfinite(gain)):     # all-NaN slice → nothing to extrapolate
+            return False
         with np.errstate(invalid="ignore"):
             return bool(np.nanmax(gain) > 0)
     any_needs = _needs(fT, h21_db) or _needs(fmax, U_db)
@@ -860,22 +879,42 @@ if model_choice == "Open and Short Pad":
             s2p_filename="rf_sim_short.s2p",
         )
 
-    with st.expander("📐 Plot Smith chart with matplotlib — Open",
-                     expanded=False):
-        render_matplotlib_smith(
-            fname="rfsim", topo_key="open",
-            sets=[{"S": S_open, "label": "Open",
-                   "kind": "line", "style": "solid"}],
-            default_multiplier=mults,
-        )
-    with st.expander("📐 Plot Smith chart with matplotlib — Short",
-                     expanded=False):
-        render_matplotlib_smith(
-            fname="rfsim", topo_key="short",
-            sets=[{"S": S_short, "label": "Short",
-                   "kind": "line", "style": "solid"}],
-            default_multiplier=mults,
-        )
+    # Chart on the LEFT, controls on the RIGHT — same split-call pattern the
+    # Cheng/Xu models use above.  The "controls" phase must run before the
+    # "chart" phase (it writes the session state the chart reads), so the
+    # right column is invoked first in code even though it sits on the right.
+    with st.expander("📐 Smith chart (Matplotlib) — Open", expanded=False):
+        col_o_left, col_o_right = st.columns([1.2, 1])
+        with col_o_right:
+            render_matplotlib_smith(
+                fname="rfsim", topo_key="open",
+                sets=[{"S": S_open, "label": "Open",
+                       "kind": "line", "style": "solid"}],
+                default_multiplier=mults, phase="controls", freq_hz=freq,
+            )
+        with col_o_left:
+            render_matplotlib_smith(
+                fname="rfsim", topo_key="open",
+                sets=[{"S": S_open, "label": "Open",
+                       "kind": "line", "style": "solid"}],
+                default_multiplier=mults, phase="chart", freq_hz=freq,
+            )
+    with st.expander("📐 Smith chart (Matplotlib) — Short", expanded=False):
+        col_s_left, col_s_right = st.columns([1.2, 1])
+        with col_s_right:
+            render_matplotlib_smith(
+                fname="rfsim", topo_key="short",
+                sets=[{"S": S_short, "label": "Short",
+                       "kind": "line", "style": "solid"}],
+                default_multiplier=mults, phase="controls", freq_hz=freq,
+            )
+        with col_s_left:
+            render_matplotlib_smith(
+                fname="rfsim", topo_key="short",
+                sets=[{"S": S_short, "label": "Short",
+                       "kind": "line", "style": "solid"}],
+                default_multiplier=mults, phase="chart", freq_hz=freq,
+            )
 
 else:
     # ─── Cheng T / Pi / Xu T ──────────────────────────────────────────────
@@ -946,7 +985,42 @@ else:
 
     st.markdown("### Inputs")
     with st.expander(f"✏️ {model_cls.NAME} parameters", expanded=True):
-        if model_cls is KunYangHEMT:
+        _mode = st.radio(
+            "Editor mode", ["List", "Diagram"], horizontal=True,
+            key=f"rfsim_mode_{prefix}",
+            help="List: grouped number inputs.  Diagram: set values on the "
+                 "model schematic — the component you edit is highlighted.")
+
+        if _mode == "Diagram":
+            # Each param maps to its own widget-key scheme: pad keys live under
+            # the "_pad_" sub-prefix, extrinsic under "_ext_", intrinsic under
+            # "_int_" — the same keys the List view + _collect_specs use.
+            _pad_keys = {s[0] for s in _pad_specs_for_model}
+            _ext_keys = {s[0] for s in ext_specs}
+
+            def _rf_state_key(k, _pk=_pad_keys, _ek=_ext_keys, _px=prefix):
+                if k in _pk:
+                    return f"rfsim_{_px}_pad_{k}"
+                if k in _ek:
+                    return f"rfsim_{_px}_ext_{k}"
+                return f"rfsim_{_px}_int_{k}"
+
+            if model_cls is XuModel:
+                _ill = lambda pp, hl: _render_xu_illustration(
+                    pp, f"rfsim_{prefix}", highlight_key=hl)
+            elif model_cls is KunYangHEMT:
+                _ill = lambda pp, hl: _render_ky_illustration(
+                    pp, f"rfsim_{prefix}", highlight_key=hl)
+            else:
+                _ill = lambda pp, hl: _render_topology_illustration(
+                    pp, topo_char, f"rfsim_{prefix}", highlight_key=hl)
+
+            render_finetune_diagram(
+                all_specs=list(_pad_specs_for_model) + list(ext_specs) + list(int_specs),
+                state_key_for=_rf_state_key,
+                active_state=f"rfsim_dia_active_{prefix}",
+                calc_vals={}, render_illustration=_ill)
+        elif model_cls is KunYangHEMT:
             # KY: substrate / custom pad FIRST (these caps ARE the pad layer),
             # then access resistance + lead inductances.  No Cpg / Cpd / Cpgd
             # row — those entries are not used by the Kun-Yang model.
@@ -1023,15 +1097,30 @@ else:
     # Topology illustration and matplotlib Smith chart go in their own
     # expanders so users can collapse each independently — mirrors how
     # the SSM extraction tab keeps these on separate axes.
+    # Rebuild the user's customized Smith chart (same fname/topo_key the
+    # "🍩 Smith Chart (Matplotlib)" expander below uses) as PNG bytes so the
+    # no-parasitics topology view can overlay it bottom-right.  phase="chart"
+    # reads session_state and creates no widgets.
+    _smith_png = None
+    try:
+        _smith_png = render_matplotlib_smith(
+            fname=f"rfsim_{prefix}", topo_key=topo_char,
+            sets=[{"S": S_sim, "label": "Simulated",
+                   "kind": "line", "style": "solid"}],
+            default_multiplier=mults, phase="chart", freq_hz=freq,
+            return_png=True)
+    except Exception:                                    # noqa: BLE001
+        _smith_png = None
+
     with st.expander("🖼️ Topology Illustration", expanded=False):
         try:
             if model_cls is XuModel:
-                _render_xu_illustration(p, f"rfsim_{prefix}")
+                _render_xu_illustration(p, f"rfsim_{prefix}", smith_png=_smith_png)
             elif model_cls is KunYangHEMT:
                 _render_ky_illustration(p, f"rfsim_{prefix}")
             else:
                 _render_topology_illustration(p, topo_char,
-                                               f"rfsim_{prefix}")
+                                               f"rfsim_{prefix}", smith_png=_smith_png)
         except Exception as e:
             st.warning(f"Topology illustration unavailable: {e}")
 

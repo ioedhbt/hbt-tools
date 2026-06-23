@@ -672,7 +672,8 @@ def _compact_json_1d(arr, digits: int = 5) -> str:
 def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
                                        model_name: str, S_meas=None,
                                        decimate_points: int = 120,
-                                       json_digits: int = 5) -> str:
+                                       json_digits: int = 5,
+                                       smith_mults: dict | None = None) -> str:
     """Smith + Bode figure with HTML range sliders that drive
     ``Plotly.restyle`` directly — no Plotly frame system, no
     ``Plotly.animate`` calls, and no auto-animation when the iframe
@@ -741,6 +742,36 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
     B = S_batch_joint.shape[0]
     N = len(f_ghz)
 
+    # ── Per-trace Smith multiplier (mirrors the Plotly Smith chart's scale) ──
+    # ``smith_mults`` is the same {"S11":…} dict the user edits next to the main
+    # Plotly Smith chart; apply it to every Smith trace (measured overlay,
+    # initial model, and each embedded frame) so this slider view scales in
+    # lock-step with the static chart.
+    _sc = {nm: float((smith_mults or {}).get(nm, 1.0))
+           for nm in ("S11", "S12", "S21", "S22")}
+
+    def _sc_lbl(nm):
+        m = _sc[nm]
+        if abs(m - 1.0) < 1e-9:
+            return ""
+        return f" ×{m:g}" if m >= 1 else f" ÷{1 / m:g}"
+
+    # fT / fmax colours (blue / red) — shared with every other Bode plot.
+    _ft_col, _fmax_col = FT_FMAX_COLORS["fT"], FT_FMAX_COLORS["fmax"]
+
+    def _extrap_arr(gain_db, npts=14):
+        """20 dB/dec extrapolation of one gain trace → compact (x_json, y_json).
+
+        Returns ("[]", "[]") when the trace already crosses 0 dB in-band or is
+        otherwise un-extrapolatable, so the matching slider frame simply draws
+        no extrapolation segment.
+        """
+        fx, gx, _ = extrap_20dbdec(f_ghz, gain_db, n_pts=npts)
+        if fx is None:
+            return "[]", "[]"
+        return (_compact_json_1d(np.asarray(fx), json_digits),
+                _compact_json_1d(np.asarray(gx), json_digits))
+
     # Midpoint joint index — initial display
     midpoints = [d // 2 for d in dims]
     mid_joint = 0
@@ -769,9 +800,9 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
         for name, (r, c) in [("S11", (0, 0)), ("S22", (1, 1)),
                               ("S21", (1, 0)), ("S12", (0, 1))]:
             col = _SMITH_SLIDER_COLORS[name]
-            s = S_meas_d[:, r, c]
+            s = S_meas_d[:, r, c] * _sc[name]
             fig.add_trace(go.Scattergl(x=s.real, y=s.imag, mode="markers",
-                                        name=f"{name} meas",
+                                        name=f"{name}{_sc_lbl(name)} meas",
                                         marker=dict(color=col, size=5)),
                           row=1, col=1)
     else:
@@ -783,43 +814,78 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
     for name, (r, c) in [("S11", (0, 0)), ("S22", (1, 1)),
                           ("S21", (1, 0)), ("S12", (0, 1))]:
         col = _SMITH_SLIDER_COLORS[name]
-        s = S0[:, r, c]
+        s = S0[:, r, c] * _sc[name]
         fig.add_trace(go.Scattergl(x=s.real, y=s.imag, mode="lines",
-                                    name=f"{name} model",
+                                    name=f"{name}{_sc_lbl(name)} model",
                                     line=dict(color=col, width=2, dash="dash")),
                       row=1, col=1)
         model_smith_indices.append(len(fig.data) - 1)
 
-    # Optional static measured Bode
+    # Optional static measured Bode.  Colour by *quantity*: |h21|² (→ fT) blue,
+    # Mason U (→ fmax) red — matched to every other Bode plot.  Measured is
+    # distinguished from the model by its markers (model is dashed, no markers).
     if S_meas_d is not None:
         h21_m_db, U_m_db = compute_h21_U(S_meas_d)
         fig.add_trace(go.Scattergl(x=f_ghz, y=h21_m_db,
                                     mode="lines+markers", name="|h21|² meas",
-                                    line=dict(color="#1f77b4", width=1.4),
+                                    line=dict(color=_ft_col, width=1.4),
                                     marker=dict(size=4, symbol="circle")),
                       row=1, col=2)
         fig.add_trace(go.Scattergl(x=f_ghz, y=U_m_db,
                                     mode="lines+markers", name="Mason U meas",
-                                    line=dict(color="#1f77b4", width=1.4,
+                                    line=dict(color=_fmax_col, width=1.4,
                                               dash="dot"),
                                     marker=dict(size=4, symbol="square")),
                       row=1, col=2)
+        # Static measured extrapolation → 0 dB (fT / fmax).
+        _mfx, _mfy, _ = extrap_20dbdec(f_ghz, h21_m_db)
+        if _mfx is not None:
+            fig.add_trace(go.Scattergl(x=_mfx, y=_mfy, mode="lines",
+                                        name="fT meas (extrap)",
+                                        line=dict(color=_ft_col, width=1.3,
+                                                  dash="dot")),
+                          row=1, col=2)
+        _mux, _muy, _ = extrap_20dbdec(f_ghz, U_m_db)
+        if _mux is not None:
+            fig.add_trace(go.Scattergl(x=_mux, y=_muy, mode="lines",
+                                        name="fmax meas (extrap)",
+                                        line=dict(color=_fmax_col, width=1.3,
+                                                  dash="dot")),
+                          row=1, col=2)
 
-    # Initial model Bode traces (midpoint frame)
+    # Initial model Bode traces (midpoint frame) — |h21|² blue, Mason U red.
     h21_s0, U_s0 = compute_h21_U(S0)
     fig.add_trace(go.Scattergl(x=f_ghz, y=h21_s0, mode="lines",
                                 name="|h21|² model",
-                                line=dict(color="#d62728", width=2, dash="dash")),
+                                line=dict(color=_ft_col, width=2, dash="dash")),
                   row=1, col=2)
     bode_h21_idx = len(fig.data) - 1
     fig.add_trace(go.Scattergl(x=f_ghz, y=U_s0, mode="lines",
                                 name="Mason U model",
-                                line=dict(color="#d62728", width=2,
+                                line=dict(color=_fmax_col, width=2,
                                           dash="longdash")),
                   row=1, col=2)
     bode_U_idx = len(fig.data) - 1
+
+    # Initial model extrapolation segments (auto, per-frame below) — fT / fmax.
+    _e0fx, _e0fy, _ = extrap_20dbdec(f_ghz, h21_s0)
+    fig.add_trace(go.Scattergl(
+        x=_e0fx if _e0fx is not None else [],
+        y=_e0fy if _e0fy is not None else [],
+        mode="lines", name="fT model (extrap)",
+        line=dict(color=_ft_col, width=1.6, dash="dot")), row=1, col=2)
+    ext_h21_idx = len(fig.data) - 1
+    _e0ux, _e0uy, _ = extrap_20dbdec(f_ghz, U_s0)
+    fig.add_trace(go.Scattergl(
+        x=_e0ux if _e0ux is not None else [],
+        y=_e0uy if _e0uy is not None else [],
+        mode="lines", name="fmax model (extrap)",
+        line=dict(color=_fmax_col, width=1.6, dash="dot")), row=1, col=2)
+    ext_U_idx = len(fig.data) - 1
+
     smith_traces = list(model_smith_indices)          # [S11, S22, S21, S12]
     bode_traces  = [bode_h21_idx, bode_U_idx]         # [h21, U]
+    extrap_traces = [ext_h21_idx, ext_U_idx]          # [fT extrap, fmax extrap]
 
     fig.update_layout(
         height=500,
@@ -849,16 +915,21 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
     #    S21.real, S21.imag, S12.real, S12.imag,
     #    h21_dB,   U_dB]
     chunk_parts = []
+    _names = ["S11", "S22", "S21", "S12"]
     for i in range(B):
         Si = S_batch_joint[i]
         h21, U = compute_h21_U(Si)
         per_frame = []
-        for (r, c) in [(0, 0), (1, 1), (1, 0), (0, 1)]:   # S11 S22 S21 S12
-            s = Si[:, r, c]
+        for nm, (r, c) in zip(_names, [(0, 0), (1, 1), (1, 0), (0, 1)]):
+            s = Si[:, r, c] * _sc[nm]
             per_frame.append(_compact_json_1d(s.real, json_digits))
             per_frame.append(_compact_json_1d(s.imag, json_digits))
         per_frame.append(_compact_json_1d(h21, json_digits))
         per_frame.append(_compact_json_1d(U,   json_digits))
+        # Auto 20 dB/dec extrapolation → fT (from |h21|²) and fmax (from U).
+        _hx, _hy = _extrap_arr(h21)
+        _ux, _uy = _extrap_arr(U)
+        per_frame.extend((_hx, _hy, _ux, _uy))
         chunk_parts.append("[" + ",".join(per_frame) + "]")
     data_js = "[" + ",".join(chunk_parts) + "]"
 
@@ -877,6 +948,7 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
     mids_js   = _json.dumps(midpoints)
     smith_idx_js = _json.dumps(smith_traces)
     bode_idx_js  = _json.dumps(bode_traces)
+    extrap_idx_js = _json.dumps(extrap_traces)
 
     # Slider rows HTML
     sliders_html_parts = []
@@ -937,6 +1009,7 @@ html, body {{ margin: 0; padding: 0; font-family: 'Open Sans', -apple-system, Bl
   var LBLS   = {labels_js};
   var SMITH  = {smith_idx_js};
   var BODE   = {bode_idx_js};
+  var EXTRAP = {extrap_idx_js};
 
   function jointIndex(pos) {{
     var j = 0;
@@ -955,7 +1028,8 @@ html, body {{ margin: 0; padding: 0; font-family: 'Open Sans', -apple-system, Bl
     var gd = document.getElementById('hbtSlPlot');
     if (!gd || !gd.data) return;
     var frame = DATA[jointIndex(pos)];
-    // frame = [S11r, S11i, S22r, S22i, S21r, S21i, S12r, S12i, h21, U]
+    // frame = [S11r, S11i, S22r, S22i, S21r, S21i, S12r, S12i, h21, U,
+    //          h21extX, h21extY, UextX, UextY]
     Plotly.restyle(gd, {{
       x: [frame[0], frame[2], frame[4], frame[6]],
       y: [frame[1], frame[3], frame[5], frame[7]]
@@ -963,6 +1037,10 @@ html, body {{ margin: 0; padding: 0; font-family: 'Open Sans', -apple-system, Bl
     Plotly.restyle(gd, {{
       y: [frame[8], frame[9]]
     }}, BODE);
+    Plotly.restyle(gd, {{
+      x: [frame[10], frame[12]],
+      y: [frame[11], frame[13]]
+    }}, EXTRAP);
   }}
 
   function init() {{

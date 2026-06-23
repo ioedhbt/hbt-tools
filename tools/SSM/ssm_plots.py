@@ -1076,7 +1076,8 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                             topo_key: str = "", *,
                             sets=None, default_multiplier=1.0,
                             phase: str = "both",
-                            freq_hz=None):
+                            freq_hz=None, add_pool=None,
+                            return_png: bool = False):
     """
     Publication-style Smith chart drawn with matplotlib.
 
@@ -1142,6 +1143,26 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         st.info("No S-parameter data available to plot.")
         return
 
+    # ── Additional uploaded-file traces (the "➕" under the styling table) ────
+    # ``add_pool`` is a list of {"label", "S"} for *other* uploaded files.  The
+    # user picks which to overlay via the styling table's "Add a file trace"
+    # button; the picks persist in session_state and are appended to ``sets`` in
+    # BOTH phases so the styling rows and the drawn traces stay in lock-step.
+    skey       = f"smith_mpl_{topo_key}_{fname}"
+    _pool        = [p for p in (add_pool or []) if p.get("S") is not None]
+    _pool_labels = [p["label"] for p in _pool]
+    _pool_by_lbl = {p["label"]: p for p in _pool}
+    _extra_sel_key = f"{skey}_extra_files"
+    if _pool:
+        _sel = [l for l in st.session_state.get(_extra_sel_key, [])
+                if l in _pool_labels]
+        st.session_state[_extra_sel_key] = _sel
+        for _j, _lbl in enumerate(_sel):
+            sets.append({"S": _pool_by_lbl[_lbl]["S"], "label": _lbl,
+                         "kind": "line", "style": "solid",
+                         "_extra": True, "_extra_idx": _j})
+    _has_extra = any(s.get("_extra") for s in sets)
+
     if isinstance(default_multiplier, dict):
         default_mults = {sp: float(default_multiplier.get(sp, 1.0))
                          for sp in ("S11", "S12", "S21", "S22")}
@@ -1149,7 +1170,6 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         default_mults = {sp: float(default_multiplier)
                          for sp in ("S11", "S12", "S21", "S22")}
 
-    skey       = f"smith_mpl_{topo_key}_{fname}"
     extra_key  = f"{skey}_n_extra_texts"
     sparams    = ("S11", "S12", "S21", "S22")
 
@@ -1173,8 +1193,30 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             st.session_state[state_key] = default_hex
         return st.session_state[state_key]
 
+    # Auto-place each S-param label where its (primary-set) trace actually is:
+    # the centroid of the trace points, pushed slightly outward from the chart
+    # centre so the text sits beside the curve rather than on top of it.  Falls
+    # back to the curated fixed position when no finite trace data is available.
+    _SP_RC = {"S11": (0, 0), "S12": (0, 1), "S21": (1, 0), "S22": (1, 1)}
+
+    def _auto_label_pos(sp):
+        try:
+            r, c = _SP_RC[sp]
+            z = np.asarray(sets[0]["S"])[:, r, c] * default_mults[sp]
+            z = z[np.isfinite(z)]
+            if z.size:
+                ctr = complex(float(np.mean(z.real)), float(np.mean(z.imag)))
+                rad = abs(ctr)
+                if rad > 1e-3:
+                    ctr = ctr + 0.13 * (ctr / rad)      # nudge outward
+                return (float(np.clip(ctr.real, -1.08, 1.08)),
+                        float(np.clip(ctr.imag, -1.08, 1.08)))
+        except Exception:                                # noqa: BLE001
+            pass
+        return _SPARAM_DEFAULT_POS[sp]
+
     for sp in sparams:
-        x0, y0 = _SPARAM_DEFAULT_POS[sp]
+        x0, y0 = _auto_label_pos(sp)
         if f"{skey}_text_{sp}" not in st.session_state:
             # Seed the label from the default multiplier so a non-unity
             # default already reads "Sxx×N" / "Sxx/N" on the first render
@@ -1191,8 +1233,51 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         _resolve_color(f"{skey}_text_color_{sp}",
                        _hex_darken_init(_MPL_SMITH_COLORS[sp]))
 
+    # ── Follow the companion Plotly Smith multiplier ─────────────────────────
+    # ``default_multiplier`` doubles as a live sync source: the RF / SSM tools
+    # pass the same per-trace multiplier the user edits next to their Plotly
+    # Smith chart.  It seeds these widgets on the first render (loop above);
+    # here we also mirror any *change* to it into the per-S-param multiplier (and
+    # text-label) state so editing the Plotly multiplier auto-updates this
+    # matplotlib chart.  Runs before the widgets are instantiated, so the writes
+    # take effect this rerun.  Tracked *per S-param*, so changing one Plotly
+    # multiplier only updates that trace — manual edits to the other three
+    # matplotlib multipliers persist.  A constant default never re-fires.
+    for sp in sparams:
+        _synced_sp = f"{skey}_synced_mult_{sp}"
+        _new = default_mults[sp]
+        if _synced_sp not in st.session_state:         # first render → seed only
+            st.session_state[_synced_sp] = _new
+        elif st.session_state[_synced_sp] != _new:     # Plotly value changed
+            st.session_state[f"{skey}_mult_{sp}"] = _new
+            st.session_state[f"{skey}_text_{sp}"] = _mult_label_text(sp, _new)
+            st.session_state[_synced_sp] = _new
+
     if extra_key not in st.session_state:
         st.session_state[extra_key] = 0
+
+    # ── Seed a default freq-range annotation — PHASE-INDEPENDENT ─────────────
+    # Runs in every phase (controls / chart / both) so the "{lo}~{hi} GHz" text
+    # is filled in by default no matter which render path touches this chart
+    # first — including the chart-only `return_png` path used by the topology
+    # Smith overlay.  A sentinel prevents re-seeding so user edits stick.
+    _seed_key = f"{skey}_freq_default_seeded"
+    if freq_hz is not None and not st.session_state.get(_seed_key):
+        try:
+            _f = np.asarray(freq_hz, dtype=float)
+            _f = _f[np.isfinite(_f)]
+            if _f.size >= 2:
+                _lo = float(_f.min()) * 1e-9
+                _hi = float(_f.max()) * 1e-9
+                _idx = int(st.session_state.get(extra_key, 0))
+                st.session_state[extra_key]               = _idx + 1
+                st.session_state[f"{skey}_etext_{_idx}"]  = f"{_lo:g} ~ {_hi:g} GHz"
+                st.session_state[f"{skey}_ex_{_idx}"]     = 0.0
+                st.session_state[f"{skey}_ey_{_idx}"]     = -1.1
+                st.session_state[f"{skey}_ecolor_{_idx}"] = "#000000"
+                st.session_state[_seed_key] = True
+        except (TypeError, ValueError):
+            pass
 
     _run_controls = phase in ("controls", "both")
     _run_chart    = phase in ("chart",    "both")
@@ -1306,8 +1391,11 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     # ── Per-set table: trace / kind / style / size / [color] / decimate ──
     # Skip the whole widget table in chart-only phase — values are already
     # in session_state from the controls phase.
+    # Show a Color column in bicolor mode OR whenever extra files are overlaid
+    # (each added file gets its own color so the traces stay distinguishable).
+    _show_color_col = is_per_set_color or _has_extra
     if _run_controls:
-        if is_per_set_color:
+        if _show_color_col:
             _col_weights = [0.9, 1.0, 1.1, 0.8, 0.8, 0.8]
             _set_headers = ["Trace", "Kind", "Style", "Size",
                              "Color", "Decimate"]
@@ -1323,9 +1411,9 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         with st.container(border=True):
             header_cols = st.columns(_col_weights)
             for i, lbl in enumerate(_set_headers):
-                # Hide the Decimate header when there's no measured trace
-                # (the cell will be empty for non-measured sets anyway).
-                if lbl == "Decimate" and not has_measured:
+                # Hide the Decimate header when there's no decimatable trace
+                # (the cell is empty for non-measured / non-extra sets anyway).
+                if lbl == "Decimate" and not (has_measured or _has_extra):
                     continue
                 header_cols[i].markdown(
                     f"<span style='font-size:0.85em;color:#444;"
@@ -1359,9 +1447,35 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                     st.session_state[dec_sk] = 1
 
                 is_measured = (s.get("label") == "Measured")
+                is_extra    = bool(s.get("_extra"))
                 row_cols = st.columns(_col_weights)
-                row_cols[0].markdown(
-                    f"**{s.get('label', f'Set {si+1}')}**")
+                if is_extra:
+                    # Column 0 becomes a file picker + remove button so the user
+                    # can swap which uploaded file this overlay shows, or drop it.
+                    j = s["_extra_idx"]
+                    _used = set(st.session_state[_extra_sel_key]) - {s["label"]}
+                    _opts = [l for l in _pool_labels if l not in _used]
+                    pk = f"{skey}_extra_pick_{j}"
+                    if pk not in st.session_state or st.session_state[pk] not in _opts:
+                        st.session_state[pk] = (s["label"] if s["label"] in _opts
+                                                else _opts[0])
+                    pcol, xcol = row_cols[0].columns([4, 1])
+                    pick = pcol.selectbox(f"File {si+1}", _opts, key=pk,
+                                          label_visibility="collapsed")
+                    if xcol.button("🗑", key=f"{skey}_extra_rm_{j}",
+                                   help="Remove this file from the chart"):
+                        _cur = list(st.session_state[_extra_sel_key])
+                        _cur.pop(j)
+                        st.session_state[_extra_sel_key] = _cur
+                        st.rerun()
+                    if pick != s["label"]:
+                        _cur = list(st.session_state[_extra_sel_key])
+                        _cur[j] = pick
+                        st.session_state[_extra_sel_key] = _cur
+                        st.rerun()
+                else:
+                    row_cols[0].markdown(
+                        f"**{s.get('label', f'Set {si+1}')}**")
                 kind = row_cols[1].selectbox(f"Kind {si+1}", ["Markers", "Line"],
                                               key=kind_sk,
                                               label_visibility="collapsed")
@@ -1383,20 +1497,39 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                                           min_value=0.1, max_value=size_max,
                                           step=0.1, format="%.2f", key=size_sk,
                                           label_visibility="collapsed")
-                if is_per_set_color:
+                _dec_ok = is_measured or is_extra
+                if _show_color_col:
+                    # One colour per set: bicolor mode, or per-file colouring
+                    # whenever extra files are overlaid (every row — including
+                    # the base file — gets a single colour picker).
                     row_cols[4].color_picker(f"Color {si+1}", key=setcolor_sk,
                                               label_visibility="collapsed")
-                    if is_measured:
+                    if _dec_ok:
                         row_cols[5].number_input(f"Decimate {si+1}",
                                                   min_value=1, max_value=1000, step=1,
                                                   key=dec_sk,
                                                   label_visibility="collapsed")
                 else:
-                    if is_measured:
+                    if _dec_ok:
                         row_cols[4].number_input(f"Decimate {si+1}",
                                                   min_value=1, max_value=1000, step=1,
                                                   key=dec_sk,
                                                   label_visibility="collapsed")
+
+            # ── "➕" — overlay another uploaded file's trace ────────────────
+            if _pool:
+                _avail = [l for l in _pool_labels
+                          if l not in set(st.session_state[_extra_sel_key])]
+                if _avail:
+                    if st.button("➕ Add a file trace", key=f"{skey}_extra_add",
+                                 help="Overlay another uploaded S-parameter "
+                                      "file on this Smith chart"):
+                        _cur = list(st.session_state[_extra_sel_key])
+                        _cur.append(_avail[0])
+                        st.session_state[_extra_sel_key] = _cur
+                        st.rerun()
+                else:
+                    st.caption("All uploaded files are already on the chart.")
 
     # ── Per-S-param table — S-param | Multiplier | Text | x | y | [Trace] | Text
     # Text color picker is ALWAYS shown (independent of color mode); the
@@ -1414,8 +1547,12 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             unsafe_allow_html=True)
 
         # Column widths — first column is a narrow label cell, "Text" input
-        # is narrower than before, the rest balance out.
-        if is_per_set_color or is_custom_color:
+        # is narrower than before, the rest balance out.  The per-trace "Trace"
+        # colour column is dropped whenever the trace colour is decided per-set
+        # (bicolor / custom) OR per-file (extra files overlaid) — in those modes
+        # the user picks one colour per file, not per S-param.
+        _sp_hide_trace = is_per_set_color or is_custom_color or _has_extra
+        if _sp_hide_trace:
             sp_weights = [0.5, 0.7, 1.2, 0.7, 0.7, 0.7]
             sp_headers = ["S-param", "Multiplier", "Text",
                           "x pos", "y pos", "Text"]
@@ -1459,7 +1596,7 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                                     step=0.05, format="%.3f",
                                     key=f"{skey}_y_{sp}",
                                     label_visibility="collapsed")
-                if is_per_set_color or is_custom_color:
+                if _sp_hide_trace:
                     # No trace column in these modes → text-color picker
                     # sits in column index 5.
                     row[5].color_picker(f"{sp} text color",
@@ -1481,39 +1618,45 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                                              "(default = darker variant of "
                                              "the trace color).")
 
-        # ── Free text annotations + ➕ button ─────────────────────────────
-        #
-        # Seed a default freq-range annotation at the bottom of the chart on
-        # the very first render for this (fname, topo_key).  Defaults:
-        #   text     : "{lo:g}~{hi:g} GHz" derived from `freq_hz`
-        #   position : (0.0, -1.1)            — just below the unit circle
-        #   color    : #000000
-        # The user can edit / move / delete it through the same Text inputs
-        # used by every other free-text slot.  A sentinel session_state key
-        # prevents re-seeding on subsequent reruns (so the user's edits
-        # actually stick).
-        _seed_key = f"{skey}_freq_default_seeded"
-        if freq_hz is not None and not st.session_state.get(_seed_key):
-            try:
-                _f = np.asarray(freq_hz, dtype=float)
-                _f = _f[np.isfinite(_f)]
-                if _f.size >= 2:
-                    _lo = float(_f.min()) * 1e-9
-                    _hi = float(_f.max()) * 1e-9
-                    # Append as a fresh slot (don't require zero existing slots,
-                    # so the freq label still seeds even if another slot exists).
-                    _idx = int(st.session_state.get(extra_key, 0))
-                    st.session_state[extra_key]                = _idx + 1
-                    st.session_state[f"{skey}_etext_{_idx}"]   = f"{_lo:g} ~ {_hi:g} GHz"
-                    st.session_state[f"{skey}_ex_{_idx}"]      = 0.0
-                    st.session_state[f"{skey}_ey_{_idx}"]      = -1.1
-                    st.session_state[f"{skey}_ecolor_{_idx}"]  = "#000000"
-                    # Mark seeded ONLY after a successful seed, so a transient
-                    # miss (freq_hz=None, <2 points) doesn't lock it out forever.
-                    st.session_state[_seed_key] = True
-            except (TypeError, ValueError):
-                pass
+        # One-click auto-placement: drop every S-param label just outside its
+        # own trace (centroid direction, beyond the curve's outer extent) so the
+        # text sits beside the curve instead of on top of it.  Must run via
+        # on_click — the x/y number_inputs above are already instantiated this
+        # run, so their session_state can only be mutated before the next run.
+        def _auto_place_labels():
+            for _sp in sparams:
+                try:
+                    _r, _c = _SP_RC[_sp]
+                    _mult = float(st.session_state.get(
+                        f"{skey}_mult_{_sp}", default_mults[_sp]))
+                    _z = np.asarray(sets[0]["S"])[:, _r, _c] * _mult
+                    _z = _z[np.isfinite(_z)]
+                    if not _z.size:
+                        continue
+                    _ctr = complex(float(np.mean(_z.real)),
+                                   float(np.mean(_z.imag)))
+                    _rad = abs(_ctr)
+                    _d = (_ctr / _rad) if _rad > 1e-6 else (1 + 0j)
+                    # Outermost extent of the trace along the centroid direction,
+                    # then nudge a margin further out so the label clears it.
+                    _tip = float(np.max(_z.real * _d.real + _z.imag * _d.imag))
+                    _pos = (_tip + 0.12) * _d
+                    st.session_state[f"{skey}_x_{_sp}"] = float(
+                        np.clip(_pos.real, -1.1, 1.1))
+                    st.session_state[f"{skey}_y_{_sp}"] = float(
+                        np.clip(_pos.imag, -1.1, 1.1))
+                except Exception:                        # noqa: BLE001
+                    continue
 
+        st.button(
+            "🎯 Auto-place labels", key=f"{skey}_autoplace_btn",
+            on_click=_auto_place_labels,
+            help="Move each S-parameter label next to its trace — just outside "
+                 "the curve so the text does not overlap it.")
+
+        # ── Free text annotations + ➕ button ─────────────────────────────
+        # (The default freq-range annotation is seeded phase-independently
+        #  near the top of this function.)
         n_extra = int(st.session_state.get(extra_key, 0))
         if n_extra > 0:
             st.markdown("**Extra text annotations**")
@@ -1578,9 +1721,13 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                            ("S21", (1, 0)), ("S22", (1, 1))]:
             cfg = sparam_cfg[sp]
             sv  = S[:, r, c] * cfg["mult"]
-            if is_measured and decimate > 1:
+            if (is_measured or s.get("_extra")) and decimate > 1:
                 sv = sv[::decimate]
-            if is_custom_color:
+            if _has_extra:
+                # Overlay mode: one colour per file (base + every added file),
+                # taken from that set's styling row — no per-S-param colouring.
+                color = set_color
+            elif is_custom_color:
                 # Pick the per-(set, S-param) color stashed by the 8-picker grid.
                 _set_name = "meas" if is_measured else "model"
                 color = str(st.session_state.get(
@@ -1640,6 +1787,17 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     ax.set_aspect("equal")
     ax.axis("off")
 
+    # When asked, hand the *customized* figure back as PNG bytes (used by the
+    # topology illustration's bottom-right Smith overlay) instead of drawing it
+    # into Streamlit.  Returns before any st.* call so no UI element is created.
+    if return_png:
+        import io as _io
+        _buf = _io.BytesIO()
+        fig.savefig(_buf, format="png", bbox_inches="tight",
+                    facecolor="white", dpi=150)
+        plt.close(fig)
+        return _buf.getvalue()
+
     st.pyplot(fig, clear_figure=True)
     plt.close(fig)
 
@@ -1652,7 +1810,7 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         style = st.session_state.get(f"{skey}_set{si}_style",
                                      s.get("style", "solid"))
         label = s.get("label", f"Set {si+1}")
-        if is_per_set_color:
+        if is_per_set_color or _has_extra or s.get("_extra"):
             set_col = str(st.session_state.get(f"{skey}_set{si}_color", "#000"))
             legend_parts.append(
                 f"<span style='color:{set_col}'>**{label}**</span> "
@@ -1676,7 +1834,9 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             "  \n".join(rows),
             unsafe_allow_html=True,
         )
-    elif is_per_set_color:
+    elif is_per_set_color or _has_extra:
+        # One colour per set/file → the per-set chips already convey the colour;
+        # no per-S-param "Trace colors" row.
         st.markdown("**Legend** — " + " ; ".join(legend_parts),
                     unsafe_allow_html=True)
     else:

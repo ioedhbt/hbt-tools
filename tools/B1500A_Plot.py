@@ -21,6 +21,8 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from tools import i18n
+
 
 # =================================================
 # Utilities
@@ -154,12 +156,24 @@ page = st.sidebar.selectbox(
 # =================================================
 if page == "B1500A Viewer":
 
-    st.title(f"🧪 B1500A Excel Viewer (v{__version__})")
+    st.title(i18n.t("b1500a_viewer"))
+    st.caption(i18n.tool_desc("b1500a"))
 
+    with st.expander(i18n.t("how_it_works"), expanded=False):
+        from tools.diagrams import pipeline_png
+        st.image(pipeline_png((
+            ("Upload",  "xlsx"),
+            ("Select",  "sheet · type"),
+            ("Extract", "η · β · V_early"),
+            ("Plot",    "I–V"),
+        ), accent="#1f77b4"), width="stretch")
+
+    st.subheader(i18n.t("b1500a_step1"))
     uploaded = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
     if not uploaded:
         st.stop()
 
+    st.subheader(i18n.t("b1500a_step2"))
     xls = pd.ExcelFile(uploaded)
     sheet = st.selectbox("Select sheet", xls.sheet_names)
     df = xls.parse(sheet)
@@ -432,7 +446,7 @@ if page == "B1500A Viewer":
 # TLM ANALYSIS
 # =================================================
 else:
-    st.title(f"📐 TLM Analysis (v{__version__})")
+    st.title(i18n.t("b1500a_tlm"))
 
     Z = st.number_input("Pad width Z (µm)", value=80.0)
 

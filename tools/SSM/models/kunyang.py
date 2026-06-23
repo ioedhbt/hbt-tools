@@ -40,7 +40,8 @@ import streamlit as st
 from ..helpers       import (y_to_s_single, y_to_s_vec,
                               params_hash,
                               build_Z_ser, build_Z_ser_vec, build_Z_ser_batch)
-from .base_ui        import sync_pad_from_preov, PAD_SPECS, SSMModelTemplate
+from .base_ui        import (sync_pad_from_preov, PAD_SPECS, SSMModelTemplate,
+                             render_finetune_diagram)
 from ._shared        import _b1, _detect_B, _stack22, has_inter, _load_font
 from . import AbstractSSMModel
 
@@ -143,7 +144,8 @@ def _fmt_param(key: str, val_si: float) -> str:
     return f"{text} {unit}" if unit else text
 
 
-def _render_topology_illustration(all_p: dict, fname: str) -> None:
+def _render_topology_illustration(all_p: dict, fname: str,
+                                  highlight_key=None) -> None:
     """Overlay live parameter values on the Kun-Yang HEMT schematic and display
     it via st.image().  Called inside a Streamlit expander by the override UI.
 
@@ -188,6 +190,13 @@ def _render_topology_illustration(all_p: dict, fname: str) -> None:
 
     img  = Image.open(tpl_path).convert("RGB")
     draw = ImageDraw.Draw(img)
+
+    # Diagram-mode highlight: red ring on the component being edited.
+    if highlight_key and highlight_key in _KY_OVERLAY:
+        hx, hy, *_ = _KY_OVERLAY[highlight_key]
+        rx, ry = 52, 26
+        draw.ellipse([hx - rx, hy - ry, hx + rx, hy + ry],
+                     outline=(220, 38, 38), width=5)
 
     for key, pos in _KY_OVERLAY.items():
         val_si = all_p.get(key)
@@ -608,30 +617,44 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_KY_SPECS
                 st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
             st.rerun()
 
-        # Substrate / custom-pad network FIRST — these caps ARE the pads
-        # for the Kun-Yang HEMT (no separate Cpg / Cpd / Cpgd layer).
-        st.markdown("**Kun-Yang Custom Pad / Substrate Network**")
-        for row_start in range(0, len(ext_specs), 3):
-            row = ext_specs[row_start:row_start + 3]
-            for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
-                col_w.number_input(f"{lbl} ({unit})", key=f"sim_{tK}_{key}_{fname}",
-                                   format=fmt, step=step)
+        _mode = st.radio(
+            "Editor mode", ["List", "Diagram"], horizontal=True,
+            key=f"sim_mode_{tK}_{fname}",
+            help="List: grouped number inputs.  Diagram: set values on the "
+                 "model schematic — the component you edit is highlighted.")
 
-        # Series-lead + access-resistance row — auto-synced from Step 1.
-        st.markdown("**Access Resistance & Lead Inductance** "
-                    "*(auto-synced from pre-extraction override)*")
-        for row_start in range(0, len(_KY_PAD_SPECS), 3):
-            row = _KY_PAD_SPECS[row_start:row_start + 3]
-            for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
-                col_w.number_input(f"{lbl} ({unit})" if unit else lbl,
-                                   key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
+        if _mode == "Diagram":
+            render_finetune_diagram(
+                all_specs=all_specs, calc_vals=calc_vals,
+                state_key_for=lambda k: f"sim_{tK}_{k}_{fname}",
+                active_state=f"sim_dia_active_{tK}_{fname}",
+                render_illustration=lambda p, hl: _render_topology_illustration(
+                    p, fname, highlight_key=hl))
+        else:
+            # Substrate / custom-pad network FIRST — these caps ARE the pads
+            # for the Kun-Yang HEMT (no separate Cpg / Cpd / Cpgd layer).
+            st.markdown("**Kun-Yang Custom Pad / Substrate Network**")
+            for row_start in range(0, len(ext_specs), 3):
+                row = ext_specs[row_start:row_start + 3]
+                for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
+                    col_w.number_input(f"{lbl} ({unit})", key=f"sim_{tK}_{key}_{fname}",
+                                       format=fmt, step=step)
 
-        st.markdown("**Intrinsic Pi-Model**")
-        for row_start in range(0, len(int_specs), 4):
-            row = int_specs[row_start:row_start + 4]
-            for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
-                col_w.number_input(f"{lbl} ({unit})" if unit else lbl,
-                                   key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
+            # Series-lead + access-resistance row — auto-synced from Step 1.
+            st.markdown("**Access Resistance & Lead Inductance** "
+                        "*(auto-synced from pre-extraction override)*")
+            for row_start in range(0, len(_KY_PAD_SPECS), 3):
+                row = _KY_PAD_SPECS[row_start:row_start + 3]
+                for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
+                    col_w.number_input(f"{lbl} ({unit})" if unit else lbl,
+                                       key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
+
+            st.markdown("**Intrinsic Pi-Model**")
+            for row_start in range(0, len(int_specs), 4):
+                row = int_specs[row_start:row_start + 4]
+                for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
+                    col_w.number_input(f"{lbl} ({unit})" if unit else lbl,
+                                       key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
 
     all_p = {key: st.session_state.get(f"sim_{tK}_{key}_{fname}",
                                        float(calc_vals.get(key, 0.0)) * scale) / scale
@@ -837,8 +860,10 @@ class KunYangHEMT(SSMModelTemplate, AbstractSSMModel):
                             ext_specs=_EXT_KY_SPECS)
 
     @classmethod
-    def _render_topology(cls, all_p, fname):
-        _render_topology_illustration(all_p, fname)
+    def _render_topology(cls, all_p, fname, smith_png=None, highlight_key=None):
+        # KY HEMT has no "no-parasitics" template variant, so the Smith overlay
+        # (smith_png) does not apply here — accepted for call-site uniformity.
+        _render_topology_illustration(all_p, fname, highlight_key=highlight_key)
 
     @classmethod
     def _build_intrinsic_static_cache(cls, p, omega, cache, xp, prebakeable):

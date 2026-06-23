@@ -25,8 +25,10 @@ The submodule paths below are for jump-to-definition only.
 
 | Function | Line | Purpose |
 |---|---|---|
-| `_extract_ui(fname, key, freq, default_frac_lo, default_frac_hi)` | 56 | Frequency-range + method selector. Returns `(n0, n1, method, trim_pct)`. |
-| `render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)` | 77 | Public entry — renders the complete SSM extraction tab for one DUT file (Steps 1–3, all model panels, summary, fit cache). |
+| `BUILTIN_SHORTS` | 56 | `("T","pi")` — models shown in the built-in **analytic-extraction** flow (Cheng T/π only). Xu & Kun-Yang were moved out to the Custom-model section's forward-sim views. Drives the model-checkbox loop in `render_ssm_tab`. |
+| `render_builtin_forward_sim(short, S_raw, freq, z0, fname)` | 62 | **Forward-simulation-only** view for a built-in model (`"XuT"` / `"KY"`), surfaced under the Custom-model radio. Seeds params from a one-shot guess on the device (pads=0, **no Open/Short de-embed**) then hands off to `ModelClass.render_override_and_smith` (override → simulate → Smith/residual/fT-fmax → grid-sweep tuning). |
+| `_extract_ui(fname, key, freq, default_frac_lo, default_frac_hi)` | ~90 | Frequency-range + method selector. Returns `(n0, n1, method, trim_pct)`. |
+| `render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)` | ~111 | Public entry — renders the complete SSM extraction tab for one DUT file (Steps 1–3, **Cheng T/π only**, summary, fit cache). |
 | `_render_summary_table(fname, para_eff, cold_res, extract_results, registry)` | 677 | Multi-layer parameter summary table + CSV download. Pulls live (post fine-tune) values when available. |
 | `_render_fit_cache_panel(fname)` | 793 | Fit-cache UI: list cached `(file, model)` entries for this DUT (with delete buttons), plus whole-cache export/import (sync local ↔ Streamlit Cloud). |
 
@@ -69,7 +71,7 @@ The submodule paths below are for jump-to-definition only.
 | `_draw_mpl_smith_background(ax, line_lw, grid_lw, density)` | 712 | Draw constant-R / constant-X grid arcs for a unit Smith chart on a matplotlib axis. |
 | `_mult_label_text(sp, mult)` | 1048 | On-chart label implied by an S-param multiplier: `1`→`"S21"`, `>1`→`"S21x3"`, `<1`→`"S21/5"` (reciprocal). `%g`-trimmed; bare name for non-positive/unparseable. |
 | `_sync_text_to_mult(skey, sp)` | 1069 | `on_change` callback that rewrites an S-param's Text field from its multiplier via `_mult_label_text`. |
-| `render_matplotlib_smith(S_mea=None, S_sim=None, fname="", topo_key="", *, sets=None, default_multiplier=1.0, phase="both", freq_hz=None)` | 1079 | Publication-style matplotlib Smith chart. Backward-compatible (mea/sim) and extensible (`sets=[…]`) call forms. `phase="controls"` renders widgets only; `phase="chart"` renders the figure only; `phase="both"` is the legacy combined form. SSM, RF simulator **and RF parameter extraction** call it twice (right column = controls, left column = chart) inside a side-by-side block, passing `freq_hz` for the auto frequency-range annotation. Editing a Multiplier auto-updates that S-param's Text label (`_sync_text_to_mult`). |
+| `render_matplotlib_smith(S_mea=None, S_sim=None, fname="", topo_key="", *, sets=None, default_multiplier=1.0, phase="both", freq_hz=None, add_pool=None)` | 1079 | Publication-style matplotlib Smith chart. Backward-compatible (mea/sim) and extensible (`sets=[…]`) call forms. `phase="controls"` renders widgets only; `phase="chart"` renders the figure only; `phase="both"` is the legacy combined form. SSM, RF simulator **and RF parameter extraction** call it twice (right column = controls, left column = chart) inside a side-by-side block, passing `freq_hz` for the auto frequency-range annotation. Editing a Multiplier auto-updates that S-param's Text label (`_sync_text_to_mult`). **`add_pool`** = list of `{"label","S"}` for *other* uploaded files; the styling table then shows a **"➕ Add a file trace"** button + per-row file picker / 🗑 remove / own colour, appending the chosen files to `sets` (selection persisted in `…_extra_files`) so multiple measured files overlay on one chart (used by RF parameter extraction). When any extra file is overlaid the chart switches to **one colour per file** (base + each added file get a single colour; the per-S-param "Trace" colour column is hidden). S-param labels (S11…S22) **auto-position** at each primary-set trace's centroid (nudged outward via `_auto_label_pos`) instead of fixed defaults — x/y stay adjustable and the text-colour picker is always available. |
 | `render_ft_fmax_overlay(S_raw, sim_results, freq, fname)` | 1433 | Multi-model Bode plot using `FT_FMAX_COLORS` — all fT traces blue, all fmax traces red. Models are distinguished by line name in the legend; modeled traces are dashed, extrap traces dotted. xlsx download uses the standardised `bode_excel_bytes` (simulated + extrapolated columns). |
 
 ---
@@ -325,6 +327,8 @@ After the array-utility consolidation, this module is mostly font code. The thre
 | `sync_pad_from_preov(fname, topo_key, para_eff)` | 275 | Copy pre-extraction pad values into per-topology session state when the upstream MD5 hash changes. |
 | `_render_cbex_sweep_tool(...)` | 288 | Cbex sweep UI for the Cbcx stability search. |
 | `_render_tau_total_fit_section(*, all_data, fname, model_short, params, para_eff)` | 426 | Multi-file 1/(2πfT) vs 1/IC reference fit (T-models only — ChengT, XuT). Computes fT per bias file from Open+Short pad/lead de-embedded \|h21\|² 0-dB crossing — but **access R is RETAINED** (Rpb/Rpc/Rpe forced to 0 in the dict passed to `peel_parasitics`) so RC/REE in the Cheng formula remain meaningful. Auto-no-op for pre-de-embedded files (when caps/Ls are zero, `peel_parasitics` returns Y_dut unchanged). Plots τ_total (ps) vs 1/IC (1/mA); linear-fits → reference Cje (=slope/(η·Vt)) and τB+τC (=intercept−(Rc+Re)·Cbc). Per-file τCC=(rE+Re+Rc)·Cbc and τE=rE·Cje. Also splits τB / τC via assumed average collector velocity v_c (Liu et al., IEEE EDL 25(12), 2004) — `W_C` (nm, default 120) and `v_c` (cm/s, default 4×10⁷ for 2000 Å InP collectors) are inputs → τ_C = W_C/(2 v_c), τ_B = (τ_B+τ_C) − τ_C. Publishes the v_c-derived τB / τC into session state (`taut_pub_tauB/τC_{short}_{fname}`) so the downstream τB / τC `number_input`s render a "v_c = …" quickset button. Hidden when `< 2` s2p files loaded. Reference-only — does NOT feed back into the model fit. **Returns `True` when it rendered, `False` when skipped (single file)** so the caller can suppress the trailing `---` separator and avoid a double rule with one file. References: Cheng et al. (equation) + Liu et al. (v_c default for InP collector). |
+| `_FINETUNE_DIAGRAM_GROUPS` (module-level) | (before render_finetune_diagram) | Ordered `(label, [param_keys])` grouping for the diagram-mode fine-tune editor: Pad parasitics / Lead inductance / Access resistance / Extrinsic C / Delay / Intrinsic. Any spec key not named here lands in a trailing **"Other"** group so nothing is hidden. |
+| `render_finetune_diagram(*, fname, topo_key, all_specs, calc_vals, render_illustration)` | (before render_interactive_param_groups) | Diagram-mode alternative inside each model's **"✏️ Fine-tune" override expander** (`_override_ui` in cheng/xu/kunyang). Left column: `render_illustration(preview_all_p_SI, highlight_key)` draws the topology schematic with the **last-edited** component ringed in red. Right column: every override value, grouped via `_FINETUNE_DIAGRAM_GROUPS`; each `number_input` writes the SAME `sim_{topo_key}_{key}_{fname}` key the List view uses (so both modes stay in lock-step and the caller's downstream `all_p` assembly is unchanged), and its `on_change` records the active component in `sim_dia_active_{topo_key}_{fname}` to drive the highlight. `all_specs` items are `(key, label, scale, unit, fmt, step)`; the schematic preview is rebuilt from session state each run. Models wire it in `_override_ui` behind an "Editor mode" `List`/`Diagram` radio (`sim_mode_{topo_key}_{fname}`); the model illustration's `highlight_key` param (cheng `_render_topology_illustration(all_p, topology, fname, highlight_key=…)`, xu/ky `(all_p, fname, highlight_key=…)`) draws the ring. |
 | `render_interactive_param_groups(...)` | (after _render_tau_total_fit_section) | The big interactive expander: each normal parameter group (Cbex, Cbcx, intrinsic, τB, τC, …) is wrapped in one large card keyed `pfp_groupbox_{model_short}_{g_idx}_{fname}` (`box = st.container(border=False, key=…)`; its title + slider + plots render into `box` / `box.columns(...)`, with the existing per-parameter bordered sub-containers nested inside). The thick outline is drawn by a scoped `<style>` block (injected once at the top of the expander) targeting `div[class*="st-key-pfp_groupbox_"]` directly — Streamlit puts the `key` class on the inner `stVerticalBlock` (not the border wrapper), so the CSS styles that element and `border=False` avoids a double frame. Keep the key prefix and that CSS selector in sync. Special fit groups (`z_plots_group` / `fbi_fit_group` / `f1_fit_group`) keep the legacy heading-outside layout. Per-group: section heading, dependency info, "same range as previous" button, frequency-range slider, per-frequency line plots, per-param `number_input`, optional Cbex-sweep tool, optional `tau_total_fit_group` (multi-file reference fit; its trailing `---` is suppressed when the fit is hidden for a single file). Accepts `all_data` and `para_eff` kwargs to enable the tau-total fit section. Per-param inputs render extra quickset buttons sourced from elsewhere in the UI: **"v_c = …"** for τB / τC (from the tau_total_fit_group's v_c split), and **"Z-param = …"** for Rbe (from `rz12_Rbe_{fname}` when the Z-parameter method has been run and the current DUT is in the fit). |
 | `_FRAGMENT` (module-level) | ~984 | `st.fragment` (≥ 1.37) / `st.experimental_fragment` (1.33–1.36) / identity fallback. |
 | `_make_sweep_values(min_val, max_val, step)` | 991 | Generate sweep values. |
@@ -437,6 +441,122 @@ Module-level helpers:
 | `_simulate_batch(p, freq, z0=50.0, xp=None, cache=None)` | 378 | Batched forward sim for tuning sweeps. |
 
 `class Degachi(AbstractSSMModel)` (line 550, `SHORT="D"`): cascade re-extraction across 9 PARAM_GROUPS.
+
+---
+
+## Custom model builder (`custom_model/*.py`)
+
+User-built ("custom") small-signal models. A visual **Build** workflow builds a
+topology inside→outward; a **Load** workflow loads a topology, takes a value per
+component, and forward-simulates S-parameters; a **Fit** workflow overlays a
+model on a *measured* device and tunes it.  In `tools/RF_simulator.py` it's a
+**"🧩 Custom model" entry in the Model radio** → `render_custom_section()`
+(`custom_model/__init__.py`), a **Load model / Build model radio** (defaults to
+Load).  **Load** = a single `.json` uploader that auto-loads on upload (no
+library, no button); **Build** = the wizard, ending in **Download .json** /
+**Send to Load/Fit** (no save-to-library).  Build also takes a **"Modify an
+existing model"** upload that loads the whole saved setup (device, π/T,
+junctions, all sections + names) into the editor (named `…_modified`).
+`CustomModel.from_dict` migrates schema-v1 files (`_migrate_v1`) so old saved
+models load faithfully.
+
+In `tools/SSM_extraction.py` the **Model** radio is *Built-in extraction* (default)
+or *🧩 Custom model*; the latter holds a sub-radio **Build / modify** (→
+`render_build_ui`) and **Load & fit to this device** (→
+`custom_model/ui_fit.py::render_custom_fit`).  Fit is not an extraction — it
+reuses the **same result UI as the built-in models**: `render_smith_with_ftfmax`
+(Total/per-trace `ssm_residual` % above the Smith + fT/fmax card, download/copy
+below), the topology illustration (PNG download **+ copy-image** via
+`schematic.copy_image_button`), the two-column matplotlib Smith chart, and the
+**shared `render_tuning_expander`** grid-sweep (Brute/Optimized/Prioritized,
+per-param Min/Step/Max, "Use best values").  `_make_adapter` wraps the
+`CustomModel` in an AbstractSSMModel-shaped class with `simulate` + a generic
+per-combo `simulate_batch` so the tuning works unchanged; the value inputs use
+`sim_custom_{cid}_{fname}` keys (floored at 0) so applied sweeps flow back.
+`_clear_tuning_state` drops the previous model's stale tuning/value state on
+every model change (token-tracked) so added components can't KeyError the
+sensitivity table.
+
+Device-aware: `CustomModel.device` ∈ {Bipolar (B/C/E), Unipolar (G/D/S)} sets
+port long-names (`port_label`) and the default controlled-source label
+(`gm·Vbe`/`Ids` for π, `α·Ie`/`α·Is` for T).
+
+The intrinsic core is **fully editable**: four junction `Network`s —
+`intrinsic_base` (Rbi, BB→BI), `intrinsic_be` (BI→EI), `intrinsic_bc` (BI→CI),
+`intrinsic_ce` (CI→EI) — each defaulting to Cheng's and freely extended with
+series/parallel R-L-C (or trashed). The solver computes each junction's
+equivalent admittance/impedance from its Network, so a Cheng-default junction
+reproduces the old analytic to machine epsilon (verified ~4e-16 over 200 random
+sets, π and T) while user edits are honoured. The generic nodal solver still
+reproduces `ChengPi`/`ChengT`/`XuModel`. Mapping: Rbi = `intrinsic_base`;
+extrinsic caps = shunts referenced to the intrinsic emitter (Cheng Cbex p1-gnd
++ Cbcx p1-p2; Xu Cbcx∥Rbcx p1-p2); leads = access R+L; pads = parasitic caps.
+
+Intrinsic cores (`core.py::_intrinsic_Y(itype, Ybe, Ybc, Yce, src, omega)`):
+**π** = hybrid-π `[[Ybe+Ybc,−Ybc],[gm−Ybc,Ybc+Yce]]`, gm = Gm0·e^(−jωτ);
+**T** = current-source HBT/HEMT T-model (Zbe=1/Ybe, Zbc=1/Ybc +
+α₀·e^(−jωτ_C)/(1+jωτ_B)). Both stamped as a 3-terminal common-emitter 2-port
+between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ_C).
+
+### [`custom_model/core.py`](../custom_model/core.py) — data model + solver
+
+| Function / class | Line | Purpose |
+|---|---|---|
+| `Element` / `Network` / `ShuntBranch` | — | Leaf R/L/C; series-of-parallel branch; placed shunt/bridge cap branch. |
+| `CustomModel` | — | Whole topology: `device`, `intrinsic_type`, four editable intrinsic junction Networks (`intrinsic_base/be/bc/ce`), `source_name`, per-section branches. Helpers: `source_keys`, `source_disp`, `terminals`, `port_label`, `intrinsic_junctions`, `ensure_intrinsic`. `to_dict`/`from_dict` (schema v2)/`all_value_specs`. |
+| `_default_source_name(itype, device)` | — | Default controlled-source label per topology+device. |
+| `models_dir` / `save_model` / `load_model` / `list_saved_models` | — | JSON persistence under repo-root `custom_models/`. |
+| `simulate_custom_model(model, freq, values, z0)` | — | Build node graph (series branch absent⇒wire, shunt absent⇒open), compute Ybe/Ybc/Yce from junction Networks, stamp intrinsic π/T 2-port + base-spreading branch BB→BI, Kron-reduce, Y→S. |
+| `_net_admittance(net, values, omega)` | — | Equivalent admittance of a junction Network (0 where open) — reproduces `_rc_parallel` for a default C∥R group. |
+| `_intrinsic_Y(itype, Ybe, Ybc, Yce, src, omega)` | — | Common-emitter 2-port from precomputed junction admittances + scalar source params. |
+| `_y_network(net, values, omega, series)` | — | Admittance of a series-of-parallel branch; series vs shunt absence semantics. |
+| `_assemble_and_reduce(...)` | — | Nodal stamp + 2-port stamp + Kron reduction to the 2 ports → S. |
+
+### [`custom_model/schematic.py`](../custom_model/schematic.py) — live SVG
+
+| Function | Line | Purpose |
+|---|---|---|
+| `build_schematic(model)` | — | Render the **structure once** (symbols + names + junction dots), recording value slots in `_SVG.vanchors`. Cache this; overlay numbers cheaply with `s.render(s.value_layer(values, model))` so a parameter change does *not* re-render the whole drawing. |
+| `render_schematic(model, values=None)` | — | One-shot convenience: `build_schematic` + value overlay. |
+| `_draw(s, model)` | — | Draws the full two-port: device-aware P1/P2 port long-names, signal path, the data-driven intrinsic sub-circuit, shunts/bridges, and the emitter/source leg (`model.emitter` extras → access R/L → GND). Dots only at ≥3-wire junctions; component values go in a deferred layer. |
+| `_draw_intrinsic(s, …, model, values)` | — | Data-driven intrinsic from the four junction Networks: base spreading (horizontal series), `intrinsic_be` (vertical), `intrinsic_bc` (horizontal; T source ← here), `intrinsic_ce` (vertical; π source ↓ here). |
+| `_draw_junction_v` / `_draw_junction_h` | — | Stack a junction Network's series groups vertically/horizontally, appending the controlled source to the last group as a parallel branch. |
+| `intrinsic_thumbnail(model, selected)` | — | Abstracted intrinsic view: each editable part (base / B–E / B–C / C–E / source) as a labelled box around the base node, `selected` highlighted — pairs with the build-UI chip selector. |
+| `section_thumbnail(model, section, selected)` | — | Cumulative abstracted view for an outer section (extrinsic / delay / access / parasitic): inner circuit collapsed into one labelled **core block** + that section's components, `selected` highlighted, absent parts dashed. |
+| `svg_to_png(svg, zoom=2)` | — | Rasterise an SVG string to PNG bytes via `rsvg-convert` (15 s timeout) → `cairosvg` fallback → `None`. Powers the schematic PNG download. |
+| `copy_image_button(png, …)` | — | A clipboard "copy image" button (mirrors `copy_button` styling) that writes the PNG via the `ClipboardItem` API; sits beside the Download-PNG buttons. |
+
+`CustomModel.emitter` (a `Network`) holds source/emitter-leg "delay" extras drawn between the intrinsic emitter and the emitter access R/L — e.g. the Kun-Yang R_delay∥C_delay above the Rs node.
+
+### [`custom_model/__init__.py`](../custom_model/__init__.py)
+
+| Function | Purpose |
+|---|---|
+| `render_custom_section()` | Load / Build radio (RF Forward Simulator). On "Send to Load/Fit" from build it consumes `cm_nav_to_loadfit` (before the radio) to switch to Load. |
+
+### [`custom_model/ui_build.py`](../custom_model/ui_build.py) — "Build" UI
+
+| Function | Purpose |
+|---|---|
+| `render_build_ui()` | Progressive wizard: §1 device + editable intrinsic core, §2 extrinsic caps, §3 delay/port extras, §4 access R/L, §5 parasitic caps. §1 uses `intrinsic_thumbnail` + an `st.segmented_control` chip selector to edit **one part at a time** (`cmb_isel`); outer sections show `section_thumbnail`. Top: **🔄 Start over** + **📂 Modify an existing model** upload (loads a saved `.json` fully, all sections revealed, named `…_modified`, device/topology radios driven explicitly). Live schematic has PNG / 📋-copy / SVG. Footer: **Download .json** + **Send to Load/Fit** (loads `cmu_model`+`cmf_model`, sets nav + pending-download flags, reruns). |
+| `_relabel_for_device(model, old, new)` | On a device switch, auto-rename default-named components (Cbc→Cgd, Rb→Rg, …); `_DEV_NAMES` holds per-device defaults. Name inputs refresh because their keys carry `_ver()` and the handler calls `_bump_namever()`. |
+| `_auto_download_json` / `fire_pending_download` | Trigger a browser download via a hidden data-URI anchor; `fire_pending_download` (called atop the Load + Fit views) downloads a model "sent" from build after the navigation rerun. |
+| `_network_editor` / `_shunt_list_editor` | Reusable series-of-parallel and shunt-branch editors (🗑️ trash; name keys carry `_ver()`; "➕ Cap" pre-adds a C). |
+
+### [`custom_model/ui_use.py`](../custom_model/ui_use.py) — "Load" / Use UI
+
+| Function | Purpose |
+|---|---|
+| `render_use_ui()` | Auto-load on `.json` upload (no library/button) → value inputs (floored at 0; source params Gm0/τ/α₀/τB/τC) → forward-simulate → Smith (📋 copy) + fT/fmax Bode (xlsx + 📋 copy) + s2p; schematic with PNG / 📋-copy / SVG. Fires `fire_pending_download` for build-sent models. |
+
+### [`custom_model/ui_fit.py`](../custom_model/ui_fit.py) — "Fit to device" UI
+
+| Function | Purpose |
+|---|---|
+| `render_custom_fit(fname, S_meas, freq, z0)` | Overlay a custom model on the measured DUT: value inputs (floored at 0) → `render_smith_with_ftfmax` (same residual/Smith/Bode UI as built-in models) → topology illustration (PNG + 📋-copy) → 2-column matplotlib Smith → shared `render_tuning_expander`. Clears stale tuning/value state when `cmf_model_token` changes. |
+| `install_fit_model(model)` | Set `cmf_model` + bump `cmf_model_token` (used by the uploader and build's "Send to Fit"). |
+| `_make_adapter(model)` | Wrap a `CustomModel` as an AbstractSSMModel-shaped class (`SHORT`, `simulate`, generic per-combo `simulate_batch`) so `render_tuning_expander` runs unchanged. |
+| `_clear_tuning_state(fname)` | Drop the shared tuning expander's cached results + per-param sweep widgets + stale `sim_*` value inputs for this DUT (exact key boundaries). |
 
 ---
 

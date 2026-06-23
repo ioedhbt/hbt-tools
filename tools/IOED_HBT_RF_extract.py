@@ -24,6 +24,8 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 
+from tools import i18n
+
 from tools.SSM.ssm_plots      import render_matplotlib_smith
 from tools.batch_deembedding  import render_batch_deembedding_tab
 from tools.SSM.helpers        import (
@@ -44,18 +46,28 @@ from tools.SSM.helpers        import (
 if "rf_uploader_key" not in st.session_state:
     st.session_state["rf_uploader_key"] = 0
 
-st.title(f"📡 IOED HBT RF Extraction Tool (v{__version__})")
+st.title(i18n.title("rf_extract"))
+st.caption(i18n.tool_desc("rf_extract"))
 
-with st.expander(f"What's new in v{__version__}", expanded=False):
+with st.expander(f"{i18n.t('whats_new')} · v{__version__}", expanded=False):
     st.markdown(
-        "- 🪧 **SSM extraction moved to its own page.**  The Individual "
-        "tab's \"🔬 SSM Extraction\" sub-tab is now a pointer — find "
-        "**HBT SSM Extraction** in the left sidebar (under 高頻量測 / RF) "
-        "to upload DUT files and run the small-signal model fit.\n"
+        "- 🪧 **SSM extraction moved to its own page** — find **HBT SSM "
+        "Extraction** in the sidebar (RF group).\n"
         "- This tool keeps the RF metrics workflow: overlay / individual "
-        "Bode · Plateau · Smith, the summary table, bulk upload, and the "
-        "3-step de-embedding + batch de-embed tabs."
+        "Bode · Plateau · Smith, summary table, bulk upload, and the "
+        "3-step + batch de-embedding tabs.\n\n"
+        "See [`CHANGELOG.md`](CHANGELOG.md) for full history."
     )
+
+with st.expander(i18n.t("how_it_works"), expanded=False):
+    from tools.diagrams import pipeline_png
+    st.image(pipeline_png((
+        ("Upload",      "S2P / CSV"),
+        ("De-embed",    "Open · Short · Thru"),
+        ("Metrics",     "|h21|² · U · K"),
+        ("Extrapolate", "fT · fmax"),
+        ("Charts",      "Smith · Bode"),
+    ), accent="#d62728"), width="stretch")
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  CORE RF UTILITIES — moved to tools/SSM/helpers/ (rf_math, s2p_io,
@@ -176,8 +188,8 @@ def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t,
 #  SIDEBAR
 # ═════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("## ⚙️ Settings")
-    st.markdown("#### 🔧 3-Step De-embedding")
+    st.markdown("## Settings")
+    st.markdown("#### 3-Step De-embedding")
     sw1=st.toggle("① Probe (Open-Short)",value=False)
     f1o=st.file_uploader("Probe Open",  type=["s2p"],key="p1o") if sw1 else None
     f1s=st.file_uploader("Probe Short", type=["s2p"],key="p1s") if sw1 else None
@@ -190,7 +202,7 @@ with st.sidebar:
     sw3=st.toggle("③ Device Thru (Half-Z)",value=False)
     f3t=st.file_uploader("Dev Thru",  type=["s2p"],key="d3t") if sw3 else None
     st.divider()
-    st.markdown("#### 📊 Chart Control")
+    st.markdown("#### Chart Control")
     freq_min=st.number_input("Freq Min (GHz)",value=0.01,min_value=0.01,format="%.4f")
     freq_max=st.number_input("Freq Max (GHz)",value=50.0,min_value=1.0)
     db_min=st.number_input("Bode Y Min (dB)",value=0.0)
@@ -206,7 +218,7 @@ with st.sidebar:
                           "Network is unconditionally stable when K > 1 *and* |Δ| < 1.  "
                           "Rendered on a separate axis below the bode plot.")
     st.divider()
-    st.markdown("#### 🍩 Smith Chart")
+    st.markdown("#### Smith Chart")
     smith_f_min=st.number_input("Smith Freq Min (GHz)",value=freq_min,min_value=0.01,format="%.4f")
     smith_f_max=st.number_input("Smith Freq Max (GHz)",value=freq_max,min_value=1.0)
     smith_max_r=st.slider("|Γ| Max Radius",1.0,5.0,1.0,0.5)
@@ -433,7 +445,7 @@ xr,yr=(freq_min,freq_max),(db_min,db_max)
 tab_ov,tab_ind,tab_sum,tab_bd=st.tabs(["📊 Overlay","📁 Individual","📋 Summary","🧰 Batch De-embed"])
 
 with tab_ov:
-    st.markdown("### 📊 Bode Plot Overlay")
+    st.markdown("### Bode Plot Overlay")
 
     def _build_overlay_bode():
         # Standardised colours: fT trace (|h21|²) = blue, fmax traces
@@ -480,7 +492,7 @@ with tab_ov:
     st.plotly_chart(f_bode, width="stretch")
 
     if skk:
-        st.markdown("### 📊 K-Factor Overlay (Rollett stability)")
+        st.markdown("### K-Factor Overlay (Rollett stability)")
 
         def _build_overlay_kfactor():
             fig = go.Figure()
@@ -508,7 +520,7 @@ with tab_ov:
                           _build_overlay_kfactor)
         st.plotly_chart(f_k, width="stretch")
 
-    st.markdown("### 📊 Plateau Plot Overlay")
+    st.markdown("### Plateau Plot Overlay")
 
     def _build_overlay_plateau():
         # Standardised colours — same convention as the Bode overlay above.
@@ -788,31 +800,39 @@ with tab_ind:
                 # frequency-range annotation — same pattern as the SSM
                 # extraction tab and RF simulator.  freq_hz is in Hz.
                 _mpl_freq_hz = df_p["Freq (GHz)"].values * 1e9
+                # Pool of the *other* uploaded files, so the user can overlay
+                # them on this chart via the styling table's "➕ Add a file
+                # trace" button (only offered when >1 file is loaded).
+                _mpl_pool = [
+                    {"label": Path(k).stem, "S": all_data[k]["S_fin"]}
+                    for k in selected_files
+                    if k != n and all_data.get(k, {}).get("S_fin") is not None]
                 col_mpl_left, col_mpl_right = st.columns([1.2, 1])
                 with col_mpl_right:
                     render_matplotlib_smith(
                         fname=n, topo_key="meas",
                         sets=[{"S": d["S_fin"], "label": Path(n).stem,
                                "kind": "line", "style": "solid"}],
-                        default_multiplier=1.0,
+                        default_multiplier=scales,
                         phase="controls", freq_hz=_mpl_freq_hz,
+                        add_pool=_mpl_pool,
                     )
                 with col_mpl_left:
                     render_matplotlib_smith(
                         fname=n, topo_key="meas",
                         sets=[{"S": d["S_fin"], "label": Path(n).stem,
                                "kind": "line", "style": "solid"}],
-                        default_multiplier=1.0,
+                        default_multiplier=scales,
                         phase="chart", freq_hz=_mpl_freq_hz,
+                        add_pool=_mpl_pool,
                     )
         with td:
             # SSM extraction moved to its own portal page — see the sidebar.
             st.info(
-                "🔬 **SSM extraction now lives on its own page.**  "
-                "Look for **HBT SSM Extraction** in the left sidebar "
-                "(under 高頻量測 / RF) and upload your DUT files there."
+                f"🔬 **{i18n.t('ssm_moved_title')}**  "
+                + i18n.t("ssm_moved_body").format(name=i18n.tool_name("ssm"))
             )
-            if st.button("Go there! 🔬", key=f"ssm_goto_{n}",
+            if st.button(i18n.t("go_there"), key=f"ssm_goto_{n}",
                          type="primary"):
                 st.switch_page("tools/SSM_extraction.py")
 

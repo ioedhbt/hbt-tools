@@ -738,8 +738,94 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
             })
         st.markdown("**Per-file derived delays (using inputs above):**")
         st.dataframe(pd.DataFrame(rows),
-                     use_container_width=True, hide_index=True)
+                     width="stretch", hide_index=True)
     return True
+
+
+# Component grouping for the diagram-mode fine-tune editor (the "✏️ Fine-tune"
+# override expander).  Keys are matched against each model's spec list; any spec
+# key not named here lands in a trailing "Other" group, so nothing is hidden.
+_FINETUNE_DIAGRAM_GROUPS = [
+    ("Pad parasitics",    ["Cpbe", "Cpbc", "Cpce", "Cgsp", "Cdsp", "Cgdp",
+                           "Rsub1", "Rsub2"]),
+    ("Lead inductance",   ["Lb", "Lc", "Le"]),
+    ("Access resistance", ["Rpb", "Rpc", "Rpe"]),
+    ("Extrinsic C",       ["Cbex", "Cbcx", "Rbcx"]),
+    ("Delay",             ["tauB", "tauC", "tau", "R_delay", "C_delay"]),
+    ("Intrinsic",         ["Rbi", "Rbe", "Cbe", "Cbc", "Rbc", "alpha0", "Gm0"]),
+]
+
+
+def render_finetune_diagram(*, all_specs, state_key_for, active_state,
+                            calc_vals, render_illustration):
+    """Diagram-mode alternative for a model's "✏️ Fine-tune" override expander.
+
+    Two columns:
+      • Left  — the model topology schematic, with the component the user last
+        edited ringed in red (via ``render_illustration(preview, highlight)``).
+      • Right — every override value, grouped (parasitics / lead L / access R /
+        extrinsic C / delay / intrinsic).  Each ``number_input`` writes the SAME
+        session-state key the list view uses, so the two modes stay in lock-step
+        and the caller's downstream parameter assembly is unchanged.  Editing a
+        field also moves the highlight to that component.
+
+    Parameters
+    ----------
+    all_specs        : list of ``(key, label, scale, unit, fmt, step)``.
+    state_key_for    : ``f(param_key) -> session_state key`` — lets each caller
+                       map a param to its own widget-key scheme (SSM extraction
+                       uses ``sim_{topo}_{key}_{fname}``; the RF simulator uses
+                       ``rfsim_{prefix}_{pad|ext|int}_{key}``).
+    active_state     : session_state key holding the highlighted param.
+    calc_vals        : SI defaults used to seed an unset widget (``{}`` ⇒ 0).
+    render_illustration : ``f(preview_all_p_SI, highlight_key) -> None``.
+    """
+    spec_lookup = {s[0]: s for s in all_specs}
+    ordered: list[str] = []
+    for _lbl, keys in _FINETUNE_DIAGRAM_GROUPS:
+        ordered += [k for k in keys if k in spec_lookup]
+    groups = [(lbl, [k for k in keys if k in spec_lookup])
+              for lbl, keys in _FINETUNE_DIAGRAM_GROUPS]
+    other = [s[0] for s in all_specs if s[0] not in ordered]
+    if other:
+        groups.append(("Other", other))
+
+    col_diag, col_inp = st.columns([1.1, 1], gap="medium")
+
+    with col_inp:
+        st.caption("Edit any value — the diagram highlights the component you "
+                   "last changed.")
+        for g_label, keys in groups:
+            if not keys:
+                continue
+            st.markdown(f"**{g_label}**")
+            for i in range(0, len(keys), 2):
+                cols = st.columns(2)
+                for col_w, key in zip(cols, keys[i:i + 2]):
+                    _k, lbl, sc, unit, fmt, step = spec_lookup[key]
+                    skey = state_key_for(key)
+                    if skey not in st.session_state:
+                        st.session_state[skey] = float(calc_vals.get(key, 0.0)) * sc
+
+                    def _mk(_key=key):
+                        def _cb():
+                            st.session_state[active_state] = _key
+                        return _cb
+
+                    col_w.number_input(
+                        f"{lbl} ({unit})" if unit else lbl,
+                        key=skey, format=fmt, step=step, on_change=_mk())
+
+    with col_diag:
+        active = st.session_state.get(active_state)
+        preview = {
+            s[0]: float(st.session_state.get(
+                state_key_for(s[0]),
+                float(calc_vals.get(s[0], 0.0)) * s[2])) / s[2]
+            for s in all_specs}
+        render_illustration(preview, active)
+        if active:
+            st.caption(f"Editing **{active}**")
 
 
 def render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups,
@@ -2287,6 +2373,13 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
             model_name=model_cls.NAME,
             S_meas=S_raw,
             decimate_points=int(st.session_state.get(decim_key, 120)),
+            # Mirror the Plotly Smith chart's per-trace display scale (set via
+            # smith_scale_controls) so the slider's Smith view matches it.
+            smith_mults={
+                nm: float(st.session_state.get(
+                    f"smith_scale_{topo_key}_{nm}_{fname}", 1.0))
+                for nm in ("S11", "S12", "S21", "S22")
+            },
         )
         # Plotly figure (height=500) + HTML slider rows below.  Each row
         # is ~36 px tall; container has ~26 px padding.  +40 px buffer.
@@ -5178,9 +5271,21 @@ class SSMModelTemplate:
             save_fit(fname, cls.SHORT, dict(all_p))
 
         # Topology illustration in its own expander (collapsed by default).
+        # For no-parasitics models we also pass the user's *customized* Smith
+        # chart (rebuilt from session_state via phase="chart", return_png=True —
+        # creates no widgets) so the topology view can overlay it bottom-right.
         from ..ssm_plots import render_matplotlib_smith
+        _smith_png = None
+        if S_sim is not None:
+            try:
+                _smith_png = render_matplotlib_smith(
+                    S_raw, S_sim, fname, cls.SHORT,
+                    default_multiplier=sc,
+                    phase="chart", freq_hz=freq, return_png=True)
+            except Exception:                            # noqa: BLE001
+                _smith_png = None
         with st.expander("🖼️ Topology illustration", expanded=False):
-            cls._render_topology(all_p, fname)
+            cls._render_topology(all_p, fname, smith_png=_smith_png)
 
         # Smith chart (matplotlib) + its controls live in a single
         # expander, rendered side-by-side — matches the RF simulator
@@ -5193,9 +5298,11 @@ class SSMModelTemplate:
             col_mpl_left, col_mpl_right = st.columns([1.2, 1])
             with col_mpl_right:
                 render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT,
+                                         default_multiplier=sc,
                                          phase="controls", freq_hz=freq)
             with col_mpl_left:
                 render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT,
+                                         default_multiplier=sc,
                                          phase="chart", freq_hz=freq)
 
         render_visual_tuning_expander(cls, all_p, S_raw, freq, z0,

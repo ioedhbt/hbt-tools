@@ -8,6 +8,8 @@ repo root.
 __version__ = "1.0"
 
 import streamlit as st
+
+from tools import i18n
 import pandas as pd
 import numpy as np
 import io
@@ -15,7 +17,8 @@ import re
 import os
 import zipfile
 
-st.title(f"🖥️ HBT Data Processing Tool (v{__version__})")
+st.title(i18n.title("csv"))
+st.caption(i18n.tool_desc("csv"))
 
 
 # --- Utility functions ---
@@ -370,7 +373,7 @@ page = st.sidebar.radio(
 )
 
 if page == "B1500A Smart Batch Tool":
-    st.header("🧠 B1500A Smart Batch Tool")
+    st.header("B1500A Smart Batch Tool")
     st.caption("Upload multiple B1500A CSV files. The tool auto-detects measurement type and prepares batch downloads.")
 
     uploaded_files = st.file_uploader("Upload B1500A CSV files", type=["csv"], accept_multiple_files=True)
