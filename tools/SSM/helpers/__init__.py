@@ -106,6 +106,7 @@ from .widgets import (
     quickset_buttons,
     apply_pending,
     info_icon_html,
+    segmented_radio,
 )
 
 # ── fit_cache ────────────────────────────────────────────────────────────────

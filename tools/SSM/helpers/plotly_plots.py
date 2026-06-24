@@ -661,12 +661,20 @@ def _compact_json_1d(arr, digits: int = 5) -> str:
     """Compact JSON for a 1-D float array — `%.{digits}g` per number, no
     whitespace. Roughly 3× smaller than ``json.dumps(arr.tolist())`` which
     preserves full float64 precision (~17 sig figs).  For Smith / Bode
-    plotting, 5 sig figs is indistinguishable from full precision."""
+    plotting, 5 sig figs is indistinguishable from full precision.
+
+    Non-finite values (``nan`` / ``inf`` — common in Bode gain and extrapolation
+    arrays) are emitted as ``null``.  ``"%g" % nan`` would otherwise produce the
+    bare token ``nan``/``inf``, which is invalid inside a JS array literal and
+    throws a SyntaxError that kills the *entire* embedded slider script (frozen
+    sliders, frozen plot).  Plotly renders ``null`` as a gap, which is correct
+    for an out-of-range gain point."""
     arr = np.asarray(arr, dtype=float).ravel()
     if arr.size == 0:
         return "[]"
     fmt = f"%.{digits}g"
-    return "[" + ",".join(fmt % v for v in arr) + "]"
+    return "[" + ",".join((fmt % v) if np.isfinite(v) else "null"
+                          for v in arr) + "]"
 
 
 def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
@@ -803,13 +811,17 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
             s = S_meas_d[:, r, c] * _sc[name]
             fig.add_trace(go.Scattergl(x=s.real, y=s.imag, mode="markers",
                                         name=f"{name}{_sc_lbl(name)} meas",
-                                        marker=dict(color=col, size=5)),
+                                        marker=dict(color=col, size=5),
+                                        showlegend=False),
                           row=1, col=1)
     else:
         S_meas_d = None
 
-    # Initial model Smith traces (midpoint frame)
+    # Initial model Smith traces (midpoint frame).  Smith S-params are labelled
+    # inline near each trace (see _smith_label_annos) instead of in the legend,
+    # which keeps the busy legend box off the plot.
     model_smith_indices: list[int] = []
+    _smith_label_annos = []
     S0 = S_batch_joint[mid_joint]
     for name, (r, c) in [("S11", (0, 0)), ("S22", (1, 1)),
                           ("S21", (1, 0)), ("S12", (0, 1))]:
@@ -817,9 +829,20 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
         s = S0[:, r, c] * _sc[name]
         fig.add_trace(go.Scattergl(x=s.real, y=s.imag, mode="lines",
                                     name=f"{name}{_sc_lbl(name)} model",
-                                    line=dict(color=col, width=2, dash="dash")),
+                                    line=dict(color=col, width=2, dash="dash"),
+                                    showlegend=False),
                       row=1, col=1)
         model_smith_indices.append(len(fig.data) - 1)
+        with np.errstate(invalid="ignore"):
+            cx = float(np.nanmean(s.real)); cy = float(np.nanmean(s.imag))
+        if np.isfinite(cx) and np.isfinite(cy):
+            rr = (cx * cx + cy * cy) ** 0.5
+            if rr > 1e-6:
+                f = (rr + 0.13) / rr
+                cx *= f; cy *= f
+            _smith_label_annos.append(dict(
+                x=cx, y=cy, xref="x", yref="y", showarrow=False,
+                text=f"{name}{_sc_lbl(name)}", font=dict(size=13, color=col)))
 
     # Optional static measured Bode.  Colour by *quantity*: |h21|² (→ fT) blue,
     # Mason U (→ fmax) red — matched to every other Bode plot.  Measured is
@@ -891,11 +914,18 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
         height=500,
         showlegend=True,
         plot_bgcolor="white", paper_bgcolor="white",
-        legend=dict(orientation="v", x=1.02, y=1.0, xanchor="left",
-                    font=dict(size=18)),
-        margin=dict(l=50, r=30, t=50, b=50),
+        # Smith S-params are labelled inline (showlegend=False on those traces),
+        # so only the Bode |h21|² / Mason U entries remain — pin them small and
+        # unobtrusive at the bottom-left of the Bode (right) subplot.
+        legend=dict(orientation="v", x=0.62, y=0.02,
+                    xanchor="left", yanchor="bottom",
+                    bgcolor="rgba(255,255,255,0.7)", borderwidth=0,
+                    font=dict(size=11)),
+        margin=dict(l=50, r=20, t=50, b=50),
         hovermode="closest",
     )
+    for _a in _smith_label_annos:
+        fig.add_annotation(**_a)
     fig.update_xaxes(range=[-1.1, 1.1], showgrid=False, zeroline=False,
                      scaleanchor="y", scaleratio=1, title="Re(Γ)",
                      row=1, col=1)
@@ -1017,6 +1047,16 @@ html, body {{ margin: 0; padding: 0; font-family: 'Open Sans', -apple-system, Bl
     return j;
   }}
 
+  // Resolve the Plotly graph div robustly: the fixed div_id is preferred, but
+  // some Plotly builds ignore the `div_id=` arg and render into an auto-id div,
+  // which left getElementById('hbtSlPlot') === null forever (so init() looped
+  // and never wired the sliders).  Fall back to the Plotly div class.
+  function getGD() {{
+    return document.getElementById('hbtSlPlot')
+        || document.querySelector('.js-plotly-plot')
+        || document.querySelector('.plotly-graph-div');
+  }}
+
   function update() {{
     var pos = [];
     for (var i = 0; i < DIMS.length; i++) {{
@@ -1025,33 +1065,52 @@ html, body {{ margin: 0; padding: 0; font-family: 'Open Sans', -apple-system, Bl
       var lbl = document.getElementById('sv' + i);
       if (lbl) lbl.textContent = LBLS[i][pos[i]];
     }}
-    var gd = document.getElementById('hbtSlPlot');
+    var gd = getGD();
     if (!gd || !gd.data) return;
     var frame = DATA[jointIndex(pos)];
+    if (!frame) return;
     // frame = [S11r, S11i, S22r, S22i, S21r, S21i, S12r, S12i, h21, U,
     //          h21extX, h21extY, UextX, UextY]
-    Plotly.restyle(gd, {{
-      x: [frame[0], frame[2], frame[4], frame[6]],
-      y: [frame[1], frame[3], frame[5], frame[7]]
-    }}, SMITH);
-    Plotly.restyle(gd, {{
-      y: [frame[8], frame[9]]
-    }}, BODE);
-    Plotly.restyle(gd, {{
-      x: [frame[10], frame[12]],
-      y: [frame[11], frame[13]]
-    }}, EXTRAP);
+    // NOTE: traces are Scattergl (WebGL).  Plotly.restyle does NOT reliably
+    // repaint WebGL traces (the GL layer keeps the old buffers), which made
+    // the slider appear frozen.  Mutate the trace arrays in place and call
+    // Plotly.redraw, which rebuilds the GL scene — the standard scattergl fix.
+    for (var k = 0; k < SMITH.length; k++) {{
+      gd.data[SMITH[k]].x = frame[2 * k];
+      gd.data[SMITH[k]].y = frame[2 * k + 1];
+    }}
+    gd.data[BODE[0]].y = frame[8];
+    gd.data[BODE[1]].y = frame[9];
+    gd.data[EXTRAP[0]].x = frame[10]; gd.data[EXTRAP[0]].y = frame[11];
+    gd.data[EXTRAP[1]].x = frame[12]; gd.data[EXTRAP[1]].y = frame[13];
+    Plotly.redraw(gd);
   }}
 
+  var _wired = false;
   function init() {{
-    var gd = document.getElementById('hbtSlPlot');
-    if (!gd || !gd.data) {{ setTimeout(init, 80); return; }}
-    for (var i = 0; i < DIMS.length; i++) {{
-      var s = document.getElementById('sl' + i);
-      if (s) s.addEventListener('input', update);
+    // Wire the slider listeners as soon as the inputs exist — do NOT wait for
+    // the Plotly div, so dragging always at least updates the value labels.
+    if (!_wired) {{
+      var any = false;
+      for (var i = 0; i < DIMS.length; i++) {{
+        var s = document.getElementById('sl' + i);
+        if (s) {{
+          s.addEventListener('input', update);
+          s.addEventListener('change', update);
+          any = true;
+        }}
+      }}
+      _wired = any;
     }}
+    var gd = getGD();
+    if (!_wired || !gd || !gd.data) {{ setTimeout(init, 80); return; }}
+    update();   // sync labels + plot to the initial slider positions
   }}
-  init();
+  if (document.readyState === 'loading') {{
+    document.addEventListener('DOMContentLoaded', init);
+  }} else {{
+    init();
+  }}
 }})();
 </script>
 """

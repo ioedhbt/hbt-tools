@@ -15,7 +15,7 @@ from .helpers          import (open_elem_Y, s_to_y, y_to_z,
                                 peel_parasitics, simulate_open,
                                 plotly_with_dl, bode_excel_bytes, info_icon_html,
                                 compute_h21_U, find_ft_fmax, extrap_20dbdec,
-                                single_pole_extrap,
+                                single_pole_extrap, segmented_radio,
                                 FT_FMAX_SYMBOLS, FT_FMAX_COLORS)
 from .models.base_ui   import render_smith_chart, ssm_residual
 
@@ -731,13 +731,154 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
         ec1, ec2 = st.columns([1, 2])
         if f"{key}_extrap_method" not in st.session_state:
             st.session_state[f"{key}_extrap_method"] = "−20 dB/dec"
-        ec1.radio(
-            "Extrap. method", ["−20 dB/dec", "Single-pole"],
-            key=f"{key}_extrap_method", horizontal=True,
-            help="−20 dB/dec anchors a slope-locked line at the last data "
-                 "point (textbook fT/fmax projection).  Single-pole fits a "
-                 "log-linear least-squares line over the chosen window "
-                 "(default = final 5 GHz); slope is set by the data.")
+        with ec1:
+            segmented_radio(
+                "Extrap. method", ["−20 dB/dec", "Single-pole"],
+                key=f"{key}_extrap_method",
+                help="−20 dB/dec anchors a slope-locked line at the last data "
+                     "point (textbook fT/fmax projection).  Single-pole fits a "
+                     "log-linear least-squares line over the chosen window "
+                     "(default = final 5 GHz); slope is set by the data.")
+        if (st.session_state[f"{key}_extrap_method"] == "Single-pole"
+                and len(f_ghz) >= 4):
+            f_lo, f_hi = float(f_ghz[0]), float(f_ghz[-1])
+            sp_default = (max(f_lo, f_hi - 5.0), f_hi)
+            ec2.slider(
+                "Single-pole fit window (GHz)",
+                min_value=f_lo, max_value=f_hi,
+                value=st.session_state.get(f"{key}_sp_window", sp_default),
+                step=max((f_hi - f_lo) / 400.0, 1e-3),
+                key=f"{key}_sp_window")
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Helper: single-dataset fT / fmax Bode block (forward-simulation only)
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _build_forward_bode(S, freq_hz, title: str, *,
+                        extrap_method: str = "−20 dB/dec", sp_window=None):
+    """Build the fT/fmax Bode figure for a *single* simulated dataset.
+
+    Returns ``(fig, any_needs, bode_xl)``.  ``any_needs`` is True when at least
+    one trace still has gain > 0 dB at the top of the band (extrapolation is
+    needed to project a 0-dB crossing).  Mirrors the built-in models' Bode card
+    (FT_FMAX_COLORS: |h21|² → fT blue, Mason U → fmax red; extrap dotted).
+    """
+    f_ghz = freq_hz * 1e-9
+    h21_db, U_db = compute_h21_U(S)
+    fT, fmax = find_ft_fmax(f_ghz, h21_db, U_db)
+
+    def _needs(in_val, gain):
+        if in_val is not None:
+            return False
+        if not np.any(np.isfinite(gain)):
+            return False
+        with np.errstate(invalid="ignore"):
+            return bool(np.nanmax(gain) > 0)
+    any_needs = _needs(fT, h21_db) or _needs(fmax, U_db)
+
+    def _extrap(y):
+        if (extrap_method == "Single-pole" and sp_window is not None
+                and len(f_ghz) >= 4):
+            il = int(np.searchsorted(f_ghz, sp_window[0], side="left"))
+            ih = int(np.searchsorted(f_ghz, sp_window[1], side="right")) - 1
+            il = max(0, min(il, len(f_ghz) - 2))
+            ih = max(il + 1, min(ih, len(f_ghz) - 1))
+            r = single_pole_extrap(f_ghz, y, il, ih)
+            return r[0], r[1], r[2]
+        return extrap_20dbdec(f_ghz, y)
+
+    fig = go.Figure()
+    f_high_track = float(f_ghz[-1])
+    extrap_used = False
+    sim_traces: list[tuple[str, np.ndarray]] = []
+    extrap_traces: list[tuple[str, np.ndarray, np.ndarray]] = []
+
+    def _meas_lbl(name, in_val, ext_val):
+        if in_val is not None:
+            return f"{name}={in_val:.2f} GHz"
+        if ext_val is not None:
+            return f"{name}≈{ext_val:.2f} GHz (extrap)"
+        return f"{name}=n/a"
+
+    def _add_trace(y, base_name, color, kind, in_val, symbol):
+        nonlocal f_high_track, extrap_used
+        f_ext, g_ext, f0 = _extrap(y)
+        ext_val = f0 if f_ext is not None else None
+        legend_name = f"{base_name}  [{_meas_lbl(kind, in_val, ext_val)}]"
+        fig.add_trace(go.Scatter(x=f_ghz, y=y, mode="lines+markers",
+                                 name=legend_name,
+                                 line=dict(color=color, width=2),
+                                 marker=dict(symbol=symbol, size=6, color=color)))
+        sim_traces.append((f"{base_name} (dB)", np.asarray(y)))
+        if f_ext is not None:
+            extrap_used = True
+            f_high_track = max(f_high_track, f0)
+            extrap_traces.append((f"{base_name} (dB)", f_ext, g_ext))
+            fig.add_trace(go.Scatter(x=f_ext, y=g_ext, mode="lines",
+                                     name=f"{legend_name} extrap",
+                                     line=dict(color=color, width=2, dash="dot"),
+                                     showlegend=False))
+
+    _add_trace(h21_db, "|h21|²", FT_FMAX_COLORS["fT"], "fT", fT,
+               FT_FMAX_SYMBOLS["h21"])
+    _add_trace(U_db, "Mason U", FT_FMAX_COLORS["fmax"], "fmax", fmax,
+               FT_FMAX_SYMBOLS["U"])
+
+    bode_xl = bode_excel_bytes(f_ghz, sim_traces, extrap_traces)
+
+    fig.add_hline(y=0, line_color="#333", line_width=1.2,
+                  annotation_text="0 dB", annotation_position="right",
+                  annotation_font=dict(size=9))
+
+    x_min = max(float(f_ghz[0]), 1e-2)
+    x_max = (float(f_high_track) * 1.25 if extrap_used else float(f_ghz[-1]))
+    fig.update_layout(
+        title=dict(text=f"fT / fmax — {title}", font=dict(size=12)),
+        xaxis=dict(title="Frequency (GHz)", type="log",
+                   range=[np.log10(x_min), np.log10(x_max)],
+                   showgrid=True, gridcolor="#ebebeb"),
+        yaxis=dict(title="Gain (dB)", range=[0, 50],
+                   showgrid=True, gridcolor="#ebebeb"),
+        plot_bgcolor="white", paper_bgcolor="white", height=560,
+        legend=dict(orientation="v", x=0.01, y=0.01,
+                    xanchor="left", yanchor="bottom",
+                    bgcolor="rgba(255,255,255,0.92)",
+                    bordercolor="#ccc", borderwidth=1, font=dict(size=13)),
+        hovermode="x unified", margin=dict(l=55, r=20, t=40, b=50))
+    return fig, any_needs, bode_xl
+
+
+def render_forward_bode_block(S, freq_hz, title: str, key: str):
+    """Render a single-dataset fT/fmax Bode plot with the standard download /
+    copy buttons, then — when any trace needs extrapolation — a segmented
+    method selector (−20 dB/dec ⇄ Single-pole) and single-pole window slider
+    UNDERNEATH the chart.  The figure reads the current selection from
+    session_state, so a rerun on widget change feeds it back here.  Shared by
+    the custom-model forward simulator so it matches the built-in models.
+    """
+    f_ghz = freq_hz * 1e-9
+    method = st.session_state.get(f"{key}_extrap_method", "−20 dB/dec")
+    sp_window = None
+    if method == "Single-pole" and len(f_ghz) >= 4:
+        f_lo, f_hi = float(f_ghz[0]), float(f_ghz[-1])
+        sp_window = st.session_state.get(f"{key}_sp_window",
+                                         (max(f_lo, f_hi - 5.0), f_hi))
+    fig, any_needs, bode_xl = _build_forward_bode(
+        S, freq_hz, title, extrap_method=method, sp_window=sp_window)
+    plotly_with_dl(fig, key=key, filename=key, excel_bytes=bode_xl)
+
+    if any_needs and len(f_ghz) >= 2:
+        ec1, ec2 = st.columns([1, 2])
+        if f"{key}_extrap_method" not in st.session_state:
+            st.session_state[f"{key}_extrap_method"] = "−20 dB/dec"
+        with ec1:
+            segmented_radio(
+                "Extrap. method", ["−20 dB/dec", "Single-pole"],
+                key=f"{key}_extrap_method",
+                help="−20 dB/dec anchors a slope-locked line at the last data "
+                     "point.  Single-pole fits a log-linear line over the "
+                     "chosen window (default = final 5 GHz).")
         if (st.session_state[f"{key}_extrap_method"] == "Single-pole"
                 and len(f_ghz) >= 4):
             f_lo, f_hi = float(f_ghz[0]), float(f_ghz[-1])
@@ -894,8 +1035,8 @@ def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
             st.markdown("**Maximum oscillation frequency, fmax**")
             st.latex(r"f_{max}=\sqrt{\frac{f_T}{8\pi C_{BC} R_{bb}}}")
 
-            src = st.radio("C_BC / R_bb source", ["Extracted", "Custom"],
-                           key=f"{key}_cbcrbb_src", horizontal=True)
+            src = segmented_radio("C_BC / R_bb source", ["Extracted", "Custom"],
+                                  key=f"{key}_cbcrbb_src")
             if src == "Custom":
                 cc1, cc2 = st.columns(2)
                 sk_cbc, sk_rbb = f"{key}_cbc_fF", f"{key}_rbb"
@@ -1260,22 +1401,38 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     # Runs in every phase (controls / chart / both) so the "{lo}~{hi} GHz" text
     # is filled in by default no matter which render path touches this chart
     # first — including the chart-only `return_png` path used by the topology
-    # Smith overlay.  A sentinel prevents re-seeding so user edits stick.
-    _seed_key = f"{skey}_freq_default_seeded"
-    if freq_hz is not None and not st.session_state.get(_seed_key):
+    # Smith overlay.
+    #
+    # A dedicated "freq slot" (its own annotation index) holds this label, and a
+    # *signature* of the current frequency span gates re-seeding.  Earlier this
+    # used a one-shot boolean sentinel, which left the field BLANK whenever a new
+    # device arrived on a chart whose key had already been seeded (e.g. after a
+    # cross-page handover): the span changed but the text never refreshed.  Keying
+    # on the span fixes that — a new device re-seeds, an unchanged span (so the
+    # user's manual edits) is left untouched.
+    _seed_sig_key = f"{skey}_freq_seed_sig"
+    if freq_hz is not None:
         try:
             _f = np.asarray(freq_hz, dtype=float)
             _f = _f[np.isfinite(_f)]
             if _f.size >= 2:
                 _lo = float(_f.min()) * 1e-9
                 _hi = float(_f.max()) * 1e-9
-                _idx = int(st.session_state.get(extra_key, 0))
-                st.session_state[extra_key]               = _idx + 1
-                st.session_state[f"{skey}_etext_{_idx}"]  = f"{_lo:g} ~ {_hi:g} GHz"
-                st.session_state[f"{skey}_ex_{_idx}"]     = 0.0
-                st.session_state[f"{skey}_ey_{_idx}"]     = -1.1
-                st.session_state[f"{skey}_ecolor_{_idx}"] = "#000000"
-                st.session_state[_seed_key] = True
+                _sig = f"{_lo:g}~{_hi:g}"
+                _slot = st.session_state.get(f"{skey}_freq_slot")
+                _cur  = st.session_state.get(f"{skey}_etext_{_slot}") if _slot is not None else None
+                # (Re)seed when the span changed, or the dedicated slot is
+                # missing / blank (recovers a field left empty by an earlier run).
+                if st.session_state.get(_seed_sig_key) != _sig or not _cur:
+                    if _slot is None:
+                        _slot = int(st.session_state.get(extra_key, 0))
+                        st.session_state[extra_key] = _slot + 1
+                        st.session_state[f"{skey}_freq_slot"] = _slot
+                    st.session_state[f"{skey}_etext_{_slot}"]  = f"{_lo:g} ~ {_hi:g} GHz"
+                    st.session_state.setdefault(f"{skey}_ex_{_slot}",     0.0)
+                    st.session_state.setdefault(f"{skey}_ey_{_slot}",    -1.1)
+                    st.session_state.setdefault(f"{skey}_ecolor_{_slot}", "#000000")
+                    st.session_state[_seed_sig_key] = _sig
         except (TypeError, ValueError):
             pass
 
@@ -1326,10 +1483,9 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     _COLOR_MODE_CUSTOM    = "custom"
 
     if has_measured and _run_controls:
-        color_mode = st.radio(
+        color_mode = segmented_radio(
             "Coloring mode",
             [_COLOR_MODE_PER_TRACE, _COLOR_MODE_PER_SET, _COLOR_MODE_CUSTOM],
-            horizontal=True,
             key=f"{skey}_color_mode",
             help=("**trace** — each S-param has its own color, shared "
                   "across all sets.  \n"

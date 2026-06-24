@@ -44,20 +44,68 @@ TOOLS: dict[str, dict] = {
         "en": "RF At a Glance", "zh": "RF 一覽",
         "desc_en": "De-embed S-parameters and extract fT / fmax with Smith & Bode charts.",
         "desc_zh": "去嵌入 S 參數並萃取 fT / fmax，產生 Smith 與 Bode 圖。",
+        "features_en": [
+            "Bulk-upload many DUT .s2p / .csv bias files",
+            "3-step + batch Open/Short/Thru de-embedding",
+            "fT / fmax extraction (crossing · extrapolation · plateau)",
+            "Overlay / per-file Bode · Plateau · Smith (1 or many files)",
+            "Summary table + Excel / ZIP export",
+            "→ Hand a device to Extraction or Simulation & Fitting",
+        ],
+        "features_zh": [
+            "批次上傳多個元件 .s2p / .csv 偏壓檔",
+            "三步驟 + 批次 Open/Short/Thru 去嵌入",
+            "fT / fmax 萃取（交越 · 外插 · 平台）",
+            "疊圖 / 單檔 Bode · Plateau · Smith（單檔或多檔）",
+            "彙總表 + Excel / ZIP 匯出",
+            "→ 將元件傳送至萃取或模擬與擬合頁",
+        ],
     },
     "ssm": {
         "icon": "🔬", "group": "rf", "path": "tools/SSM_extraction.py",
         "en": "Small Signal Model Extraction by Peeling",
         "zh": "剝離法小訊號模型萃取",
-        "desc_en": "Fit small-signal model parameters from DUT bias files.",
-        "desc_zh": "從元件偏壓檔萃取小訊號模型參數。",
+        "desc_en": "Extract Cheng T/π small-signal parameters from a DUT by peeling.",
+        "desc_zh": "以剝離法從元件萃取 Cheng T/π 小訊號參數。",
+        "features_en": [
+            "Analytic peeling extraction — Cheng T and π",
+            "Pad / lead de-embedding + access-R (Z-param · open-collector · cold-HBT)",
+            "τ_total multi-file reference fit",
+            "Extracted-parameter summary + persistent fit cache",
+            "Receives a de-embedded device from RF At a Glance",
+            "→ Send the extracted model onward to Simulation & Fitting",
+        ],
+        "features_zh": [
+            "解析剝離萃取 — Cheng T 與 π",
+            "焊墊 / 引線去嵌入 + 接觸電阻（Z 參數 · 開路集極 · 冷 HBT）",
+            "τ_total 多檔參考擬合",
+            "萃取參數彙總 + 永久擬合快取",
+            "可接收 RF 一覽傳來的去嵌入元件",
+            "→ 將萃取模型傳送至模擬與擬合頁",
+        ],
     },
     "rf_sim": {
         "icon": "🛠️", "group": "rf", "path": "tools/RF_simulator.py",
-        "en": "Small Signal Model Forward Simulation",
-        "zh": "小訊號模型正向模擬",
-        "desc_en": "Forward-simulate S-parameters from a small-signal model.",
-        "desc_zh": "由小訊號模型正向模擬 S 參數。",
+        "en": "SSM Simulation & Fitting",
+        "zh": "小訊號模型模擬與擬合",
+        "desc_en": "Forward-simulate any SSM topology, or fit one to a measured file.",
+        "desc_zh": "正向模擬任意小訊號模型，或對量測檔進行擬合。",
+        "features_en": [
+            "Forward-simulate Cheng T/π · Xu T · Kun-Yang HEMT · Open/Short pad",
+            "🧩 Build & simulate any custom topology (netlist→Y→S solver)",
+            "Optional: upload a measured .s2p to compare & fit",
+            "Residual readout + visual and grid-sweep auto tuning",
+            "fT / fmax (with extrapolation), τ_total, topology & Smith charts",
+            "Receives devices / extracted values from the other RF pages",
+        ],
+        "features_zh": [
+            "正向模擬 Cheng T/π · Xu T · Kun-Yang HEMT · 開路/短路焊墊",
+            "🧩 建立並模擬任意自訂拓樸（netlist→Y→S 求解器）",
+            "選用：上傳量測 .s2p 進行比較與擬合",
+            "殘差顯示 + 視覺化與網格掃描自動調諧",
+            "fT / fmax（含外插）、τ_total、拓樸圖與 Smith 圖",
+            "可接收其他 RF 頁面傳來的元件 / 萃取值",
+        ],
     },
     "ebl": {
         "icon": "🧮", "group": "process", "path": "tools/ebeam_calculator.py",
@@ -120,18 +168,11 @@ _UI: dict[str, dict] = {
     "load_example":   {"en": "📂 Load example files",       "zh": "📂 載入範例檔"},
     "using_example":  {"en": "Using bundled example files — upload your own to replace them.",
                        "zh": "正在使用內建範例檔 — 上傳自己的檔案即可取代。"},
-    "ssm_moved_title": {"en": "SSM extraction now lives on its own page.",
-                        "zh": "小訊號模型萃取已移至獨立頁面。"},
-    "ssm_moved_body":  {"en": "Look for **{name}** in the left sidebar (RF group) "
-                              "and upload your DUT files there.",
-                        "zh": "請在左側側邊欄（RF 群組）找到 **{name}**，並在該頁上傳 DUT 檔案。"},
-    "go_there":        {"en": "Go there! 🔬",                "zh": "前往！🔬"},
     # SSM page – common controls
     "ssm_upload_label": {"en": "Upload DUT .s2p / .csv bias files",
                          "zh": "上傳 DUT .s2p / .csv 偏壓檔"},
     "clear_uploads":   {"en": "🗑️ Clear uploads",           "zh": "🗑️ 清除上傳"},
     "active_dut":      {"en": "Active DUT file",            "zh": "目前 DUT 檔案"},
-    "model_label":     {"en": "Model",                      "zh": "模型"},
     "run_ssm":         {"en": "▶ Run SSM Extraction",       "zh": "▶ 執行小訊號模型萃取"},
     "clear_ssm":       {"en": "✕ Clear SSM results",        "zh": "✕ 清除萃取結果"},
     "ssm_run_hint":    {"en": "Skipped until you run it, to keep the page fast.",
@@ -150,17 +191,6 @@ _UI: dict[str, dict] = {
     "dev_open":        {"en": "Dev Open",                   "zh": "元件 Open"},
     "dev_short":       {"en": "Dev Short",                  "zh": "元件 Short"},
     "pad_deembed_on":  {"en": "✅ Pad de-embedding active.", "zh": "✅ Pad 去嵌入已啟用。"},
-    # SSM model breadcrumbs
-    "crumb_builtin":   {"en": "Built-in analytic extraction (Cheng T / π)",
-                        "zh": "內建解析萃取（Cheng T / π）"},
-    "crumb_cfit":      {"en": "Custom model ▸ load & fit component values to this device",
-                        "zh": "自訂模型 ▸ 載入並擬合元件參數至此元件"},
-    "crumb_cbuild":    {"en": "Custom model ▸ build / modify a small-signal topology",
-                        "zh": "自訂模型 ▸ 建立 / 修改小訊號拓樸"},
-    "crumb_xu":        {"en": "Custom model ▸ Xu's T forward simulation",
-                        "zh": "自訂模型 ▸ Xu's T 正向模擬"},
-    "crumb_ky":        {"en": "Custom model ▸ Kun-Yang HEMT forward simulation",
-                        "zh": "自訂模型 ▸ Kun-Yang HEMT 正向模擬"},
     "upload_or_example": {
         "en": "Upload at least one DUT `.s2p` / `.csv` file to begin, or load "
               "the bundled examples. Multiple bias files enable the multi-file "
@@ -278,3 +308,9 @@ def title(tool_key: str) -> str:
 def tool_desc(tool_key: str) -> str:
     m = TOOLS[tool_key]
     return m["desc_zh"] if is_zh() else m["desc_en"]
+
+
+def tool_features(tool_key: str) -> list[str]:
+    """Localized bullet list of a tool's key functionalities (empty if none)."""
+    m = TOOLS[tool_key]
+    return m.get("features_zh" if is_zh() else "features_en", [])

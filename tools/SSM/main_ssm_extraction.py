@@ -461,7 +461,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             cold_res = _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
                                         re_zparam=rz12_Re,
                                         open_arr=(open_arr if has_open else None),
-                                        short_arr=(short_arr if has_short else None))
+                                        short_arr=(short_arr if has_short else None),
+                                        all_data=all_data)
 
         # ── Open-collector method ─────────────────────────────────────────────────
         st.markdown(
@@ -555,7 +556,19 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         cached_fit    = _get_fit(fname, short)
         cached_ts     = _get_fit_ts(fname, short)
         reextract_key = f"reextract_session_{short}_{fname}"
-        use_cache     = (cached_fit is not None
+        # Latch the cache-first decision at SESSION ENTRY.  The fine-tune
+        # section (base_ui) auto-saves to the cache on every edit; without this
+        # latch a cache written mid-session would flip `use_cache` on and hide
+        # the interactive section while the user is still adjusting values.  We
+        # only take the cache-first (skip-interactive) path when a cache already
+        # existed when this Run-SSM session began — i.e. on first extract of the
+        # file, not when changing values.  Cleared by Run-SSM / Clear so a fresh
+        # session re-evaluates against the on-disk cache.
+        entry_key = f"cache_use_on_entry_{short}_{fname}"
+        if entry_key not in st.session_state:
+            st.session_state[entry_key] = cached_fit is not None
+        use_cache     = (st.session_state[entry_key]
+                         and cached_fit is not None
                          and not st.session_state.get(reextract_key, False))
 
         ModelClass.render_step_formulas()
@@ -688,7 +701,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             st.divider()
         st.markdown(f"#### {ModelClass.NAME}")
         S_sim = ModelClass.render_override_and_smith(
-            fname, S_raw, freq, z0, para_eff, extract_results[short])
+            fname, S_raw, freq, z0, para_eff, extract_results[short],
+            show_tuning=False)
         sim_results[short] = S_sim
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -736,13 +750,6 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
 
 def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
     st.divider()
-    st.markdown(
-        "<div style='background:linear-gradient(90deg,#fbe9e7 0%,transparent 100%);"
-        "border-left:4px solid #bf360c;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📋 Complete Parameter Summary</strong></div>",
-        unsafe_allow_html=True)
-    st.caption("Values reflect the **current** state after any pre-extraction "
-               "overrides, fine-tune Smith chart edits, and tuning sweeps.")
 
     # Source of truth for the *current* per-model param dict.  Each model
     # writes this in its own render_override_and_smith() right after the
@@ -841,13 +848,18 @@ def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
                 elif av < 1e-9: sc_d, unit_d = 1e12, "pH"
                 else:           sc_d, unit_d = 1.0,  ""
             rows.append({"Layer":layer,"Symbol":k,"Value":f"{v*sc_d:.4f}","Unit":unit_d})
-    if rows:
-        df_sum = pd.DataFrame(rows)
-        st.dataframe(df_sum, width="stretch", hide_index=True)
-        buf = io.BytesIO(); df_sum.to_csv(buf, index=False)
-        st.download_button("📥 Download SSM parameters (CSV)", data=buf.getvalue(),
-            file_name=f"SSM_{Path(fname).stem}.csv", mime="text/csv",
-            key=f"dl_ssm_{fname}")
+    with st.expander("📋 Complete Parameter Summary", expanded=False):
+        st.caption("Values reflect the **current** state after any pre-extraction "
+                   "overrides, fine-tune Smith chart edits, and tuning sweeps.")
+        if rows:
+            df_sum = pd.DataFrame(rows)
+            st.dataframe(df_sum, width="stretch", hide_index=True)
+            buf = io.BytesIO(); df_sum.to_csv(buf, index=False)
+            st.download_button("📥 Download SSM parameters (CSV)", data=buf.getvalue(),
+                file_name=f"SSM_{Path(fname).stem}.csv", mime="text/csv",
+                key=f"dl_ssm_{fname}")
+        else:
+            st.caption("No parameters to summarize yet.")
 
 
 def _render_fit_cache_panel(fname):

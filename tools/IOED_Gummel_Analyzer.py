@@ -1,4 +1,4 @@
-__version__ = "1.9"  # See CHANGELOG.md at the repo root for history.
+__version__ = "2.0"  # See CHANGELOG.md at the repo root for history.
 
 import io, zipfile
 from pathlib import Path
@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from tools import i18n
+from tools.SSM.helpers import segmented_radio
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -214,7 +215,8 @@ with st.sidebar:
     ib_noise = st.number_input(i18n.t("gm_ib_noise"), value=2.34e-10, format="%.2e")
 
     st.markdown(f"#### {i18n.t('gm_scale_head')}")
-    y_scale = st.radio(i18n.t("gm_y_scale"), ["Log", "Linear"], index=0)
+    y_scale = segmented_radio(i18n.t("gm_y_scale"), ["Log", "Linear"], index=0,
+                              key="gm_y_scale_sel")
 
     col_x1, col_x2 = st.columns(2)
     x_min = col_x1.number_input(i18n.t("gm_xmin"), value=0.2, step=0.1)

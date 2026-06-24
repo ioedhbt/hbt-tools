@@ -8,23 +8,27 @@ metrics tabs.
 
 Upload one or more DUT ``.s2p`` / ``.csv`` bias files (and, optionally, the
 device-dummy Open/Short ``.s2p`` pair for pad de-embedding), pick a file, and
-run the built-in analytic extraction (Cheng T/π).  Xu T and the Kun-Yang HEMT
-are available as forward-simulation views under the Custom-model section.
+run the analytic peeling extraction (Cheng T/π).
+
+This page is **extraction only**.  Forward simulation, custom-model building,
+Xu / Kun-Yang topologies and *all* tuning (visual + auto) now live on the
+**SSM Simulation & Fitting** page — use the "→ Simulation & Fitting" button
+below the extracted result to hand the device + fitted values straight over.
 
 Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
 repo root.
 """
 from __future__ import annotations
 
-__version__ = "7.0"
+__version__ = "7.1"
 
 from pathlib import Path
 
 import streamlit as st
 
-from tools.SSM.main_ssm_extraction import (render_ssm_tab,
-                                            render_builtin_forward_sim)
+from tools.SSM.main_ssm_extraction import render_ssm_tab
 from tools.SSM.helpers import parse_s2p, parse_csv, load_cal
+from tools.SSM import handoff
 from tools import i18n
 
 
@@ -34,11 +38,12 @@ st.caption(i18n.tool_desc("ssm"))
 
 with st.expander(f"{i18n.t('whats_new')} · v{__version__}", expanded=False):
     st.markdown(
-        "- 🧩 **Custom model** — build *any* small-signal topology, fit it to the "
-        "measured device on the same Smith / fT-fmax / residual UI as the built-in "
-        "models, and use the grid-sweep Auto Tuning. Import/export `.json`.\n"
-        "- 🛠 Generic **netlist→Y→S solver** reproduces Cheng-π/T and Xu to machine "
-        "precision.\n\n"
+        "- ✂️ **Extraction only.** This page now does just the analytic peeling "
+        "extraction (Cheng T/π).  Forward simulation, custom models, Xu / "
+        "Kun-Yang, and all tuning moved to **SSM Simulation & Fitting**.\n"
+        "- 🔁 **Seamless handoff.** Send a de-embedded device here from *RF At a "
+        "Glance*, and send the extracted model + values onward to *Simulation & "
+        "Fitting* with one button — no re-uploading.\n\n"
         "See [`CHANGELOG.md`](CHANGELOG.md) for full history."
     )
 
@@ -48,8 +53,8 @@ with st.expander(i18n.t("how_it_works"), expanded=False):
         ("Upload",   "DUT s2p / csv"),
         ("De-embed", "pads"),
         ("Extract",  "Cheng T / π"),
-        ("Tune",     "fine + sweep"),
-        ("Compare",  "Smith · residual"),
+        ("Review",   "Smith · residual"),
+        ("Hand off", "→ Sim & Fitting"),
     ), accent="#d62728"), width="stretch")
 
 
@@ -67,6 +72,37 @@ with st.sidebar:
 
 s2o = load_cal(f2o) if sw2 else None   # (freq, S, z0) or None
 s2s = load_cal(f2s) if sw2 else None
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  HANDOFF — a device sent over from "RF At a Glance" (no re-upload needed)
+# ═════════════════════════════════════════════════════════════════════════════
+_inc = handoff.take(handoff.TARGET_EXTRACTION)
+if _inc is not None:
+    inj = st.session_state.setdefault("ssm_injected", {})
+
+    def _norm_lbl(s):
+        s = s or "handoff"
+        return s if s.lower().endswith((".s2p", ".csv")) else f"{s}.s2p"
+
+    lbl = _norm_lbl(_inc.get("label"))
+    inj[lbl] = {"freq": _inc["freq"], "S_raw": _inc["S"], "z0": _inc["z0"],
+                "stage": _inc.get("stage", "raw")}
+    # Extra devices (other bias files) — needed by the Z-parameter, Cold-HBT and
+    # τ_total methods.  Don't clobber the primary if a label collides.
+    _n_extra = 0
+    for _elbl, _ed in (_inc.get("extras") or {}).items():
+        _k = _norm_lbl(_elbl)
+        if _k == lbl:
+            continue
+        inj[_k] = {"freq": _ed["freq"], "S_raw": _ed["S"], "z0": _ed["z0"],
+                   "stage": _inc.get("stage", "raw")}
+        _n_extra += 1
+    st.session_state["ssm_active_file"] = lbl
+    _extra_msg = f" (+{_n_extra} more file{'s' if _n_extra != 1 else ''})" if _n_extra else ""
+    st.success(f"📥 Received **{lbl}** ({_inc.get('stage', 'raw')}){_extra_msg} "
+               f"from another RF page.")
+_injected: dict = st.session_state.get("ssm_injected", {})
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -94,7 +130,7 @@ if dut_files:
     st.session_state.pop("ssm_use_examples", None)
 use_examples = st.session_state.get("ssm_use_examples", False)
 
-if not dut_files and not use_examples:
+if not dut_files and not use_examples and not _injected:
     c_info, c_ex = st.columns([4, 1])
     c_info.info(i18n.t("upload_or_example"))
     with c_ex:
@@ -131,6 +167,11 @@ for name, raw in sources:
 for fn, msg in errors.items():
     st.error(f"❌ {fn}: {msg}")
 
+# Merge any handoff-injected devices (they already carry parsed arrays).
+for _lbl, _dd in _injected.items():
+    all_data[_lbl] = {"freq": _dd["freq"], "S_raw": _dd["S_raw"],
+                      "z0": _dd["z0"]}
+
 if not all_data:
     st.stop()
 
@@ -144,51 +185,6 @@ n = st.selectbox(i18n.t("active_dut"), file_names,
                  format_func=lambda s: Path(s).stem, key="ssm_active_file")
 d = all_data[n]
 
-# ── Model selection — a single flat picker over the built-in extraction and
-#    the four custom-model sub-modes (replaces the old two nested radios).  A
-#    breadcrumb caption spells out the active mode. ───────────────────────────
-_M_BUILTIN = "📐 Built-in fit"
-_M_CFIT    = "🔬 Custom · fit"
-_M_CBUILD  = "🛠 Custom · build"
-_M_XU      = "🧪 Xu's T sim"
-_M_KY      = "🧪 Kun-Yang sim"
-_MODES = [_M_BUILTIN, _M_CFIT, _M_CBUILD, _M_XU, _M_KY]
-
-# Drop stale values from the old two-radio scheme, seed a default, then honour
-# the "Send to Load / Fit" hook fired by the custom-model build view.  All must
-# run before the widget is instantiated to set its session value.
-for _old in ("ssm_model_kind", "ssm_custom_mode"):
-    st.session_state.pop(_old, None)
-if st.session_state.get("ssm_mode") not in _MODES:
-    st.session_state["ssm_mode"] = _M_BUILTIN
-if st.session_state.pop("cm_nav_to_loadfit", False):
-    st.session_state["ssm_mode"] = _M_CFIT
-
-mode = st.segmented_control(i18n.t("model_label"), _MODES, key="ssm_mode") \
-    or st.session_state["ssm_mode"]
-
-_CRUMB = {
-    _M_BUILTIN: i18n.t("crumb_builtin"),
-    _M_CFIT:    i18n.t("crumb_cfit"),
-    _M_CBUILD:  i18n.t("crumb_cbuild"),
-    _M_XU:      i18n.t("crumb_xu"),
-    _M_KY:      i18n.t("crumb_ky"),
-}
-st.caption(_CRUMB[mode])
-
-if mode != _M_BUILTIN:
-    if mode == _M_CBUILD:
-        from tools.SSM.custom_model.ui_build import render_build_ui
-        render_build_ui()
-    elif mode == _M_XU:
-        render_builtin_forward_sim("XuT", d["S_raw"], d["freq"], d["z0"], n)
-    elif mode == _M_KY:
-        render_builtin_forward_sim("KY", d["S_raw"], d["freq"], d["z0"], n)
-    else:  # _M_CFIT
-        from tools.SSM.custom_model.ui_fit import render_custom_fit
-        render_custom_fit(n, d["S_raw"], d["freq"], d["z0"])
-    st.stop()
-
 st.subheader(i18n.t("ssm_step3"))
 run_key = f"ssm_run_{n}"
 if not st.session_state.get(run_key, False):
@@ -199,7 +195,10 @@ if not st.session_state.get(run_key, False):
         # Force the fit-cache restore to re-run on this Run-SSM cycle.
         for _k in list(st.session_state.keys()):
             if (_k.startswith("cache_applied_")
-                    or _k.startswith("cache_dismissed_")) and _k.endswith(f"_{n}"):
+                    or _k.startswith("cache_dismissed_")
+                    or _k.startswith("cache_use_on_entry_")
+                    or _k.startswith("reextract_session_")
+                    or _k.startswith("ssm_cache_params_snap_")) and _k.endswith(f"_{n}"):
                 del st.session_state[_k]
         st.rerun()
     st.caption(i18n.t("ssm_run_hint"))
@@ -214,3 +213,32 @@ else:
 
     render_ssm_tab(n, d["S_raw"], d["freq"], d["z0"],
                    s2o, s2s, all_data=all_data)
+
+    # ── Hand the extracted model + values over to Simulation & Fitting ───────
+    _SHORT_LABEL = {"T": "Cheng's T", "pi": "Cheng's π"}
+    _available = [(sh, st.session_state.get(f"current_p_{sh}_{n}"))
+                  for sh in ("T", "pi")]
+    _available = [(sh, cp) for sh, cp in _available if isinstance(cp, dict)]
+    if _available:
+        st.divider()
+        st.markdown("#### 🛠️ Continue in Simulation & Fitting")
+        st.caption("Carry this device and its extracted values straight to the "
+                   "Simulation & Fitting page for final tuning — no re-upload. "
+                   "The exact same S-parameters loaded here (de-embedded if this "
+                   "device came from RF At a Glance) are forwarded unchanged.")
+        # Preserve the provenance of the active device: an injected file keeps
+        # the stage it arrived with (e.g. "deembedded"); a directly-uploaded
+        # file is "raw".  d["S_raw"] holds exactly those arrays either way, so
+        # the device is forwarded unchanged.
+        _stage = st.session_state.get("ssm_injected", {}).get(n, {}).get(
+            "stage", "raw")
+        hc = st.columns(len(_available))
+        for col, (sh, cp) in zip(hc, _available):
+            if col.button(f"→ Send {_SHORT_LABEL[sh]} to Simulation & Fitting",
+                          key=f"ssm_send_simfit_{sh}_{n}", width="stretch",
+                          type="primary"):
+                handoff.send(handoff.TARGET_SIMFIT,
+                             S=d["S_raw"], freq=d["freq"], z0=d["z0"],
+                             label=Path(n).stem, stage=_stage,
+                             params=dict(cp), model_short=sh)
+                st.switch_page(handoff.PAGE_SIMFIT)

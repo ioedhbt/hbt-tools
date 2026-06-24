@@ -20,7 +20,8 @@ from ..helpers         import (y_to_z, z_to_y, y_to_s_single, y_to_s_vec,
                                 extended_smith_grid,
                                 build_Y_pad, build_Z_ser,
                                 build_Y_pad_vec, build_Z_ser_vec,
-                                build_Y_pad_batch, build_Z_ser_batch)
+                                build_Y_pad_batch, build_Z_ser_batch,
+                                segmented_radio)
 from .base_ui         import (sync_pad_from_preov, PAD_SPECS, SSMModelTemplate,
                               render_finetune_diagram)
 from ._shared          import (_b1, _detect_B, _stack22,
@@ -640,8 +641,8 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS):
                 st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
             st.rerun()
 
-        _mode = st.radio(
-            "Editor mode", ["List", "Diagram"], horizontal=True,
+        _mode = segmented_radio(
+            "Editor mode", ["List", "Diagram"],
             key=f"sim_mode_{tK}_{fname}",
             help="List: grouped number inputs.  Diagram: set values on the "
                  "model schematic — the component you edit is highlighted.")

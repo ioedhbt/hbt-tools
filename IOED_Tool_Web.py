@@ -5,6 +5,55 @@ import streamlit as st
 st.set_page_config(page_title="IOED Lab Portal", layout="wide", page_icon="🔬")
 
 from tools import i18n
+from tools.SSM.helpers import segmented_radio
+
+
+# ── Firefox-only styling fix (DISABLED) ───────────────────────────────────────
+# On macOS Firefox the default Streamlit chrome renders with near-invisible
+# input borders and thin container outlines (text fields blend into the page,
+# separators disappear).  Chrome / Safari / Edge and Firefox on Windows/Linux
+# look fine.  The Firefox-scoped (`@-moz-document url-prefix()`) fix below is
+# currently disabled — re-enable by uncommenting the function and its call.
+# def _inject_firefox_fix() -> None:
+#     st.markdown(
+#         """
+#         <style>
+#         @-moz-document url-prefix() {
+#           /* Text / number / textarea / select inputs — give them a clearly
+#              visible border so the field stands out from the page. */
+#           div[data-baseweb="input"],
+#           div[data-baseweb="base-input"],
+#           div[data-baseweb="textarea"],
+#           .stTextInput div[data-baseweb="input"],
+#           .stNumberInput div[data-baseweb="input"],
+#           .stDateInput div[data-baseweb="input"],
+#           div[data-baseweb="select"] > div {
+#               border: 1.5px solid rgba(49, 51, 63, 0.45) !important;
+#               border-radius: 6px !important;
+#               background-color: rgba(0, 0, 0, 0.015) !important;
+#           }
+#           div[data-baseweb="input"]:focus-within,
+#           div[data-baseweb="select"] > div:focus-within {
+#               border-color: rgba(49, 51, 63, 0.85) !important;
+#           }
+#           /* Bordered containers + expanders — thicker, clearer outline. */
+#           div[data-testid="stExpander"],
+#           div[data-testid="stVerticalBlockBorderWrapper"] {
+#               border: 1.5px solid rgba(49, 51, 63, 0.30) !important;
+#               border-radius: 8px !important;
+#           }
+#           /* Horizontal rules / dividers — make the separation visible. */
+#           hr, div[data-testid="stDivider"] hr {
+#               border-top: 1px solid rgba(49, 51, 63, 0.30) !important;
+#           }
+#         }
+#         </style>
+#         """,
+#         unsafe_allow_html=True,
+#     )
+#
+#
+# _inject_firefox_fix()
 
 # Local-launch bypass — LAUNCH_Tool.py sets HBT_LOCAL_LAUNCH=1 before
 # spawning streamlit so the password screen is skipped on developer
@@ -48,9 +97,9 @@ if not _LOCAL_LAUNCH and not check_password():
 #    sidebar and pushes any sidebar widgets below it, where the language toggle
 #    was easy to miss.  Rendered before st.navigation so the nav group headers +
 #    tool titles still localize on the same rerun.
-_top_spacer, _top_lang = st.columns([6, 1])
+_top_spacer, _top_lang = st.columns([5, 2])
 with _top_lang:
-    st.selectbox(
+    segmented_radio(
         i18n.t("language_label"), i18n.LANGS, key="ui_lang",
         format_func=lambda l: f"🌐 {l}", label_visibility="collapsed",
     )

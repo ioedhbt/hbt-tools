@@ -10,7 +10,7 @@ repo root.
 """
 from __future__ import annotations
 
-__version__ = "1.3"
+__version__ = "1.4"
 
 import gc
 import math
@@ -20,6 +20,7 @@ import numpy as np
 import streamlit as st
 
 from tools import i18n
+from tools.SSM.helpers import segmented_radio
 import plotly.graph_objects as go
 
 try:
@@ -123,9 +124,9 @@ with st.container(border=True):
             st.image(_chip_corner_guide_png(), width="stretch")
             st.caption(i18n.t("ebl_corner_note"))
 
-        shape_mode = st.radio(
+        shape_mode = segmented_radio(
             "Shape", ["Rectangular", "Custom"],
-            horizontal=True, key="ebc_shape_mode",
+            key="ebc_shape_mode",
         )
         is_rect = (shape_mode == "Rectangular")
 
@@ -133,9 +134,9 @@ with st.container(border=True):
         # rectangle; the other pair is computed from it and shown disabled.
         bltr_active = True  # default: BL/TR is the editable pair
         if is_rect:
-            diag = st.radio(
+            diag = segmented_radio(
                 "Editable diagonal", ["BL / TR", "BR / TL"],
-                horizontal=True, key="ebc_diag_mode",
+                key="ebc_diag_mode",
             )
             bltr_active = (diag == "BL / TR")
 
@@ -1700,10 +1701,9 @@ with st.container(border=True):
 with st.container(border=True):
     st.header("Workflow")
 
-    mode = st.radio(
+    mode = segmented_radio(
         "Mode",
         ["Choose mode:","Dose Time Testing", "First Exposure", "Second Alignment"],
-        horizontal=True,
         key="ebc_mode",
     )
 
@@ -2416,10 +2416,9 @@ with st.container(border=True):
             "Custom": {},
         }
 
-        preset_name = st.radio(
+        preset_name = segmented_radio(
             "Cross-position preset",
             list(_CROSS_PRESETS.keys()),
-            horizontal=True,
             key="ebc_sa_preset",
         )
 
@@ -2436,8 +2435,8 @@ with st.container(border=True):
             for _k, _v in _CUSTOM_DEFAULTS.items():
                 st.session_state.setdefault(_k, _v)
 
-            unit = st.radio(
-                "Input unit", ["mm", "μm"], horizontal=True,
+            unit = segmented_radio(
+                "Input unit", ["mm", "μm"],
                 key="ebc_sa_custom_unit",
             )
             to_disp = 1000.0 if unit == "μm" else 1.0   # mm → display unit

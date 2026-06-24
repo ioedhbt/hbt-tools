@@ -11,12 +11,15 @@ repo root.
 """
 from __future__ import annotations
 
-__version__ = "1.1"
+__version__ = "1.2"
+
+from pathlib import Path
 
 import numpy as np
 import streamlit as st
 
 from tools import i18n
+from tools.SSM import handoff
 import plotly.graph_objects as go
 
 from tools.SSM.models.cheng    import (ChengT, ChengPi,
@@ -32,10 +35,11 @@ from tools.SSM.models.kunyang  import (KunYangHEMT,
                                         _render_topology_illustration as _render_ky_illustration,
                                         _EXT_KY_SPECS, _INT_KY_SPECS,
                                         _KY_PAD_SPECS, _DEFAULT_PARAMS as _KY_DEFAULT_PARAMS)
-from tools.SSM.models.base_ui  import PAD_SPECS, render_finetune_diagram
+from tools.SSM.models.base_ui  import (PAD_SPECS, render_finetune_diagram,
+                                        render_smith_with_ftfmax)
 from tools.SSM.ssm_plots       import (render_matplotlib_smith,
                                         render_tau_fmax_expander)
-from tools.SSM.helpers         import (extended_smith_grid,
+from tools.SSM.helpers         import (extended_smith_grid, parse_s2p, parse_csv,
                                         write_s2p, simulate_open, simulate_short,
                                         compute_h21_U, find_ft_fmax,
                                         extrap_20dbdec, single_pole_extrap,
@@ -43,6 +47,7 @@ from tools.SSM.helpers         import (extended_smith_grid,
                                         plotly_with_dl, fig_to_excel_bytes,
                                         bode_excel_bytes,
                                         fig_to_tsv, copy_button,
+                                        segmented_radio,
                                         make_smith_bode_slider_fig)
 
 try:
@@ -74,37 +79,131 @@ with st.expander(i18n.t("how_it_works"), expanded=False):
     ), accent="#d62728"), width="stretch")
 
 
+# ─── Handoff from the other RF pages (device / extracted values) ─────────────
+_MS_TO_OPTION = {"T": "Cheng's T", "pi": "Cheng's π", "XuT": "Xu T",
+                 "KY": "Kun-Yang HEMT", "custom": "🧩 Custom model"}
+_inc = handoff.take(handoff.TARGET_SIMFIT)
+if _inc is not None:
+    st.session_state["_simfit_meas"] = {
+        "S": _inc["S"], "freq": _inc["freq"], "z0": _inc["z0"],
+        "label": _inc.get("label", "device"), "stage": _inc.get("stage", "raw")}
+    # A fresh handover is a new device — drop any seeds left from a previous one
+    # so models other than the handed-over one auto-guess from THIS device.
+    for _k in [k for k in st.session_state if k.startswith("_simfit_seed_")]:
+        st.session_state.pop(_k, None)
+    _ms = _inc.get("model_short")
+    if _ms and _MS_TO_OPTION.get(_ms):
+        st.session_state["rfsim_model_choice"] = _MS_TO_OPTION[_ms]
+    if _inc.get("params") and _ms:
+        st.session_state[f"_simfit_seed_{_ms}"] = dict(_inc["params"])
+
+
+def _resolve_fit_target():
+    """Optional measured-device target for fitting.  Returns a dict
+    ``{S, freq, z0, label, stage}`` or ``None``.  Sourced from a handoff
+    (preferred) or an inline uploader; persisted in session_state."""
+    def _drop_seeds():
+        # Extraction handoffs seed the override fields per model
+        # (`_simfit_seed_<short>`).  Drop them when the device changes by hand so
+        # a stale seed from a previous extraction can't pre-fill an unrelated
+        # uploaded device.
+        for _k in [k for k in st.session_state if k.startswith("_simfit_seed_")]:
+            st.session_state.pop(_k, None)
+
+    meas = st.session_state.get("_simfit_meas")
+    with st.expander("📂 Fit to a measured device (optional)",
+                     expanded=meas is not None):
+        if meas is not None:
+            cc, cdl, cclr = st.columns([3, 1, 1])
+            cc.success(f"🎯 Fitting **{meas['label']}** ({meas['stage']}, "
+                       f"{len(meas['freq'])} pts). The simulation frequency "
+                       f"axis follows the measured grid.")
+            # Download the exact measured device being fitted (de-embedded if it
+            # was forwarded that way) as an .s2p.
+            try:
+                _s2p = write_s2p(
+                    np.asarray(meas["freq"], dtype=float), meas["S"],
+                    title=f"Measured device — {meas['label']} ({meas['stage']})",
+                    params={"stage": meas["stage"]})
+                cdl.download_button(
+                    "📥 .s2p", data=_s2p,
+                    file_name=f"{meas['label']}_{meas['stage']}.s2p",
+                    mime="text/plain", key="simfit_dl", width="stretch",
+                    help="Download the exact S-parameters loaded for fitting.")
+            except Exception:                                  # noqa: BLE001
+                cdl.caption("—")
+            if cclr.button("✕ Clear", key="simfit_clear", width="stretch"):
+                st.session_state.pop("_simfit_meas", None)
+                _drop_seeds()
+                st.rerun()
+        up = st.file_uploader(
+            "Upload a measured .s2p / .csv to compare & fit", type=["s2p", "csv"],
+            key="simfit_up",
+            help="With a file loaded the page switches to fit mode: residual "
+                 "readout + visual / auto tuning against this device.  "
+                 "Send a de-embedded device (no Cpxx/Lx) to fit intrinsic-only.")
+        if up is not None:
+            data = up.getvalue()
+            sig = (up.name, len(data), hash(data))
+            if st.session_state.get("simfit_up_sig") != sig:
+                try:
+                    if up.name.lower().endswith(".csv"):
+                        fr, S, z0 = parse_csv(data.decode("utf-8", "ignore"))
+                    else:
+                        fr, S, z0 = parse_s2p(data)
+                    st.session_state["_simfit_meas"] = {
+                        "S": S, "freq": fr, "z0": z0,
+                        "label": Path(up.name).stem, "stage": "raw"}
+                    st.session_state["simfit_up_sig"] = sig
+                    _drop_seeds()       # uploaded device has no extracted seed
+                    st.rerun()
+                except Exception as exc:                       # noqa: BLE001
+                    st.error(f"Could not read that file: {exc}")
+    return st.session_state.get("_simfit_meas")
+
+
 # ─── Model selector ──────────────────────────────────────────────────────────
 # (Declared before the frequency axis so the "Custom" builder can take over the
 #  page without showing the global frequency controls it doesn't use.)
 MODEL_OPTIONS = ["Cheng's T", "Cheng's π", "Xu T", "Kun-Yang HEMT",
-                 "Open and Short Pad", "🧩 Custom model"]
-model_choice  = st.radio("Model", MODEL_OPTIONS, horizontal=True, index=0)
+                 "🧩 Custom model", "Open and Short Pad"]
+model_choice  = segmented_radio("Model", MODEL_OPTIONS, index=0,
+                                key="rfsim_model_choice")
+
+measured = _resolve_fit_target()
 
 if model_choice == "🧩 Custom model":
     from tools.SSM.custom_model import render_custom_section
-    render_custom_section()
+    render_custom_section(measured)
     st.stop()
 
 
 # ─── Frequency axis ──────────────────────────────────────────────────────────
+# In fit mode the simulation must share the measured device's frequency grid so
+# the residual lines up point-for-point; the manual axis is then hidden.
 
-c_f1, c_f2, c_f3 = st.columns(3)
-f_start = c_f1.number_input("Start Frequency (GHz)",
-                            min_value=0.0, value=0.01,
-                            format="%.4f", step=0.01)
-n_pts   = c_f2.number_input("Data Points",
-                            min_value=2, value=1001, step=1)
-f_end   = c_f3.number_input("Final Frequency (GHz)",
-                            min_value=0.001, value=50.0,
-                            format="%.4f", step=1.0)
+if measured is not None:
+    freq  = np.asarray(measured["freq"], dtype=float)
+    f_ghz = freq * 1e-9
+    st.caption(f"Frequency axis: **{f_ghz[0]:.3g} – {f_ghz[-1]:.3g} GHz** "
+               f"({len(freq)} pts) — from the measured device.")
+else:
+    c_f1, c_f2, c_f3 = st.columns(3)
+    f_start = c_f1.number_input("Start Frequency (GHz)",
+                                min_value=0.0, value=0.01,
+                                format="%.4f", step=0.01)
+    n_pts   = c_f2.number_input("Data Points",
+                                min_value=2, value=1001, step=1)
+    f_end   = c_f3.number_input("Final Frequency (GHz)",
+                                min_value=0.001, value=50.0,
+                                format="%.4f", step=1.0)
 
-if f_end <= f_start:
-    st.error("Final frequency must be greater than start frequency.")
-    st.stop()
+    if f_end <= f_start:
+        st.error("Final frequency must be greater than start frequency.")
+        st.stop()
 
-freq  = np.linspace(float(f_start) * 1e9, float(f_end) * 1e9, int(n_pts))
-f_ghz = freq * 1e-9
+    freq  = np.linspace(float(f_start) * 1e9, float(f_end) * 1e9, int(n_pts))
+    f_ghz = freq * 1e-9
 
 
 # ─── Helpers to render and collect spec lists ────────────────────────────────
@@ -203,12 +302,17 @@ def _smith_chart_with_dl(fig, key: str, filename: str,
 
 
 def _smith_multiplier_inputs(prefix: str, label: str = "Smith multipliers") -> dict:
-    """Render 4 per-trace multipliers (S11/S12/S21/S22) and return a dict."""
+    """Render 4 per-trace multipliers (S11/S12/S21/S22) and return a dict.
+
+    The multipliers are stored under a **model-independent** key so the user's
+    choice persists when switching models (previously the per-``prefix`` key
+    reset the value on every model change).
+    """
     st.markdown(f"**{label}** — × when ≥ 1, ÷ when < 1, per trace")
     cols = st.columns(4)
     out = {}
     for col_w, sp in zip(cols, ("S11", "S12", "S21", "S22")):
-        sk = f"rfsim_{prefix}_smithmult_{sp}"
+        sk = f"rfsim_smithmult_{sp}"
         if sk not in st.session_state:
             st.session_state[sk] = 1.0
         out[sp] = col_w.number_input(f"{sp} ×",
@@ -226,16 +330,15 @@ def _render_slider_preview(model_cls, all_p, freq, mults, prefix: str,
     ⚡ Plotly: pre-compute N frames for one swept param, scrub client-side.
     """
     mode_key = f"rfsim_slpreview_mode_{prefix}"
-    mode = st.radio(
+    mode = segmented_radio(
         "Preview mode",
-        options=["🐢 Live (Streamlit rerun per drag)",
-                 "⚡ Plotly slider (pre-computed frames)"],
-        index=0, horizontal=True,
+        ["🎯 Live tweak", "⚡ Wide sweep"],
+        index=0,
         key=mode_key,
-        help="Live: drag any number of sliders; every tick reruns Streamlit "
-             "and re-simulates.  Plotly: click Build once, then scrub through "
-             "pre-computed frames entirely client-side (one sweep param at a "
-             "time, but instant per drag).")
+        help="🎯 Live tweak — best for a few small changes: the plots "
+             "re-compute on every drag.  ⚡ Wide sweep — best for exploring a "
+             "large range: pre-computes the whole range once so dragging is "
+             "instant afterwards.")
     if mode.startswith("⚡"):
         _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix,
                                              pad_specs, ext_specs, int_specs)
@@ -641,7 +744,10 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
         from tools.SSM.models.base_ui import _render_plotly_server_cached_view
         _render_plotly_server_cached_view(
             state, None, freq, model_cls, "rfsim", prefix,
-            decim_n_max=int(st.session_state.get(decim_key, 120)))
+            decim_n_max=int(st.session_state.get(decim_key, 120)),
+            smith_mults={nm: float(st.session_state.get(
+                f"rfsim_smithmult_{nm}", 1.0))
+                for nm in ("S11", "S12", "S21", "S22")})
     else:
         html = make_smith_bode_joint_slider_html(
             S_batch_joint=state["S_batch"],
@@ -650,6 +756,11 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
             model_name=model_cls.NAME,
             S_meas=None,
             decimate_points=int(st.session_state.get(decim_key, 120)),
+            # Mirror the page's (model-independent) Smith multipliers so the
+            # Wide-sweep view scales in lock-step with the static Smith chart.
+            smith_mults={nm: float(st.session_state.get(
+                f"rfsim_smithmult_{nm}", 1.0))
+                for nm in ("S11", "S12", "S21", "S22")},
         )
         n_sl = len(state["slider_specs"])
         iframe_height = 500 + 26 + 36 * n_sl + 30
@@ -789,12 +900,13 @@ def _render_bode_block(S, freq_hz, title: str, key: str):
         ec1, ec2 = st.columns([1, 2])
         if f"{key}_extrap_method" not in st.session_state:
             st.session_state[f"{key}_extrap_method"] = "−20 dB/dec"
-        ec1.radio(
-            "Extrap. method", ["−20 dB/dec", "Single-pole"],
-            key=f"{key}_extrap_method", horizontal=True,
-            help="−20 dB/dec anchors a slope-locked line at the last data "
-                 "point.  Single-pole fits a log-linear line over the chosen "
-                 "window (default = final 5 GHz).")
+        with ec1:
+            segmented_radio(
+                "Extrap. method", ["−20 dB/dec", "Single-pole"],
+                key=f"{key}_extrap_method",
+                help="−20 dB/dec anchors a slope-locked line at the last data "
+                     "point.  Single-pole fits a log-linear line over the chosen "
+                     "window (default = final 5 GHz).")
         if (st.session_state[f"{key}_extrap_method"] == "Single-pole"
                 and len(f_ghz_local) >= 4):
             f_lo, f_hi = float(f_ghz_local[0]), float(f_ghz_local[-1])
@@ -956,6 +1068,31 @@ else:
         topo_char = "pi"
         prefix    = "ssm_pi"
 
+    # ── Fit mode — a measured device is loaded.  Reuse the extraction-grade
+    #    override → residual → Visual/Auto tuning UI instead of the forward-
+    #    sim-only inputs below.  When a handoff carried extracted values we
+    #    seed from those; otherwise we auto-guess from the device (the same
+    #    one-shot seed render_builtin_forward_sim uses), so the first sim is
+    #    never singular.
+    if measured is not None:
+        _short = model_cls.SHORT
+        _seed  = st.session_state.get(f"_simfit_seed_{_short}")
+        _fit_fname = f"simfit_{_short}_{measured['label']}"
+        st.markdown(f"### 🎯 Fit — {model_cls.NAME}")
+        st.caption(f"Fitting **{measured['label']}** ({measured['stage']}). "
+                   "Edit any parameter, read the residual, and use the Visual "
+                   "/ Auto tuning expanders to fit this device.")
+        if _seed:
+            para_eff = {k: float(_seed.get(k, 0.0)) for k, *_ in PAD_SPECS}
+            model_cls.render_override_and_smith(
+                _fit_fname, measured["S"], freq, measured["z0"],
+                para_eff, (dict(_seed), {}), show_tuning=True)
+        else:
+            from tools.SSM.main_ssm_extraction import render_builtin_forward_sim
+            render_builtin_forward_sim(_short, measured["S"], freq,
+                                       measured["z0"], _fit_fname)
+        st.stop()
+
     # Split pad specs by group for the requested layout.  Xu uses its own
     # pad-label aliases (Rb→Rbx, Re→Rex, Cpce→Cpad) but identical keys.
     _pad_open_keys  = {"Cpbe", "Cpce", "Cpbc"}
@@ -985,8 +1122,8 @@ else:
 
     st.markdown("### Inputs")
     with st.expander(f"✏️ {model_cls.NAME} parameters", expanded=True):
-        _mode = st.radio(
-            "Editor mode", ["List", "Diagram"], horizontal=True,
+        _mode = segmented_radio(
+            "Editor mode", ["List", "Diagram"],
             key=f"rfsim_mode_{prefix}",
             help="List: grouped number inputs.  Diagram: set values on the "
                  "model schematic — the component you edit is highlighted.")

@@ -25,8 +25,8 @@ from .schematic import (render_schematic, svg_to_png, copy_image_button,
                         svg_pixel_height)
 from ..helpers import write_s2p
 from ..models.base_ui import (render_smith_with_ftfmax,
-                              render_tuning_expander)
-from ..ssm_plots import render_matplotlib_smith
+                              render_tuning_expander, smith_scale_controls)
+from ..ssm_plots import render_matplotlib_smith, render_tau_fmax_expander
 
 # kind → (SI→display scale, sensible non-degenerate start) for value inputs +
 # the tuning sweep's display units.
@@ -206,10 +206,19 @@ def render_custom_fit(fname: str, S_meas: np.ndarray, freq: np.ndarray,
     # ── Smith + fT/fmax + Total/per-trace residual (same UI as other models) ──
     s2p = write_s2p(freq, S_sim, title=f"Custom fit {model.name}",
                     params={"intrinsic": model.intrinsic_type})
+    sc = smith_scale_controls(fname, _TOPO)     # per-trace Smith multipliers
     render_smith_with_ftfmax(
         S_meas, S_sim, freq,
         model_name=f"Custom · {model.name}", model_short=_TOPO, fname=fname,
+        scales=sc,
         s2p_bytes=s2p, s2p_filename=f"{model.name or 'custom'}_sim.s2p")
+
+    # ── Calculated τ_total and fmax (custom: enter C_BC / R_bb manually) ──────
+    # The fT/fmax follows the Smith-card's extrapolation selection.
+    render_tau_fmax_expander(
+        key=f"cmf_taufmax_{fname}", freq=freq, S_meas=S_meas, S_model=S_sim,
+        CBC=0.0, Rbb=0.0, tau_sum=None, tau_sum_label="τ", tau_sum_tex=r"\tau",
+        extrap_key=f"ftfmax_card_{_TOPO}_{fname}")
 
     # ── Topology illustration (value-aware layout so values never overlap) ───
     svg = render_schematic(model, values)
@@ -231,9 +240,11 @@ def render_custom_fit(fname: str, S_meas: np.ndarray, freq: np.ndarray,
         c_left, c_right = st.columns([1.2, 1])
         with c_right:
             render_matplotlib_smith(S_meas, S_sim, fname, _TOPO,
+                                    default_multiplier=sc,
                                     phase="controls", freq_hz=freq)
         with c_left:
             render_matplotlib_smith(S_meas, S_sim, fname, _TOPO,
+                                    default_multiplier=sc,
                                     phase="chart", freq_hz=freq)
 
     # ── Auto Tuning — the *same* grid-sweep expander the other models use ────

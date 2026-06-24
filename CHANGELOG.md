@@ -11,6 +11,19 @@ entry under that tool below.
 
 ## RF S-Parameter Extraction — [`tools/IOED_HBT_RF_extract.py`](tools/IOED_HBT_RF_extract.py)
 
+### v1.1
+- 🔁 **Workflow handoff.** The Individual tab gained a *"Send this device to an
+  SSM page"* panel: choose **Raw** or **De-embedded** S-parameters, then jump
+  straight to **SSM Extraction** or **Simulation & Fitting** with the device
+  pre-loaded (no re-upload). Defaults to the de-embedded trace when present.
+- 🧰 **Batch De-embed → handoff.** The batch tab can send the selected
+  de-embedded device onward; **Extraction also receives every other
+  de-embedded file** (the Z-parameter / Cold-HBT / τ_total methods need them),
+  while Simulation & Fitting receives just the selected one.
+- 🧹 Removed the now-redundant "🔬 SSM Extraction" pointer sub-tab (Individual
+  tab is now Bode / Plateau / Smith).
+- ✨ All `st.radio` controls switched to the segmented-button selector.
+
 ### v1.0
 - 🪧 **SSM extraction split out into its own page**
   ([`tools/SSM_extraction.py`](tools/SSM_extraction.py), versioned
@@ -26,6 +39,25 @@ entry under that tool below.
 ---
 
 ## HBT SSM Extraction — [`tools/SSM_extraction.py`](tools/SSM_extraction.py)
+
+### v7.1
+- ✂️ **Extraction-only page.** Now does just the analytic peeling extraction
+  (Cheng T/π). Forward simulation, custom models, Xu / Kun-Yang and **all
+  tuning** (visual + auto) moved to **SSM Simulation & Fitting**; the model
+  picker is gone.
+- 🔁 **Handoff in/out.** Receives a (de-embedded) device — plus the other bias
+  files as extras — from *RF At a Glance* / batch de-embed, no re-upload. After
+  extracting, **"→ Send Cheng T/π to Simulation & Fitting"** forwards the exact
+  same S-parameters (unchanged, with the correct `raw`/`deembedded` stage) plus
+  the extracted values for final tuning.
+- 🧊 **Cold-HBT file picker.** The Cold-HBT method can now select the cold
+  device from the already-loaded bias files (defaults to one with "cold" in its
+  name) instead of only uploading a separate S2P.
+- 🐛 **Interactive section no longer collapses on edit.** The cache-first
+  (skip-interactive) path is now latched at *session entry* — a cache written by
+  the fine-tune auto-save mid-session no longer flips the page into cache mode
+  and hides the interactive extraction.
+- 🗂️ **Complete Parameter Summary** moved into a collapsed expander.
 
 ### v7.0
 - 🧩 **Custom model** added to the per-DUT **Model** selection (alongside the
@@ -244,12 +276,41 @@ entry under that tool below.
 
 ## Sim Gummel Plot Analyzer — [`tools/IOED_Gummel_Analyzer.py`](tools/IOED_Gummel_Analyzer.py)
 
+### v2.0
+- ✨ Log/Linear y-scale switched from a radio to the segmented-button selector.
+
 ### v1.9
 - Implemented dynamic data slicing — auto-scale Y-axis now strictly binds to the selected X-axis range, eliminating out-of-bound numerical artifacts (e.g. Beta exploding to 5000+)
 
 ---
 
-## RF Forward Simulator — [`tools/RF_simulator.py`](tools/RF_simulator.py)
+## SSM Simulation & Fitting — [`tools/RF_simulator.py`](tools/RF_simulator.py)
+
+*(Renamed from "RF Forward Simulator" / "SSM Forward Simulation".)*
+
+### v1.2
+- 🏷️ **Renamed → "SSM Simulation & Fitting"** (forward-simulate *or* fit).
+- 🎯 **Fit mode.** Optional measured-file upload (or a handoff from the other RF
+  pages) switches the page to a measured-vs-modeled view: residual readout +
+  **visual & auto tuning**, seeded from handed-over extracted values or
+  auto-guessed from the device. The frequency axis follows the measured grid
+  (start/stop/points hidden); a **📥 .s2p** download of the exact fitted device
+  sits beside **✕ Clear**.
+- 🧩 **Custom-model parity.** With a file present the custom section opens in
+  *Fit to measurement* mode automatically (device shown, no freq inputs) and now
+  carries a Smith multiplier — matching the built-in models.
+- 🐛 **Pre-computed Plotly slider fixed.** It was frozen because (a) non-finite
+  Bode/extrap points serialised to invalid JS (`nan`/`inf`) and threw a
+  SyntaxError, and (b) `Plotly.restyle` silently no-ops on WebGL traces. Now
+  emits `null`, mutates trace data + `Plotly.redraw`, and resolves the graph div
+  robustly; Smith S-params are labelled inline with a small legend.
+- 🐛 **Smith multiplier persists across models** (was reset on every model
+  switch by a per-model key).
+- 🔀 Reordered options (Custom before Open/Short); preview modes renamed to
+  **🎯 Live tweak** / **⚡ Wide sweep** with when-to-use tooltips; live-tweak
+  Smith uses inline labels + the Smith multipliers and a narrower slider column.
+- ✨ Custom forward-sim gained fT/fmax extrapolation, the τ_total/fmax expander,
+  topology illustration, matplotlib Smith and a tuning preview.
 
 ### v1.1
 - 🧮 **"Calculated Tau_total and fmax" expander** below the Smith /
@@ -267,6 +328,9 @@ entry under that tool below.
 ---
 
 ## EBL Calculator — [`tools/ebeam_calculator.py`](tools/ebeam_calculator.py)
+
+### v1.4
+- ✨ All mode/preset/unit radios switched to the segmented-button selector.
 
 ### v1.3
 - Fixed out-of-memory crash on Streamlit Cloud when uploading large (heavily
@@ -355,6 +419,19 @@ entry under that tool below.
 ---
 
 ## Launcher & Portal — [`LAUNCH_Tool.py`](LAUNCH_Tool.py) / [`IOED_Tool_Web.py`](IOED_Tool_Web.py)
+
+### 2026-06-24
+- 🧭 **RF group reorganised into three clear pages:** *RF At a Glance*
+  (de-embed + FOM + Smith), *SSM Extraction* (peeling only) and *SSM
+  Simulation & Fitting* (all topologies + fit), wired together by a
+  session-state **handoff bus** ([`tools/SSM/handoff.py`](tools/SSM/handoff.py))
+  so a device flows between them without re-uploading.
+- 🏠 **Home cards** now list each tool's key functionalities (bilingual).
+- 🌐 **Language selector** switched from a dropdown to the segmented-button
+  selector; new shared `segmented_radio` helper replaces every `st.radio`
+  across the portal.
+- 🦊 Added (then disabled, kept for reference) a Firefox-scoped CSS fix for the
+  macOS-Firefox faint-input-border rendering.
 
 ### 2026-05-31
 - ⬇️ **Auto-update on local launch** from the **canonical repo**

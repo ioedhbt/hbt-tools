@@ -362,3 +362,39 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
         file_name=f"Batch_Deembedded_{date}.zip",
         mime="application/zip",
         width="stretch")
+
+    # ── 7. Hand the de-embedded device(s) to the SSM pages ────────────────────
+    from tools.SSM import handoff
+    with st.container(border=True):
+        st.markdown("**🔁 Send de-embedded device(s) to an SSM page**")
+        names = list(bd_results.keys())
+        # Guard the persisted selection: a stale value (file set changed) would
+        # make st.selectbox raise.
+        if st.session_state.get("bd_handoff_sel") not in names:
+            st.session_state["bd_handoff_sel"] = names[0]
+        hs1, hs2, hs3 = st.columns([1.6, 1, 1])
+        sel = hs1.selectbox("Primary device", names,
+                            format_func=lambda s: Path(s).stem,
+                            key="bd_handoff_sel",
+                            help="Extraction also receives every other "
+                                 "de-embedded file here (the Z-parameter, "
+                                 "Cold-HBT and τ_total methods need them); "
+                                 "Simulation & Fitting receives just this one.")
+        r_sel = bd_results[sel]
+        # Extraction: send all de-embedded files (primary + the rest as extras).
+        if hs2.button("→ SSM Extraction", key="bd_handoff_ext",
+                      width="stretch", type="primary"):
+            extras = {n: {"S": r["S_de"], "freq": r["freq"], "z0": r["z0"]}
+                      for n, r in bd_results.items() if n != sel}
+            handoff.send(handoff.TARGET_EXTRACTION,
+                         S=r_sel["S_de"], freq=r_sel["freq"], z0=r_sel["z0"],
+                         label=Path(sel).stem, stage="deembedded",
+                         extras=extras)
+            st.switch_page(handoff.PAGE_EXTRACTION)
+        # Fitting: only the selected device.
+        if hs3.button("→ Simulation & Fitting", key="bd_handoff_sim",
+                      width="stretch"):
+            handoff.send(handoff.TARGET_SIMFIT,
+                         S=r_sel["S_de"], freq=r_sel["freq"], z0=r_sel["z0"],
+                         label=Path(sel).stem, stage="deembedded")
+            st.switch_page(handoff.PAGE_SIMFIT)

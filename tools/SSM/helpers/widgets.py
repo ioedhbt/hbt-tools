@@ -40,6 +40,65 @@ def info_icon_html(text: str, label: str = "ⓘ") -> str:
             f'padding:0 3px">{label}</span>')
 
 
+def segmented_radio(label, options, *, index: int = 0, key=None,
+                    horizontal: bool = True, format_func=None, help=None,
+                    label_visibility: str = "visible",
+                    disabled: bool = False):
+    """Drop-in replacement for :func:`st.radio` that renders as a segmented
+    button group (``st.segmented_control``) instead of radio circles — the same
+    chip-style selector the custom-model builder uses to pick component groups.
+
+    Returns the *selected option value* (not its label), matching ``st.radio``.
+    A selection is always guaranteed: ``st.segmented_control`` can otherwise
+    return ``None`` when the user clicks the active chip to deselect it, so we
+    fall back to the default value in that case.
+
+    Streamlit forbids assigning to a widget's ``key`` in session_state **after**
+    the widget is instantiated, so we never do that.  Instead the value is
+    seeded / repaired **before** ``segmented_control`` is created (which is
+    allowed) — this also recovers gracefully from a stale value left by a
+    previous page whose option set has since changed.
+
+    Falls back to ``st.radio`` on Streamlit builds without ``segmented_control``
+    (added in 1.40), so callers can switch unconditionally.  ``horizontal`` is
+    accepted for API-compatibility with ``st.radio`` and only used by that
+    fallback (segmented controls are always horizontal).
+    """
+    options = list(options)
+    seg = getattr(st, "segmented_control", None)
+    if seg is None or not options:
+        return st.radio(label, options, index=index, key=key,
+                        horizontal=horizontal,
+                        format_func=(format_func or str),
+                        help=help, label_visibility=label_visibility,
+                        disabled=disabled)
+
+    idx = index if 0 <= index < len(options) else 0
+
+    kwargs = dict(options=options, key=key, help=help,
+                  label_visibility=label_visibility, disabled=disabled,
+                  selection_mode="single")
+    if format_func is not None:
+        kwargs["format_func"] = format_func
+
+    if key is not None:
+        # Seed / repair the value BEFORE the widget exists (allowed).  Covers
+        # first render (no value yet) and a stale value from a previous page
+        # whose option list has changed; both resolve to the default option.
+        if st.session_state.get(key) not in options:
+            st.session_state[key] = options[idx]
+        # `key` already carries the value → must NOT also pass `default`.
+    else:
+        kwargs["default"] = options[idx]
+
+    picked = seg(label, **kwargs)
+    # Deselect (user clicked the active chip) → segmented_control returns None.
+    # Fall back to the default without touching the widget key post-render.
+    if picked is None:
+        picked = options[idx]
+    return picked
+
+
 def apply_pending(target_key: str) -> None:
     """Promote any pending quickset value into the widget's state key.
     Must be called BEFORE the number_input that reads ``target_key``.

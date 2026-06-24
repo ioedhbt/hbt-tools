@@ -32,6 +32,9 @@ for group_key in i18n.GROUP_ORDER:
             with st.container(border=True):
                 st.markdown(f"### {meta['icon']} {i18n.tool_name(tool_key)}")
                 st.caption(i18n.tool_desc(tool_key))
+                feats = i18n.tool_features(tool_key)
+                if feats:
+                    st.markdown("\n".join(f"- {f}" for f in feats))
                 st.page_link(
                     meta["path"],
                     label=i18n.t("open_tool"),

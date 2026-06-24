@@ -17,7 +17,7 @@ from io import BytesIO
 from ..helpers import (extended_smith_grid, params_hash, s_to_y,
                         build_Y_pad_batch, build_Z_ser_batch,
                         plotly_with_dl,
-                        quickset_buttons, apply_pending)
+                        quickset_buttons, apply_pending, segmented_radio)
 
 # Streamlit's "rerun current script" exception — raised when any st.* call
 # happens after the user has clicked a widget that triggers a re-run (e.g.
@@ -140,7 +140,8 @@ _SMITH_COLORS = {"S11":"#1f77b4","S22":"#ff7f0e","S21":"#2ca02c","S12":"#d62728"
 def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="smith",
                        show_title=True, meas_label="Meas.", sim_label="Model",
                        *, compact: bool = False, height: int | None = None,
-                       extra_download: tuple | None = None):
+                       extra_download: tuple | None = None,
+                       inline_labels: bool = False):
     """Render a Plotly Smith chart with measured (markers) + modeled (dashed).
 
     Parameters
@@ -160,6 +161,7 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
     fig = go.Figure()
     for tr in extended_smith_grid(1.0):
         fig.add_trace(tr)
+    inline_annos = []     # populated when inline_labels=True (Sxx near trace)
     for name, (r, c) in [("S11",(0,0)),("S22",(1,1)),("S21",(1,0)),("S12",(0,1))]:
         col = _SMITH_COLORS[name]; sc = scales.get(name, 1.0)
         sm = S_mea[:,r,c]*sc; sk = S_sim[:,r,c]*sc
@@ -167,11 +169,27 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
         fig.add_trace(go.Scattergl(x=sm.real, y=sm.imag, mode="markers",
                                   name=f"{name}{sc_lbl} {meas_label}",
                                   marker=dict(color=col, size=5, symbol="circle"),
+                                  showlegend=not inline_labels,
                                   hovertemplate=f"{name} {meas_label}<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
         fig.add_trace(go.Scattergl(x=sk.real, y=sk.imag, mode="lines",
                                   name=f"{name}{sc_lbl} {sim_label}",
                                   line=dict(color=col, width=2.0, dash="dash"),
+                                  showlegend=not inline_labels,
                                   hovertemplate=f"{name} {sim_label}<br>Re=%{{x:.4f}}<br>Im=%{{y:.4f}}<extra></extra>"))
+        if inline_labels:
+            # Label each S-param near its (model) trace centroid, nudged
+            # radially outward — mirrors the matplotlib Smith chart's on-trace
+            # Sxx labels and frees the space a legend box would eat.
+            with np.errstate(invalid="ignore"):
+                cx = float(np.nanmean(sk.real)); cy = float(np.nanmean(sk.imag))
+            if np.isfinite(cx) and np.isfinite(cy):
+                rr = (cx*cx + cy*cy) ** 0.5
+                if rr > 1e-6:
+                    f = (rr + 0.13) / rr
+                    cx *= f; cy *= f
+                inline_annos.append(dict(x=cx, y=cy, xref="x", yref="y",
+                                         text=f"{name}{sc_lbl}", showarrow=False,
+                                         font=dict(size=13, color=col)))
     title_cfg = (dict(text=f"Smith Chart - {model_name}", font=dict(size=12))
                  if show_title else None)
     if compact:
@@ -191,6 +209,22 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
         margin_cfg = dict(l=50, r=30, t=70, b=50)
         eff_height = height if height is not None else 560
         annotation_y = -0.08
+    if inline_labels:
+        # Inline-label mode: no legend box; Sxx sit on the traces, plus one
+        # small meas/model hint pinned bottom-left inside the plot.
+        annotations = list(inline_annos)
+        annotations.append(dict(
+            x=-1.06, y=-1.06, xref="x", yref="y", xanchor="left", yanchor="bottom",
+            showarrow=False,
+            text=f"● {meas_label}   - - {sim_label}",
+            font=dict(size=9, color="gray"), align="left"))
+        if compact:
+            margin_cfg = dict(l=40, r=15, t=40 if show_title else 10, b=40)
+    else:
+        annotations = [dict(x=0.5, y=annotation_y, xref="paper", yref="paper",
+                            showarrow=False,
+                            text=f"● {meas_label} (markers)  |  - - {sim_label} (dashed)",
+                            font=dict(size=10, color="gray"), align="center")]
     fig.update_layout(
         title=title_cfg,
         xaxis=dict(title="Re(Γ)", range=[-1.1,1.1], scaleanchor="y", scaleratio=1,
@@ -199,11 +233,9 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
         plot_bgcolor="white", paper_bgcolor="white", height=eff_height,
         margin=margin_cfg,
         legend=legend_cfg,
+        showlegend=not inline_labels,
         hovermode="closest",
-        annotations=[dict(x=0.5, y=annotation_y, xref="paper", yref="paper",
-                          showarrow=False,
-                          text=f"● {meas_label} (markers)  |  - - {sim_label} (dashed)",
-                          font=dict(size=10, color="gray"), align="center")])
+        annotations=annotations)
     plotly_with_dl(fig, key=key, filename=key, extra_download=extra_download)
 
 
@@ -1521,14 +1553,14 @@ def _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
                            tuning_specs, fname, topo_key):
     """Sandbox-style slider preview at the top of the Tuning expander.
 
-    Two flavors selectable via the mode radio:
+    Two flavors selectable via the mode selector:
 
-      🐢 Live (Streamlit)    — drag any number of sliders; every drag-tick
+      🎯 Live tweak          — drag any number of sliders; every drag-tick
                                 triggers a Streamlit rerun + a full sim.
                                 Slow with many params or many freq points,
                                 but supports multi-param sliding.
 
-      ⚡ Plotly slider       — click ``🧮 Build animation`` once, then the
+      ⚡ Wide sweep          — click ``🧮 Build animation`` once, then the
                                 embedded Plotly figure scrubs through
                                 pre-computed frames entirely client-side
                                 (no Streamlit rerun per drag-tick).
@@ -1540,16 +1572,15 @@ def _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
     that change up and persists it to the fit cache.
     """
     mode_key = f"slpreview_mode_{topo_key}_{fname}"
-    mode = st.radio(
+    mode = segmented_radio(
         "Preview mode",
-        options=["🐢 Live (Streamlit rerun per drag)",
-                 "⚡ Plotly slider (pre-computed frames)"],
-        index=0, horizontal=True,
+        ["🎯 Live tweak", "⚡ Wide sweep"],
+        index=0,
         key=mode_key,
-        help="Live: drag any number of sliders; every tick reruns Streamlit "
-             "and re-simulates.  Plotly: click Build once, then scrub through "
-             "pre-computed frames entirely client-side (one sweep param at a "
-             "time, but instant per drag).")
+        help="🎯 Live tweak — best for a few small changes: the plots "
+             "re-compute on every drag.  ⚡ Wide sweep — best for exploring a "
+             "large range: pre-computes the whole range once so dragging is "
+             "instant afterwards.")
     if mode.startswith("⚡"):
         _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
                                        tuning_specs, fname, topo_key)
@@ -1636,9 +1667,9 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
 
     label_for = {s[0]: s[1] for s in tuning_specs}
 
-    # ── Top-level split — controls slightly narrower so the plots have
-    #    room to display Smith + Bode side-by-side.
-    controls_col, plots_col = st.columns([0.85, 1.15])
+    # ── Top-level split — keep the slider column compact so the plots get
+    #    most of the width.
+    controls_col, plots_col = st.columns([0.6, 1.4])
 
     # Pre-declare BOTH scroll containers so we can append into them in
     # any order (simulation happens after slider values are read).
@@ -1791,13 +1822,20 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
                     unsafe_allow_html=True)
                 smith_col, bode_col = st.columns(2)
                 with smith_col:
+                    # Default to the per-trace display multipliers set above the
+                    # main Smith chart (smith_scale_controls) so the preview
+                    # matches it; inline Sxx labels keep the legend off the plot.
+                    _scales = {
+                        nm: float(st.session_state.get(
+                            f"smith_scale_{topo_key}_{nm}_{fname}", 1.0))
+                        for nm in ("S11", "S12", "S21", "S22")}
                     render_smith_chart(
                         S_raw, S_prev, model_cls.NAME,
                         ssm_residual(S_raw, S_prev),
-                        scales=None,
+                        scales=_scales,
                         key=f"slpreview_smith_{topo_key}_{fname}",
                         show_title=False,
-                        compact=True, height=540)
+                        compact=True, height=540, inline_labels=True)
                 with bode_col:
                     render_ft_fmax_card(
                         S_raw, S_prev, freq,
@@ -1917,7 +1955,8 @@ def _chunked_simulate_batch_to_host(model_cls, p_batch, freq, z0, *,
 
 @_FRAGMENT
 def _render_plotly_server_cached_view(state, S_raw, freq, model_cls,
-                                       fname, topo_key, decim_n_max):
+                                       fname, topo_key, decim_n_max,
+                                       smith_mults=None):
     """Server-cached rendering: Streamlit slider per axis + Plotly figure
     with the SINGLE current frame.  No browser-side bulk transfer — the
     pre-computed ``S_batch`` lives in session_state on the server, and
@@ -1986,6 +2025,8 @@ def _render_plotly_server_cached_view(state, S_raw, freq, model_cls,
     else:
         S_raw_d = None
 
+    _mults = smith_mults or {"S11": 1.0, "S12": 1.0, "S21": 1.0, "S22": 1.0}
+
     # Render Smith + Bode side by side using existing helpers
     col_smith, col_bode = st.columns([1.05, 1])
     with col_smith:
@@ -1993,25 +2034,19 @@ def _render_plotly_server_cached_view(state, S_raw, freq, model_cls,
         if S_raw_d is not None:
             render_smith_chart(S_raw_d, S_frame_d, model_cls.NAME,
                                ssm_residual(S_raw_d, S_frame_d),
-                               scales=None,
+                               scales=_mults,
                                key=f"slprev_pl_sc_smith_{topo_key}_{fname}",
                                show_title=False)
         else:
-            # Model-only Smith chart (RF simulator path)
+            # Model-only Smith chart (RF simulator path).  make_smith expects an
+            # (N,2,2) S array and DICT toggles/scales — passing a DataFrame +
+            # tuples raised "'tuple' object has no attribute 'get'".
             from ..helpers.plotly_plots import make_smith as _make_smith
-            import pandas as _pd
-            df = _pd.DataFrame({
-                "Freq (GHz)": freq_d * 1e-9,
-                "S11_meas":   S_frame_d[:, 0, 0],
-                "S12_meas":   S_frame_d[:, 0, 1],
-                "S21_meas":   S_frame_d[:, 1, 0],
-                "S22_meas":   S_frame_d[:, 1, 1],
-            })
-            fig = _make_smith(df, freq_d * 1e-9,
+            _toggles = {"S11": True, "S12": True, "S21": True, "S22": True}
+            fig = _make_smith(S_frame_d, freq_d * 1e-9,
                               float(freq_d[0] * 1e-9),
                               float(freq_d[-1] * 1e-9),
-                              (True, True, True, True),
-                              (1.0, 1.0, 1.0, 1.0),
+                              _toggles, _mults,
                               model_cls.NAME)
             st.plotly_chart(fig, width="stretch",
                             key=f"slprev_pl_sc_smith_{topo_key}_{fname}")
@@ -2359,7 +2394,10 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
     if server_cached:
         _render_plotly_server_cached_view(
             state, S_raw, freq, model_cls, fname, topo_key,
-            decim_n_max=int(st.session_state.get(decim_key, 120)))
+            decim_n_max=int(st.session_state.get(decim_key, 120)),
+            smith_mults={nm: float(st.session_state.get(
+                f"smith_scale_{topo_key}_{nm}_{fname}", 1.0))
+                for nm in ("S11", "S12", "S21", "S22")})
     else:
         if state.get("S_batch") is None:
             st.warning("Last build used int16 quantization (server-cached "
@@ -5084,10 +5122,15 @@ class SSMModelTemplate:
 
     @classmethod
     def render_override_and_smith(cls, fname, S_raw, freq, z0,
-                                  para_eff, extract_result, **kwargs):
+                                  para_eff, extract_result, *,
+                                  show_tuning: bool = True, **kwargs):
         """
         Standard override-UI → cached sim → Smith chart → topology illustration
         → matplotlib Smith expander → tuning expander.
+
+        ``show_tuning=False`` (used by the Extraction page) suppresses the
+        Visual Tuning + Auto Tuning expanders — tuning now lives on the
+        Simulation & Fitting page.
 
         Concrete subclasses supply the per-model UI pieces via:
           cls._do_override_ui(fname, calc_vals)  → all_p
@@ -5305,10 +5348,11 @@ class SSMModelTemplate:
                                          default_multiplier=sc,
                                          phase="chart", freq_hz=freq)
 
-        render_visual_tuning_expander(cls, all_p, S_raw, freq, z0,
-                                       all_specs,
-                                       fname, cls.SHORT)
-        render_tuning_expander(cls, all_p, S_raw, freq, z0,
-                               all_specs,
-                               fname, cls.SHORT)
+        if show_tuning:
+            render_visual_tuning_expander(cls, all_p, S_raw, freq, z0,
+                                           all_specs,
+                                           fname, cls.SHORT)
+            render_tuning_expander(cls, all_p, S_raw, freq, z0,
+                                   all_specs,
+                                   fname, cls.SHORT)
         return S_sim

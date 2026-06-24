@@ -24,7 +24,7 @@ from .helpers import (s_to_y, y_to_z, z_to_y,
                       build_Y_pad,
                       peel_parasitics,
                       plotly_with_dl,
-                      quickset_buttons, apply_pending)
+                      quickset_buttons, apply_pending, segmented_radio)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -340,7 +340,8 @@ def render_open_collector_section(all_data, para_eff, fname):
 # ════════════════════════════════════════════════════════════════════════════════
 
 def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
-                       re_zparam=None, open_arr=None, short_arr=None):
+                       re_zparam=None, open_arr=None, short_arr=None,
+                       all_data=None):
     """Cold-HBT extraction UI. Returns cold_res dict or None.
 
     Per Gao §5.5.2, Z_cor must have pad caps, series inductances, and Re
@@ -350,12 +351,51 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
     open_arr / short_arr (optional) are the per-frequency arrays from
     step_open / step_short — when supplied, the parasitic override inputs
     grow quickset buttons (mean / median / low f / high f / default).
+
+    all_data (optional) lets the user pick the cold device from the already-
+    loaded bias files instead of uploading a separate S2P — handy after a
+    batch handover.  Defaults to a loaded file with "cold" in its name.
     """
 
-    st.caption("Used to extract series/access resistances Rb, Rc. Upload cut-off bias (Vce=0, Vbe≤0) S2P 'cold'.")
+    st.caption("Used to extract series/access resistances Rb, Rc. Use a cut-off bias (Vce=0, Vbe≤0) 'cold' S2P.")
     st.caption("Drawback: High-frequency measurement (Gao, Table 5.3, pg. 145)")
-    cold_file = st.file_uploader("Cold HBT S2P", type=["s2p"], key=f"cold_upload_{fname}")
-    if cold_file is None:
+
+    # ── Cold source: a loaded bias file or a fresh upload ─────────────────────
+    _candidates = [f for f in (all_data or {}) if f != fname]
+    _default_cold = next((f for f in _candidates if "cold" in f.lower()), None)
+    cold_src = None  # (freq, S, z0)
+
+    if _candidates:
+        _opts = ["📂 From loaded files", "⬆️ Upload"]
+        src_mode = segmented_radio(
+            "Cold-HBT source", _opts,
+            index=0 if _default_cold is not None else 1,
+            key=f"cold_src_mode_{fname}",
+            help="Pick one of the already-loaded bias files (e.g. a 'cold' "
+                 "cut-off measurement) or upload a separate S2P.")
+    else:
+        src_mode = "⬆️ Upload"
+
+    if src_mode.startswith("📂"):
+        _sel_default = _default_cold or _candidates[0]
+        _sel_key = f"cold_loaded_sel_{fname}"
+        if st.session_state.get(_sel_key) not in _candidates:
+            st.session_state[_sel_key] = _sel_default
+        sel = st.selectbox("Cold file (from loaded DUTs)", _candidates,
+                           format_func=lambda s: Path(s).stem, key=_sel_key)
+        _d = (all_data or {}).get(sel)
+        if _d is not None:
+            cold_src = (_d["freq"], _d["S_raw"], _d["z0"])
+    else:
+        cold_file = st.file_uploader("Cold HBT S2P", type=["s2p"],
+                                     key=f"cold_upload_{fname}")
+        if cold_file is not None:
+            try:
+                cold_src = parse_s2p_bytes(cold_file.getvalue())
+            except Exception as e:                          # noqa: BLE001
+                st.error(f"Could not read cold S2P: {e}")
+
+    if cold_src is None:
         return None
 
     # ── Pull parasitics that should be stripped before extraction ─────────
@@ -445,7 +485,7 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
     para_eff["Cpbc"] = Cpbc
 
     try:
-        f_c_raw, S_c_raw, z0_c = parse_s2p_bytes(cold_file.getvalue())
+        f_c_raw, S_c_raw, z0_c = cold_src
         if has_open:
             f_o, S_o, z0_o = open_data
             f_grid = f_o
@@ -477,9 +517,9 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
         Z_cor[:,0,1] -= 1j*omega_c*Le        + Re_v
         Z_cor[:,1,0] -= 1j*omega_c*Le        + Re_v
 
-        z12_choice = st.radio("Use for Z₁₂ in intermediate quantities:",
-                               ["Z12", "Z21"], horizontal=True,
-                               key=f"cold_z12sel_{fname}")
+        z12_choice = segmented_radio("Use for Z₁₂ in intermediate quantities:",
+                                     ["Z12", "Z21"],
+                                     key=f"cold_z12sel_{fname}")
         Z12_sel = Z_cor[:,0,1] if z12_choice == "Z12" else Z_cor[:,1,0]
         A = np.imag(Z_cor[:,0,0] - Z12_sel)
         B = np.imag(Z_cor[:,1,1] - Z12_sel)

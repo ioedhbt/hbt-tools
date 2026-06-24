@@ -13,7 +13,7 @@ overlay / individual Bode·Plateau·Smith, summary, bulk upload, and the
 Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
 repo root.
 """
-__version__ = "1.0"
+__version__ = "1.1"
 
 import hashlib, io, re, zipfile
 from pathlib import Path
@@ -27,6 +27,7 @@ from datetime import datetime
 from tools import i18n
 
 from tools.SSM.ssm_plots      import render_matplotlib_smith
+from tools.SSM             import handoff
 from tools.batch_deembedding  import render_batch_deembedding_tab
 from tools.SSM.helpers        import (
     parse_s2p, parse_csv,
@@ -669,7 +670,7 @@ with tab_ind:
         toggles={"S11":show_s11,"S22":show_s22,"S21":show_s21,"S12":show_s12}
         scales ={"S11":scale_s11,"S22":scale_s22,"S21":scale_s21,"S12":scale_s12}
 
-        ta,tb,tc,td=st.tabs(["Bode Plot","Plateau Plot","Smith Chart","🔬 SSM Extraction"])
+        ta,tb,tc=st.tabs(["Bode Plot","Plateau Plot","Smith Chart"])
         with ta:
             f_arr = df_p["Freq (GHz)"].values
             n_freq = len(f_arr)
@@ -826,15 +827,31 @@ with tab_ind:
                         phase="chart", freq_hz=_mpl_freq_hz,
                         add_pool=_mpl_pool,
                     )
-        with td:
-            # SSM extraction moved to its own portal page — see the sidebar.
-            st.info(
-                f"🔬 **{i18n.t('ssm_moved_title')}**  "
-                + i18n.t("ssm_moved_body").format(name=i18n.tool_name("ssm"))
-            )
-            if st.button(i18n.t("go_there"), key=f"ssm_goto_{n}",
-                         type="primary"):
-                st.switch_page("tools/SSM_extraction.py")
+        # ── Send this device to the SSM pages (no re-upload) ─────────────────
+        with st.container(border=True):
+            st.markdown("**🔁 Send this device to an SSM page**")
+            _has_deemb = d.get("S_fin") is not None and bool(d.get("De-embedding"))
+            hs1, hs2, hs3 = st.columns([1.4, 1, 1])
+            _stage_opts = (["De-embedded", "Raw"] if _has_deemb else ["Raw"])
+            stage_lbl = hs1.selectbox(
+                "S-parameters to send", _stage_opts, key=f"hand_stage_{n}",
+                help="De-embedded = pads/leads removed (fit intrinsic only). "
+                     "Raw = probe-level (fit Cpxx / Lx parasitics too).")
+            _use_deemb = (stage_lbl == "De-embedded")
+            _S_send = d["S_fin"] if _use_deemb else d["S_raw"]
+            _stage = "deembedded" if _use_deemb else "raw"
+            if hs2.button("→ SSM Extraction", key=f"hand_ext_{n}",
+                          width="stretch", type="primary"):
+                handoff.send(handoff.TARGET_EXTRACTION,
+                             S=_S_send, freq=d["freq"], z0=d["z0"],
+                             label=Path(n).stem, stage=_stage)
+                st.switch_page(handoff.PAGE_EXTRACTION)
+            if hs3.button("→ Simulation & Fitting", key=f"hand_sim_{n}",
+                          width="stretch"):
+                handoff.send(handoff.TARGET_SIMFIT,
+                             S=_S_send, freq=d["freq"], z0=d["z0"],
+                             label=Path(n).stem, stage=_stage)
+                st.switch_page(handoff.PAGE_SIMFIT)
 
         with st.expander("📋 Data Table"):
             if d["df_fin"] is not None:
