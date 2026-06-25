@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from .core import (
     Element, Network, CustomModel,
-    simulate_custom_model,
+    simulate_custom_model, simulate_custom_model_batch, compile_plan, SimPlan,
     save_model, load_model, list_saved_models, models_dir,
 )
 
@@ -34,42 +34,37 @@ def render_custom_section(measured: dict | None = None) -> None:
     ``st.session_state`` so it carries across pages within a session.
 
     ``measured`` (``{S, freq, z0, label, stage}`` or None) is the optional
-    measured device to fit against.  When present a "🎯 Fit to measurement"
-    mode appears (overlay + residual + tuning via :func:`render_custom_fit`).
+    measured device to fit against.  When present, the single "Simulate & fit"
+    view overlays it on the model's Smith/Bode with the residual + grid-sweep
+    Auto Tuning; when absent it is a plain forward simulator.  (Simulate and Fit
+    used to be two separate modes — they're now one, dispatched on ``measured``.)
     """
     import streamlit as st
     from .ui_build import render_build_ui
     from .ui_use import render_use_ui
     from ..helpers import segmented_radio
 
-    _M_USE, _M_BUILD, _M_FIT = "📂 Load / simulate", "🛠 Build model", "🎯 Fit to measurement"
-    options = [_M_USE, _M_BUILD] + ([_M_FIT] if measured is not None else [])
+    _M_USE, _M_BUILD = "📂 Simulate & fit", "🛠 Build model"
+    options = [_M_USE, _M_BUILD]
 
-    # "Send to Load / Fit" from the build view → switch this selector.  Must run
-    # *before* the selector is instantiated to set its session value.
+    # "Send to Simulate / Fit" from the build view → switch this selector.  Must
+    # run *before* the selector is instantiated to set its session value.
     if st.session_state.pop("cm_nav_to_loadfit", False):
-        st.session_state["cm_mode"] = _M_FIT if measured is not None else _M_USE
-    # Default to Fit mode whenever a measured device is present (so a handed-over
-    # / uploaded file is shown straight away, like the built-in models), unless
-    # the user has explicitly chosen another *valid* mode.
+        st.session_state["cm_mode"] = _M_USE
     if st.session_state.get("cm_mode") not in options:
-        st.session_state["cm_mode"] = (_M_FIT if measured is not None else _M_USE)
+        st.session_state["cm_mode"] = _M_USE
 
     mode = segmented_radio("Custom model", options,
                            key="cm_mode", label_visibility="collapsed")
     if mode == _M_BUILD:
         render_build_ui()
-    elif mode == _M_FIT and measured is not None:
-        from .ui_fit import render_custom_fit
-        render_custom_fit(measured["label"], measured["S"],
-                          measured["freq"], measured["z0"])
     else:
-        render_use_ui()
+        render_use_ui(measured)
 
 
 __all__ = [
     "Element", "Network", "CustomModel",
-    "simulate_custom_model",
+    "simulate_custom_model", "simulate_custom_model_batch", "compile_plan", "SimPlan",
     "save_model", "load_model", "list_saved_models", "models_dir",
     "render_custom_section",
 ]

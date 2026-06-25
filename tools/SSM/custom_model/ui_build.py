@@ -607,14 +607,11 @@ def render_build_ui() -> None:
         "⬇ Download .json", data=model_to_json(model),
         file_name=f"{model.name or 'model'}.json", mime="application/json",
         type="primary", width="stretch")
-    if sd[1].button("📤 Send to Load / Fit views", width="stretch",
-                    help="Load this model into the Load (simulate) and "
-                         "Fit-to-device views, switch to them, and download "
-                         "its .json"):
+    if sd[1].button("📤 Send to Simulate / Fit view", width="stretch",
+                    help="Load this model into the Simulate & Fit view, switch "
+                         "to it, and download its .json"):
         from .ui_fit import install_fit_model
         js = model_to_json(model)
-        st.session_state["cmu_model"] = load_model(js)
-        st.session_state.pop("cmu_base", None)
         install_fit_model(load_model(js))
         # Defer the download to the destination view (this rerun navigates away)
         # and signal the host page to switch its radio to Load/Fit.

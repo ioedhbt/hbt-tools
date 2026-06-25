@@ -1834,6 +1834,325 @@ fn parse_and_compute_batch<'py>(
     Ok(d)
 }
 
+// ── Phase 3 — generic data-driven custom-model batched simulator ─────────────
+//
+// Unlike the hard-coded built-in topology kernels above, the custom model's
+// topology is user-built, so it can't be inlined.  Instead the Python side
+// compiles the topology once into a flat, value-free `SimPlan` (see
+// `tools/SSM/custom_model/core.py::compile_plan`) and hands it to this kernel
+// as a dict of plain ints.  We evaluate it for every (batch, freq) pair:
+// stamp a small (n×n) complex nodal matrix, Kron-reduce the internal nodes via
+// a dense complex LU solve, and convert the surviving 2-port Y → S — exactly
+// mirroring `simulate_custom_model_batch`.  Parallel across the batch (B) axis.
+//
+// Plan dict schema (all ints/lists, no strings beyond `value_keys`):
+//   n            : usize                       node count, order [P1, P2, …]
+//   value_keys   : list[str]                   master key order; everything
+//                                              below indexes into it
+//   branches     : list[(ia, ib, series, groups)]
+//                    ia/ib : i64 node index (-1 == GND/reference)
+//                    series: 0|1
+//                    groups: [[(kind, key_idx), …], …]   kind 0=R 1=L 2=C
+//   twoport      : (ia, ib, iref, be_groups, bc_groups, ce_groups)
+//   itype_pi     : 0|1                         1 == hybrid-π, 0 == T α-source
+//   source_idx   : list[usize]                 [gm,tau] (π) or [α0,τB,τC] (T)
+
+const SHORT_Y: f64 = 1e12;   // wire limit for an all-zero series branch
+
+type CGroups = Vec<Vec<(u8, usize)>>;
+
+fn _plan_get<'py, T>(d: &Bound<'py, PyDict>, key: &str) -> PyResult<T>
+where
+    T: pyo3::FromPyObject<'py>,
+{
+    d.get_item(key)?
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err(
+            format!("sim_custom_batch: plan missing '{key}'")))?
+        .extract()
+}
+
+#[inline(always)]
+fn _elem_adm(kind: u8, val: f64, jw: C) -> C {
+    match kind {
+        0 => if val != 0.0 { C::new(1.0 / val, 0.0) } else { C::new(0.0, 0.0) }, // R
+        1 => if val != 0.0 { C::new(1.0, 0.0) / (jw * val) } else { C::new(0.0, 0.0) }, // L
+        2 => jw * val,                                                            // C
+        _ => C::new(0.0, 0.0),
+    }
+}
+
+#[inline(always)]
+fn _group_adm(group: &[(u8, usize)], v: &[f64], jw: C) -> C {
+    let mut y = C::new(0.0, 0.0);
+    for &(kind, ki) in group {
+        y += _elem_adm(kind, v[ki], jw);
+    }
+    y
+}
+
+/// Series branch: impedance sum of groups (zero group → 0 impedance / short);
+/// an all-zero branch collapses to a near-short `SHORT_Y` (the fixed-node-count
+/// analogue of the Python union-find merge).
+#[inline(always)]
+fn _branch_series(groups: &[Vec<(u8, usize)>], v: &[f64], jw: C) -> C {
+    let mut z = C::new(0.0, 0.0);
+    for g in groups {
+        let yg = _group_adm(g, v, jw);
+        if yg.norm_sqr() > 0.0 {
+            z += C::new(1.0, 0.0) / yg;
+        }
+    }
+    if z.norm_sqr() > 0.0 { C::new(1.0, 0.0) / z } else { C::new(SHORT_Y, 0.0) }
+}
+
+/// Shunt / junction branch: any absent group breaks the path → open (0);
+/// otherwise 1 / Σ(1/yg).  Empty group list → 0 (matches `_junction_adm_b`).
+#[inline(always)]
+fn _branch_shunt(groups: &[Vec<(u8, usize)>], v: &[f64], jw: C) -> C {
+    let mut inv = C::new(0.0, 0.0);
+    let mut open = false;
+    for g in groups {
+        let yg = _group_adm(g, v, jw);
+        if yg.norm_sqr() == 0.0 {
+            open = true;
+        } else {
+            inv += C::new(1.0, 0.0) / yg;
+        }
+    }
+    if open || inv.norm_sqr() == 0.0 { C::new(0.0, 0.0) } else { C::new(1.0, 0.0) / inv }
+}
+
+#[inline(always)]
+fn _stamp(y: &mut [C], n: usize, ia: i64, ib: i64, yv: C) {
+    if ia >= 0 {
+        let i = ia as usize;
+        y[i * n + i] += yv;
+    }
+    if ib >= 0 {
+        let j = ib as usize;
+        y[j * n + j] += yv;
+    }
+    if ia >= 0 && ib >= 0 {
+        let i = ia as usize;
+        let j = ib as usize;
+        y[i * n + j] -= yv;
+        y[j * n + i] -= yv;
+    }
+}
+
+#[inline(always)]
+fn _cell(y: &mut [C], n: usize, ir: i64, ic: i64, val: C) {
+    if ir >= 0 && ic >= 0 {
+        y[(ir as usize) * n + (ic as usize)] += val;
+    }
+}
+
+#[inline(always)]
+fn _intrinsic_y(pi: bool, ybe: C, ybc: C, yce: C, v: &[f64], src: &[usize], jw: C)
+    -> (C, C, C, C)
+{
+    let one = C::new(1.0, 0.0);
+    if pi {
+        let gm = C::new(v[src[0]], 0.0) * (-jw * v[src[1]]).exp();
+        return (ybe + ybc, -ybc, gm - ybc, ybc + yce);
+    }
+    let zbe = if ybe.norm_sqr() > 0.0 { one / ybe } else { C::new(0.0, 0.0) };
+    let zbc = if ybc.norm_sqr() > 0.0 { one / ybc } else { C::new(0.0, 0.0) };
+    let alpha = C::new(v[src[0]], 0.0) * (-jw * v[src[2]]).exp() / (one + jw * v[src[1]]);
+    let z11 = zbe;
+    let z12 = zbe;
+    let z21 = zbe - alpha * zbc;
+    let z22 = (one - alpha) * zbc + zbe;
+    let mut det = z11 * z22 - z12 * z21;
+    if det.norm_sqr() == 0.0 {
+        det = C::new(1e-30, 0.0);
+    }
+    (z22 / det, -z12 / det, -z21 / det, z11 / det + yce)
+}
+
+/// Solve `a · X = rhs` in place (a is m×m, rhs is m×nrhs, both row-major) via
+/// Gaussian elimination with partial pivoting; on return `rhs` holds X.
+fn _solve_inplace(a: &mut [C], rhs: &mut [C], m: usize, nrhs: usize) {
+    for col in 0..m {
+        let mut piv = col;
+        let mut best = a[col * m + col].norm_sqr();
+        for r in (col + 1)..m {
+            let val = a[r * m + col].norm_sqr();
+            if val > best {
+                best = val;
+                piv = r;
+            }
+        }
+        if piv != col {
+            for j in 0..m {
+                a.swap(col * m + j, piv * m + j);
+            }
+            for j in 0..nrhs {
+                rhs.swap(col * nrhs + j, piv * nrhs + j);
+            }
+        }
+        let mut diag = a[col * m + col];
+        if diag.norm_sqr() == 0.0 {
+            diag = C::new(1e-30, 0.0);
+        }
+        for r in (col + 1)..m {
+            let factor = a[r * m + col] / diag;
+            if factor.norm_sqr() == 0.0 {
+                continue;
+            }
+            for j in col..m {
+                let t = a[col * m + j];
+                a[r * m + j] -= factor * t;
+            }
+            for j in 0..nrhs {
+                let t = rhs[col * nrhs + j];
+                rhs[r * nrhs + j] -= factor * t;
+            }
+        }
+    }
+    for col in (0..m).rev() {
+        let mut diag = a[col * m + col];
+        if diag.norm_sqr() == 0.0 {
+            diag = C::new(1e-30, 0.0);
+        }
+        for j in 0..nrhs {
+            let mut s = rhs[col * nrhs + j];
+            for k in (col + 1)..m {
+                s -= a[col * m + k] * rhs[k * nrhs + j];
+            }
+            rhs[col * nrhs + j] = s / diag;
+        }
+    }
+}
+
+/// Kron-reduce the (n×n) nodal Y to a 2×2 port matrix (keeps indices 0,1).
+fn _kron_reduce(y: &[C], n: usize) -> [C; 4] {
+    if n == 2 {
+        return [y[0], y[1], y[2], y[3]];
+    }
+    let m = n - 2;
+    let mut a = vec![C::new(0.0, 0.0); m * m];
+    let mut rhs = vec![C::new(0.0, 0.0); m * 2];
+    for i in 0..m {
+        for j in 0..m {
+            a[i * m + j] = y[(i + 2) * n + (j + 2)];
+        }
+        a[i * m + i] += C::new(1e-15, 0.0);          // regularise floating nodes
+        rhs[i * 2] = y[(i + 2) * n];                 // Yia col 0
+        rhs[i * 2 + 1] = y[(i + 2) * n + 1];         // Yia col 1
+    }
+    _solve_inplace(&mut a, &mut rhs, m, 2);          // rhs ← Yii⁻¹ · Yia
+    let mut out = [y[0], y[1], y[n], y[n + 1]];      // Yaa
+    for r in 0..2 {
+        for c in 0..2 {
+            let mut s = C::new(0.0, 0.0);
+            for k in 0..m {
+                s += y[r * n + (k + 2)] * rhs[k * 2 + c];   // Yai · X
+            }
+            out[r * 2 + c] -= s;
+        }
+    }
+    out
+}
+
+#[pyfunction]
+fn sim_custom_batch<'py>(
+    py: Python<'py>,
+    plan: &Bound<'py, PyDict>,
+    params: &Bound<'py, PyDict>,
+    freq: PyReadonlyArray1<'py, f64>,
+    z0: f64,
+) -> PyResult<Bound<'py, PyArray4<C>>> {
+    let n: usize = _plan_get(plan, "n")?;
+    let value_keys: Vec<String> = _plan_get(plan, "value_keys")?;
+    let branches: Vec<(i64, i64, i64, CGroups)> = _plan_get(plan, "branches")?;
+    let (tp_a, tp_b, tp_ref, be_g, bc_g, ce_g):
+        (i64, i64, i64, CGroups, CGroups, CGroups) = _plan_get(plan, "twoport")?;
+    let itype_pi: i64 = _plan_get(plan, "itype_pi")?;
+    let source_idx: Vec<usize> = _plan_get(plan, "source_idx")?;
+    let pi_model = itype_pi != 0;
+
+    // Pre-extract every referenced value as a BcVal (scalar / per-batch).
+    let vals: Vec<BcVal> = value_keys.iter()
+        .map(|k| _extract_bcval(params, k, 0.0))
+        .collect::<PyResult<_>>()?;
+    let b: usize = vals.iter().filter_map(|v| v.batch_len()).max().unwrap_or(1);
+    for v in &vals {
+        if let Some(l) = v.batch_len() {
+            if l != b {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "sim_custom_batch: inconsistent per-batch param lengths."));
+            }
+        }
+    }
+
+    let freq_view = freq.as_array();
+    let nf = freq_view.len();
+    let freq_slice = freq_view.as_slice()
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err(
+            "sim_custom_batch: freq array must be C-contiguous."))?
+        .to_vec();
+
+    let mut out = Array4::<C>::zeros((b, nf, 2, 2));
+    let slab_len = nf * 4;
+    let flat = out.as_slice_mut().expect("Array4 is always C-contig");
+    let z0c = C::new(z0, 0.0);
+
+    py.allow_threads(|| {
+        flat.par_chunks_mut(slab_len)
+            .enumerate()
+            .for_each(|(bi, chunk)| {
+                // This batch's scalar values, indexed by value-key index.
+                let v: Vec<f64> = vals.iter().map(|bc| bc.at(bi)).collect();
+                let mut ymat = vec![C::new(0.0, 0.0); n * n];
+                for ni in 0..nf {
+                    let omega = 2.0 * std::f64::consts::PI * freq_slice[ni];
+                    let jw = C::new(0.0, omega);
+                    for cc in ymat.iter_mut() {
+                        *cc = C::new(0.0, 0.0);
+                    }
+
+                    // ── Passive branches ──
+                    for (ia, ib, series, groups) in &branches {
+                        let y = if *series != 0 {
+                            _branch_series(groups, &v, jw)
+                        } else {
+                            _branch_shunt(groups, &v, jw)
+                        };
+                        _stamp(&mut ymat, n, *ia, *ib, y);
+                    }
+
+                    // ── Intrinsic controlled-source 2-port ──
+                    let ybe = _branch_shunt(&be_g, &v, jw);
+                    let ybc = _branch_shunt(&bc_g, &v, jw);
+                    let yce = _branch_shunt(&ce_g, &v, jw);
+                    let (y11, y12, y21, y22) =
+                        _intrinsic_y(pi_model, ybe, ybc, yce, &v, &source_idx, jw);
+                    _cell(&mut ymat, n, tp_a, tp_a, y11);
+                    _cell(&mut ymat, n, tp_a, tp_b, y12);
+                    _cell(&mut ymat, n, tp_b, tp_a, y21);
+                    _cell(&mut ymat, n, tp_b, tp_b, y22);
+                    _cell(&mut ymat, n, tp_a, tp_ref, -(y11 + y12));
+                    _cell(&mut ymat, n, tp_b, tp_ref, -(y21 + y22));
+                    _cell(&mut ymat, n, tp_ref, tp_a, -(y11 + y21));
+                    _cell(&mut ymat, n, tp_ref, tp_b, -(y12 + y22));
+                    _cell(&mut ymat, n, tp_ref, tp_ref, y11 + y12 + y21 + y22);
+
+                    // ── Kron reduce → 2×2 Y → S ──
+                    let y2 = _kron_reduce(&ymat, n);
+                    let s = y_to_s_one(&y2, z0c);
+                    let off = ni * 4;
+                    chunk[off] = s[0];
+                    chunk[off + 1] = s[1];
+                    chunk[off + 2] = s[2];
+                    chunk[off + 3] = s[3];
+                }
+            });
+    });
+
+    Ok(out.into_pyarray_bound(py))
+}
+
 #[pymodule]
 fn hbt_rust_kernels(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Phase 1 primitives
@@ -1849,6 +2168,8 @@ fn hbt_rust_kernels(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sim_cheng_pi_batch,   m)?)?;
     m.add_function(wrap_pyfunction!(sim_xu_t_batch,       m)?)?;
     m.add_function(wrap_pyfunction!(sim_kunyang_batch,    m)?)?;
+    // Phase 3 — generic data-driven custom-model simulator
+    m.add_function(wrap_pyfunction!(sim_custom_batch,     m)?)?;
     m.add("__doc__", "HBT Rust kernels — see Python wrapper at \
                       tools/SSM/helpers/rust_kernels.py")?;
     Ok(())

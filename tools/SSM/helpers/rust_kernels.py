@@ -536,6 +536,81 @@ def sim_kunyang_batch(params, freq, z0=50.0, *, np_fallback):
     return _phase2_dispatch("sim_kunyang_batch", params, freq, z0, np_fallback)
 
 
+# ── Phase 3 — generic custom-model batched simulator ─────────────────────────
+_KIND_CODE = {"R": 0, "L": 1, "C": 2}
+
+
+def _encode_custom_plan(plan) -> dict:
+    """Serialise a ``custom_model.core.SimPlan`` to the plain-int dict the Rust
+    ``sim_custom_batch`` kernel expects.  Element value keys are rewritten as
+    indices into ``plan.value_keys`` (so the Rust side does no string work in
+    the hot loop)."""
+    key_index = {k: i for i, k in enumerate(plan.value_keys)}
+
+    def enc(groups):
+        return [[(_KIND_CODE[kind], key_index[key]) for (kind, key) in g]
+                for g in groups]
+
+    branches = [(int(ia), int(ib), 1 if series else 0, enc(groups))
+                for (ia, ib, series, groups) in plan.branches]
+    ia, ib, iref, be_g, bc_g, ce_g = plan.twoport
+    return {
+        "n": int(plan.n),
+        "value_keys": list(plan.value_keys),
+        "branches": branches,
+        "twoport": (int(ia), int(ib), int(iref),
+                    enc(be_g), enc(bc_g), enc(ce_g)),
+        "itype_pi": 1 if plan.itype == "Pi" else 0,
+        "source_idx": [key_index[k] for k in plan.source_keys],
+    }
+
+
+def sim_custom_batch(plan, params, freq, z0=50.0, *, np_fallback):
+    """Custom-model end-to-end batched simulation (data-driven Rust kernel).
+
+    ``plan`` is a compiled :class:`SimPlan`; ``params`` is the (already flat,
+    length-B) SI value dict.  Routes to the Rust ``sim_custom_batch`` when the
+    crate is built and Phase-2 dispatch is enabled, else to ``np_fallback``
+    (the NumPy-vectorised evaluator) — so a missing binary just means the slow,
+    correct path.  Honours ``HBT_RUST_PARITY_CHECK`` like the built-in kernels.
+    """
+    if not (HAS_RUST and _phase2_dispatch_enabled()):
+        return np_fallback(params, freq, z0)
+
+    rust_fn = getattr(_rk, "sim_custom_batch", None)
+    if rust_fn is None:
+        return np_fallback(params, freq, z0)
+
+    try:
+        freq_c = np.ascontiguousarray(freq, dtype=np.float64)
+        norm_params = _normalize_params_for_rust(params)
+        plan_d = _encode_custom_plan(plan)
+        rust_out = rust_fn(plan_d, norm_params, freq_c, float(z0))
+    except NotImplementedError:
+        return np_fallback(params, freq, z0)
+    except Exception as e:                                  # pragma: no cover
+        import warnings
+        key = ("sim_custom_batch", type(e).__name__)
+        if key not in _WARNED_ABOUT:
+            _WARNED_ABOUT.add(key)
+            warnings.warn(
+                f"Rust sim_custom_batch raised {type(e).__name__}: {e}.  "
+                f"Falling back to NumPy (further warnings suppressed).",
+                RuntimeWarning, stacklevel=3,
+            )
+        return np_fallback(params, freq, z0)
+
+    if _phase2_parity_check_enabled():
+        np_out = np_fallback(params, freq, z0)
+        if not np.allclose(rust_out, np_out, rtol=1e-9, atol=1e-12):
+            max_err = float(np.max(np.abs(rust_out - np_out)))
+            raise AssertionError(
+                f"HBT_RUST_PARITY_CHECK: sim_custom_batch disagrees with NumPy "
+                f"reference (max |abs diff| = {max_err:.3e}).")
+
+    return rust_out
+
+
 # Lookup table consumed by `SSMModelTemplate.simulate_batch` to pick
 # the right Rust wrapper for a model's `SHORT` identifier.  Adding a
 # new topology only requires (a) a Rust `#[pyfunction]`, (b) a wrapper

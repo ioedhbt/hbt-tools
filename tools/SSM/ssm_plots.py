@@ -1803,6 +1803,28 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                         np.clip(_pos.imag, -1.1, 1.1))
                 except Exception:                        # noqa: BLE001
                     continue
+            # Also (re)add the freq-range annotation and reset it to its default
+            # spot (0.0, -1.1) — so one click restores both the per-trace labels
+            # and the "{lo} ~ {hi} GHz" caption to their default layout.
+            if freq_hz is not None:
+                try:
+                    _f = np.asarray(freq_hz, dtype=float)
+                    _f = _f[np.isfinite(_f)]
+                    if _f.size >= 2:
+                        _lo = float(_f.min()) * 1e-9
+                        _hi = float(_f.max()) * 1e-9
+                        _slot = st.session_state.get(f"{skey}_freq_slot")
+                        if _slot is None:
+                            _slot = int(st.session_state.get(extra_key, 0))
+                            st.session_state[extra_key] = _slot + 1
+                            st.session_state[f"{skey}_freq_slot"] = _slot
+                        st.session_state[f"{skey}_etext_{_slot}"] = f"{_lo:g} ~ {_hi:g} GHz"
+                        st.session_state[f"{skey}_ex_{_slot}"] = 0.0
+                        st.session_state[f"{skey}_ey_{_slot}"] = -1.1
+                        st.session_state.setdefault(f"{skey}_ecolor_{_slot}", "#000000")
+                        st.session_state[f"{skey}_freq_seed_sig"] = f"{_lo:g}~{_hi:g}"
+                except (TypeError, ValueError):
+                    pass
 
         st.button(
             "🎯 Auto-place labels", key=f"{skey}_autoplace_btn",

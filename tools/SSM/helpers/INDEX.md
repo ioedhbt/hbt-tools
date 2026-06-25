@@ -252,6 +252,7 @@ Canonical home for the small shape/broadcast utilities formerly duplicated acros
 | `sim_cheng_pi_batch(params, freq, z0=50.0, *, np_fallback)` | 507 | Cheng π-topology end-to-end batched simulation. |
 | `sim_xu_t_batch(params, freq, z0=50.0, *, np_fallback)` | 516 | Xu T-topology end-to-end batched simulation (parallel `Rbcx ∥ Cbcx`). |
 | `sim_kunyang_batch(params, freq, z0=50.0, *, np_fallback)` | 526 | Kun-Yang HEMT pi-topology end-to-end batched simulation. |
+| `sim_custom_batch(plan, params, freq, z0=50.0, *, np_fallback)` + `_encode_custom_plan(plan)` | — | **Generic, data-driven** custom-model end-to-end batched simulation. `_encode_custom_plan` serialises a `SimPlan` to a plain-int dict; the Rust `sim_custom_batch` kernel stamps the `(n×n)` nodal Y, Kron-reduces via a dense complex LU solve, and converts Y→S per `(B,N)`. Silent NumPy-vectorised fallback. |
 | `SIM_FOR_TOPOLOGY` | 543 | `{topology_short → wrapper}` lookup consumed by `SSMModelTemplate.simulate_batch`. |
 | `_EXTRACT_METHOD_LABELS` | (module) | u8 method code → string label ("No Data" / "No Gain" / "0dB Cross" / "Extrap & Plat."). |
 | `_np_parse_and_compute_batch(files_bytes, n_pts=2, f_min=0.01, f_max=50.0)` | 579 | NumPy reference for the bulk-upload accelerator (parse_s2p + s_to_y + compute_metrics + extract_limit). Byte-identical fallback. |
@@ -462,32 +463,38 @@ Module-level helpers:
 
 ## Custom model builder (`custom_model/*.py`)
 
-User-built ("custom") small-signal models. A visual **Build** workflow builds a
-topology inside→outward; a **Load** workflow loads a topology, takes a value per
-component, and forward-simulates S-parameters; a **Fit** workflow overlays a
-model on a *measured* device and tunes it.  In `tools/RF_simulator.py` it's a
-**"🧩 Custom model" entry in the Model radio** → `render_custom_section()`
-(`custom_model/__init__.py`), a **Load model / Build model radio** (defaults to
-Load).  **Load** = a single `.json` uploader that auto-loads on upload (no
-library, no button); **Build** = the wizard, ending in **Download .json** /
-**Send to Load/Fit** (no save-to-library).  Build also takes a **"Modify an
+User-built ("custom") small-signal models. Two modes (Simulate-and-Fit was
+formerly two separate Load/Fit modes — now **combined**): a visual **Build**
+workflow builds a topology inside→outward; a **Simulate & fit** workflow
+(`ui_use.py::render_use_ui(measured=None)`) loads a topology, takes a value per
+component, and forward-simulates — and when `render_custom_section` is handed a
+**measured device** it overlays it on the *same* Smith/Bode (markers vs dashed),
+shows the residual, and adds the grid-sweep **Auto Tuning** expander; with no
+device it's a plain forward simulator (user-set frequency).  In
+`tools/RF_simulator.py` it's a **"🧩 Custom model" entry in the Model radio** →
+`render_custom_section(measured)` (`custom_model/__init__.py`), a **Simulate &
+fit / Build model radio**.  **Build** = the wizard, ending in **Download .json**
+/ **Send to Simulate/Fit** (no save-to-library); it also takes a **"Modify an
 existing model"** upload that loads the whole saved setup (device, π/T,
 junctions, all sections + names) into the editor (named `…_modified`).
 `CustomModel.from_dict` migrates schema-v1 files (`_migrate_v1`) so old saved
-models load faithfully.
+models load faithfully.  The combined view reuses `ui_fit`'s `_load_model`
+(shared `cmf_model` source), `_value_inputs` (`sim_custom_{cid}_{fname}` keys),
+`_clear_tuning_state`, and `_make_adapter` so model + tuning state are shared
+across the with/without-device cases.
 
-In `tools/SSM_extraction.py` the **Model** radio is *Built-in extraction* (default)
-or *🧩 Custom model*; the latter holds a sub-radio **Build / modify** (→
-`render_build_ui`) and **Load & fit to this device** (→
-`custom_model/ui_fit.py::render_custom_fit`).  Fit is not an extraction — it
-reuses the **same result UI as the built-in models**: `render_smith_with_ftfmax`
-(Total/per-trace `ssm_residual` % above the Smith + fT/fmax card, download/copy
-below), the topology illustration (PNG download **+ copy-image** via
-`schematic.copy_image_button`), the two-column matplotlib Smith chart, and the
-**shared `render_tuning_expander`** grid-sweep (Brute/Optimized/Prioritized,
-per-param Min/Step/Max, "Use best values").  `_make_adapter` wraps the
-`CustomModel` in an AbstractSSMModel-shaped class with `simulate` + a generic
-per-combo `simulate_batch` so the tuning works unchanged; the value inputs use
+The combined **Simulate & fit** view (`ui_use.py::render_use_ui`) reuses the
+**same result UI as the built-in models** whenever a device is present:
+`render_smith_with_ftfmax` (Total/per-trace `ssm_residual` % above the Smith +
+fT/fmax card, download/copy below), the topology illustration (PNG download **+
+copy-image** via `schematic.copy_image_button`), the two-column matplotlib Smith
+chart (measured + modeled), and **both** shared tuning expanders —
+`render_visual_tuning_expander` (🎯 Live tweak / ⚡ Wide sweep) and
+`render_tuning_expander` grid-sweep (Brute/Optimized/Prioritized, per-param
+Min/Step/Max, "Use best values").  With no device it shows a model-only Smith
+(`_smith_fig`) + forward Bode and Visual Tuning only.  `_make_adapter` wraps the
+`CustomModel` in an AbstractSSMModel-shaped class (`simulate` / `simulate_vec` /
+plan-backed `simulate_batch`) so the tuning works unchanged; the value inputs use
 `sim_custom_{cid}_{fname}` keys (floored at 0) so applied sweeps flow back.
 `_clear_tuning_state` drops the previous model's stale tuning/value state on
 every model change (token-tracked) so added components can't KeyError the
@@ -522,11 +529,13 @@ between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ
 | `CustomModel` | — | Whole topology: `device`, `intrinsic_type`, four editable intrinsic junction Networks (`intrinsic_base/be/bc/ce`), `source_name`, per-section branches. Helpers: `source_keys`, `source_disp`, `terminals`, `port_label`, `intrinsic_junctions`, `ensure_intrinsic`. `to_dict`/`from_dict` (schema v2)/`all_value_specs`. |
 | `_default_source_name(itype, device)` | — | Default controlled-source label per topology+device. |
 | `models_dir` / `save_model` / `load_model` / `list_saved_models` | — | JSON persistence under repo-root `custom_models/`. |
-| `simulate_custom_model(model, freq, values, z0)` | — | Build node graph (series branch absent⇒wire, shunt absent⇒open), compute Ybe/Ybc/Yce from junction Networks, stamp intrinsic π/T 2-port + base-spreading branch BB→BI, Kron-reduce, Y→S. |
-| `_net_admittance(net, values, omega)` | — | Equivalent admittance of a junction Network (0 where open) — reproduces `_rc_parallel` for a default C∥R group. |
-| `_intrinsic_Y(itype, Ybe, Ybc, Yce, src, omega)` | — | Common-emitter 2-port from precomputed junction admittances + scalar source params. |
-| `_y_network(net, values, omega, series)` | — | Admittance of a series-of-parallel branch; series vs shunt absence semantics. |
-| `_assemble_and_reduce(...)` | — | Nodal stamp + 2-port stamp + Kron reduction to the 2 ports → S. |
+| `SimPlan` (dataclass) | — | Value-free compiled topology: `n` nodes, `branches` `(ia,ib,series,groups)`, `twoport` `(ia,ib,iref,be,bc,ce)`, `itype`, `source_keys`, `value_keys`. Consumed by the vectorised evaluator **and** the Rust `sim_custom_batch`. |
+| `compile_plan(model)` | — | Resolve topology to a `SimPlan` **once** (structural node merges via union-find — a structurally-empty series branch is a wire). Raises on degenerate (port-to-GND / merged ports). |
+| `simulate_custom_model_batch(plan, freq, values, z0, xp=np, max_batch_elems)` | — | Vectorised forward sim over a parameter batch → `S[B,N,2,2]`. Scatter-stamps a `(B,N,n,n)` Y, batched `xp.linalg.solve` Kron reduction, `y_to_s_vec`. `xp=cupy` ⇒ runs on GPU; chunks the batch axis to bound memory. |
+| `simulate_custom_model(model, freq, values, z0)` | — | Thin scalar wrapper: `compile_plan` → `simulate_custom_model_batch` with scalar values → `S[N,2,2]` (forward-sim / "Use" mode, back-compat). |
+| `_elem_adm_b` / `_group_adm_b` / `_branch_series_b` / `_branch_shunt_b` / `_junction_adm_b` | — | Batched `xp`-aware admittance kernels. Series: Σ group impedances (zero group = short; all-zero ⇒ near-short `_SHORT_Y`). Shunt/junction: any absent group ⇒ open. |
+| `_intrinsic_Y_b(itype, Ybe, Ybc, Yce, src, jw, xp)` | — | Batched common-emitter 2-port from junction admittances + scalar source params (π / T α-source). |
+| `_simulate_plan_core(plan, jw, vals, z0, xp, B)` / `_stamp(...)` | — | One-chunk evaluator: build `(B,N,n,n)` Y, embed indefinite 2-port, Kron-reduce, Y→S. |
 
 ### [`custom_model/schematic.py`](../custom_model/schematic.py) — live SVG
 
@@ -559,19 +568,20 @@ between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ
 | `_auto_download_json` / `fire_pending_download` | Trigger a browser download via a hidden data-URI anchor; `fire_pending_download` (called atop the Load + Fit views) downloads a model "sent" from build after the navigation rerun. |
 | `_network_editor` / `_shunt_list_editor` | Reusable series-of-parallel and shunt-branch editors (🗑️ trash; name keys carry `_ver()`; "➕ Cap" pre-adds a C). |
 
-### [`custom_model/ui_use.py`](../custom_model/ui_use.py) — "Load" / Use UI
+### [`custom_model/ui_use.py`](../custom_model/ui_use.py) — combined Simulate & Fit UI
 
 | Function | Purpose |
 |---|---|
-| `render_use_ui()` | Auto-load on `.json` upload (no library/button) → value inputs (floored at 0; source params Gm0/τ/α₀/τB/τC) → forward-simulate → Smith (📋 copy) + fT/fmax Bode (xlsx + 📋 copy) + s2p; schematic with PNG / 📋-copy / SVG. Fires `fire_pending_download` for build-sent models. |
+| `render_use_ui(measured=None)` | **Unified** workbench (merges the old Load/simulate + Fit modes). Loads via `ui_fit._load_model` (shared `cmf_model`) → `ui_fit._value_inputs` (keys `sim_custom_{cid}_{fname}`) → forward-simulate. **With a device** (`measured` present): freq locked to the device grid; `render_smith_with_ftfmax` overlay + residual + fT/fmax, matplotlib Smith (measured+modeled), and Visual + Auto Tuning (ref = `S_meas`). **Without**: user-set freq, model-only `_smith_fig` + forward Bode, Visual Tuning only (ref = current sim). `fname` = device label when fitting else `"forward"`; clears stale tuning state on model change via `ui_fit._clear_tuning_state`. |
+| `_smith_fig(S, freq, title, scales=None)` | Plotly Smith for the model-only (no-device) view; `scales` applies the per-trace × multiplier. |
 
-### [`custom_model/ui_fit.py`](../custom_model/ui_fit.py) — "Fit to device" UI
+### [`custom_model/ui_fit.py`](../custom_model/ui_fit.py) — Fit helpers + model adapter
 
 | Function | Purpose |
 |---|---|
-| `render_custom_fit(fname, S_meas, freq, z0)` | Overlay a custom model on the measured DUT: value inputs (floored at 0) → `render_smith_with_ftfmax` (same residual/Smith/Bode UI as built-in models) → topology illustration (PNG + 📋-copy) → 2-column matplotlib Smith → shared `render_tuning_expander`. Clears stale tuning/value state when `cmf_model_token` changes. |
-| `install_fit_model(model)` | Set `cmf_model` + bump `cmf_model_token` (used by the uploader and build's "Send to Fit"). |
-| `_make_adapter(model)` | Wrap a `CustomModel` as an AbstractSSMModel-shaped class (`SHORT`, `simulate`, generic per-combo `simulate_batch`) so `render_tuning_expander` runs unchanged. |
+| `_load_model(fname)` / `_value_inputs(model, fname)` / `_val_key` | `.json` uploader → `cmf_model`; value-input grid keyed `sim_custom_{cid}_{fname}` (floored at 0; `_FIT_SPEC` start defaults). Consumed by the combined `render_use_ui`. |
+| `install_fit_model(model)` | Set `cmf_model` + bump `cmf_model_token` (used by the uploader and build's "Send to Simulate/Fit"). |
+| `_make_adapter(model)` | Wrap a `CustomModel` as an AbstractSSMModel-shaped class so `render_tuning_expander` runs unchanged. Compiles a `SimPlan` once (`cls._plan`); implements `simulate`, `simulate_vec` (→`(N,2,2)`), and `simulate_batch` (→`inner+(N,2,2)`). CPU (`xp` numpy) routes through the Rust `sim_custom_batch` kernel (silent NumPy fallback); CUDA (`xp` cupy) runs the vectorised evaluator on the GPU. |
 | `_clear_tuning_state(fname)` | Drop the shared tuning expander's cached results + per-param sweep widgets + stale `sim_*` value inputs for this DUT (exact key boundaries). |
 
 ---

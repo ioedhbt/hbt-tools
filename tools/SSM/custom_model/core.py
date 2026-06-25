@@ -432,95 +432,86 @@ def list_saved_models() -> list[Path]:
 # ════════════════════════════════════════════════════════════════════════════
 # Solver — netlist → nodal Y → 2-port Y → S
 # ════════════════════════════════════════════════════════════════════════════
-def _y_element(kind: str, val: float, omega: np.ndarray) -> np.ndarray:
-    """Admittance array for one R/L/C leaf.  Value 0/None ⇒ absent (open)."""
-    z = np.zeros_like(omega, dtype=complex)
-    if not val:
-        return z
+# Near-short admittance used to represent an all-zero (wire) *series* branch
+# without changing the node count — the fixed-topology analogue of the scalar
+# path's union-find merge (see _branch_series_b / compile_plan).
+_SHORT_Y = 1e12
+
+
+def _safe(x, xp):
+    """Replace exact-zero entries with 1 so a reciprocal stays finite; callers
+    mask the genuine result back to 0 with a parallel ``where``."""
+    return xp.where(xp.abs(x) > 0, x, 1.0)
+
+
+def _elem_adm_b(kind: str, v, jw, xp):
+    """Vectorised admittance of one R/L/C leaf.
+
+    ``v`` is a value array of shape ``(B, 1)`` (or scalar-broadcastable) and
+    ``jw = 1j·ω`` has shape ``(1, N)``.  A zero value ⇒ absent (open) → 0
+    admittance, matching the scalar convention of the former ``_y_element``.
+    """
     if kind == "R":
-        return z + (1.0 / val)
+        return xp.where(v != 0, 1.0 / _safe(v, xp), 0.0)            # (B, 1)
     if kind == "L":
-        return 1.0 / (1j * omega * val)
+        return xp.where(v != 0, 1.0 / _safe(jw * v, xp), 0.0)       # (B, N)
     if kind == "C":
-        return 1j * omega * val * np.ones_like(omega)
-    return z
+        return jw * v                                              # (B, N); 0 if v=0
+    return xp.zeros_like(jw)
 
 
-def _y_group(group: list[Element], values: dict, omega: np.ndarray) -> np.ndarray:
-    """Parallel combination of the elements in one group."""
-    y = np.zeros_like(omega, dtype=complex)
-    for e in group:
-        y = y + _y_element(e.kind, float(values.get(e.id, 0.0) or 0.0), omega)
+def _group_adm_b(group, vals: dict, jw, xp):
+    """Parallel combination (admittance sum) of one group's elements."""
+    y = 0.0
+    for kind, key in group:
+        y = y + _elem_adm_b(kind, vals[key], jw, xp)
     return y
 
 
-def _y_network(net: Network, values: dict, omega: np.ndarray,
-               series: bool) -> np.ndarray | None:
-    """Admittance of a series-of-parallel-groups branch.
+def _branch_series_b(groups, vals: dict, jw, xp):
+    """Admittance of a structurally-present *series* branch.
 
-    Empty groups (no elements yet) are ignored.  A group whose elements are
-    all absent (value 0) evaluates to 0 admittance — what that means depends
-    on the branch role:
-
-    * ``series=True``  (signal-path branch: port extras, access) — an absent
-      group is a **short** (skipped); a fully-absent branch returns ``None``
-      so the caller merges its end nodes with a plain wire.
-    * ``series=False`` (shunt/bridge branch: extrinsic, parasitic caps) — an
-      absent group breaks the path → the branch is **open** → returns ``None``
-      so the caller drops it entirely.
+    Sum the group impedances (a zero-value group contributes 0 impedance — a
+    short — exactly as the scalar ``_y_network`` skipped absent series groups).
+    An all-zero branch collapses to a wire, represented here by the large
+    finite admittance ``_SHORT_Y`` (numerically a short to ~1e-12 relative).
     """
-    groups = [g for g in net.groups if g]            # ignore empty steps
-    if not groups:
-        return None
-    z = np.zeros_like(omega, dtype=complex)
-    used = 0
+    Z = 0.0
     for g in groups:
-        yg = _y_group(g, values, omega)
-        if not np.any(np.abs(yg) > 0):               # group fully absent
-            if series:
-                continue                              # short — skip
-            return None                               # shunt — open → drop
-        with np.errstate(divide="ignore", invalid="ignore"):
-            z = z + 1.0 / yg
-        used += 1
-    if used == 0:                                     # everything shorted
-        return None                                   # → wire (series) / open
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return np.where(np.abs(z) > 0, 1.0 / z, 0.0)
+        yg = _group_adm_b(g, vals, jw, xp)
+        Z = Z + xp.where(xp.abs(yg) > 0, 1.0 / _safe(yg, xp), 0.0)
+    return xp.where(xp.abs(Z) > 0, 1.0 / _safe(Z, xp), _SHORT_Y)
 
 
-def _rc_parallel(c_val: float, r_val: float, omega: np.ndarray) -> np.ndarray:
-    """C ∥ R admittance for intrinsic junctions."""
-    y = np.zeros_like(omega, dtype=complex)
-    if c_val:
-        y = y + 1j * omega * c_val
-    if r_val:
-        y = y + 1.0 / r_val
-    return y
+def _branch_shunt_b(groups, vals: dict, jw, xp):
+    """Admittance of a structurally-present *shunt* branch.  Any absent group
+    breaks the path → the whole branch is open (0), matching the scalar
+    ``_y_network(series=False)`` early-return-None semantics."""
+    inv = 0.0
+    open_mask = None
+    for g in groups:
+        yg = _group_adm_b(g, vals, jw, xp)
+        gz = xp.abs(yg) == 0
+        open_mask = gz if open_mask is None else (open_mask | gz)
+        inv = inv + xp.where(xp.abs(yg) > 0, 1.0 / _safe(yg, xp), 0.0)
+    y = xp.where(xp.abs(inv) > 0, 1.0 / _safe(inv, xp), 0.0)
+    return xp.where(open_mask, 0.0, y) if open_mask is not None else y
 
 
-def _net_admittance(net: "Network", values: dict, omega: np.ndarray) -> np.ndarray:
-    """Equivalent admittance array of a 2-terminal junction Network.
-
-    The junction is a series chain of parallel groups (default = a single
-    Cbe∥Rbe-style group).  Returns 0 where the branch is open/absent.  For a
-    plain C∥R group this is identical to ``_rc_parallel`` — so a Cheng-default
-    junction reproduces the previous analytic admittance exactly, while a
-    user-edited junction (extra parallels / series steps) is honoured.
-    """
-    y = _y_network(net, values, omega, series=False)
-    return np.zeros_like(omega, dtype=complex) if y is None else y
+def _junction_adm_b(groups, vals: dict, jw, xp):
+    """Equivalent admittance of an intrinsic junction Network (shunt
+    semantics; empty ⇒ 0).  Vectorised form of the scalar ``_net_admittance``."""
+    if not groups:
+        return xp.zeros_like(jw)
+    return _branch_shunt_b(groups, vals, jw, xp)
 
 
-def _intrinsic_Y(itype: str, Ybe, Ybc, Yce, src: dict,
-                 omega: np.ndarray) -> tuple:
-    """Common-emitter 2-port intrinsic admittance (y11, y12, y21, y22).
+def _intrinsic_Y_b(itype: str, Ybe, Ybc, Yce, src: dict, jw, xp) -> tuple:
+    """Batched common-emitter 2-port intrinsic admittance (y11, y12, y21, y22).
 
-    Referenced to the intrinsic emitter node.  Junction admittances ``Ybe``,
-    ``Ybc`` (b–e, b–c) and the optional output ``Yce`` are precomputed from the
-    editable junction Networks; ``src`` holds the controlled-source scalar
-    parameters.  Base spreading resistance (Rbi) is stamped separately as a
-    series branch BB→BI.
+    Vectorised form of the former scalar ``_intrinsic_Y``.  Referenced to the
+    intrinsic emitter node; junction admittances are precomputed from the
+    editable junction Networks and ``src`` holds the controlled-source scalars.
 
     * **Pi** — hybrid-π:  y = [[Ybe+Ybc, −Ybc], [gm−Ybc, Ybc+Yce]],
       gm = gm₀·e^(−jωτ).
@@ -529,20 +520,17 @@ def _intrinsic_Y(itype: str, Ybe, Ybc, Yce, src: dict,
       Zbe = 1/Ybe, Zbc = 1/Ybc, α = α₀·e^(−jωτ_C)/(1+jωτ_B); Yce added in
       parallel at the output.
     """
-    jw = 1j * omega
     if itype == "Pi":
-        gm = src["gm"] * np.exp(-jw * src["tau"])
+        gm = src["gm"] * xp.exp(-jw * src["tau"])
         return Ybe + Ybc, -Ybc, gm - Ybc, Ybc + Yce
     # ── T (α current-source) ──
-    z = np.zeros_like(omega, dtype=complex)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        Zbe = np.where(np.abs(Ybe) > 0, 1.0 / Ybe, z)
-        Zbc = np.where(np.abs(Ybc) > 0, 1.0 / Ybc, z)
-    alpha = src["alpha0"] * np.exp(-jw * src["tauC"]) / (1.0 + jw * src["tauB"])
+    Zbe = xp.where(xp.abs(Ybe) > 0, 1.0 / _safe(Ybe, xp), 0.0)
+    Zbc = xp.where(xp.abs(Ybc) > 0, 1.0 / _safe(Ybc, xp), 0.0)
+    alpha = src["alpha0"] * xp.exp(-jw * src["tauC"]) / (1.0 + jw * src["tauB"])
     z11, z12 = Zbe, Zbe
     z21, z22 = Zbe - alpha * Zbc, (1.0 - alpha) * Zbc + Zbe
     det = z11 * z22 - z12 * z21
-    det = np.where(np.abs(det) > 0, det, 1e-30)
+    det = xp.where(xp.abs(det) > 0, det, 1e-30)
     return z22 / det, -z12 / det, -z21 / det, z11 / det + Yce
 
 
@@ -570,99 +558,119 @@ class _UnionFind:
         self._p[rb] = ra
 
 
-def simulate_custom_model(model: CustomModel, freq: np.ndarray,
-                          values: dict, z0: float = 50.0) -> np.ndarray:
-    """Forward-simulate S[N,2,2] from a :class:`CustomModel` + value dict.
+@dataclass
+class SimPlan:
+    """Value-free, flattened topology of a :class:`CustomModel`, compiled once
+    (:func:`compile_plan`) so a tuning sweep can evaluate thousands of parameter
+    sets without rebuilding the node graph each time.  Consumed by the
+    vectorised evaluator (:func:`simulate_custom_model_batch`) and, when built,
+    the Rust kernel.
 
-    ``values`` maps element id (or intrinsic/access key) → value in SI units.
+    * ``n`` — node count; ordering is ``[P1, P2, internal…]`` so a Kron
+      reduction that keeps the first two indices yields the 2-port.
+    * ``branches`` — ``(ia, ib, series, groups)`` per passive branch, where
+      ``ia``/``ib`` are node indices (``-1`` == GND/reference) and ``groups`` is
+      ``[[(kind, value_key), …], …]`` (series chain of parallel groups).
+    * ``twoport`` — ``(ia, ib, iref, be_groups, bc_groups, ce_groups)`` for the
+      intrinsic controlled-source 2-port.
+    * ``itype`` / ``source_keys`` — controlled-source flavour + scalar keys.
+    * ``value_keys`` — every value key referenced (scalar wrapper + Rust).
     """
-    freq = np.asarray(freq, dtype=float)
-    omega = 2.0 * np.pi * freq
-    F = freq.size
+    n: int
+    branches: list
+    twoport: tuple
+    itype: str
+    source_keys: list
+    value_keys: list
 
+
+def _net_groups(net: "Network") -> list:
+    """Structural (value-free) group spec for a Network: ``[[(kind, id), …], …]``
+    with empty steps dropped."""
+    return [[(e.kind, e.id) for e in g] for g in net.groups if g]
+
+
+def _access_groups(model: "CustomModel", rkey: str, lkey: str) -> list:
+    """Series groups for an access leg — only the components the user actually
+    named (blank name ⇒ absent), so a fully-undefined leg compiles to a wire."""
+    groups = []
+    if model.access_names.get(rkey):
+        groups.append([("R", f"access_{rkey}")])
+    if model.access_names.get(lkey):
+        groups.append([("L", f"access_{lkey}")])
+    return groups
+
+
+def compile_plan(model: CustomModel) -> SimPlan:
+    """Resolve a CustomModel's topology to a flat, value-free :class:`SimPlan`.
+
+    Node merges are decided **structurally** (a series branch with no defined
+    components is a wire) rather than from runtime values, so the node count is
+    fixed for the whole sweep.  Mirrors the build order of the former
+    ``simulate_custom_model`` exactly (intrinsic → port extras → extrinsic →
+    access → pads).
+    """
     uf = _UnionFind()
-    branches: list[tuple[str, str, np.ndarray]] = []   # (nodeA, nodeB, Y)
-    twoports: list[tuple] = []                          # (a, b, ref, y11..y22)
+    series_specs: list = []   # (a, b, groups)
+    shunt_specs: list = []    # (a, b, groups)
 
-    def add_network(a: str, b: str, net: Network, series: bool) -> None:
-        y = _y_network(net, values, omega, series)
-        if y is None:
-            if series:
-                uf.union(a, b)      # absent series branch → wire (merge nodes)
-            # absent shunt branch → open → drop (no stamp)
+    def add_series(a, b, groups):
+        if groups:
+            series_specs.append((a, b, groups))
         else:
-            branches.append((a, b, y))
+            uf.union(a, b)            # absent series branch → wire (merge nodes)
 
-    # ── Intrinsic core: stamp the common-emitter 2-port between BI, CI, EI ──
-    Ybe = _net_admittance(model.intrinsic_be, values, omega)
-    Ybc = _net_admittance(model.intrinsic_bc, values, omega)
-    Yce = _net_admittance(model.intrinsic_ce, values, omega)
-    src = {k: float(values.get(k, 0.0) or 0.0) for k in model.source_keys()}
-    y11, y12, y21, y22 = _intrinsic_Y(model.intrinsic_type, Ybe, Ybc, Yce, src,
-                                      omega)
-    twoports.append(("BI", "CI", "EI", y11, y12, y21, y22))
+    def add_shunt(a, b, groups):
+        if groups:                    # absent shunt branch → open → drop
+            shunt_specs.append((a, b, groups))
+
+    # ── Intrinsic core: 2-port between BI, CI (ref EI) + base spreading ─────
+    be_g = _net_groups(model.intrinsic_be)
+    bc_g = _net_groups(model.intrinsic_bc)
+    ce_g = _net_groups(model.intrinsic_ce)
     # Base spreading network (Rbi) in series ahead of the intrinsic base node.
-    add_network("BB", "BI", model.intrinsic_base, series=True)
+    add_series("BB", "BI", _net_groups(model.intrinsic_base))
 
     # ── Section 1: port extras (XB→BB base, XC→CI collector) ───────────────
-    # Port / delay extras sit *outside* the extrinsic caps (build order goes
-    # inside→out: intrinsic → extrinsic → port/delay → access → pads), so they
-    # are placed between the access node (XB/XC) and the inner extrinsic node
-    # (BB/CI).  When empty they merge XB≡BB / XC≡CI (e.g. Cheng/Xu).
-    add_network("XB", "BB", model.port1, series=True)
-    add_network("XC", "CI", model.port2, series=True)
+    add_series("XB", "BB", _net_groups(model.port1))
+    add_series("XC", "CI", _net_groups(model.port2))
 
     # ── Section 2: extrinsic caps ──────────────────────────────────────────
-    # Extrinsic caps tap the *inner* base/collector nodes (BB/CI) — i.e. inside
-    # the port/delay extras and the access leads — so a "p1-gnd" extrinsic shunt
-    # returns to the intrinsic emitter node EI (above the emitter lead), not to
-    # true ground.  This matches the conventional textbook placement (e.g.
-    # Cheng's Cbex at the common intrinsic-emitter node).  Parasitic pad caps,
-    # which sit *outside* the leads, reference true ground instead (Section 4).
+    # Extrinsic caps tap the *inner* base/collector nodes (BB/CI); a "p1-gnd"
+    # shunt returns to the intrinsic emitter node EI (above the emitter lead),
+    # not true ground (parasitic pad caps in Section 4 reference GND instead).
     for b in model.extrinsic:
         a, c = ("BB", "CI") if b.place == "p1-p2" else ("BB", "EI")
-        add_network(a, c, b.network, series=False)
+        add_shunt(a, c, _net_groups(b.network))
 
     # ── Section 3: access R + lead L (XB→P1, XC→P2, EI→GND) ─────────────────
-    def access_branch(a: str, b: str, rkey: str, lkey: str) -> None:
-        net = Network(groups=[
-            [Element(kind="R", name=model.access_names.get(rkey, rkey), id=f"access_{rkey}")],
-            [Element(kind="L", name=model.access_names.get(lkey, lkey), id=f"access_{lkey}")],
-        ])
-        add_network(a, b, net, series=True)
-
-    access_branch("XB", "P1", "Rb", "Lb")
-    access_branch("XC", "P2", "Rc", "Lc")
+    add_series("XB", "P1", _access_groups(model, "Rb", "Lb"))
+    add_series("XC", "P2", _access_groups(model, "Rc", "Lc"))
     # Emitter leg: EI →(emitter extras, e.g. R_delay∥C_delay)→ EM →(Re,Le)→ GND
-    add_network("EI", "EM", model.emitter, series=True)
-    access_branch("EM", "GND", "Re", "Le")
+    add_series("EI", "EM", _net_groups(model.emitter))
+    add_series("EM", "GND", _access_groups(model, "Re", "Le"))
 
     # ── Section 4: parasitic pad caps ──────────────────────────────────────
     place_nodes = {"p1-p2": ("P1", "P2"), "p1-gnd": ("P1", "GND"),
                    "p2-gnd": ("P2", "GND")}
     for b in model.parasitic:
         a, c = place_nodes[b.place]
-        add_network(a, c, b.network, series=False)
+        add_shunt(a, c, _net_groups(b.network))
 
-    return _assemble_and_reduce(branches, twoports, uf, F, z0)
-
-
-def _assemble_and_reduce(branches, twoports, uf, F: int, z0: float) -> np.ndarray:
-    """Stamp the nodal matrix, Kron-reduce internals, convert Y→S."""
-    def R(n: str) -> str:
-        return uf.find(n)
-
-    # Node set (canonical), GND excluded as reference.
+    # ── Resolve canonical node roots; GND excluded as the reference ────────
+    R = uf.find
     node_set = set()
-    for a, b, _ in branches:
+    for a, b, _ in series_specs:
         node_set.add(R(a)); node_set.add(R(b))
-    for a, b, ref, *_ in twoports:
-        for n in (a, b, ref):
-            node_set.add(R(n))
-    node_set.discard(R("GND"))
+    for a, b, _ in shunt_specs:
+        node_set.add(R(a)); node_set.add(R(b))
+    for nd in ("BI", "CI", "EI"):
+        node_set.add(R(nd))
+    gnd = R("GND")
+    node_set.discard(gnd)
 
     p1, p2 = R("P1"), R("P2")
-    if p1 == R("GND") or p2 == R("GND") or p1 == p2:
+    if p1 == gnd or p2 == gnd or p1 == p2:
         raise ValueError("Degenerate topology: a port collapsed onto ground or "
                          "the two ports merged. Add the access/parasitic "
                          "branches that separate the ports before simulating.")
@@ -670,53 +678,146 @@ def _assemble_and_reduce(branches, twoports, uf, F: int, z0: float) -> np.ndarra
     # Order: ports first, then internal nodes (so reduction keeps [P1,P2]).
     internal = sorted(node_set - {p1, p2})
     order = [p1, p2] + internal
-    idx = {n: i for i, n in enumerate(order)}
+    idx = {nd: i for i, nd in enumerate(order)}
     n = len(order)
 
-    Yb = np.zeros((F, n, n), dtype=complex)
-    gnd = R("GND")
+    def ni(name):
+        r = R(name)
+        return -1 if r == gnd else idx[r]
 
-    def stamp(a: str, b: str, y: np.ndarray) -> None:
-        a, b = R(a), R(b)
-        ia = idx.get(a) if a != gnd else None
-        ib = idx.get(b) if b != gnd else None
-        if ia is not None:
-            Yb[:, ia, ia] += y
-        if ib is not None:
-            Yb[:, ib, ib] += y
-        if ia is not None and ib is not None:
-            Yb[:, ia, ib] -= y
-            Yb[:, ib, ia] -= y
+    branches = [(ni(a), ni(b), True, groups) for a, b, groups in series_specs]
+    branches += [(ni(a), ni(b), False, groups) for a, b, groups in shunt_specs]
+    twoport = (ni("BI"), ni("CI"), ni("EI"), be_g, bc_g, ce_g)
 
-    for a, b, y in branches:
-        stamp(a, b, y)
+    # Collect every value key referenced (scalar wrapper defaults + Rust).
+    value_keys: list = []
+    seen: set = set()
 
-    def cell(r_node: str, c_node: str, val: np.ndarray) -> None:
-        ir = idx.get(R(r_node)) if R(r_node) != gnd else None
-        ic = idx.get(R(c_node)) if R(c_node) != gnd else None
-        if ir is not None and ic is not None:
-            Yb[:, ir, ic] += val
+    def _collect(groups):
+        for g in groups:
+            for _kind, key in g:
+                if key not in seen:
+                    seen.add(key); value_keys.append(key)
 
-    for a, b, ref, y11, y12, y21, y22 in twoports:
-        # Embed a 3-terminal common-reference 2-port (ports a, b; reference
-        # ref) via its indefinite admittance matrix.
-        cell(a, a, y11); cell(a, b, y12)
-        cell(b, a, y21); cell(b, b, y22)
-        cell(a, ref, -(y11 + y12)); cell(b, ref, -(y21 + y22))
-        cell(ref, a, -(y11 + y21)); cell(ref, b, -(y12 + y22))
-        cell(ref, ref, y11 + y12 + y21 + y22)
+    for _ia, _ib, _s, groups in branches:
+        _collect(groups)
+    _collect(be_g); _collect(bc_g); _collect(ce_g)
+    for k in model.source_keys():
+        if k not in seen:
+            seen.add(k); value_keys.append(k)
+
+    return SimPlan(n=n, branches=branches, twoport=twoport,
+                   itype=model.intrinsic_type, source_keys=model.source_keys(),
+                   value_keys=value_keys)
+
+
+# ── Batched evaluator ────────────────────────────────────────────────────────
+def _stamp(Yb, ia: int, ib: int, y) -> None:
+    """Stamp a 2-terminal admittance ``y`` (shape (B,1) or (B,N)) into the
+    nodal matrix ``Yb`` (B,N,n,n).  ``-1`` indices are the GND reference."""
+    if ia >= 0:
+        Yb[:, :, ia, ia] += y
+    if ib >= 0:
+        Yb[:, :, ib, ib] += y
+    if ia >= 0 and ib >= 0:
+        Yb[:, :, ia, ib] -= y
+        Yb[:, :, ib, ia] -= y
+
+
+def _simulate_plan_core(plan: SimPlan, jw, vals: dict, z0: float, xp, B: int):
+    """Evaluate one (already-chunked) batch: build (B,N,n,n) Y, Kron-reduce the
+    internals, convert to S[B,N,2,2].  ``vals`` maps key → (B,1) (or (1,1))
+    array; ``jw`` is (1,N)."""
+    N = jw.shape[1]
+    n = plan.n
+    Yb = xp.zeros((B, N, n, n), dtype=complex)
+
+    for ia, ib, series, groups in plan.branches:
+        y = (_branch_series_b(groups, vals, jw, xp) if series
+             else _branch_shunt_b(groups, vals, jw, xp))
+        _stamp(Yb, ia, ib, y)
+
+    ia, ib, iref, be_g, bc_g, ce_g = plan.twoport
+    Ybe = _junction_adm_b(be_g, vals, jw, xp)
+    Ybc = _junction_adm_b(bc_g, vals, jw, xp)
+    Yce = _junction_adm_b(ce_g, vals, jw, xp)
+    src = {k: vals[k] for k in plan.source_keys}
+    y11, y12, y21, y22 = _intrinsic_Y_b(plan.itype, Ybe, Ybc, Yce, src, jw, xp)
+
+    def cell(ir, ic, val):
+        if ir >= 0 and ic >= 0:
+            Yb[:, :, ir, ic] += val
+
+    # Embed the 3-terminal common-reference 2-port via its indefinite matrix.
+    cell(ia, ia, y11); cell(ia, ib, y12)
+    cell(ib, ia, y21); cell(ib, ib, y22)
+    cell(ia, iref, -(y11 + y12)); cell(ib, iref, -(y21 + y22))
+    cell(iref, ia, -(y11 + y21)); cell(iref, ib, -(y12 + y22))
+    cell(iref, iref, y11 + y12 + y21 + y22)
 
     # Kron reduction of internal nodes (indices 2..n-1).
     if n == 2:
         Y2 = Yb
     else:
-        Yaa = Yb[:, :2, :2]
-        Yai = Yb[:, :2, 2:]
-        Yia = Yb[:, 2:, :2]
-        Yii = Yb[:, 2:, 2:]
+        Yaa = Yb[..., :2, :2]
+        Yai = Yb[..., :2, 2:]
+        Yia = Yb[..., 2:, :2]
+        Yii = Yb[..., 2:, 2:]
         # Regularise to avoid singular internal blocks (floating nodes).
-        eye = np.eye(n - 2, dtype=complex)[None, :, :]
+        eye = xp.eye(n - 2, dtype=complex)
         Yii = Yii + 1e-15 * eye
-        Y2 = Yaa - Yai @ np.linalg.solve(Yii, Yia)
+        Y2 = Yaa - Yai @ xp.linalg.solve(Yii, Yia)
 
-    return y_to_s_vec(Y2, z0, np)
+    return y_to_s_vec(Y2, z0, xp)
+
+
+def simulate_custom_model_batch(plan: SimPlan, freq: np.ndarray, values: dict,
+                                z0: float = 50.0, xp=np,
+                                max_batch_elems: int = 16_000_000) -> np.ndarray:
+    """Vectorised forward simulation over a parameter batch.
+
+    ``values`` maps each value key to a scalar or a 1-D array (length B) of
+    parameter values.  Returns ``S[B, N, 2, 2]`` (pass scalars for a single
+    simulation and index ``[0]``).
+
+    Pass ``xp=cupy`` to run the whole evaluation on the GPU.  Large sweeps are
+    chunked along the batch axis so peak memory stays under ``max_batch_elems``
+    complex entries of the (B,N,n,n) tensor.
+    """
+    freq = np.asarray(freq, dtype=float)
+    N = freq.size
+    jw = xp.asarray(1j * 2.0 * np.pi * freq).reshape(1, N)
+
+    raw: dict = {}
+    B = 1
+    for key in plan.value_keys:
+        arr = xp.asarray(values.get(key, 0.0), dtype=complex).reshape(-1)
+        raw[key] = arr
+        if arr.size > 1:
+            B = max(B, int(arr.size))
+
+    def view(key, lo, hi):
+        arr = raw[key]
+        return arr.reshape(1, 1) if arr.size == 1 else arr[lo:hi].reshape(-1, 1)
+
+    per = max(1, N * plan.n * plan.n)
+    chunk = max(1, min(B, max_batch_elems // per))
+    outs = []
+    for lo in range(0, B, chunk):
+        hi = min(B, lo + chunk)
+        vals = {key: view(key, lo, hi) for key in plan.value_keys}
+        outs.append(_simulate_plan_core(plan, jw, vals, z0, xp, hi - lo))
+    return outs[0] if len(outs) == 1 else xp.concatenate(outs, axis=0)
+
+
+def simulate_custom_model(model: CustomModel, freq: np.ndarray,
+                          values: dict, z0: float = 50.0) -> np.ndarray:
+    """Forward-simulate S[N,2,2] from a :class:`CustomModel` + value dict.
+
+    Thin scalar wrapper over :func:`compile_plan` + :func:`simulate_custom_model_batch`
+    (kept for the forward-sim / "Use" UI and back-compat).  ``values`` maps
+    element id (or intrinsic/access key) → value in SI units.
+    """
+    plan = compile_plan(model)
+    vals = {k: float(values.get(k, 0.0) or 0.0) for k in plan.value_keys}
+    return simulate_custom_model_batch(plan, freq, vals, z0, xp=np)[0]

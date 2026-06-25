@@ -2540,12 +2540,21 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     _phase2_dispatch_enabled as _phase2_on,
                     SIM_FOR_TOPOLOGY as _SIM_TOPO,
                 )
+                from ..helpers import rust_kernels as _RKMOD
             except Exception:                              # pragma: no cover
                 return False
-            return bool(
-                _HR and _phase2_on() and
-                _SIM_TOPO.get(model_cls.SHORT) is not None
-            )
+            if not (_HR and _phase2_on()):
+                return False
+            # Built-in fixed-topology end-to-end kernels.
+            if _SIM_TOPO.get(model_cls.SHORT) is not None:
+                return True
+            # Custom model — the data-driven `sim_custom_batch` kernel isn't in
+            # SIM_FOR_TOPOLOGY; it's active when the adapter opts in *and* the
+            # compiled symbol is present in the loaded binary.
+            if getattr(model_cls, "USES_RUST_BATCH", False):
+                return getattr(getattr(_RKMOD, "_rk", None),
+                               "sim_custom_batch", None) is not None
+            return False
 
         # Sticky-True caching: re-evaluate every render, but never flip
         # an active=True back to False within the session.  This keeps
@@ -4793,31 +4802,54 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     if len(sweep_vals) < 2:
                         continue  # nothing to plot for a single point
 
-                    # Compute residuals for each sweep value
-                    res_s11 = np.zeros(len(sweep_vals))
-                    res_s12 = np.zeros(len(sweep_vals))
-                    res_s21 = np.zeros(len(sweep_vals))
-                    res_s22 = np.zeros(len(sweep_vals))
-                    _sens_has_vec = hasattr(model_cls, "simulate_vec")
-                    for vi, sv in enumerate(sweep_vals):
-                        p = dict(best_p)
-                        p[key] = sv / scale  # convert display -> SI
+                    # Residuals for the whole sweep in ONE batched call (the
+                    # swept param as a length-M array) instead of M sequential
+                    # simulate_vec calls — keeps the sensitivity panel cheap even
+                    # when many parameters are ticked (matters most for the custom
+                    # model, whose per-call path crosses the Rust/PyO3 boundary).
+                    res_s11 = res_s12 = res_s21 = res_s22 = None
+                    if hasattr(model_cls, "simulate_batch"):
                         try:
-                            if _sens_has_vec:
-                                S_sim = model_cls.simulate_vec(p, freq, z0, xp=np)
-                            else:
-                                S_sim = model_cls.simulate(p, freq, z0)
+                            p_b = dict(best_p)
+                            p_b[key] = np.asarray(sweep_vals, dtype=float) / scale
+                            S_b = np.asarray(
+                                model_cls.simulate_batch(p_b, freq, z0, xp=np)
+                            ).reshape(len(sweep_vals), len(freq), 2, 2)
+                            rb = _port_residuals_batch(S_raw, S_b, np)
+                            res_s11 = np.asarray(rb["S11"], dtype=float)
+                            res_s12 = np.asarray(rb["S12"], dtype=float)
+                            res_s21 = np.asarray(rb["S21"], dtype=float)
+                            res_s22 = np.asarray(rb["S22"], dtype=float)
+                            for _a in (res_s11, res_s12, res_s21, res_s22):
+                                _a[~np.isfinite(_a)] = float("inf")
                         except Exception:
-                            S_sim = None
-                        if S_sim is None:
-                            res_s11[vi] = res_s12[vi] = float("inf")
-                            res_s21[vi] = res_s22[vi] = float("inf")
-                        else:
-                            r = _port_residuals(S_raw, S_sim)
-                            res_s11[vi] = r["S11"]
-                            res_s12[vi] = r["S12"]
-                            res_s21[vi] = r["S21"]
-                            res_s22[vi] = r["S22"]
+                            res_s11 = None       # fall back to the per-point loop
+
+                    if res_s11 is None:
+                        res_s11 = np.zeros(len(sweep_vals))
+                        res_s12 = np.zeros(len(sweep_vals))
+                        res_s21 = np.zeros(len(sweep_vals))
+                        res_s22 = np.zeros(len(sweep_vals))
+                        _sens_has_vec = hasattr(model_cls, "simulate_vec")
+                        for vi, sv in enumerate(sweep_vals):
+                            p = dict(best_p)
+                            p[key] = sv / scale  # convert display -> SI
+                            try:
+                                if _sens_has_vec:
+                                    S_sim = model_cls.simulate_vec(p, freq, z0, xp=np)
+                                else:
+                                    S_sim = model_cls.simulate(p, freq, z0)
+                            except Exception:
+                                S_sim = None
+                            if S_sim is None:
+                                res_s11[vi] = res_s12[vi] = float("inf")
+                                res_s21[vi] = res_s22[vi] = float("inf")
+                            else:
+                                r = _port_residuals(S_raw, S_sim)
+                                res_s11[vi] = r["S11"]
+                                res_s12[vi] = r["S12"]
+                                res_s21[vi] = r["S21"]
+                                res_s22[vi] = r["S22"]
 
                     x_label = f"{label} ({unit})" if unit else label
                     fig = go.Figure()
