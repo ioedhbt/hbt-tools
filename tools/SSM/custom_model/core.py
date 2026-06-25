@@ -430,6 +430,118 @@ def list_saved_models() -> list[Path]:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# Built-in topology presets — start a custom model from a registered model
+# ════════════════════════════════════════════════════════════════════════════
+# Lets the builder's "modify" flow begin from one of the analytic models
+# (Cheng T/π, Xu T, Kun-Yang HEMT) instead of only an uploaded .json.  The
+# structures below mirror each model's forward-sim topology exactly (see
+# models/cheng.py::_sim_wrap_vec, models/xu.py, models/kunyang.py) so the
+# loaded custom model reproduces the same netlist, ready to edit.
+
+def _net(*groups) -> Network:
+    """Build a Network from ``groups`` of ``(kind, name)`` tuples — each group
+    is a parallel set; the groups are chained in series."""
+    return Network(groups=[[Element(kind=k, name=nm) for k, nm in g]
+                           for g in groups])
+
+
+def _shunt(place: str, *groups) -> ShuntBranch:
+    """A ShuntBranch at ``place`` whose network is built from ``groups``."""
+    return ShuntBranch(place=place, network=_net(*groups))
+
+
+# Standard HBT access legs (base / collector / emitter) and pad caps, shared by
+# the three bipolar presets (Cpbe→P1-GND, Cpce→P2-GND, Cpbc→P1-P2).
+_HBT_ACCESS = {"Rb": "Rb", "Lb": "Lb", "Rc": "Rc", "Lc": "Lc",
+               "Re": "Re", "Le": "Le"}
+
+
+def _hbt_pads() -> list:
+    return [_shunt("p1-p2", [("C", "Cpbc")]),
+            _shunt("p1-gnd", [("C", "Cpbe")]),
+            _shunt("p2-gnd", [("C", "Cpce")])]
+
+
+def _cheng_t() -> CustomModel:
+    """Cheng (2022) current-source T HBT — Cbex (P1↔GND) + Cbcx (P1↔P2)."""
+    return CustomModel(
+        name="Cheng_T", intrinsic_type="T", device="Bipolar",
+        intrinsic_base=_net([("R", "Rbi")]),
+        intrinsic_be=_net([("C", "Cbe"), ("R", "Rbe")]),
+        intrinsic_bc=_net([("C", "Cbc"), ("R", "Rbc")]),
+        intrinsic_ce=Network(),
+        extrinsic=[_shunt("p1-p2", [("C", "Cbcx")]),
+                   _shunt("p1-gnd", [("C", "Cbex")])],
+        access_names=dict(_HBT_ACCESS),
+        parasitic=_hbt_pads(),
+    )
+
+
+def _cheng_pi() -> CustomModel:
+    """Cheng (2022) hybrid-π HBT — same extrinsic / access / pads as the T."""
+    return CustomModel(
+        name="Cheng_Pi", intrinsic_type="Pi", device="Bipolar",
+        intrinsic_base=_net([("R", "Rbi")]),
+        intrinsic_be=_net([("C", "Cbe"), ("R", "Rbe")]),
+        intrinsic_bc=_net([("C", "Cbc"), ("R", "Rbc")]),
+        intrinsic_ce=Network(),
+        extrinsic=[_shunt("p1-p2", [("C", "Cbcx")]),
+                   _shunt("p1-gnd", [("C", "Cbex")])],
+        access_names=dict(_HBT_ACCESS),
+        parasitic=_hbt_pads(),
+    )
+
+
+def _xu_t() -> CustomModel:
+    """Xu (2014) T HBT — no Cbex; a single parallel Rbcx∥Cbcx across P1↔P2."""
+    return CustomModel(
+        name="Xu_T", intrinsic_type="T", device="Bipolar",
+        intrinsic_base=_net([("R", "Rbi")]),
+        intrinsic_be=_net([("C", "Cbe"), ("R", "Rbe")]),
+        intrinsic_bc=_net([("C", "Cbc"), ("R", "Rbc")]),
+        intrinsic_ce=Network(),
+        extrinsic=[_shunt("p1-p2", [("C", "Cbcx"), ("R", "Rbcx")])],
+        access_names=dict(_HBT_ACCESS),
+        parasitic=_hbt_pads(),
+    )
+
+
+def _kunyang() -> CustomModel:
+    """Kun-Yang HEMT (π) — Cgs–Ri / Cgd–Rgd series junctions, Cds∥Rds output,
+    a source-side R_delay∥C_delay branch, and the custom substrate pads
+    (Cgsp–Rsub1 → P1-GND, Cdsp–Rsub2 → P2-GND, Cgdp → P1-P2)."""
+    return CustomModel(
+        name="KunYang_HEMT", intrinsic_type="Pi", device="Unipolar",
+        intrinsic_base=Network(),                              # no gate spreading
+        intrinsic_be=_net([("C", "Cgs")], [("R", "Ri")]),     # Cgs series Ri
+        intrinsic_bc=_net([("C", "Cgd")], [("R", "Rgd")]),    # Cgd series Rgd
+        intrinsic_ce=_net([("C", "Cds"), ("R", "Rds")]),      # Cds ∥ Rds
+        emitter=_net([("R", "R_delay"), ("C", "C_delay")]),   # source delay
+        access_names={"Rb": "Rg", "Lb": "Lg", "Rc": "Rd", "Lc": "Ld",
+                      "Re": "Rs", "Le": "Ls"},
+        parasitic=[_shunt("p1-gnd", [("C", "Cgsp")], [("R", "Rsub1")]),
+                   _shunt("p2-gnd", [("C", "Cdsp")], [("R", "Rsub2")]),
+                   _shunt("p1-p2", [("C", "Cgdp")])],
+    )
+
+
+# Human label → factory for the built-in topologies offered as a starting
+# point in the custom-model builder's "modify" section.
+BUILTIN_PRESETS: dict[str, callable] = {
+    "Cheng — T (current-source T HBT)": _cheng_t,
+    "Cheng — π (hybrid-π HBT)": _cheng_pi,
+    "Xu — T (Rbcx∥Cbcx HBT)": _xu_t,
+    "Kun-Yang — HEMT (π)": _kunyang,
+}
+
+
+def builtin_custom_model(label: str) -> CustomModel:
+    """Return a fresh :class:`CustomModel` for the built-in topology ``label``
+    (a key of :data:`BUILTIN_PRESETS`)."""
+    return BUILTIN_PRESETS[label]()
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # Solver — netlist → nodal Y → 2-port Y → S
 # ════════════════════════════════════════════════════════════════════════════
 # Near-short admittance used to represent an all-zero (wire) *series* branch

@@ -21,7 +21,8 @@ from __future__ import annotations
 import streamlit as st
 
 from .core import (CustomModel, Network, Element, ShuntBranch,
-                   model_to_json, load_model, _default_source_name)
+                   model_to_json, load_model, _default_source_name,
+                   BUILTIN_PRESETS, builtin_custom_model)
 from .schematic import (render_schematic, intrinsic_thumbnail,
                         section_thumbnail, svg_to_png, copy_image_button,
                         svg_pixel_height)
@@ -107,6 +108,23 @@ def _model() -> CustomModel:
     if _MODEL_KEY not in st.session_state:
         st.session_state[_MODEL_KEY] = CustomModel()
     return st.session_state[_MODEL_KEY]
+
+
+def _install_for_modify(loaded: CustomModel, *, keep: tuple = ()) -> None:
+    """Install a freshly-loaded model into the builder with every section
+    revealed, wiping prior builder widget state (except ``keep``).  Shared by
+    the JSON-upload and built-in-preset 'modify' paths; widget keys re-initialise
+    from ``loaded`` on the next rerun.  The Device + Intrinsic-topology radios
+    are driven explicitly (their option strings *are* the session-state values)
+    so the selection is correct regardless of widget re-init timing."""
+    for k in [kk for kk in st.session_state
+              if kk.startswith("cmb_") and kk not in keep]:
+        st.session_state.pop(k, None)
+    st.session_state[_MODEL_KEY] = loaded
+    st.session_state[_STAGE_KEY] = 4
+    st.session_state["cmb_access_seeded"] = True
+    st.session_state["cmb_dev"] = loaded.device
+    st.session_state["cmb_itype"] = loaded.intrinsic_type
 
 
 def _stage() -> int:
@@ -328,14 +346,29 @@ def render_build_ui() -> None:
         st.session_state.pop(_STAGE_KEY, None)
         st.rerun()
 
-    # ── Modify an existing model — upload its .json to edit it in place ──────
-    with st.expander("📂 Modify an existing model (upload a .json)",
+    # ── Modify an existing model — from a built-in topology or an uploaded .json ─
+    with st.expander("📂 Modify an existing model (built-in or a .json)",
                      expanded=False):
-        st.caption("Loads the whole saved topology — device, π/T, intrinsic "
+        st.caption("Loads a whole topology — device, π/T, intrinsic "
                    "junctions, port/delay extras, extrinsic & parasitic caps, "
                    "access R/L and every name — into the editor with all "
-                   "sections revealed.  Edit anything, then download the result "
-                   "at the bottom.")
+                   "sections revealed.  Start from one of the built-in models "
+                   "(Cheng, Xu, Kun-Yang) or upload a previously-saved `.json`, "
+                   "edit anything, then download the result at the bottom.")
+
+        # Built-in topologies — load Cheng / Xu / Kun-Yang as a starting point.
+        st.markdown("**Start from a built-in model**")
+        pc = st.columns([4, 1])
+        preset_label = pc[0].selectbox(
+            "Built-in topology", list(BUILTIN_PRESETS),
+            key="cmb_preset_pick", label_visibility="collapsed")
+        if pc[1].button("Load", key="cmb_preset_load", width="stretch"):
+            loaded = builtin_custom_model(preset_label)
+            loaded.name = f"{loaded.name}_modified"
+            _install_for_modify(loaded, keep=("cmb_preset_pick",))
+            st.rerun()
+
+        st.markdown("**…or upload a saved `.json`**")
         mod = st.file_uploader("Custom model .json", type=["json"],
                                key="cmb_modify_up", label_visibility="collapsed")
         if mod is not None:
@@ -351,21 +384,7 @@ def render_build_ui() -> None:
                     # model downloads as a distinct file from the original.
                     if not loaded.name.endswith("_modified"):
                         loaded.name = f"{loaded.name}_modified"
-                    # Wipe builder widget state, then install the model with
-                    # every section revealed so any part can be edited.  Widget
-                    # keys re-initialise from the loaded model on rerun.
-                    for k in [kk for kk in st.session_state
-                              if kk.startswith("cmb_") and kk != "cmb_modify_up"]:
-                        st.session_state.pop(k, None)
-                    st.session_state[_MODEL_KEY] = loaded
-                    st.session_state[_STAGE_KEY] = 4
-                    st.session_state["cmb_access_seeded"] = True
-                    # Explicitly drive the Device + Intrinsic-topology radios to
-                    # the uploaded model's values (their option strings *are* the
-                    # session-state values) so the selection is guaranteed
-                    # correct regardless of widget re-init timing.
-                    st.session_state["cmb_dev"] = loaded.device
-                    st.session_state["cmb_itype"] = loaded.intrinsic_type
+                    _install_for_modify(loaded, keep=("cmb_modify_up",))
                     st.session_state["cmb_modify_sig"] = sig
                     st.rerun()
 
