@@ -34,6 +34,7 @@ from ..models.base_ui import (smith_scale_controls, render_visual_tuning_expande
 # combined view shares one model source (cmf_model) and one value-key scheme.
 from .ui_fit import (_make_adapter, _load_model, _value_inputs,
                      _clear_tuning_state, _FIT_SPEC, _UNIT, _TOPO as _FTOPO)
+from ._i18n import tr
 
 _SMITH_COLORS = {"S11": "#1f77b4", "S22": "#ff7f0e",
                  "S21": "#2ca02c", "S12": "#d62728"}
@@ -77,26 +78,34 @@ def render_use_ui(measured: dict | None = None) -> None:
     same Smith/Bode with the residual + grid-sweep Auto Tuning.  Replaces the old
     separate *Load / simulate* and *Fit to measurement* modes."""
     has_dev = measured is not None
-    st.subheader("🔬 Custom model — simulate"
-                 + (" & fit to the measured device" if has_dev else ""))
+    st.subheader(tr("🔬 Custom model — simulate", "🔬 自訂模型 — 模擬")
+                 + (tr(" & fit to the measured device", " 並對量測元件擬合")
+                    if has_dev else ""))
     from .ui_build import fire_pending_download
     fire_pending_download()           # download a model just "sent" from build
 
     fname = str(measured["label"]) if has_dev else _FNAME
     model = _load_model(fname)        # shared cmf_model source + build handoff
     if model is None:
-        st.info("⬆️ Upload a custom model `.json` (or send one from the "
-                "**Build model** view) to simulate"
-                + (" and overlay it on this device." if has_dev else "."))
+        st.info(tr("⬆️ Upload a custom model `.json` (or send one from the "
+                   "**Build model** view) to simulate", "⬆️ 上傳自訂模型 `.json`"
+                   "（或從**建立模型**頁傳送一個）以進行模擬")
+                + (tr(" and overlay it on this device.", " 並疊加於此元件上。")
+                   if has_dev else "。"))
         return
     # Drop the previous model's stale tuning / value state when it changes.
     tok = st.session_state.get("cmf_model_token", 0)
     if st.session_state.get(f"cmf_seen_{fname}") != tok:
         _clear_tuning_state(fname)
         st.session_state[f"cmf_seen_{fname}"] = tok
-    st.success(f"Loaded **{model.name}** · {model.device} · intrinsic "
-               f"{'π' if model.intrinsic_type == 'Pi' else 'T'}"
-               + (f"  —  overlaying **{fname}**" if has_dev else ""))
+    _dev_zh = {"Bipolar": "雙極性", "Unipolar": "單極性"}
+    _itype = "π" if model.intrinsic_type == "Pi" else "T"
+    st.success(
+        tr(f"Loaded **{model.name}** · {model.device} · intrinsic {_itype}",
+           f"已載入 **{model.name}** · {_dev_zh.get(model.device, model.device)}"
+           f" · 本質 {_itype}")
+        + (tr(f"  —  overlaying **{fname}**", f"  —  疊加 **{fname}**")
+           if has_dev else ""))
 
     # ── Frequency: locked to the device grid when fitting, else user-set ──────
     if has_dev:
@@ -105,20 +114,21 @@ def render_use_ui(measured: dict | None = None) -> None:
         S_meas = np.asarray(measured["S"])
     else:
         cf = st.columns(3)
-        f0 = cf[0].number_input("Start (GHz)", min_value=0.0, value=0.01,
-                                format="%.4f", step=0.01, key="cmu_f0")
-        npts = cf[1].number_input("Points", min_value=2, value=801, step=1,
-                                  key="cmu_npts")
-        f1 = cf[2].number_input("Stop (GHz)", min_value=0.001, value=50.0,
-                                format="%.4f", step=1.0, key="cmu_f1")
+        f0 = cf[0].number_input(tr("Start (GHz)", "起始 (GHz)"), min_value=0.0,
+                                value=0.01, format="%.4f", step=0.01, key="cmu_f0")
+        npts = cf[1].number_input(tr("Points", "點數"), min_value=2, value=801,
+                                  step=1, key="cmu_npts")
+        f1 = cf[2].number_input(tr("Stop (GHz)", "結束 (GHz)"), min_value=0.001,
+                                value=50.0, format="%.4f", step=1.0, key="cmu_f1")
         if f1 <= f0:
-            st.error("Stop frequency must exceed start.")
+            st.error(tr("Stop frequency must exceed start.",
+                        "結束頻率必須大於起始頻率。"))
             return
         freq = np.linspace(float(f0) * 1e9, float(f1) * 1e9, int(npts))
         z0, S_meas = 50.0, None
 
     st.divider()
-    with st.expander("⚙️ Component values", expanded=True):
+    with st.expander(tr("⚙️ Component values", "⚙️ 元件數值"), expanded=True):
         values = _value_inputs(model, fname)
 
     st.divider()
@@ -126,11 +136,13 @@ def render_use_ui(measured: dict | None = None) -> None:
         with np.errstate(divide="ignore", invalid="ignore"):
             S_sim = simulate_custom_model(model, freq, values, z0)
     except Exception as exc:  # degenerate topology / singular matrix
-        st.error(f"Simulation failed: {exc}")
+        st.error(tr(f"Simulation failed: {exc}", f"模擬失敗：{exc}"))
         return
     if not np.all(np.isfinite(S_sim)):
-        st.warning("Some S-parameter points are non-finite — check for missing "
-                   "values (e.g. a series branch left at 0).")
+        st.warning(tr("Some S-parameter points are non-finite — check for missing "
+                      "values (e.g. a series branch left at 0).",
+                      "部分 S 參數點為非有限值 — 請檢查是否有缺漏的數值"
+                      "（例如某串聯分支仍為 0）。"))
 
     sc = smith_scale_controls(fname, _FTOPO)   # per-trace Smith × multipliers
     s2p = write_s2p(freq, S_sim, title=f"Custom model {model.name}",
@@ -153,12 +165,12 @@ def render_use_ui(measured: dict | None = None) -> None:
             smith = _smith_fig(S_sim, freq, model.name, scales=sc)
             st.plotly_chart(smith, width="stretch")
             dl = st.columns(2)
-            dl[0].download_button("📥 .s2p", data=s2p,
+            dl[0].download_button(tr("📥 .s2p", "📥 .s2p"), data=s2p,
                                   file_name=f"{model.name or 'custom'}.s2p",
                                   mime="text/plain", key="cmu_dl_s2p",
                                   width="stretch")
             copy_button(fig_to_tsv(smith) or "", "cmu_copy_smith",
-                        container=dl[1], label="📋 copy")
+                        container=dl[1], label=tr("📋 copy", "📋 複製"))
         with right:
             render_forward_bode_block(S_sim, freq, model.name, key="cmu_bode")
         render_tau_fmax_expander(
@@ -168,25 +180,29 @@ def render_use_ui(measured: dict | None = None) -> None:
 
     # ── Topology illustration ─────────────────────────────────────────────────
     svg = render_schematic(model, values)
-    with st.expander("🖼️ Topology illustration", expanded=not has_dev):
+    with st.expander(tr("🖼️ Topology illustration", "🖼️ 拓樸示意圖"),
+                     expanded=not has_dev):
         st.iframe(svg, height=svg_pixel_height(svg) + 12)
         png = svg_to_png(svg, zoom=2)
         scc = st.columns(3)
         if png is not None:
-            scc[0].download_button("🖼️ Download PNG", data=png,
+            scc[0].download_button(tr("🖼️ Download PNG", "🖼️ 下載 PNG"), data=png,
                                    file_name=f"{model.name or 'custom'}.png",
                                    mime="image/png", key="cmu_dl_png",
                                    width="stretch")
-            copy_image_button(png, container=scc[1], label="📋 copy image")
+            copy_image_button(png, container=scc[1],
+                              label=tr("📋 copy image", "📋 複製圖片"))
         else:
-            scc[0].caption("PNG export needs `rsvg-convert`/`cairosvg`.")
-        scc[2].download_button("⬇ Download SVG", data=svg,
+            scc[0].caption(tr("PNG export needs `rsvg-convert`/`cairosvg`.",
+                              "PNG 匯出需要 `rsvg-convert`/`cairosvg`。"))
+        scc[2].download_button(tr("⬇ Download SVG", "⬇ 下載 SVG"), data=svg,
                                file_name=f"{model.name or 'custom'}.svg",
                                mime="image/svg+xml", key="cmu_dl_svg",
                                width="stretch")
 
     # ── Publication matplotlib Smith chart (chart left, controls right) ──────
-    with st.expander("🍩 Smith Chart (Matplotlib)", expanded=False):
+    with st.expander(tr("🍩 Smith Chart (Matplotlib)", "🍩 Smith 圖（Matplotlib）"),
+                     expanded=False):
         c_left, c_right = st.columns([1.2, 1])
         if has_dev:
             with c_right:
@@ -202,9 +218,11 @@ def render_use_ui(measured: dict | None = None) -> None:
                       "kind": "line", "style": "solid"}]
             with c_right:
                 render_matplotlib_smith(fname=fname, topo_key="use", sets=_sets,
+                                        default_multiplier=sc,
                                         phase="controls", freq_hz=freq)
             with c_left:
                 render_matplotlib_smith(fname=fname, topo_key="use", sets=_sets,
+                                        default_multiplier=sc,
                                         phase="chart", freq_hz=freq)
 
     # ── Tuning — Visual Tuning (🎯 Live tweak / ⚡ Wide sweep) always; Auto

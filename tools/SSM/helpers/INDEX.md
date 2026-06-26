@@ -463,6 +463,9 @@ Module-level helpers:
 
 ## Custom model builder (`custom_model/*.py`)
 
+**Bilingual UI:** every user-facing string in `ui_build.py` / `ui_use.py` / `ui_fit.py` / `__init__.py` is wrapped in `tr(en, zh)` from [`custom_model/_i18n.py`](../custom_model/_i18n.py) — an inline EN/中文 helper that defers the active language to the portal's `tools.i18n.is_zh()` (the 🌐 Language radio). Add new builder strings as `tr("English", "中文")`, not bare literals. Grouped value-input section titles (English, from `CustomModel.grouped_value_specs()`) are display-translated via `ui_fit._GROUP_TITLE_ZH`.
+
+
 User-built ("custom") small-signal models. Two modes (Simulate-and-Fit was
 formerly two separate Load/Fit modes — now **combined**): a visual **Build**
 workflow builds a topology inside→outward; a **Simulate & fit** workflow
@@ -526,17 +529,17 @@ between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ
 | Function / class | Line | Purpose |
 |---|---|---|
 | `Element` / `Network` / `ShuntBranch` | — | Leaf R/L/C; series-of-parallel branch; placed shunt/bridge cap branch. |
-| `CustomModel` | — | Whole topology: `device`, `intrinsic_type`, four editable intrinsic junction Networks (`intrinsic_base/be/bc/ce`), `source_name`, per-section branches. Helpers: `source_keys`, `source_disp`, `terminals`, `port_label`, `intrinsic_junctions`, `ensure_intrinsic`. `to_dict`/`from_dict` (schema v2)/`all_value_specs`. |
+| `CustomModel` | — | Whole topology: `device`, `intrinsic_type`, four editable intrinsic junction Networks (`intrinsic_base/be/bc/ce`), `source_name`, per-section branches, **`ie_after_cbex`** (T-core flag: sense the α·Ie emitter current *after* the extrinsic Cbex tap — Ie includes the Cbex displacement current; no effect when Cbex absent or core is π). Helpers: `source_keys`, `source_disp`, `terminals`, `port_label`, `intrinsic_junctions`, `ensure_intrinsic`. `to_dict`/`from_dict` (schema v2)/`all_value_specs`. |
 | `_default_source_name(itype, device)` | — | Default controlled-source label per topology+device. |
 | `models_dir` / `save_model` / `load_model` / `list_saved_models` | — | JSON persistence under repo-root `custom_models/`. |
 | `BUILTIN_PRESETS` / `builtin_custom_model(label)` | — | Built-in topology presets so the builder's "modify" flow can start from a registered model. `BUILTIN_PRESETS` = `{human label → factory}` (Cheng T `_cheng_t`, Cheng π `_cheng_pi`, Xu T `_xu_t`, Kun-Yang `_kunyang`); `builtin_custom_model` returns a fresh `CustomModel` for a label. Structures mirror each model's `_sim_wrap_vec`/forward-sim netlist exactly (intrinsic junctions, extrinsic/parasitic caps, access legs, KY source-delay branch + substrate pads) so the loaded copy reproduces the same topology. Helpers `_net(*groups)` / `_shunt(place, *groups)` / `_hbt_pads()` / `_HBT_ACCESS` build the Networks. |
-| `SimPlan` (dataclass) | — | Value-free compiled topology: `n` nodes, `branches` `(ia,ib,series,groups)`, `twoport` `(ia,ib,iref,be,bc,ce)`, `itype`, `source_keys`, `value_keys`. Consumed by the vectorised evaluator **and** the Rust `sim_custom_batch`. |
+| `SimPlan` (dataclass) | — | Value-free compiled topology: `n` nodes, `branches` `(ia,ib,series,groups)`, `twoport` `(ia,ib,iref,be,bc,ce)`, `itype`, `source_keys`, `value_keys`, **`alpha_cbex`** (`None` or `(i_bb,i_ci,i_ei,[groups,…])` for the "Ie after Cbex" extra α-controlled source). Consumed by the vectorised evaluator **and** the Rust `sim_custom_batch` (plans with `alpha_cbex` set bypass Rust → NumPy/CuPy path). |
 | `compile_plan(model)` | — | Resolve topology to a `SimPlan` **once** (structural node merges via union-find — a structurally-empty series branch is a wire). Raises on degenerate (port-to-GND / merged ports). |
 | `simulate_custom_model_batch(plan, freq, values, z0, xp=np, max_batch_elems)` | — | Vectorised forward sim over a parameter batch → `S[B,N,2,2]`. Scatter-stamps a `(B,N,n,n)` Y, batched `xp.linalg.solve` Kron reduction, `y_to_s_vec`. `xp=cupy` ⇒ runs on GPU; chunks the batch axis to bound memory. |
 | `simulate_custom_model(model, freq, values, z0)` | — | Thin scalar wrapper: `compile_plan` → `simulate_custom_model_batch` with scalar values → `S[N,2,2]` (forward-sim / "Use" mode, back-compat). |
 | `_elem_adm_b` / `_group_adm_b` / `_branch_series_b` / `_branch_shunt_b` / `_junction_adm_b` | — | Batched `xp`-aware admittance kernels. Series: Σ group impedances (zero group = short; all-zero ⇒ near-short `_SHORT_Y`). Shunt/junction: any absent group ⇒ open. |
 | `_intrinsic_Y_b(itype, Ybe, Ybc, Yce, src, jw, xp)` | — | Batched common-emitter 2-port from junction admittances + scalar source params (π / T α-source). |
-| `_simulate_plan_core(plan, jw, vals, z0, xp, B)` / `_stamp(...)` | — | One-chunk evaluator: build `(B,N,n,n)` Y, embed indefinite 2-port, Kron-reduce, Y→S. |
+| `_simulate_plan_core(plan, jw, vals, z0, xp, B)` / `_stamp(...)` | — | One-chunk evaluator: build `(B,N,n,n)` Y, embed indefinite 2-port, Kron-reduce, Y→S. When `plan.alpha_cbex` is set, also stamps the extra α·Y_cbex·(V_bb−V_ei) collector source ("Ie after Cbex"). |
 
 ### [`custom_model/schematic.py`](../custom_model/schematic.py) — live SVG
 
@@ -544,11 +547,11 @@ between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ
 |---|---|---|
 | `build_schematic(model)` | — | Render the **structure once** (symbols + names + junction dots), recording value slots in `_SVG.vanchors`. Cache this; overlay numbers cheaply with `s.render(s.value_layer(values, model))` so a parameter change does *not* re-render the whole drawing. |
 | `render_schematic(model, values=None)` | — | One-shot convenience: `build_schematic` + value overlay. |
-| `_draw(s, model)` | — | Draws the full two-port: device-aware P1/P2 port long-names, signal path, the data-driven intrinsic sub-circuit, shunts/bridges, and the emitter/source leg (`model.emitter` extras → access R/L → GND). Dots only at ≥3-wire junctions; component values go in a deferred layer. |
+| `_draw(s, model)` | — | Draws the full two-port: device-aware P1/P2 port long-names, signal path, the data-driven intrinsic sub-circuit, shunts/bridges, and the emitter/source leg (`model.emitter` extras → access R/L → GND). Dots only at ≥3-wire junctions; component values go in a deferred layer. For **any T-core** it draws an **"Ie" current-sense arrow** (`_SVG.current_arrow`, overlaid on a dedicated clear stub): before-Cbex → on the b–e junction's lengthened bottom lead (the intrinsic is grown by `_IE_STUB`); after-Cbex **or no Cbex** → on a clear `_IE_STUB` stub in the emitter leg above Re (placement keyed off `model.ie_after_cbex`, which only matters when an extrinsic Cbex P1↔GND is present). `_last_group_bottom(net, y_top, y_bot)` locates the clear lead below a vertical junction's glyphs. |
 | `_draw_intrinsic(s, …, model, values)` | — | Data-driven intrinsic from the four junction Networks: base spreading (horizontal series), `intrinsic_be` (vertical), `intrinsic_bc` (horizontal; T source ← here), `intrinsic_ce` (vertical; π source ↓ here). |
 | `_draw_junction_v` / `_draw_junction_h` | — | Stack a junction Network's series groups vertically/horizontally, appending the controlled source to the last group as a parallel branch. |
 | `intrinsic_thumbnail(model, selected)` | — | Abstracted intrinsic view: each editable part (base / B–E / B–C / C–E / source) as a labelled box around the base node, `selected` highlighted — pairs with the build-UI chip selector. |
-| `section_thumbnail(model, section, selected)` | — | Cumulative abstracted view for an outer section (extrinsic / delay / access / parasitic): inner circuit collapsed into one labelled **core block** + that section's components, `selected` highlighted, absent parts dashed. |
+| `section_thumbnail(model, section, selected)` | — | Cumulative abstracted view for an outer section (extrinsic / delay / access / parasitic): inner circuit collapsed into one labelled **core block** + that section's components, `selected` highlighted, absent parts dashed. The **extrinsic** view of a T-core also draws the **"Ie" arrow** on the emitter leg (high = before-Cbex, low = after-Cbex / no Cbex) so the build page's before/after radio gives live feedback. |
 | `svg_to_png(svg, zoom=2)` | — | Rasterise an SVG string to PNG bytes via `rsvg-convert` (15 s timeout) → `cairosvg` fallback → `None`. Powers the schematic PNG download. |
 | `copy_image_button(png, …)` | — | A clipboard "copy image" button (mirrors `copy_button` styling) that writes the PNG via the `ClipboardItem` API; sits beside the Download-PNG buttons. |
 

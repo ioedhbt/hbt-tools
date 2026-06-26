@@ -218,6 +218,13 @@ class CustomModel:
     # Kun-Yang source-side R_delay∥C_delay network above the Rs node.
     emitter: Network = field(default_factory=Network)
 
+    # T-model only — when an extrinsic Cbex (P1↔GND) is present, sense the
+    # controlled-source emitter current Ie *after* the Cbex tap (Ie includes the
+    # Cbex displacement current) instead of the intrinsic-junction current alone.
+    # Cbex stays physically at the intrinsic emitter node; this only repositions
+    # the α·Ie reference.  No effect when Cbex is absent or the core is π.
+    ie_after_cbex: bool = False
+
     schema_version: int = SCHEMA_VERSION
 
     def __post_init__(self):
@@ -277,6 +284,7 @@ class CustomModel:
             "access_names": dict(self.access_names),
             "parasitic": [b.to_dict() for b in self.parasitic],
             "emitter": self.emitter.to_dict(),
+            "ie_after_cbex": bool(self.ie_after_cbex),
         }
 
     @classmethod
@@ -306,6 +314,7 @@ class CustomModel:
             access_names=dict(d.get("access_names", {})),
             parasitic=[ShuntBranch.from_dict(b) for b in d.get("parasitic", [])],
             emitter=Network.from_dict(d.get("emitter")),
+            ie_after_cbex=bool(d.get("ie_after_cbex", False)),
             schema_version=int(d.get("schema_version", SCHEMA_VERSION)),
         )
         m.ensure_intrinsic()
@@ -687,6 +696,11 @@ class SimPlan:
       intrinsic controlled-source 2-port.
     * ``itype`` / ``source_keys`` — controlled-source flavour + scalar keys.
     * ``value_keys`` — every value key referenced (scalar wrapper + Rust).
+    * ``alpha_cbex`` — ``None``, or ``(i_bb, i_ci, i_ei, [groups, …])`` for the
+      "Ie after Cbex" extra α-controlled source (T-model only): an extra
+      collector current ``α·Y_cbex·(V_bb − V_ei)`` so the sensed emitter current
+      includes the extrinsic-Cbex displacement current.  ``groups`` are the
+      value-free group specs of the P1↔GND extrinsic branch(es).
     """
     n: int
     branches: list
@@ -694,6 +708,7 @@ class SimPlan:
     itype: str
     source_keys: list
     value_keys: list
+    alpha_cbex: tuple | None = None
 
 
 def _net_groups(net: "Network") -> list:
@@ -818,9 +833,22 @@ def compile_plan(model: CustomModel) -> SimPlan:
         if k not in seen:
             seen.add(k); value_keys.append(k)
 
+    # ── "Ie after Cbex": extra α-controlled source sensing the Cbex current ──
+    # The P1↔GND extrinsic branch (Cbex) stays stamped as a normal shunt above;
+    # here we additionally route α·I_Cbex into the collector (and out of the
+    # emitter) so the controlled source's emitter current Ie includes it.  Only
+    # meaningful for the current-controlled T core.
+    alpha_cbex = None
+    if model.ie_after_cbex and model.intrinsic_type == "T":
+        cbex_groups = [_net_groups(b.network) for b in model.extrinsic
+                       if b.place == "p1-gnd" and not b.network.is_empty]
+        cbex_groups = [g for g in cbex_groups if g]
+        if cbex_groups:
+            alpha_cbex = (ni("BB"), ni("CI"), ni("EI"), cbex_groups)
+
     return SimPlan(n=n, branches=branches, twoport=twoport,
                    itype=model.intrinsic_type, source_keys=model.source_keys(),
-                   value_keys=value_keys)
+                   value_keys=value_keys, alpha_cbex=alpha_cbex)
 
 
 # ── Batched evaluator ────────────────────────────────────────────────────────
@@ -866,6 +894,21 @@ def _simulate_plan_core(plan: SimPlan, jw, vals: dict, z0: float, xp, B: int):
     cell(ia, iref, -(y11 + y12)); cell(ib, iref, -(y21 + y22))
     cell(iref, ia, -(y11 + y21)); cell(iref, ib, -(y12 + y22))
     cell(iref, iref, y11 + y12 + y21 + y22)
+
+    # "Ie after Cbex" — add the α·I_Cbex contribution so the controlled source
+    # senses the emitter current *after* the extrinsic Cbex tap.  α matches the
+    # T-core definition; I_Cbex = Y_cbex·(V_bb − V_ei).  Collector sinks it,
+    # emitter sources it (same convention as the y21 = α·Ybe − Ybc term above).
+    if plan.alpha_cbex is not None:
+        i_bb, i_ci, i_ei, cbex_groups_list = plan.alpha_cbex
+        alpha = (src["alpha0"] * xp.exp(-jw * src["tauC"])
+                 / (1.0 + jw * src["tauB"]))
+        Ycbex = 0.0
+        for groups in cbex_groups_list:
+            Ycbex = Ycbex + _branch_shunt_b(groups, vals, jw, xp)
+        g = alpha * Ycbex
+        cell(i_ci, i_bb, g);  cell(i_ci, i_ei, -g)
+        cell(i_ei, i_bb, -g); cell(i_ei, i_ei, g)
 
     # Kron reduction of internal nodes (indices 2..n-1).
     if n == 2:

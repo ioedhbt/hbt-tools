@@ -43,9 +43,12 @@ def render_custom_section(measured: dict | None = None) -> None:
     from .ui_build import render_build_ui
     from .ui_use import render_use_ui
     from ..helpers import segmented_radio
+    from ._i18n import tr
 
     _M_USE, _M_BUILD = "📂 Simulate & fit", "🛠 Build model"
     options = [_M_USE, _M_BUILD]
+    _mode_label = {_M_USE: tr("📂 Simulate & fit", "📂 模擬與擬合"),
+                   _M_BUILD: tr("🛠 Build model", "🛠 建立模型")}
 
     # "Send to Simulate / Fit" from the build view → switch this selector.  Must
     # run *before* the selector is instantiated to set its session value.
@@ -55,7 +58,8 @@ def render_custom_section(measured: dict | None = None) -> None:
         st.session_state["cm_mode"] = _M_USE
 
     mode = segmented_radio("Custom model", options,
-                           key="cm_mode", label_visibility="collapsed")
+                           key="cm_mode", label_visibility="collapsed",
+                           format_func=lambda m: _mode_label[m])
     if mode == _M_BUILD:
         render_build_ui()
     else:

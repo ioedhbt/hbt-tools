@@ -574,6 +574,11 @@ def sim_custom_batch(plan, params, freq, z0=50.0, *, np_fallback):
     (the NumPy-vectorised evaluator) — so a missing binary just means the slow,
     correct path.  Honours ``HBT_RUST_PARITY_CHECK`` like the built-in kernels.
     """
+    # The "Ie after Cbex" extra α-controlled source is not encoded for the Rust
+    # kernel — route those plans through the (correct) NumPy/CuPy evaluator.
+    if getattr(plan, "alpha_cbex", None) is not None:
+        return np_fallback(params, freq, z0)
+
     if not (HAS_RUST and _phase2_dispatch_enabled()):
         return np_fallback(params, freq, z0)
 

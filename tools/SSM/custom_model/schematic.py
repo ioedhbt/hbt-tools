@@ -164,6 +164,22 @@ class _SVG:
                       f'text-anchor="{anchor}" font-family="{_FONT}">{_esc(s)}</text>')
         self._bump(x, y=y)
 
+    def current_arrow(self, x, y1, y2, label, side="left", color=_SRC):
+        """Overlay a current-flow arrow (``y1→y2``) *on* the conductor at ``x``
+        (drawn over the wire so it reads as the current through it), with the
+        label offset to ``side`` into clear space.  The caller is responsible
+        for giving the arrow a long-enough clear segment of wire to sit on."""
+        dy = 1 if y2 >= y1 else -1
+        self.p.append(f'<line x1="{x:.1f}" y1="{y1:.1f}" x2="{x:.1f}" '
+                      f'y2="{y2 - 6 * dy:.1f}" stroke="{color}" '
+                      f'stroke-width="2.5" stroke-linecap="round"/>')
+        self._poly([(x - 4, y2 - 6 * dy), (x, y2), (x + 4, y2 - 6 * dy)], color)
+        ox = 11 if side == "right" else -11
+        anc = "start" if side == "right" else "end"
+        self.text(x + ox, (y1 + y2) / 2 + 4, label, size=11, anchor=anc,
+                  color=color, weight="700")
+        self._bump(x + ox, ys=(y1, y2))
+
     # ── component glyphs (endpoints define the wire; body centred) ──────────
     def _poly(self, pts, color=_LINE, w=2):
         d = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
@@ -647,6 +663,23 @@ def _draw_intrinsic(s, xL, y_main, y_ei, model: CustomModel, values,
 
 
 _LEG_SLOT = 54
+# Extra clear wire reserved for the "Ie" current-sense arrow (after-Cbex: a stub
+# above Re; before-Cbex: extra b–e bottom-lead room via a taller intrinsic).
+_IE_STUB = 40
+
+
+def _last_group_bottom(net: Network, y_top: float, y_bot: float,
+                       block_max: float = 66.0) -> float:
+    """Y of the bottom of a vertical junction's *last* glyph block — i.e. where
+    its bottom connecting lead begins.  Mirrors the slot/block math in
+    :func:`_draw_junction_v` + :func:`_group_v` so a caller can place an
+    annotation on the clear lead below the glyphs."""
+    groups = _net_groups(net) or [[]]
+    ng = len(groups)
+    seg = (y_bot - y_top) / ng
+    block_h = min(block_max, max(seg - 16.0, 20.0))
+    cy = y_top + (ng - 0.5) * seg
+    return cy + block_h / 2.0
 
 
 def _draw(s: _SVG, model: CustomModel, values=None) -> None:
@@ -662,8 +695,21 @@ def _draw(s: _SVG, model: CustomModel, values=None) -> None:
                  ([("L", "Le")] if an.get("Le") else [])
     n_leg = len(emitter_groups) + len(leg_access)
     has_em = n_leg > 0
-    y_ei = _Y_MAIN + 116
-    y_gnd = y_ei + (_LEG_SLOT * n_leg if has_em else 0)
+
+    # "Ie" current-sense arrow geometry — drawn for any T-core.  Placement:
+    #   • before-Cbex  → on the b–e junction's (lengthened) bottom lead
+    #   • after-Cbex / no Cbex → on a clear stub in the emitter leg above Re
+    # ("before/after" only differ when an extrinsic Cbex P1↔GND is present; with
+    # no Cbex the sensing point is unambiguous, so the arrow sits above Re.)
+    has_cbex = any(b.place == "p1-gnd" and not b.network.is_empty
+                   for b in model.extrinsic)
+    is_t = model.intrinsic_type == "T"
+    ie_before = is_t and has_cbex and not model.ie_after_cbex
+    ie_after = is_t and not ie_before     # leg stub above Re (incl. no-Cbex)
+    leg_stub = _IE_STUB if ie_after else 0
+
+    y_ei = _Y_MAIN + 116 + (_IE_STUB if ie_before else 0)
+    y_gnd = y_ei + (_LEG_SLOT * n_leg if has_em else 0) + leg_stub
 
     x = _PAD
 
@@ -750,16 +796,25 @@ def _draw(s: _SVG, model: CustomModel, values=None) -> None:
     if any(b.place == "p2-gnd" and not b.network.is_empty for b in model.parasitic):
         gnd_pts.append(p2_x)
 
-    # emitter leg: EI → [emitter extras] → [Re] → [Le] → GND (each in a slot)
+    # emitter leg: EI → [emitter extras] → [Ie stub] → [Re] → [Le] → GND
+    ie_arrow_seg = None                  # (y_top, y_bot) clear stub for the arrow
     if has_em:
         yy = y_ei
         for group in emitter_groups:
             br, offs = _grp_to_branches(group, "v")
             _group_v(s, leg_x, yy, yy + _LEG_SLOT, br, offs)
             yy += _LEG_SLOT
+        if leg_stub:                     # clear stub above the access R/L (Re)
+            s.wire(leg_x, yy, leg_x, yy + leg_stub, w=2, color=_GND)
+            ie_arrow_seg = (yy, yy + leg_stub)
+            yy += leg_stub
         for k, key in leg_access:
             s.comp(k, leg_x, yy, leg_x, yy + _LEG_SLOT, an[key], f"access_{key}")
             yy += _LEG_SLOT
+        s.wire(min(gnd_pts), y_gnd, max(gnd_pts), y_gnd, w=3, color=_GND)
+    elif leg_stub:                       # no access leg — drop a stub to GND
+        s.wire(leg_x, y_ei, leg_x, y_gnd, w=2, color=_GND)
+        ie_arrow_seg = (y_ei, y_gnd)
         s.wire(min(gnd_pts), y_gnd, max(gnd_pts), y_gnd, w=3, color=_GND)
     else:
         s.wire(min(gnd_pts), y_ei, max(gnd_pts), y_ei, w=3, color=_GND)
@@ -788,6 +843,19 @@ def _draw(s: _SVG, model: CustomModel, values=None) -> None:
             shunt(p1_x, b.network, y_gnd, side="left")
         elif b.place == "p2-gnd":
             shunt(p2_x, b.network, y_gnd, side="right")
+
+    # ── "Ie" current-sense arrow (T-core with an extrinsic Cbex P1↔GND) ──────
+    # Overlaid on a dedicated clear stub so it never crowds a component/label:
+    # after-Cbex → the emitter-leg stub above Re; before-Cbex → the b–e
+    # junction's (lengthened) bottom lead, after the Cbe/Rbe glyphs.
+    if ie_after and ie_arrow_seg is not None:
+        yt, yb = ie_arrow_seg
+        s.current_arrow(leg_x, yt + 5, yb - 5, "Ie", side="left")
+    elif ie_before:
+        yb_last = _last_group_bottom(model.intrinsic_be, _Y_MAIN, y_ei)
+        ya_lo, ya_hi = yb_last + 5, y_ei - 5
+        if ya_hi - ya_lo >= 12:
+            s.current_arrow(emitter_xs[0], ya_lo, ya_hi, "Ie", side="left")
 
     # ── top bridges (p1-p2): stack at a *consistent* gap above the intrinsic
     # and from each other (widest outermost/highest), accounting for each
@@ -1167,6 +1235,29 @@ def section_thumbnail(model: CustomModel, section: str,
         line(lx2, YM, lx2, GNDY, dash=not pr)
         box(lx2, (YM + GNDY) / 2, 104, 30, "p1-gnd", "P1 ↔ GND",
             pnames("p1-gnd"), present=pr)
+
+        # ── "Ie" current-sense arrow (T-core only) ──────────────────────────
+        # The Cbex (P1↔GND) tap merges at the common rail, so anything on the
+        # emitter leg above it is *before* Cbex.  After-Cbex therefore drops the
+        # arrow on a stub *below the whole emitter* (past the merge); before-Cbex
+        # / no-Cbex keep it on the emitter leg, just above the rail.  Mirrors the
+        # live schematic so the before/after radio gives feedback in this preview.
+        if not is_par and model.intrinsic_type == "T":
+            if pr and bool(model.ie_after_cbex):          # after Cbex → below rail
+                line(CXB, GNDY, CXB, GNDY + 30, color=_GND)
+                ay1, ay2 = GNDY + 6, GNDY + 28
+            else:                                          # before Cbex / no Cbex
+                ay1, ay2 = GNDY - 32, GNDY - 8
+            p.append(f'<line x1="{CXB}" y1="{ay1}" x2="{CXB}" y2="{ay2 - 6}" '
+                     f'stroke="{_SRC}" stroke-width="2.5" '
+                     f'stroke-linecap="round"/>')
+            p.append(f'<polyline points="{CXB-4},{ay2-6} {CXB},{ay2} '
+                     f'{CXB+4},{ay2-6}" fill="none" stroke="{_SRC}" '
+                     f'stroke-width="2.5" stroke-linejoin="round" '
+                     f'stroke-linecap="round"/>')
+            p.append(f'<text x="{CXB+9}" y="{(ay1+ay2)/2+4}" font-size="11" '
+                     f'font-weight="700" text-anchor="start" fill="{_SRC}">'
+                     f'Ie</text>')
 
         # P2 ↔ GND right shunt (parasitic only)
         if is_par:

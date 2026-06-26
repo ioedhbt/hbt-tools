@@ -26,6 +26,13 @@ from .core import (CustomModel, Network, Element, ShuntBranch,
 from .schematic import (render_schematic, intrinsic_thumbnail,
                         section_thumbnail, svg_to_png, copy_image_button,
                         svg_pixel_height)
+from ..helpers import segmented_radio
+from ._i18n import tr
+
+# Labels for the α·Ie current-sensing selector (T-core + extrinsic Cbex).
+_IE_BEFORE = "Ie before Cbex"
+_IE_AFTER = "Ie after Cbex"
+_IE_SENSE_KEY = "cmb_ie_sense"
 
 
 _MODEL_KEY = "cmb_model"
@@ -271,36 +278,37 @@ def _network_editor(net: Network, prefix: str, model: CustomModel,
     def _new_name(k: str) -> str:
         return name_fn(k) if name_fn else _default_name(model, k)
     if not net.groups:
-        st.caption("_No components yet._")
+        st.caption(tr("_No components yet._", "_尚無元件。_"))
     for gi, group in enumerate(net.groups):
         with st.container(border=True):
-            st.markdown(f"**Series step {gi + 1}** &nbsp; "
-                        "_(components below are in parallel)_",
+            st.markdown(tr(f"**Series step {gi + 1}** &nbsp; "
+                           "_(components below are in parallel)_",
+                           f"**串聯段 {gi + 1}** &nbsp; _(下方元件為並聯)_"),
                         unsafe_allow_html=True)
             for el in list(group):
                 c1, c2, c3 = st.columns([1, 3, 1])
                 c1.markdown(f"`{el.kind}`")
-                el.name = c2.text_input("name", value=el.name,
+                el.name = c2.text_input(tr("name", "名稱"), value=el.name,
                                         key=f"{prefix}_g{gi}_e{el.id}_nm_{_ver()}",
                                         label_visibility="collapsed")
                 if c3.button(_TRASH, key=f"{prefix}_g{gi}_e{el.id}_del",
-                             help="Remove this component"):
+                             help=tr("Remove this component", "移除此元件")):
                     group.remove(el)
                     st.rerun()
             bc = st.columns(len(kinds))
             for j, k in enumerate(kinds):
-                if bc[j].button(f"➕ {k} (parallel)", key=f"{prefix}_g{gi}_add{k}",
-                                width="stretch"):
+                if bc[j].button(tr(f"➕ {k} (parallel)", f"➕ {k}（並聯）"),
+                                key=f"{prefix}_g{gi}_add{k}", width="stretch"):
                     group.append(Element(kind=k, name=_new_name(k)))
                     st.rerun()
     if allow_series:
-        if st.button("➕ Add series step", key=f"{prefix}_addseries",
-                     width="stretch"):
+        if st.button(tr("➕ Add series step", "➕ 新增串聯段"),
+                     key=f"{prefix}_addseries", width="stretch"):
             net.groups.append([])
             st.rerun()
     elif not net.groups:
-        if st.button("➕ Add components", key=f"{prefix}_addseries",
-                     width="stretch"):
+        if st.button(tr("➕ Add components", "➕ 新增元件"),
+                     key=f"{prefix}_addseries", width="stretch"):
             net.groups.append([])
             st.rerun()
 
@@ -322,7 +330,8 @@ def _shunt_list_editor(branches: list, allowed_places: dict, prefix: str,
         with st.container(border=True):
             head = st.columns([4, 1])
             head[0].markdown(f"**{allowed_places.get(b.place, b.place)}**")
-            if head[1].button(f"{_TRASH} branch", key=f"{prefix}_b{b.id}_del"):
+            if head[1].button(tr(f"{_TRASH} branch", f"{_TRASH} 分支"),
+                              key=f"{prefix}_b{b.id}_del"):
                 branches.remove(b)
                 st.rerun()
             _network_editor(b.network, f"{prefix}_b{b.id}", model,
@@ -338,8 +347,10 @@ def render_build_ui() -> None:
     t = model.terminals()
 
     top = st.columns([4, 1])
-    top[0].subheader("🧩 Build a custom small-signal model")
-    if top[1].button("🔄 Start over", help="Discard this draft"):
+    top[0].subheader(tr("🧩 Build a custom small-signal model",
+                        "🧩 建立自訂小訊號模型"))
+    if top[1].button(tr("🔄 Start over", "🔄 重新開始"),
+                     help=tr("Discard this draft", "捨棄此草稿")):
         for k in [kk for kk in st.session_state if kk.startswith("cmb_")]:
             st.session_state.pop(k, None)
         st.session_state.pop(_MODEL_KEY, None)
@@ -347,29 +358,38 @@ def render_build_ui() -> None:
         st.rerun()
 
     # ── Modify an existing model — from a built-in topology or an uploaded .json ─
-    with st.expander("📂 Modify an existing model (built-in or a .json)",
+    with st.expander(tr("📂 Modify an existing model (built-in or a .json)",
+                        "📂 修改既有模型（內建或 .json）"),
                      expanded=False):
-        st.caption("Loads a whole topology — device, π/T, intrinsic "
-                   "junctions, port/delay extras, extrinsic & parasitic caps, "
-                   "access R/L and every name — into the editor with all "
-                   "sections revealed.  Start from one of the built-in models "
-                   "(Cheng, Xu, Kun-Yang) or upload a previously-saved `.json`, "
-                   "edit anything, then download the result at the bottom.")
+        st.caption(tr(
+            "Loads a whole topology — device, π/T, intrinsic "
+            "junctions, port/delay extras, extrinsic & parasitic caps, "
+            "access R/L and every name — into the editor with all "
+            "sections revealed.  Start from one of the built-in models "
+            "(Cheng, Xu, Kun-Yang) or upload a previously-saved `.json`, "
+            "edit anything, then download the result at the bottom.",
+            "將整個拓樸 — 元件類型、π/T、本質接面、埠/延遲附加元件、外質與寄生"
+            "電容、接觸電阻 R/引線電感 L 以及所有名稱 — 載入編輯器並展開所有區段。"
+            "可從內建模型（Cheng、Xu、Kun-Yang）開始，或上傳先前儲存的 `.json`，"
+            "編輯任意內容後於底部下載結果。"))
 
         # Built-in topologies — load Cheng / Xu / Kun-Yang as a starting point.
-        st.markdown("**Start from a built-in model**")
+        st.markdown(tr("**Start from a built-in model**", "**從內建模型開始**"))
         pc = st.columns([4, 1])
         preset_label = pc[0].selectbox(
-            "Built-in topology", list(BUILTIN_PRESETS),
+            tr("Built-in topology", "內建拓樸"), list(BUILTIN_PRESETS),
             key="cmb_preset_pick", label_visibility="collapsed")
-        if pc[1].button("Load", key="cmb_preset_load", width="stretch"):
+        if pc[1].button(tr("Load", "載入"), key="cmb_preset_load",
+                        width="stretch"):
             loaded = builtin_custom_model(preset_label)
             loaded.name = f"{loaded.name}_modified"
             _install_for_modify(loaded, keep=("cmb_preset_pick",))
             st.rerun()
 
-        st.markdown("**…or upload a saved `.json`**")
-        mod = st.file_uploader("Custom model .json", type=["json"],
+        st.markdown(tr("**…or upload a saved `.json`**",
+                       "**…或上傳已儲存的 `.json`**"))
+        mod = st.file_uploader(tr("Custom model .json", "自訂模型 .json"),
+                               type=["json"],
                                key="cmb_modify_up", label_visibility="collapsed")
         if mod is not None:
             data = mod.getvalue()
@@ -378,7 +398,8 @@ def render_build_ui() -> None:
                 try:
                     loaded = load_model(data)
                 except Exception as exc:                   # noqa: BLE001
-                    st.error(f"Couldn't read that model: {exc}")
+                    st.error(tr(f"Couldn't read that model: {exc}",
+                                f"無法讀取該模型：{exc}"))
                 else:
                     # Name the working copy "<name>_modified" so the edited
                     # model downloads as a distinct file from the original.
@@ -392,20 +413,29 @@ def render_build_ui() -> None:
     model = _model()
     t = model.terminals()
 
+    # Reflect the α·Ie sensing radio (rendered later, in the Extrinsic section)
+    # up here so the live schematic + section thumbnails update in the SAME
+    # rerun the user toggles it — the widget sits below this point in the script.
+    if (model.intrinsic_type == "T"
+            and st.session_state.get(_IE_SENSE_KEY) in (_IE_BEFORE, _IE_AFTER)):
+        model.ie_after_cbex = st.session_state[_IE_SENSE_KEY] == _IE_AFTER
+
     # ── live schematic ──────────────────────────────────────────────────────
-    st.markdown("##### Live schematic")
+    st.markdown(tr("##### Live schematic", "##### 即時電路圖"))
     svg = render_schematic(model)
     st.iframe(svg, height=svg_pixel_height(svg) + 12)
     png = svg_to_png(svg, zoom=2)
     bc = st.columns(3)
     if png is not None:
-        bc[0].download_button("🖼️ Download PNG", data=png,
+        bc[0].download_button(tr("🖼️ Download PNG", "🖼️ 下載 PNG"), data=png,
                               file_name=f"{model.name or 'model'}.png",
                               mime="image/png", key="cmb_dl_png", width="stretch")
-        copy_image_button(png, container=bc[1], label="📋 copy image")
+        copy_image_button(png, container=bc[1],
+                          label=tr("📋 copy image", "📋 複製圖片"))
     else:
-        bc[0].caption("PNG export needs `rsvg-convert`/`cairosvg` — SVG below.")
-    bc[2].download_button("⬇ Download SVG", data=svg,
+        bc[0].caption(tr("PNG export needs `rsvg-convert`/`cairosvg` — SVG below.",
+                         "PNG 匯出需要 `rsvg-convert`/`cairosvg` — 下方提供 SVG。"))
+    bc[2].download_button(tr("⬇ Download SVG", "⬇ 下載 SVG"), data=svg,
                           file_name=f"{model.name or 'model'}.svg",
                           mime="image/svg+xml", key="cmb_dl_svg", width="stretch")
 
@@ -413,17 +443,22 @@ def render_build_ui() -> None:
 
     # ── Section 0: device + intrinsic core ──────────────────────────────────
     with st.container(border=True):
-        st.markdown("#### 1 · Device & intrinsic core")
+        st.markdown(tr("#### 1 · Device & intrinsic core",
+                       "#### 1 · 元件與本質核心"))
         c1, c2, c3 = st.columns([2, 2, 2])
-        model.name = c1.text_input("Model name", value=model.name, key="cmb_name")
+        model.name = c1.text_input(tr("Model name", "模型名稱"),
+                                   value=model.name, key="cmb_name")
         new_dev = c2.radio(
-            "Device", ["Bipolar", "Unipolar"],
-            format_func=lambda d: ("Bipolar (HBT) · B/C/E" if d == "Bipolar"
-                                   else "Unipolar (HEMT) · G/D/S"),
+            tr("Device", "元件類型"), ["Bipolar", "Unipolar"],
+            format_func=lambda d: (tr("Bipolar (HBT) · B/C/E",
+                                      "雙極性 (HBT) · B/C/E") if d == "Bipolar"
+                                   else tr("Unipolar (HEMT) · G/D/S",
+                                           "單極性 (HEMT) · G/D/S")),
             index=0 if model.device == "Bipolar" else 1, key="cmb_dev")
         new_type = c3.radio(
-            "Intrinsic topology", ["Pi", "T"],
-            format_func=lambda x: "Intrinsic π" if x == "Pi" else "Intrinsic T",
+            tr("Intrinsic topology", "本質拓樸"), ["Pi", "T"],
+            format_func=lambda x: (tr("Intrinsic π", "本質 π") if x == "Pi"
+                                   else tr("Intrinsic T", "本質 T")),
             horizontal=True,
             index=0 if model.intrinsic_type == "Pi" else 1, key="cmb_itype")
         # On a device change, auto-rename every default-named component
@@ -443,11 +478,11 @@ def render_build_ui() -> None:
         # ── Intuitive one-part-at-a-time editor (illustration | controls) ───
         part_keys = ["base", "be", "bc", "ce", "src"]
         part_opts = {
-            "base": f"⬚ Base ({t['p1']})",
+            "base": tr(f"⬚ Base ({t['p1']})", f"⬚ 基極展布 ({t['p1']})"),
             "be":   f"⬚ {t['p1']}–{t['com']}",
             "bc":   f"⬚ {t['p1']}–{t['p2']}",
             "ce":   f"⬚ {t['p2']}–{t['com']}",
-            "src":  "◇ Source",
+            "src":  tr("◇ Source", "◇ 受控源"),
         }
         ill, ctrl = st.columns([5, 6])
         sel = _cur_part("cmb_isel", part_keys, "be")
@@ -457,41 +492,52 @@ def render_build_ui() -> None:
         with ctrl_box:
             sel = _part_chips(part_opts, part_keys, "cmb_isel", "be")
             if sel == "base":
-                st.markdown(f"**Base spreading** — series network into node "
-                            f"**{t['p1']}** (e.g. {t['p1']}-spreading R).")
+                st.markdown(tr(
+                    f"**Base spreading** — series network into node "
+                    f"**{t['p1']}** (e.g. {t['p1']}-spreading R).",
+                    f"**基極展布** — 串入節點 **{t['p1']}** 的串聯網路"
+                    f"（例如 {t['p1']} 展布電阻）。"))
                 _network_editor(model.intrinsic_base, "cmb_ibase", model)
             elif sel == "be":
-                st.markdown(f"**{t['p1']}–{t['com']} junction** "
-                            f"_({t['p1_long']}–{t['com_long']})_",
+                st.markdown(tr(f"**{t['p1']}–{t['com']} junction** "
+                               f"_({t['p1_long']}–{t['com_long']})_",
+                               f"**{t['p1']}–{t['com']} 接面** "
+                               f"_({t['p1_long']}–{t['com_long']})_"),
                             unsafe_allow_html=True)
                 _network_editor(model.intrinsic_be, "cmb_ibe", model)
             elif sel == "bc":
-                st.markdown(f"**{t['p1']}–{t['p2']} junction** "
-                            f"_({t['p1_long']}–{t['p2_long']})_",
+                st.markdown(tr(f"**{t['p1']}–{t['p2']} junction** "
+                               f"_({t['p1_long']}–{t['p2_long']})_",
+                               f"**{t['p1']}–{t['p2']} 接面** "
+                               f"_({t['p1_long']}–{t['p2_long']})_"),
                             unsafe_allow_html=True)
                 _network_editor(model.intrinsic_bc, "cmb_ibc", model)
             elif sel == "ce":
-                st.markdown(f"**{t['p2']}–{t['com']} output** "
-                            f"_({t['p2_long']}–{t['com_long']}, optional)_",
+                st.markdown(tr(f"**{t['p2']}–{t['com']} output** "
+                               f"_({t['p2_long']}–{t['com_long']}, optional)_",
+                               f"**{t['p2']}–{t['com']} 輸出** "
+                               f"_({t['p2_long']}–{t['com_long']}，選用)_"),
                             unsafe_allow_html=True)
                 _network_editor(model.intrinsic_ce, "cmb_ice", model)
             else:  # src
                 model.source_name = st.text_input(
-                    "Controlled-source label", value=model.source_name,
-                    key=f"cmb_srcnm_{_ver()}")
+                    tr("Controlled-source label", "受控源標籤"),
+                    value=model.source_name, key=f"cmb_srcnm_{_ver()}")
 
         if stage == 0:
-            if st.button("✅ Confirm intrinsic core", type="primary"):
+            if st.button(tr("✅ Confirm intrinsic core", "✅ 確認本質核心"),
+                         type="primary"):
                 _set_stage(1)
                 st.rerun()
 
     if stage < 1:
-        st.info("Confirm the intrinsic core to add the delay / port branches.")
+        st.info(tr("Confirm the intrinsic core to add the delay / port branches.",
+                   "確認本質核心後即可新增延遲 / 埠分支。"))
         return
 
     # ── Section 2: extrinsic caps ───────────────────────────────────────────
     with st.container(border=True):
-        st.markdown("#### 2 · Extrinsic capacitances")
+        st.markdown(tr("#### 2 · Extrinsic capacitances", "#### 2 · 外質電容"))
         e_keys = ["p1-p2", "p1-gnd"]
         e_opts = {"p1-p2": "⬚ P1 ↔ P2", "p1-gnd": "⬚ P1 ↔ GND"}
         ill, ctrl = st.columns([5, 6])
@@ -500,12 +546,43 @@ def render_build_ui() -> None:
             st.iframe(section_thumbnail(model, "extrinsic", esel), height=404)
         with ctrl.container():
             esel = _part_chips(e_opts, e_keys, "cmb_extsel", "p1-p2")
-            st.markdown(f"**{e_opts[esel][2:]}** capacitance")
+            st.markdown(tr(f"**{e_opts[esel][2:]}** capacitance",
+                           f"**{e_opts[esel][2:]}** 電容"))
             _network_editor(_place_net(model.extrinsic, esel),
                             f"cmb_ext_{esel}", model,
                             name_fn=lambda k: _extrinsic_default(model, esel, k))
+        # ── T-core only: sense Ie before/after the Cbex (P1↔GND) tap ──────────
+        has_cbex = any(b.place == "p1-gnd" and not b.network.is_empty
+                       for b in model.extrinsic)
+        if model.intrinsic_type == "T" and has_cbex:
+            cbex_nm = _extrinsic_default(model, "p1-gnd", "C")   # Cbex / Cgsx
+            src_nm = model.source_name or "α·Ie"
+            _ie_opts = [_IE_BEFORE, _IE_AFTER]
+            _ie_fmt = {_IE_BEFORE: tr(f"⬆ before {cbex_nm}", f"⬆ 在 {cbex_nm} 之前"),
+                       _IE_AFTER: tr(f"⬇ after {cbex_nm}", f"⬇ 在 {cbex_nm} 之後")}
+            sel = segmented_radio(
+                tr(f"Sense {src_nm} emitter current",
+                   f"{src_nm} 射極電流的取樣點"),
+                _ie_opts, index=1 if model.ie_after_cbex else 0,
+                key=_IE_SENSE_KEY, format_func=lambda k: _ie_fmt[k],
+                help=tr(
+                    f"**After {cbex_nm}**: the controlled source's emitter "
+                    f"current includes the {cbex_nm} displacement current "
+                    f"(sensed after the tap). **Before {cbex_nm}** (default): "
+                    f"{src_nm} senses only the intrinsic-junction current. "
+                    f"{cbex_nm} stays physically at the intrinsic emitter "
+                    f"node either way.",
+                    f"**在 {cbex_nm} 之後**：受控源的射極電流會包含 {cbex_nm} 的"
+                    f"位移電流（在分接點之後取樣）。**在 {cbex_nm} 之前**（預設）："
+                    f"{src_nm} 只取樣本質接面電流。無論如何 {cbex_nm} 在實體上"
+                    f"都接於本質射極節點。"))
+            model.ie_after_cbex = (sel == _IE_AFTER)
+        elif model.ie_after_cbex and model.intrinsic_type != "T":
+            # Switched the core to π — the option no longer applies; clear it.
+            model.ie_after_cbex = False
         if stage == 1:
-            if st.button("✅ Done — add delay / port extras", type="primary"):
+            if st.button(tr("✅ Done — add delay / port extras",
+                            "✅ 完成 — 新增延遲 / 埠附加元件"), type="primary"):
                 _set_stage(2)
                 st.rerun()
 
@@ -514,11 +591,11 @@ def render_build_ui() -> None:
 
     # ── Section 3: delay / port extras ──────────────────────────────────────
     with st.container(border=True):
-        st.markdown("#### 3 · Delay / port extras")
+        st.markdown(tr("#### 3 · Delay / port extras", "#### 3 · 延遲 / 埠附加元件"))
         d_keys = ["port1", "port2", "emitter"]
         d_opts = {"port1": f"⬚ Port 1 ({t['p1']})",
                   "port2": f"⬚ Port 2 ({t['p2']})",
-                  "emitter": f"⬚ {t['com']} delay"}
+                  "emitter": tr(f"⬚ {t['com']} delay", f"⬚ {t['com']} 延遲")}
         ill, ctrl = st.columns([5, 6])
         dsel = _cur_part("cmb_dsel", d_keys, "port1")
         with ill:
@@ -526,22 +603,29 @@ def render_build_ui() -> None:
         with ctrl.container():
             dsel = _part_chips(d_opts, d_keys, "cmb_dsel", "port1")
             if dsel == "port1":
-                st.markdown(f"**Port 1 ({t['p1_long']} side)** — series extras.")
+                st.markdown(tr(f"**Port 1 ({t['p1_long']} side)** — series extras.",
+                               f"**埠 1（{t['p1_long']}側）** — 串聯附加元件。"))
                 _network_editor(model.port1, "cmb_p1", model,
                                 name_fn=lambda k: _delay_default(model, k, "port1"))
             elif dsel == "port2":
-                st.markdown(f"**Port 2 ({t['p2_long']} side)** — series extras.")
+                st.markdown(tr(f"**Port 2 ({t['p2_long']} side)** — series extras.",
+                               f"**埠 2（{t['p2_long']}側）** — 串聯附加元件。"))
                 _network_editor(model.port2, "cmb_p2", model,
                                 name_fn=lambda k: _delay_default(model, k, "port2"))
             else:
-                st.markdown(f"**Common ({t['com_long']}) delay branch** &nbsp; "
-                            "_(between the intrinsic source and access Re/Le — "
-                            "e.g. the Kun-Yang R_delay∥C_delay above Rs)_",
-                            unsafe_allow_html=True)
+                st.markdown(tr(
+                    f"**Common ({t['com_long']}) delay branch** &nbsp; "
+                    "_(between the intrinsic source and access Re/Le — "
+                    "e.g. the Kun-Yang R_delay∥C_delay above Rs)_",
+                    f"**共用（{t['com_long']}）延遲分支** &nbsp; "
+                    "_(位於本質源與接觸 Re/Le 之間 — 例如 Rs 上方的 "
+                    "Kun-Yang R_delay∥C_delay)_"),
+                    unsafe_allow_html=True)
                 _network_editor(model.emitter, "cmb_emit", model,
                                 name_fn=lambda k: _delay_default(model, k, "emitter"))
         if stage == 2:
-            if st.button("✅ Done — add access R / lead L", type="primary"):
+            if st.button(tr("✅ Done — add access R / lead L",
+                            "✅ 完成 — 新增接觸電阻 R / 引線電感 L"), type="primary"):
                 _set_stage(3)
                 st.rerun()
 
@@ -550,7 +634,8 @@ def render_build_ui() -> None:
 
     # ── Section 4: access R + lead L ────────────────────────────────────────
     with st.container(border=True):
-        st.markdown("#### 4 · Access resistance + lead inductance")
+        st.markdown(tr("#### 4 · Access resistance + lead inductance",
+                       "#### 4 · 接觸電阻 + 引線電感"))
         # Seed device-appropriate default names the first time this section is
         # reached (kept blank earlier so the schematic shows intrinsic-only).
         if not st.session_state.get("cmb_access_seeded"):
@@ -567,12 +652,13 @@ def render_build_ui() -> None:
                     f"{key} ({unit})", value=model.access_names.get(key, ""),
                     key=f"cmb_acc_{key}_{_ver()}")
                 if dc.button(_TRASH, key=f"cmb_acc_del_{key}",
-                             help=f"Delete {key}"):
+                             help=tr(f"Delete {key}", f"刪除 {key}")):
                     model.access_names[key] = ""
                     _bump_namever()
                     st.rerun()
             else:
-                if col.button(f"➕ add {_access_default(model.device, key)}",
+                if col.button(tr(f"➕ add {_access_default(model.device, key)}",
+                                 f"➕ 新增 {_access_default(model.device, key)}"),
                               key=f"cmb_acc_add_{key}", width="stretch"):
                     model.access_names[key] = _access_default(model.device, key)
                     _bump_namever()
@@ -582,16 +668,21 @@ def render_build_ui() -> None:
         with ill:
             st.iframe(section_thumbnail(model, "access"), height=404)
         with ctrl.container():
-            rows = [(t["p1_long"].capitalize(), "Rb", "Lb"),
-                    (t["p2_long"].capitalize(), "Rc", "Lc"),
-                    (t["com_long"].capitalize(), "Re", "Le")]
+            _long_zh = {"base": "基極", "collector": "集極", "emitter": "射極",
+                        "gate": "閘極", "drain": "汲極", "source": "源極"}
+            _lbl = lambda lng: tr(lng.capitalize(), _long_zh.get(lng, lng))
+            rows = [(_lbl(t["p1_long"]), "Rb", "Lb"),
+                    (_lbl(t["p2_long"]), "Rc", "Lc"),
+                    (_lbl(t["com_long"]), "Re", "Le")]
+            _u_r, _u_l = tr("series R", "串聯 R"), tr("series L", "串聯 L")
             for lbl, rk, lk in rows:
                 c = st.columns([1, 2, 2])
                 c[0].markdown(f"**{lbl}**")
-                _access_cell(c[1], rk, "series R")
-                _access_cell(c[2], lk, "series L")
+                _access_cell(c[1], rk, _u_r)
+                _access_cell(c[2], lk, _u_l)
         if stage == 3:
-            if st.button("✅ Done — add parasitic caps", type="primary"):
+            if st.button(tr("✅ Done — add parasitic caps",
+                            "✅ 完成 — 新增寄生電容"), type="primary"):
                 _set_stage(4)
                 st.rerun()
 
@@ -600,7 +691,8 @@ def render_build_ui() -> None:
 
     # ── Section 5: parasitic caps ───────────────────────────────────────────
     with st.container(border=True):
-        st.markdown("#### 5 · Parasitic pad capacitances")
+        st.markdown(tr("#### 5 · Parasitic pad capacitances",
+                       "#### 5 · 寄生焊墊電容"))
         pa_keys = ["p1-p2", "p1-gnd", "p2-gnd"]
         pa_opts = {"p1-p2": "⬚ P1 ↔ P2", "p1-gnd": "⬚ P1 ↔ GND",
                    "p2-gnd": "⬚ P2 ↔ GND"}
@@ -610,25 +702,31 @@ def render_build_ui() -> None:
             st.iframe(section_thumbnail(model, "parasitic", psel), height=404)
         with ctrl.container():
             psel = _part_chips(pa_opts, pa_keys, "cmb_parsel", "p1-p2")
-            st.markdown(f"**{pa_opts[psel][2:]}** pad capacitance")
+            st.markdown(tr(f"**{pa_opts[psel][2:]}** pad capacitance",
+                           f"**{pa_opts[psel][2:]}** 焊墊電容"))
             _network_editor(_place_net(model.parasitic, psel),
                             f"cmb_par_{psel}", model,
                             name_fn=lambda k: _parasitic_default(model, psel, k))
 
     # ── Save (download the .json, or send straight to the Load/Fit views) ────
     st.divider()
-    st.markdown("#### 💾 Save / use model")
-    st.caption("Download the topology as a `.json`, or send it straight to the "
-               "**Load** (simulate) and **Fit-to-device** views — no re-upload "
-               "needed; just switch to them.")
+    st.markdown(tr("#### 💾 Save / use model", "#### 💾 儲存 / 使用模型"))
+    st.caption(tr(
+        "Download the topology as a `.json`, or send it straight to the "
+        "**Load** (simulate) and **Fit-to-device** views — no re-upload "
+        "needed; just switch to them.",
+        "將拓樸下載為 `.json`，或直接傳送至**載入**（模擬）與**對元件擬合**"
+        "頁面 — 無需重新上傳，切換過去即可。"))
     sd = st.columns(2)
     sd[0].download_button(
-        "⬇ Download .json", data=model_to_json(model),
+        tr("⬇ Download .json", "⬇ 下載 .json"), data=model_to_json(model),
         file_name=f"{model.name or 'model'}.json", mime="application/json",
         type="primary", width="stretch")
-    if sd[1].button("📤 Send to Simulate / Fit view", width="stretch",
-                    help="Load this model into the Simulate & Fit view, switch "
-                         "to it, and download its .json"):
+    if sd[1].button(tr("📤 Send to Simulate / Fit view", "📤 傳送至模擬 / 擬合頁"),
+                    width="stretch",
+                    help=tr("Load this model into the Simulate & Fit view, switch "
+                            "to it, and download its .json",
+                            "將此模型載入模擬與擬合頁、切換過去並下載其 .json")):
         from .ui_fit import install_fit_model
         js = model_to_json(model)
         install_fit_model(load_model(js))

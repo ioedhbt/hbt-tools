@@ -29,6 +29,18 @@ from ..helpers.rust_kernels import sim_custom_batch as _rust_sim_custom
 from ..models.base_ui import (render_smith_with_ftfmax, render_tuning_expander,
                               render_visual_tuning_expander, smith_scale_controls)
 from ..ssm_plots import render_matplotlib_smith, render_tau_fmax_expander
+from ._i18n import tr
+
+# Display translations for the grouped value-input section titles, which come
+# from CustomModel.grouped_value_specs() in English.
+_GROUP_TITLE_ZH = {
+    "Parasitic pad capacitances": "寄生焊墊電容",
+    "Lead inductance": "引線電感",
+    "Access resistance": "接觸電阻",
+    "Extrinsic capacitances": "外質電容",
+    "Port / delay extras": "埠 / 延遲附加元件",
+    "Intrinsic core": "本質核心",
+}
 
 # kind → (SI→display scale, sensible non-degenerate start) for value inputs +
 # the tuning sweep's display units.
@@ -77,8 +89,8 @@ def install_fit_model(model: CustomModel) -> None:
 
 
 def _load_model(fname: str) -> CustomModel | None:
-    up = st.file_uploader("Upload a custom model .json", type=["json"],
-                          key=f"cmf_up_{fname}")
+    up = st.file_uploader(tr("Upload a custom model .json", "上傳自訂模型 .json"),
+                          type=["json"], key=f"cmf_up_{fname}")
     if up is not None:
         data = up.getvalue()
         sig = (up.name, len(data), hash(data))
@@ -87,7 +99,8 @@ def _load_model(fname: str) -> CustomModel | None:
                 install_fit_model(load_model(data))
                 st.session_state[f"cmf_sig_{fname}"] = sig
             except Exception as exc:                       # noqa: BLE001
-                st.error(f"Could not read that .json: {exc}")
+                st.error(tr(f"Could not read that .json: {exc}",
+                            f"無法讀取該 .json：{exc}"))
     return st.session_state.get("cmf_model")
 
 
@@ -104,7 +117,7 @@ def _value_inputs(model: CustomModel, fname: str) -> dict:
     values: dict = {}
     per_row = 4
     for title, items in model.grouped_value_specs():
-        st.markdown(f"**{title}**")
+        st.markdown(f"**{tr(title, _GROUP_TITLE_ZH.get(title, title))}**")
         for i in range(0, len(items), per_row):
             row = items[i:i + per_row]
             cs = st.columns(len(row))
