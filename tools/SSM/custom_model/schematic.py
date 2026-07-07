@@ -1007,6 +1007,111 @@ def copy_image_button(png: bytes, *, container=None,
     target.iframe(doc, height=height)
 
 
+def svg_png_buttons(svg: str, *, filename: str = "schematic.png",
+                    container=None, zoom: int = 2,
+                    dl_label: str = "🖼️ Download PNG",
+                    copy_label: str = "📋 copy image",
+                    height: int = 46) -> None:
+    """Render *Download PNG* + *Copy image* buttons that rasterise ``svg`` to a
+    PNG **entirely in the browser** (an HTML ``<canvas>``) — no server-side
+    ``rsvg-convert`` / ``cairosvg`` and therefore no native packages required.
+    PNG export works identically on Streamlit Cloud and any local machine.  The
+    two buttons share one iframe and a single (cached) rasterisation."""
+    import base64
+    import html as _html
+    import json
+    import streamlit as st
+    target = container if container is not None else st
+    if not svg:
+        return
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    dl = _html.escape(dl_label)
+    cp = _html.escape(copy_label)
+    fname = json.dumps(filename)
+    doc = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  html,body{{margin:0;padding:0;background:transparent;overflow:hidden;}}
+  .row{{position:relative;display:flex;gap:8px;}}
+  button{{
+    flex:1;box-sizing:border-box;cursor:pointer;
+    font-family:"Source Sans Pro","Segoe UI",sans-serif;font-size:0.875rem;
+    line-height:1.6;padding:0.25rem 0.75rem;min-height:38.4px;
+    border:1px solid rgba(49,51,63,0.2);border-radius:0.5rem;
+    background:#fff;color:rgb(38,39,48);transition:border-color .15s,color .15s;
+  }}
+  button:hover{{border-color:#4A90D9;color:#4A90D9;}}
+  #toast{{
+    position:absolute;left:50%;top:50%;
+    transform:translate(-50%,-50%) scale(0.96);
+    background:#1f8a4c;color:#fff;font-weight:600;font-size:0.8rem;
+    font-family:"Source Sans Pro","Segoe UI",sans-serif;
+    padding:5px 12px;border-radius:6px;white-space:nowrap;
+    box-shadow:0 2px 8px rgba(0,0,0,0.28);opacity:0;pointer-events:none;
+    transition:opacity .15s ease,transform .15s ease;z-index:2;
+  }}
+  #toast.show{{opacity:1;transform:translate(-50%,-50%) scale(1);}}
+</style></head><body>
+<div class="row">
+  <button id="dl">{dl}</button>
+  <button id="cp">{cp}</button>
+  <div id="toast">✓ Image copied</div>
+</div>
+<script>
+  const B64 = "{b64}";
+  const ZOOM = {zoom};
+  const FNAME = {fname};
+  const toast = document.getElementById("toast");
+  let timer = null, pngBlob = null;
+  function flash(msg) {{
+    if (msg) toast.textContent = msg;
+    toast.classList.add("show");
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(function() {{ toast.classList.remove("show"); }}, 1100);
+  }}
+  function rasterize(cb) {{
+    if (pngBlob) {{ cb(pngBlob); return; }}
+    const img = new Image();
+    img.onload = function() {{
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(w * ZOOM));
+      c.height = Math.max(1, Math.round(h * ZOOM));
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.setTransform(ZOOM, 0, 0, ZOOM, 0, 0);
+      ctx.drawImage(img, 0, 0);
+      c.toBlob(function(b) {{ pngBlob = b; cb(b); }}, "image/png");
+    }};
+    img.onerror = function() {{ cb(null); }};
+    img.src = "data:image/svg+xml;base64," + B64;
+  }}
+  rasterize(function() {{}});           // preload so the click is instant
+  document.getElementById("dl").addEventListener("click", function() {{
+    rasterize(function(b) {{
+      if (!b) {{ flash("⚠ export failed"); return; }}
+      const url = URL.createObjectURL(b);
+      const a = document.createElement("a");
+      a.href = url; a.download = FNAME;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function() {{ URL.revokeObjectURL(url); }}, 4000);
+    }});
+  }});
+  document.getElementById("cp").addEventListener("click", function() {{
+    rasterize(function(b) {{
+      if (!b) {{ flash("⚠ export failed"); return; }}
+      try {{
+        if (navigator.clipboard && window.ClipboardItem) {{
+          navigator.clipboard.write([new ClipboardItem({{"image/png": b}})])
+            .then(function(){{ flash("✓ Image copied"); }})
+            .catch(function(){{ flash("⚠ Use Download"); }});
+        }} else {{ flash("⚠ Use Download"); }}
+      }} catch (e) {{ flash("⚠ Use Download"); }}
+    }});
+  }});
+</script></body></html>"""
+    target.iframe(doc, height=height)
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Abstracted intrinsic-editor illustration
 # ════════════════════════════════════════════════════════════════════════════

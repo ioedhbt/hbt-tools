@@ -13,9 +13,9 @@ from __future__ import annotations
 __version__ = "1.4"
 
 import gc
+import hashlib
 import math
-import os
-import tempfile
+import struct
 import numpy as np
 import streamlit as st
 
@@ -345,13 +345,16 @@ def _hex_to_rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({r}, {g}, {b}, {alpha})"
 
 
-# Safety budget so a pathological GDS still fails with a clear message
+# Safety budgets so a pathological GDS still fails with a clear message
 # instead of OOM-killing the app on memory-limited hosts (Streamlit
 # Community Cloud ≈ 1 GB). Geometry is stored as flat float64 arrays
-# (~16 B/vertex, no per-polygon Python objects), so these limits map to
-# roughly: 40 M vertices ≈ 0.64 GB resident.
-_MAX_POLYGONS = 12_000_000
-_MAX_VERTICES = 40_000_000
+# (~16 B per vertex / per placement row, no per-polygon Python objects),
+# so 20 M of either ≈ 0.32 GB resident — the practical ceiling once the
+# upload buffer (held live by the file_uploader widget) and the ~150 MB
+# import baseline are accounted for.
+_MAX_SRC_VERTICES = 20_000_000   # polygon vertices stored while parsing
+_MAX_OFFSET_ROWS = 20_000_000    # reference placements after flattening
+_MAX_VERTICES = 20_000_000       # vertices when expanding a layer flat
 
 # Above this polygon count a layer is too dense to draw individually in
 # the browser (Plotly chokes well before this) or to clip per-grid with
@@ -418,18 +421,20 @@ class _PolyLayer:
         return self.cx[st], self.cy[st]
 
 
-def _apply_ref_transform(cx, cy, ref):
+def _apply_ref_transform(cx, cy, rotation, magnification, x_reflection):
     """Apply a reference's magnification → x_reflection → rotation
-    (translation handled separately via origin + repetition offsets)."""
-    mag = ref.magnification or 1.0
-    x = cx * mag
-    y = cy * mag
-    if ref.x_reflection:
+    (translation handled separately via origin + repetition offsets).
+    Identity transforms return the inputs unchanged (no copy) — callers
+    treat the results as read-only."""
+    if not rotation and magnification == 1.0 and not x_reflection:
+        return cx, cy
+    x = cx * magnification
+    y = cy * magnification
+    if x_reflection:
         y = -y
-    rot = ref.rotation or 0.0
-    if rot:
-        c = math.cos(rot)
-        s = math.sin(rot)
+    if rotation:
+        c = math.cos(rotation)
+        s = math.sin(rotation)
         x, y = c * x - s * y, s * x + c * y
     return x, y
 
@@ -500,116 +505,426 @@ class _InstancedLayer:
         return self._base
 
 
-def _flatten_instanced(cell, cache, budget):
-    """Return ``{(layer, datatype): [group, ...]}`` for ``cell``, where each
-    group is ``(base_cx, base_cy, base_starts, offsets)``: the base
-    geometry in this cell's frame plus the (K, 2) lattice of translations
-    it's placed at.
+# ─── Minimal streaming GDSII parser ──────────────────────────────────────────
+# ``gdstk.read_gds`` materializes one C++ object per element and per
+# reference (~190 B each): a 180 MB CAD dump holding ~6 M SREF
+# placements needs >1.1 GB before the app sees a single polygon — an
+# instant OOM on a 1 GB host. The reader below walks the raw GDSII
+# records instead and stores only flat numpy arrays (~16 B/placement).
+# Runs of byte-identical elements (how CAD tools emit arrayed SREFs and
+# boundary dumps: the same few records repeated, only the XY payload
+# changing) are detected and decoded in bulk with numpy at
+# memory-bandwidth speed, so multi-million-reference files parse in
+# seconds. gdstk is still used for geometry booleans (per-grid clipping)
+# and for PATH → polygon conversion.
 
-    References are NOT expanded — the child's instanced geometry is reused
-    and its offset lattice is combined (outer sum) with this reference's
-    repetition offsets. Nesting multiplies the offset tables, never the
-    polygon arrays. Memoized per cell.
+_REC = struct.Struct(">HH")
+
+_T_UNITS = 0x0305;    _T_ENDLIB = 0x0400
+_T_BGNSTR = 0x0502;   _T_STRNAME = 0x0606;  _T_ENDSTR = 0x0700
+_T_BOUNDARY = 0x0800; _T_PATH = 0x0900
+_T_SREF = 0x0A00;     _T_AREF = 0x0B00;     _T_TEXT = 0x0C00
+_T_LAYER = 0x0D02;    _T_DATATYPE = 0x0E02; _T_WIDTH = 0x0F03
+_T_XY = 0x1003;       _T_ENDEL = 0x1100;    _T_SNAME = 0x1206
+_T_COLROW = 0x1302;   _T_NODE = 0x1500;     _T_STRANS = 0x1A01
+_T_MAG = 0x1B05;      _T_ANGLE = 0x1C05;    _T_PATHTYPE = 0x2102
+_T_BOX = 0x2D00;      _T_BGNEXTN = 0x3003;  _T_ENDEXTN = 0x3103
+
+_EL_START = frozenset((_T_BOUNDARY, _T_PATH, _T_SREF, _T_AREF, _T_TEXT,
+                       _T_NODE, _T_BOX))
+
+
+def _gds_real8(b) -> float:
+    """Decode one GDSII 8-byte excess-64 real."""
+    exp = b[0]
+    mant = int.from_bytes(bytes(b[1:8]), "big")
+    v = mant * 16.0 ** ((exp & 0x7F) - 64) / float(1 << 56)
+    return -v if exp & 0x80 else v
+
+
+def _element_run(a, mv, p0, blk, xy_off, xy_len):
+    """Bulk-decode the run of element blocks following the one at ``p0``.
+
+    A "run" is consecutive ``blk``-byte blocks whose bytes equal the
+    template block at ``p0`` everywhere except the XY payload
+    (``xy_off``/``xy_len`` relative to the block start). Returns
+    ``(next_pos, chunks)`` where each chunk is a flat int64 array of raw
+    XY words from many blocks. A zero-copy memoryview probe of the very
+    next block keeps the cost negligible when there is no run (mixed
+    hand-drawn files); real runs are then consumed in ~4 MB numpy passes.
     """
-    if cell.name in cache:
-        return cache[cell.name]
+    n = a.size
+    q = p0 + blk
+    pre = mv[p0:p0 + xy_off]
+    post = mv[p0 + xy_off + xy_len:p0 + blk]
+    if (q + blk > n
+            or mv[q:q + xy_off] != pre
+            or mv[q + xy_off + xy_len:q + blk] != post):
+        return q, []
 
-    acc: dict = {}            # key -> list of groups
-    own: dict = {}            # key -> ([cx], [cy], [sizes]) for this cell
+    tmpl = a[p0:p0 + blk]
+    keep = np.ones(blk, dtype=bool)
+    keep[xy_off:xy_off + xy_len] = False
+    tfix = tmpl[keep]
+    chunks = []
+    step = max(1, (1 << 22) // blk)      # compare ~4 MB per numpy pass
+    while q + blk <= n:
+        k = min(step, (n - q) // blk)
+        arr = a[q:q + k * blk].reshape(k, blk)
+        ok = (arr[:, keep] == tfix).all(axis=1)
+        r = k if bool(ok.all()) else int(np.argmin(ok))
+        if r:
+            xy = np.ascontiguousarray(arr[:r, xy_off:xy_off + xy_len])
+            # int32 (exact: GDS coords are i4) — half the transient RAM
+            # of int64 while the chunks wait for consolidation.
+            chunks.append(xy.reshape(-1).view(">i4").astype(np.int32))
+            q += r * blk
+        if r < k:
+            break
+    return q, chunks
 
-    def _own(key, xs, ys, n):
-        slot = own.get(key)
-        if slot is None:
-            own[key] = ([xs], [ys], [n])
-        else:
-            slot[0].append(xs); slot[1].append(ys); slot[2].append(n)
 
-    # Cell's own polygons + paths become a single K=1 group per layer.
-    for p in cell.polygons:
-        pts = p.points
-        _own((int(p.layer), int(p.datatype)),
-             pts[:, 0].copy(), pts[:, 1].copy(), pts.shape[0])
-    for path in cell.paths:
-        for poly in path.to_polygons():
-            pts = poly.points
-            _own((int(poly.layer), int(poly.datatype)),
-                 pts[:, 0].copy(), pts[:, 1].copy(), pts.shape[0])
-    for key, (cxs, cys, ns) in own.items():
-        bcx = cxs[0] if len(cxs) == 1 else np.concatenate(cxs)
-        bcy = cys[0] if len(cys) == 1 else np.concatenate(cys)
-        sizes = np.array(ns, dtype=np.int64)
+def _consolidate_cell(polys_acc, paths, refs_acc, db_user):
+    """Merge one structure's parse accumulators into a raw-cell dict:
+
+        {"polys": {(layer, datatype): (cx, cy, starts)},
+         "refs": [(child_name, rotation_rad, magnification,
+                   x_reflection, offsets[K, 2]), ...]}
+
+    with all coordinates scaled from database to GDS user units
+    (float64). PATH elements are converted to polygons here via gdstk
+    geometry objects (no gdstk library/file involved)."""
+    for (layer, dt, width, ptype, bext, eext, pts) in paths:
+        if gdstk is None:
+            continue
+        ends = {0: "flush", 1: "round", 2: "extended"}.get(
+            ptype, (float(bext), float(eext)))
+        try:
+            fp = gdstk.FlexPath(pts, abs(float(width)), ends=ends)
+            path_polys = fp.to_polygons()
+        except Exception:
+            continue
+        slot = polys_acc.setdefault((layer, dt), ([], [], []))
+        for poly in path_polys:
+            pp = poly.points
+            slot[0].append(pp[:, 0].copy())
+            slot[1].append(pp[:, 1].copy())
+            slot[2].append(pp.shape[0])
+
+    polys = {}
+    for key, (cxs, cys, szs) in polys_acc.items():
+        cx = np.concatenate(cxs).astype(np.float64)
+        cy = np.concatenate(cys).astype(np.float64)
+        cxs.clear(); cys.clear()          # release raw int chunks now
+        cx *= db_user
+        cy *= db_user
+        sizes = np.concatenate(
+            [np.atleast_1d(np.asarray(s, dtype=np.int64)) for s in szs])
         starts = np.zeros(sizes.size + 1, dtype=np.int64)
         np.cumsum(sizes, out=starts[1:])
-        budget["base_verts"] += int(bcx.size)
-        budget["polys"] += int(sizes.size)
-        acc.setdefault(key, []).append(
-            (bcx, bcy, starts, np.zeros((1, 2), dtype=np.float64)))
+        polys[key] = (cx, cy, starts)
 
-    # References: GROUP references that target the same child cell with
-    # the same transform, then treat their placement origins as one offset
-    # lattice. This is the key to detecting repetition that a CAD tool
-    # emitted as thousands of individual single-placement SREFs (the common
-    # case) rather than as one AREF with a `repetition` record — without it
-    # we'd recurse + expand once per placement. The origins are collected
-    # as plain tuples (fast) and turned into one array per group.
-    # Per-ref work is kept minimal because a file can hold ~1 M references:
-    # key on the cheap ``cell_name`` (not the ``cell`` wrapper) + transform,
-    # resolve the child cell only once per group, append placement origins
-    # as plain tuples, and only call the (slow) ``get_offsets()`` when a
-    # reference actually carries a non-trivial repetition (size > 0).
-    ref_groups: dict = {}   # key -> [sample_ref, child, [origin tuples], [extra placement arrays]]
-    for ref in cell.references:
-        key = (ref.cell_name, ref.rotation or 0.0,
-               ref.magnification or 1.0, bool(ref.x_reflection))
-        slot = ref_groups.get(key)
-        if slot is None:
-            child = ref.cell
-            if child is None:
-                continue
-            slot = [ref, child, [], []]
-            ref_groups[key] = slot
-        rep = ref.repetition
-        if rep is None or rep.size == 0:
-            slot[2].append(ref.origin)
-        else:
-            slot[3].append(
-                np.asarray(rep.get_offsets(), dtype=np.float64).reshape(-1, 2)
-                + np.asarray(ref.origin, dtype=np.float64))
-
-    for key, (ref, child, origins, extras) in ref_groups.items():
-        # All placements for this (child, transform): single-placement
-        # origins + any AREF repetition offsets.
+    refs = []
+    for (child, rot, mag, refl), lst in refs_acc.items():
+        scalars = [e for e in lst if type(e) is tuple]
         parts = []
-        if origins:
-            parts.append(np.asarray(origins, dtype=np.float64))
-        parts.extend(extras)
+        if scalars:
+            parts.append(np.asarray(scalars, dtype=np.float64))
+        parts.extend(np.asarray(e, dtype=np.float64).reshape(-1, 2)
+                     for e in lst if type(e) is not tuple)
         if not parts:
             continue
-        placements = parts[0] if len(parts) == 1 else np.concatenate(parts)
-        kp = placements.shape[0]
-        child_groups = _flatten_instanced(child, cache, budget)
+        lst.clear()                       # release raw int chunks now
+        off = parts[0] if len(parts) == 1 else np.concatenate(parts)
+        del parts
+        off *= db_user
+        refs.append((child, rot, mag, refl, off))
+    return {"polys": polys, "refs": refs}
+
+
+def _parse_gds(buf):
+    """Single-pass streaming parse of a GDSII byte buffer.
+
+    Returns ``(unit_meters, {structure_name: raw cell dict})`` (see
+    ``_consolidate_cell`` for the dict layout). Geometry comes from
+    BOUNDARY, PATH, SREF and AREF elements; TEXT/NODE/BOX are skipped.
+    Raises ``ValueError`` with a user-facing message when the file
+    exceeds the app's memory budgets.
+    """
+    mv = memoryview(buf)
+    if mv.format != "B" or mv.ndim != 1:
+        mv = mv.cast("B")
+    a = np.frombuffer(mv, dtype=np.uint8)
+    n = a.size
+    unpack_rec = _REC.unpack_from
+    unpack_h = struct.Struct(">h").unpack_from
+    unpack_u16 = struct.Struct(">H").unpack_from
+    unpack_i = struct.Struct(">i").unpack_from
+    unpack_2i = struct.Struct(">2i").unpack_from
+    unpack_2h = struct.Struct(">2h").unpack_from
+    unpack_6i = struct.Struct(">6i").unpack_from
+
+    db_user = 1e-3            # spec defaults; overwritten by UNITS
+    db_meters = 1e-9
+    cells: dict = {}
+
+    cur_name = None
+    cur_polys = None          # {(l, d): ([cx chunks], [cy chunks], [sizes])}
+    cur_paths = None          # [(l, d, width, ptype, bext, eext, pts)]
+    cur_refs = None           # {(sname, rot, mag, refl): [(x, y) | array]}
+
+    el = 0                    # current element's start tag (0 = none)
+    el_start = 0
+    el_layer = el_dt = 0
+    el_sname = None
+    el_rot = 0.0
+    el_mag = 1.0
+    el_refl = False
+    el_colrow = None
+    el_xy = None
+    el_width = 0
+    el_ptype = 0
+    el_bext = 0
+    el_eext = 0
+
+    total_verts = 0           # polygon vertices stored so far
+    total_rows = 0            # reference placements stored so far
+
+    p = 0
+    while p + 4 <= n:
+        rlen, tag = unpack_rec(mv, p)
+        if rlen < 4 or p + rlen > n:
+            break                        # trailing padding / truncation
+        d0 = p + 4
+        nxt = p + rlen
+
+        if tag == _T_XY:
+            el_xy = (d0, rlen - 4)
+        elif tag == _T_ENDEL:
+            p_next = nxt
+            if el_xy is not None and cur_polys is not None:
+                blk = nxt - el_start
+                xd0, xdl = el_xy
+                if el == _T_SREF and el_sname is not None:
+                    key = (el_sname, el_rot, el_mag, el_refl)
+                    lst = cur_refs.get(key)
+                    if lst is None:
+                        lst = []
+                        cur_refs[key] = lst
+                    lst.append(unpack_2i(mv, xd0))
+                    total_rows += 1
+                    # Bulk-decode the run of identical SREFs that CAD
+                    # tools emit for arrayed placements.
+                    p_next, chunks = _element_run(
+                        a, mv, el_start, blk, xd0 - el_start, xdl)
+                    for ch in chunks:
+                        total_rows += ch.size >> 1
+                        lst.append(ch.reshape(-1, 2))
+                elif el == _T_BOUNDARY:
+                    npts = xdl >> 3
+                    pts = np.frombuffer(mv, dtype=">i4", count=2 * npts,
+                                        offset=xd0).astype(np.int64)
+                    bcx = pts[0::2]
+                    bcy = pts[1::2]
+                    drop = bool(npts > 1 and bcx[0] == bcx[-1]
+                                and bcy[0] == bcy[-1])
+                    if drop:
+                        bcx = bcx[:-1]
+                        bcy = bcy[:-1]
+                    keep_pts = npts - 1 if drop else npts
+                    slot = cur_polys.get((el_layer, el_dt))
+                    if slot is None:
+                        slot = ([], [], [])
+                        cur_polys[(el_layer, el_dt)] = slot
+                    slot[0].append(bcx)
+                    slot[1].append(bcy)
+                    slot[2].append(keep_pts)
+                    total_verts += keep_pts
+                    # Bulk-decode runs of same-shape boundaries (flat
+                    # polygon dumps).
+                    p_next, chunks = _element_run(
+                        a, mv, el_start, blk, xd0 - el_start, xdl)
+                    for ch in chunks:
+                        rows = ch.size // (2 * npts)
+                        rr = ch.reshape(rows, npts, 2)
+                        if drop:
+                            rr = rr[:, :-1, :]
+                        slot[0].append(rr[:, :, 0].reshape(-1))
+                        slot[1].append(rr[:, :, 1].reshape(-1))
+                        slot[2].append(
+                            np.full(rows, keep_pts, dtype=np.int64))
+                        total_verts += rows * keep_pts
+                elif (el == _T_AREF and el_sname is not None
+                        and el_colrow is not None):
+                    cols, arows = el_colrow
+                    if cols > 0 and arows > 0 and xdl >= 24:
+                        x0, y0, x1, y1, x2, y2 = unpack_6i(mv, xd0)
+                        ii = (np.arange(cols, dtype=np.float64)[:, None]
+                              / cols)
+                        jj = (np.arange(arows, dtype=np.float64)[None, :]
+                              / arows)
+                        offx = x0 + ii * (x1 - x0) + jj * (x2 - x0)
+                        offy = y0 + ii * (y1 - y0) + jj * (y2 - y0)
+                        key = (el_sname, el_rot, el_mag, el_refl)
+                        lst = cur_refs.get(key)
+                        if lst is None:
+                            lst = []
+                            cur_refs[key] = lst
+                        lst.append(np.stack(
+                            [offx.ravel(), offy.ravel()], axis=1))
+                        total_rows += cols * arows
+                elif el == _T_PATH:
+                    npts = xdl >> 3
+                    pts = np.frombuffer(
+                        mv, dtype=">i4", count=2 * npts,
+                        offset=xd0).astype(np.float64).reshape(-1, 2)
+                    cur_paths.append((el_layer, el_dt, el_width, el_ptype,
+                                      el_bext, el_eext, pts))
+                    total_verts += npts * 4   # rough polygon estimate
+                if total_verts > _MAX_SRC_VERTICES:
+                    raise ValueError(
+                        f"GDS holds more than {_MAX_SRC_VERTICES:,} "
+                        "polygon vertices — too much distinct geometry "
+                        "for this app's memory budget. Expose a smaller "
+                        "layer, then re-upload."
+                    )
+                if total_rows > _MAX_OFFSET_ROWS:
+                    raise ValueError(
+                        f"GDS places cell references more than "
+                        f"{_MAX_OFFSET_ROWS:,} times — too much for "
+                        "this app's memory budget. Expose a smaller "
+                        "layer, then re-upload."
+                    )
+            el = 0
+            el_sname = None
+            el_xy = None
+            el_colrow = None
+            el_rot = 0.0
+            el_mag = 1.0
+            el_refl = False
+            p = p_next
+            continue
+        elif tag in _EL_START:
+            el = tag
+            el_start = p
+            el_layer = el_dt = 0
+            el_xy = None
+            el_width = 0
+            el_ptype = 0
+            el_bext = 0
+            el_eext = 0
+        elif tag == _T_LAYER:
+            el_layer = unpack_h(mv, d0)[0]
+        elif tag == _T_DATATYPE:
+            el_dt = unpack_h(mv, d0)[0]
+        elif tag == _T_SNAME:
+            el_sname = bytes(mv[d0:nxt]).rstrip(b"\0").decode(
+                "ascii", "replace")
+        elif tag == _T_STRANS:
+            el_refl = bool(unpack_u16(mv, d0)[0] & 0x8000)
+        elif tag == _T_MAG:
+            el_mag = _gds_real8(mv[d0:d0 + 8])
+        elif tag == _T_ANGLE:
+            el_rot = math.radians(_gds_real8(mv[d0:d0 + 8]))
+        elif tag == _T_COLROW:
+            el_colrow = unpack_2h(mv, d0)
+        elif tag == _T_WIDTH:
+            el_width = unpack_i(mv, d0)[0]
+        elif tag == _T_PATHTYPE:
+            el_ptype = unpack_h(mv, d0)[0]
+        elif tag == _T_BGNEXTN:
+            el_bext = unpack_i(mv, d0)[0]
+        elif tag == _T_ENDEXTN:
+            el_eext = unpack_i(mv, d0)[0]
+        elif tag == _T_STRNAME:
+            cur_name = bytes(mv[d0:nxt]).rstrip(b"\0").decode(
+                "ascii", "replace")
+            cur_polys = {}
+            cur_paths = []
+            cur_refs = {}
+        elif tag == _T_ENDSTR:
+            if cur_name is not None:
+                cells[cur_name] = _consolidate_cell(
+                    cur_polys, cur_paths, cur_refs, db_user)
+            cur_name = None
+            cur_polys = None
+            cur_paths = None
+            cur_refs = None
+        elif tag == _T_UNITS:
+            db_user = _gds_real8(mv[d0:d0 + 8])
+            db_meters = _gds_real8(mv[d0 + 8:d0 + 16])
+        elif tag == _T_ENDLIB:
+            break
+        p = nxt
+
+    if db_user <= 0:
+        db_user = 1e-3
+    if db_meters <= 0:
+        db_meters = db_user * 1e-6
+    return (db_meters / db_user), cells
+
+
+def _flatten_instanced(cell_name, cells, cache, budget):
+    """Return ``{(layer, datatype): [group, ...]}`` for the named raw
+    cell, where each group is ``(base_cx, base_cy, base_starts,
+    offsets)``: the base geometry in this cell's frame plus the (K, 2)
+    lattice of translations it's placed at.
+
+    References are NOT expanded — the child's instanced geometry is
+    reused and its offset lattice is combined (outer sum) with this
+    reference's placement lattice. Nesting multiplies the offset tables,
+    never the polygon arrays. Memoized per cell. The parser already
+    grouped same-transform references, so a unit cell tiled 150 k× via
+    individual SREFs arrives here as one (K, 2) placement array.
+    """
+    hit = cache.get(cell_name)
+    if hit is not None:
+        return hit
+    cell = cells.get(cell_name)
+    acc: dict = {}            # key -> list of groups
+    if cell is None:          # dangling reference
+        cache[cell_name] = acc
+        return acc
+
+    # Cell's own polygons: a single K=1 group per layer.
+    for key, (cx, cy, starts) in cell["polys"].items():
+        acc.setdefault(key, []).append(
+            (cx, cy, starts, np.zeros((1, 2), dtype=np.float64)))
+
+    for child, rot, mag, refl, placements in cell["refs"]:
+        kp = int(placements.shape[0])
+        child_groups = _flatten_instanced(child, cells, cache, budget)
         for ckey, groups in child_groups.items():
             for bcx, bcy, bst, coff in groups:
                 # Transform the base coords (mag/reflection/rotation) and
                 # the child's own offset vectors (linear part only).
-                tbx, tby = _apply_ref_transform(bcx, bcy, ref)
-                tcx, tcy = _apply_ref_transform(coff[:, 0], coff[:, 1], ref)
-                kc = tcx.shape[0]
-                np_base = int(bst.size - 1)
+                tbx, tby = _apply_ref_transform(bcx, bcy, rot, mag, refl)
+                tcx, tcy = _apply_ref_transform(coff[:, 0], coff[:, 1],
+                                                rot, mag, refl)
+                kc = int(tcx.shape[0])
                 # Guard before building the (kc*kp, 2) combined lattice.
-                if (budget["polys"] + np_base * kc * kp > _MAX_POLYGONS):
+                budget["rows"] += kc * kp
+                if budget["rows"] > _MAX_OFFSET_ROWS:
                     raise ValueError(
-                        f"GDS is too large to render in this app "
-                        f"(exceeds {_MAX_POLYGONS:,} polygons after "
-                        "flattening). Expose a smaller layer, then "
+                        f"GDS expands to more than {_MAX_OFFSET_ROWS:,} "
+                        "cell placements — too much for this app's "
+                        "memory budget. Expose a smaller layer, then "
                         "re-upload."
                     )
-                comb = (np.stack([tcx, tcy], axis=1)[:, None, :]
-                        + placements[None, :, :]).reshape(-1, 2)
-                budget["polys"] += np_base * comb.shape[0]
+                if kp == 1:
+                    # Single placement (typical top cell): one allocation
+                    # instead of stack + broadcast (3× the array size —
+                    # that was the RAM peak for multi-million-instance
+                    # masks).
+                    comb = np.empty((kc, 2), dtype=np.float64)
+                    np.add(tcx, placements[0, 0], out=comb[:, 0])
+                    np.add(tcy, placements[0, 1], out=comb[:, 1])
+                else:
+                    comb = (np.stack([tcx, tcy], axis=1)[:, None, :]
+                            + placements[None, :, :]).reshape(-1, 2)
                 acc.setdefault(ckey, []).append((tbx, tby, bst, comb))
 
-    cache[cell.name] = acc
+    cache[cell_name] = acc
     return acc
 
 
@@ -636,10 +951,10 @@ def _expand_groups_to_flat(groups):
     return cx, cy, starts
 
 
-@st.cache_data(show_spinner="Parsing GDS…", max_entries=1)
-def _load_gds(file_bytes: bytes):
+@st.cache_resource(show_spinner="Parsing GDS…", max_entries=1)
+def _load_gds(digest: str, _upload):
     """Parse GDS → ``(unit_meters, {cell_name: {(l,d): spec}})`` where each
-    ``spec`` is a picklable tuple:
+    ``spec`` is a tuple:
 
       * ``("flat", cx, cy, starts)`` — fully expanded geometry, for layers
         small enough (≤ ``_POLY_LIMIT``) or with no usable repetition;
@@ -647,59 +962,67 @@ def _load_gds(file_bytes: bytes):
         (array/AREF) structure kept intact, for dense layers built from a
         small base pattern repeated many times.
 
-    Returns only numpy/tuple primitives because ``st.cache_data`` pickles
-    the result; ``_load_gds_layers`` wraps these into ``_PolyLayer`` /
-    ``_InstancedLayer`` objects outside the cache. The flattener
+    ``_upload`` is the ``st.file_uploader`` value (or raw bytes in tests);
+    its buffer is parsed in place via ``getbuffer()`` — no ``getvalue()``
+    copy, no temp file. The cache key is ``digest`` (content hash computed
+    by the caller); the underscore keeps the buffer itself out of the key.
+    ``st.cache_resource`` (not ``cache_data``) returns the parsed arrays
+    by reference: with ``cache_data`` a multi-hundred-MB result would
+    exist twice (pickled blob + a fresh unpickled copy per rerun). All
+    consumers treat the arrays as immutable. The flattener
     (``_flatten_instanced``) combines offset lattices instead of expanding
-    polygons, so a 4.6 M-polygon arrayed mask stays tiny in memory. Raises
-    ``ValueError`` past the polygon budget so the caller can show a
+    polygons, so a 28 M-polygon arrayed mask stays ~100 MB. Raises
+    ``ValueError`` past the memory budgets so the caller can show a
     friendly error instead of getting OOM-killed.
     """
-    # gdstk.read_gds requires a filesystem path, so spill to a temp file.
-    with tempfile.NamedTemporaryFile(suffix=".gds", delete=False) as tmp:
-        tmp.write(file_bytes)
-        tmp_path = tmp.name
+    buf = (_upload.getbuffer() if hasattr(_upload, "getbuffer")
+           else memoryview(_upload))
     try:
-        lib = gdstk.read_gds(tmp_path)
+        unit, cells = _parse_gds(buf)
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-    unit = float(lib.unit)
-    out: dict = {}
-    budget = {"polys": 0, "base_verts": 0}
-    try:
-        for cell in lib.top_level():
-            geo = _flatten_instanced(cell, {}, budget)
-            by_layer: dict = {}
-            for key, groups in geo.items():
-                expanded = sum(int(bst.size - 1) * int(off.shape[0])
-                               for _, _, bst, off in groups)
-                base_polys = sum(int(bst.size - 1)
-                                 for _, _, bst, _ in groups)
-                repetitive = any(off.shape[0] > 1
-                                 for _, _, _, off in groups)
-                # Keep the instanced form only when it actually pays off:
-                # the layer is dense AND its unique base is small enough to
-                # draw. Otherwise expand to a flat _PolyLayer (small layers
-                # stay simple; huge non-repetitive dumps use the flat
-                # bbox/raster fallback).
-                if (expanded > _POLY_LIMIT and repetitive
-                        and base_polys <= _POLY_LIMIT):
-                    by_layer[key] = ("inst", [
-                        (bcx, bcy, bst, off) for bcx, bcy, bst, off in groups
-                    ])
-                else:
-                    cx, cy, starts = _expand_groups_to_flat(groups)
-                    by_layer[key] = ("flat", cx, cy, starts)
-            out[cell.name] = by_layer
-    finally:
-        # Drop the gdstk library (and its internal C++ geometry) before
-        # returning so its memory isn't held alongside our arrays.
-        del lib
+        buf.release()
         gc.collect()
+
+    referenced = set()
+    for cell in cells.values():
+        for ref in cell["refs"]:
+            referenced.add(ref[0])
+
+    out: dict = {}
+    budget = {"rows": 0}
+    for name in cells:
+        if name in referenced:
+            continue
+        geo = _flatten_instanced(name, cells, {}, budget)
+        by_layer: dict = {}
+        for key, groups in geo.items():
+            expanded = sum(int(bst.size - 1) * int(off.shape[0])
+                           for _, _, bst, off in groups)
+            base_polys = sum(int(bst.size - 1)
+                             for _, _, bst, _ in groups)
+            repetitive = any(off.shape[0] > 1
+                             for _, _, _, off in groups)
+            # Keep the instanced form only when it actually pays off:
+            # the layer is dense AND its unique base is small enough to
+            # draw. Otherwise expand to a flat _PolyLayer (small layers
+            # stay simple; huge non-repetitive dumps use the flat
+            # bbox/raster fallback).
+            if (expanded > _POLY_LIMIT and repetitive
+                    and base_polys <= _POLY_LIMIT):
+                by_layer[key] = ("inst", list(groups))
+            else:
+                exp_verts = sum(int(bcx.size) * int(off.shape[0])
+                                for bcx, _, _, off in groups)
+                if exp_verts > _MAX_VERTICES:
+                    raise ValueError(
+                        f"Layer L{key[0]}/D{key[1]} expands to "
+                        f"{exp_verts:,} vertices with no small repeated "
+                        "unit pattern — too much for this app's memory "
+                        "budget. Expose a smaller layer, then re-upload."
+                    )
+                cx, cy, starts = _expand_groups_to_flat(groups)
+                by_layer[key] = ("flat", cx, cy, starts)
+        out[name] = by_layer
     return unit, out
 
 
@@ -711,15 +1034,25 @@ def _spec_to_layer(spec):
     return _PolyLayer(cx, cy, starts)
 
 
-def _load_gds_layers(file_bytes: bytes):
+def _load_gds_layers(upload):
     """Cached parse + wrap into layer objects.
 
-    The layer objects (``_PolyLayer`` / ``_InstancedLayer``) aren't returned
-    from the cached function because pickle can't re-import a class defined
-    in the Streamlit script; we build them here from the cached primitives.
-    Wrapping is cheap (no coordinate copies).
+    ``upload`` is the ``st.file_uploader`` value (or raw bytes in tests).
+    Its content is only ever touched through ``getbuffer()`` memoryviews —
+    with a 180 MB mask, a single ``getvalue()`` copy would burn a fifth
+    of a 1 GB host's RAM. The layer objects (``_PolyLayer`` /
+    ``_InstancedLayer``) are rebuilt per rerun from the cached primitives;
+    wrapping is cheap (no coordinate copies).
     """
-    unit, raw = _load_gds(file_bytes)
+    if hasattr(upload, "getbuffer"):
+        mv = upload.getbuffer()
+    else:
+        mv = memoryview(upload)
+    try:
+        digest = f"{hashlib.md5(mv).hexdigest()}:{mv.nbytes}"
+    finally:
+        mv.release()
+    unit, raw = _load_gds(digest, upload)
     out = {
         cell: {key: _spec_to_layer(spec) for key, spec in by_layer.items()}
         for cell, by_layer in raw.items()
@@ -727,9 +1060,14 @@ def _load_gds_layers(file_bytes: bytes):
     return unit, out
 
 
-def _layer_trace(name: str, polys, color: str) -> go.Scatter:
+def _layer_trace(name: str, polys, color: str, scale: float = 1.0) -> go.Scatter:
+    """Filled outline trace of every polygon, coordinates × ``scale``
+    (e.g. user units → µm for the viewer plots)."""
     xs_all, ys_all = [], []
     for xs, ys in polys:
+        if scale != 1.0:
+            xs = xs * scale
+            ys = ys * scale
         xs_all.extend(xs); xs_all.append(xs[0]); xs_all.append(None)
         ys_all.extend(ys); ys_all.append(ys[0]); ys_all.append(None)
     return go.Scatter(
@@ -924,12 +1262,13 @@ def _coverage_heatmap_trace(layer, scale_to_mm: float, ox: float, oy: float,
     )
 
 
-def _unit_pattern_traces(layer: "_InstancedLayer", color: str) -> list:
-    """One filled trace per group showing the base (unit) pattern at its
-    native scale — for a dedicated zoomed-in view of the repeated shape,
-    which is otherwise sub-pixel at the full-array scale. When a layer has
-    several distinct unit cells they're laid out left-to-right so they
-    don't overlap."""
+def _unit_pattern_traces(layer: "_InstancedLayer", color: str,
+                         scale: float = 1.0) -> list:
+    """One filled trace per group showing the base (unit) pattern with
+    coordinates × ``scale`` (user units → µm for the viewer) — a
+    dedicated zoomed-in view of the repeated shape, which is otherwise
+    sub-pixel at the full-array scale. When a layer has several distinct
+    unit cells they're laid out left-to-right so they don't overlap."""
     palette = _PALETTE
     traces = []
     multi = len(layer.groups) > 1
@@ -941,10 +1280,11 @@ def _unit_pattern_traces(layer: "_InstancedLayer", color: str) -> list:
         bb = base.bbox()
         if bb is None:
             continue
-        w = bb[2] - bb[0]
-        # Shift so this unit's left edge sits at the running cursor.
-        dx = x_cursor - bb[0]
-        xs, ys = _nan_xy_from_flat(bcx, bcy, bst, 1.0, dx, 0.0)
+        w = (bb[2] - bb[0]) * scale
+        # Shift so this unit's left edge sits at the running cursor
+        # (cursor runs in scaled coordinates).
+        dx = x_cursor - bb[0] * scale
+        xs, ys = _nan_xy_from_flat(bcx, bcy, bst, scale, dx, 0.0)
         traces.append(go.Scatter(
             x=xs, y=ys, mode="lines", fill="toself",
             line=dict(color=palette[gi % len(palette)] if multi else color,
@@ -1514,7 +1854,7 @@ with st.container(border=True):
             )
             if gds_upload is not None:
                 try:
-                    unit_m, cells_data = _load_gds_layers(gds_upload.getvalue())
+                    unit_m, cells_data = _load_gds_layers(gds_upload)
                     _gds_unit_to_mm = unit_m * 1000.0
                     _gds_cells_data = cells_data
                 except Exception as e:
@@ -1561,6 +1901,11 @@ with st.container(border=True):
             _gds_selected_polys = polys
             _gds_selected_token = (selected_cell, layer_key)
             n_polys = len(polys)
+            # Viewer plots are labelled in µm, so convert from GDS user
+            # units explicitly — files where 1 user unit ≠ 1 µm (the PSO
+            # masks use 1 m) otherwise display meter values under a µm
+            # axis label.
+            _gds_unit_to_um = _gds_unit_to_mm * 1000.0
 
             if isinstance(polys, _InstancedLayer):
                 # Repetitive layer: show the unit pattern zoomed (so the
@@ -1571,7 +1916,8 @@ with st.container(border=True):
                 with col_unit:
                     st.markdown("**Unit pattern (zoomed)**")
                     ufig = go.Figure()
-                    for _t in _unit_pattern_traces(polys, _PALETTE[2]):
+                    for _t in _unit_pattern_traces(polys, _PALETTE[2],
+                                                   scale=_gds_unit_to_um):
                         ufig.add_trace(_t)
                     ufig.update_layout(
                         xaxis=dict(title="x (µm)"),
@@ -1587,7 +1933,7 @@ with st.container(border=True):
                                 "full detail")
                     fig = go.Figure()
                     _ras = _rasterize_coverage(
-                        polys, 1.0, 0.0, 0.0, _PALETTE[0])
+                        polys, _gds_unit_to_um, 0.0, 0.0, _PALETTE[0])
                     if _ras is not None:
                         _rgba, _rx0, _rdx, _ry0, _rdy = _ras
                         fig.add_trace(go.Image(
@@ -1599,7 +1945,8 @@ with st.container(border=True):
                     # (an image-only figure isn't selectable, which froze
                     # the selection). The detail region is taken from the
                     # box geometry, not these points.
-                    _scx, _scy = _decimated_centers(polys, 1.0, 0.0, 0.0)
+                    _scx, _scy = _decimated_centers(
+                        polys, _gds_unit_to_um, 0.0, 0.0)
                     fig.add_trace(go.Scattergl(
                         x=_scx, y=_scy, mode="markers",
                         marker=dict(size=3, color=_PALETTE[0], opacity=0.45),
@@ -1631,7 +1978,7 @@ with st.container(border=True):
                 if _box is not None:
                     _xr = sorted(_box["x"]); _yr = sorted(_box["y"])
                     _res = _instances_in_window(
-                        polys, 1.0, 0.0, 0.0,
+                        polys, _gds_unit_to_um, 0.0, 0.0,
                         _xr[0], _xr[1], _yr[0], _yr[1])
                     if _res is None:
                         st.info("No patterns in the selected region.")
@@ -1680,10 +2027,12 @@ with st.container(border=True):
                     render = st.checkbox("Render anyway", key="ebc_gds_force")
                     if render:
                         fig.add_trace(_layer_trace(
-                            selected_label, polys, _PALETTE[0]))
+                            selected_label, polys, _PALETTE[0],
+                            scale=_gds_unit_to_um))
                 else:
                     fig.add_trace(_layer_trace(
-                        selected_label, polys, _PALETTE[0]))
+                        selected_label, polys, _PALETTE[0],
+                        scale=_gds_unit_to_um))
                 if render:
                     fig.update_layout(
                         xaxis=dict(title="x (µm)"),

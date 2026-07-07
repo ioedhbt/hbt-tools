@@ -23,7 +23,7 @@ import streamlit as st
 import plotly.graph_objects as go
 
 from .core import simulate_custom_model
-from .schematic import (render_schematic, svg_to_png, copy_image_button,
+from .schematic import (render_schematic, svg_png_buttons,
                         svg_pixel_height)
 from ..helpers import (extended_smith_grid, write_s2p, copy_button, fig_to_tsv)
 from ..ssm_plots import (render_forward_bode_block, render_tau_fmax_expander,
@@ -114,7 +114,9 @@ def render_use_ui(measured: dict | None = None) -> None:
         S_meas = np.asarray(measured["S"])
     else:
         cf = st.columns(3)
-        f0 = cf[0].number_input(tr("Start (GHz)", "起始 (GHz)"), min_value=0.0,
+        # min 1 MHz — a 0 GHz start puts a DC point in the sweep, where series
+        # C branches / the α source have no meaningful small-signal admittance.
+        f0 = cf[0].number_input(tr("Start (GHz)", "起始 (GHz)"), min_value=0.001,
                                 value=0.01, format="%.4f", step=0.01, key="cmu_f0")
         npts = cf[1].number_input(tr("Points", "點數"), min_value=2, value=801,
                                   step=1, key="cmu_npts")
@@ -183,19 +185,12 @@ def render_use_ui(measured: dict | None = None) -> None:
     with st.expander(tr("🖼️ Topology illustration", "🖼️ 拓樸示意圖"),
                      expanded=not has_dev):
         st.iframe(svg, height=svg_pixel_height(svg) + 12)
-        png = svg_to_png(svg, zoom=2)
-        scc = st.columns(3)
-        if png is not None:
-            scc[0].download_button(tr("🖼️ Download PNG", "🖼️ 下載 PNG"), data=png,
-                                   file_name=f"{model.name or 'custom'}.png",
-                                   mime="image/png", key="cmu_dl_png",
-                                   width="stretch")
-            copy_image_button(png, container=scc[1],
-                              label=tr("📋 copy image", "📋 複製圖片"))
-        else:
-            scc[0].caption(tr("PNG export needs `rsvg-convert`/`cairosvg`.",
-                              "PNG 匯出需要 `rsvg-convert`/`cairosvg`。"))
-        scc[2].download_button(tr("⬇ Download SVG", "⬇ 下載 SVG"), data=svg,
+        scc = st.columns([2, 1])
+        svg_png_buttons(svg, filename=f"{model.name or 'custom'}.png",
+                        container=scc[0], zoom=2,
+                        dl_label=tr("🖼️ Download PNG", "🖼️ 下載 PNG"),
+                        copy_label=tr("📋 copy image", "📋 複製圖片"))
+        scc[1].download_button(tr("⬇ Download SVG", "⬇ 下載 SVG"), data=svg,
                                file_name=f"{model.name or 'custom'}.svg",
                                mime="image/svg+xml", key="cmu_dl_svg",
                                width="stretch")

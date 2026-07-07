@@ -24,7 +24,7 @@ from .core import (CustomModel, Network, Element, ShuntBranch,
                    model_to_json, load_model, _default_source_name,
                    BUILTIN_PRESETS, builtin_custom_model)
 from .schematic import (render_schematic, intrinsic_thumbnail,
-                        section_thumbnail, svg_to_png, copy_image_button,
+                        section_thumbnail, svg_png_buttons,
                         svg_pixel_height)
 from ..helpers import segmented_radio
 from ._i18n import tr
@@ -424,18 +424,12 @@ def render_build_ui() -> None:
     st.markdown(tr("##### Live schematic", "##### 即時電路圖"))
     svg = render_schematic(model)
     st.iframe(svg, height=svg_pixel_height(svg) + 12)
-    png = svg_to_png(svg, zoom=2)
-    bc = st.columns(3)
-    if png is not None:
-        bc[0].download_button(tr("🖼️ Download PNG", "🖼️ 下載 PNG"), data=png,
-                              file_name=f"{model.name or 'model'}.png",
-                              mime="image/png", key="cmb_dl_png", width="stretch")
-        copy_image_button(png, container=bc[1],
-                          label=tr("📋 copy image", "📋 複製圖片"))
-    else:
-        bc[0].caption(tr("PNG export needs `rsvg-convert`/`cairosvg` — SVG below.",
-                         "PNG 匯出需要 `rsvg-convert`/`cairosvg` — 下方提供 SVG。"))
-    bc[2].download_button(tr("⬇ Download SVG", "⬇ 下載 SVG"), data=svg,
+    bc = st.columns([2, 1])
+    svg_png_buttons(svg, filename=f"{model.name or 'model'}.png",
+                    container=bc[0], zoom=2,
+                    dl_label=tr("🖼️ Download PNG", "🖼️ 下載 PNG"),
+                    copy_label=tr("📋 copy image", "📋 複製圖片"))
+    bc[1].download_button(tr("⬇ Download SVG", "⬇ 下載 SVG"), data=svg,
                           file_name=f"{model.name or 'model'}.svg",
                           mime="image/svg+xml", key="cmb_dl_svg", width="stretch")
 

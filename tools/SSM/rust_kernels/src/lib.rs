@@ -1543,8 +1543,11 @@ fn _parse_s2p_rust(content: &[u8]) -> Result<(Vec<f64>, Vec<Complex64>, f64), St
     let mut data_vals: Vec<f64> = Vec::with_capacity(1024 * 9);
 
     for raw_line in text.lines() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('!') {
+        // Touchstone allows trailing "!" comments on any line — cut them off
+        // BEFORE tokenising so a comment containing numbers (e.g. "! 25 mA")
+        // can't shift the 9-column data alignment and scramble the S-params.
+        let line = raw_line.split('!').next().unwrap_or("").trim();
+        if line.is_empty() {
             continue;
         }
         if line.starts_with('#') {
@@ -1875,7 +1878,12 @@ where
 fn _elem_adm(kind: u8, val: f64, jw: C) -> C {
     match kind {
         0 => if val != 0.0 { C::new(1.0 / val, 0.0) } else { C::new(0.0, 0.0) }, // R
-        1 => if val != 0.0 { C::new(1.0, 0.0) / (jw * val) } else { C::new(0.0, 0.0) }, // L
+        1 => if val != 0.0 {
+            let z = jw * val;
+            // jw = 0 (DC point): a present inductor is a short, not inf/NaN —
+            // matches the Python evaluator's _elem_adm_b.
+            if z.norm_sqr() > 0.0 { C::new(1.0, 0.0) / z } else { C::new(SHORT_Y, 0.0) }
+        } else { C::new(0.0, 0.0) }, // L
         2 => jw * val,                                                            // C
         _ => C::new(0.0, 0.0),
     }

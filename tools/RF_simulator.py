@@ -326,8 +326,8 @@ def _render_slider_preview(model_cls, all_p, freq, mults, prefix: str,
                            pad_specs, ext_specs, int_specs):
     """RF simulator slider preview block — mode-toggled.
 
-    🐢 Live: drag any number of sliders, every tick reruns Streamlit + sim.
-    ⚡ Plotly: pre-compute N frames for one swept param, scrub client-side.
+    🎯 Live: drag any number of sliders, every tick reruns Streamlit + sim.
+    ⚡ Wide sweep: pre-compute the cartesian sweep once, scrub client-side.
     """
     mode_key = f"rfsim_slpreview_mode_{prefix}"
     mode = segmented_radio(
@@ -543,6 +543,11 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
                    "**🧮 Build animation**.")
         return
 
+    # Default frames-per-axis shrinks as more params are selected so the
+    # cartesian product (and thus the embedded payload) stays manageable
+    # at full frequency fidelity: 11 for 1-2 params, 7 for 3, 5 for 4+.
+    n_sel = len(selected_specs)
+    default_frames = 11 if n_sel <= 2 else (7 if n_sel == 3 else 5)
     for spec in selected_specs:
         key, _, scale = spec[0], spec[1], spec[2]
         current_disp  = float(all_p.get(key, 0.0)) * scale
@@ -551,7 +556,7 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
             d_min, d_max, _ = _slider_default_range(current_disp)
             st.session_state[f"{kp}_min"]    = float(d_min)
             st.session_state[f"{kp}_max"]    = float(d_max)
-            st.session_state[f"{kp}_frames"] = 11
+            st.session_state[f"{kp}_frames"] = default_frames
 
     with st.expander("📏 Slider ranges (min / max / frames)", expanded=False):
         for row_start in range(0, len(selected_specs), 2):
@@ -576,17 +581,19 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
                                              "Total = product across params.")
 
     n_freq_full = int(len(freq))
+    decim_default = min(120, n_freq_full)
     decim_key   = f"rfsim_slprev_pl_decim_{prefix}"
     if decim_key not in st.session_state:
-        st.session_state[decim_key] = min(120, n_freq_full)
+        st.session_state[decim_key] = decim_default
 
     dims_preview = []
     for spec in selected_specs:
         kp = f"rfsim_slprev_pl_{prefix}_{spec[0]}"
-        dims_preview.append(int(st.session_state.get(f"{kp}_frames", 11)))
+        dims_preview.append(int(st.session_state.get(f"{kp}_frames",
+                                                     default_frames)))
     total_frames = int(np.prod(dims_preview)) if dims_preview else 0
 
-    decim_n = int(st.session_state.get(decim_key, min(120, n_freq_full)))
+    decim_n = int(st.session_state.get(decim_key, decim_default))
     decim_n = min(decim_n, n_freq_full)
     est_mb  = total_frames * decim_n * 10 * 7 / 1024 / 1024
 
@@ -596,43 +603,27 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
                         min_value=20, max_value=n_freq_full, step=10,
                         key=decim_key,
                         help=f"Frequency points kept per trace "
-                             f"(max = {n_freq_full} = full fidelity).")
+                             f"(max = {n_freq_full} = full fidelity).  "
+                             "Lower this (~120 still looks smooth) when "
+                             "the payload estimate grows large.")
     with fd_col2:
         st.caption("Cartesian sweep: "
                    + " × ".join(str(d) for d in dims_preview)
                    + f" = **{total_frames}** frames · {decim_n} freq pts · "
                    f"estimated payload ≈ **{est_mb:.0f} MB**")
-    sc_key = f"rfsim_slprev_pl_servercached_{prefix}"
-    server_cached = st.checkbox(
-        "📡 Server-cached mode (Streamlit sliders, unlimited sweep size, "
-        "slower drag)",
-        value=st.session_state.get(sc_key, False), key=sc_key,
-        help="OFF: embed all frames in the browser (fast scrub, capped by "
-             "Streamlit's 200 MB message limit).  ON: pre-computed frames "
-             "stay in server RAM and only the current frame is sent per "
-             "slider tick (~100-300 ms per drag, no size limit).")
-    if server_cached:
-        ram_mb = total_frames * n_freq_full * 8 * 4 / 1024 / 1024
-        st.caption(f"Server RAM estimate (complex64, full-fidelity batch): "
-                   f"≈ **{ram_mb:.0f} MB** in session_state.")
-        if ram_mb > 8000:
-            st.warning(f"⚠️ ~{ram_mb/1024:.1f} GB server-side may OOM on "
-                       "modest machines.  Reduce per-axis frame counts.")
-    else:
-        if est_mb > 180:
-            st.error(
-                f"❌ Estimated payload ≈ {est_mb:.0f} MB will exceed "
-                "Streamlit's 200 MB browser-message limit.  Enable "
-                "**📡 Server-cached mode**, lower the **Freq points** "
-                "value, reduce per-axis frame counts, or raise the limit "
-                "via `.streamlit/config.toml` → "
-                "`[server] maxMessageSize = 500`.")
-        elif est_mb > 120:
-            st.warning(f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
-                       "to Streamlit's 200 MB limit.")
-        elif total_frames > 2000:
-            st.warning(f"⚠️ {total_frames} frames may stutter on "
-                       "slider drag.")
+    if est_mb > 180:
+        st.error(
+            f"❌ Estimated payload ≈ {est_mb:.0f} MB will exceed "
+            "Streamlit's 200 MB browser-message limit.  Lower the "
+            "**Freq points** value, reduce per-axis frame counts, or "
+            "raise the limit via `.streamlit/config.toml` → "
+            "`[server] maxMessageSize = 500`.")
+    elif est_mb > 120:
+        st.warning(f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
+                   "to Streamlit's 200 MB limit.")
+    elif total_frames > 2000:
+        st.warning(f"⚠️ {total_frames} frames may stutter on "
+                   "slider drag.")
 
     cuda_toggle_key = f"rfsim_slprev_pl_cuda_{prefix}"
     if _HAS_CUDA:
@@ -740,36 +731,27 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
                f"**{elapsed:.2f} s** ({ms_each:.1f} ms/frame).  "
                "Drag any slider below to scrub the joint sweep.")
 
-    if server_cached:
-        from tools.SSM.models.base_ui import _render_plotly_server_cached_view
-        _render_plotly_server_cached_view(
-            state, None, freq, model_cls, "rfsim", prefix,
-            decim_n_max=int(st.session_state.get(decim_key, 120)),
-            smith_mults={nm: float(st.session_state.get(
-                f"rfsim_smithmult_{nm}", 1.0))
-                for nm in ("S11", "S12", "S21", "S22")})
-    else:
-        html = make_smith_bode_joint_slider_html(
-            S_batch_joint=state["S_batch"],
-            freq=freq,
-            slider_specs=state["slider_specs"],
-            model_name=model_cls.NAME,
-            S_meas=None,
-            decimate_points=int(st.session_state.get(decim_key, 120)),
-            # Mirror the page's (model-independent) Smith multipliers so the
-            # Wide-sweep view scales in lock-step with the static Smith chart.
-            smith_mults={nm: float(st.session_state.get(
-                f"rfsim_smithmult_{nm}", 1.0))
-                for nm in ("S11", "S12", "S21", "S22")},
-        )
-        n_sl = len(state["slider_specs"])
-        iframe_height = 500 + 26 + 36 * n_sl + 30
-        # st.iframe replaced components.v1.html (deprecated 2026-06-01).
-        # When src is a raw HTML string (no http(s) / file / Path prefix)
-        # Streamlit embeds it directly in an iframe — same behaviour as
-        # the old components.html call.  No `scrolling` parameter; the
-        # `height=` integer is interpreted in pixels just like before.
-        st.iframe(html, height=iframe_height)
+    html = make_smith_bode_joint_slider_html(
+        S_batch_joint=state["S_batch"],
+        freq=freq,
+        slider_specs=state["slider_specs"],
+        model_name=model_cls.NAME,
+        S_meas=None,
+        decimate_points=int(st.session_state.get(decim_key, decim_default)),
+        # Mirror the page's (model-independent) Smith multipliers so the
+        # Wide-sweep view scales in lock-step with the static Smith chart.
+        smith_mults={nm: float(st.session_state.get(
+            f"rfsim_smithmult_{nm}", 1.0))
+            for nm in ("S11", "S12", "S21", "S22")},
+    )
+    n_sl = len(state["slider_specs"])
+    iframe_height = 500 + 26 + 36 * n_sl + 30
+    # st.iframe replaced components.v1.html (deprecated 2026-06-01).
+    # When src is a raw HTML string (no http(s) / file / Path prefix)
+    # Streamlit embeds it directly in an iframe — same behaviour as
+    # the old components.html call.  No `scrolling` parameter; the
+    # `height=` integer is interpreted in pixels just like before.
+    st.iframe(html, height=iframe_height)
 
 
 def _build_bode(S, freq_hz, title: str, *,

@@ -1564,7 +1564,8 @@ def _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
                                 embedded Plotly figure scrubs through
                                 pre-computed frames entirely client-side
                                 (no Streamlit rerun per drag-tick).
-                                Limited to one sweep parameter.
+                                Multi-param: frames are the cartesian
+                                product of every selected sweep axis.
 
     Sliders in either mode write into ``slpreview_*`` session keys.
     ✅ "Use these values" (live mode) copies them into the main ``sim_*``
@@ -1876,42 +1877,6 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
         st.rerun()
 
 
-def _quantize_S_batch_int16(S_batch):
-    """Per-element int16 quantization, scaled by |element|.max() across all
-    frames so each of the four S-elements (S11/S12/S21/S22) keeps its own
-    dynamic range.  Returns a dict with int16 re/im arrays + their scale
-    factors; ``_dequantize_S_frame`` reconstructs a single frame back to
-    complex64 on slider lookup.
-
-    Memory: 2 × int16 per complex (4 bytes) vs. 16 bytes per complex128
-    or 8 per complex64 — i.e. 4× compression over complex128 / 2× over
-    complex64.  For S-params on the unit circle (|Γ| ≤ 1) the round-trip
-    error is ~3e-5, indistinguishable on a Smith / Bode plot."""
-    S = np.asarray(S_batch)
-    # shape (B, N, 2, 2) — compute per-element global max over (B, N).
-    re = S.real
-    im = S.imag
-    # axes 0 and 1 are batch + freq; axes 2-3 are the 2x2 indices.
-    re_max = np.maximum(np.abs(re).max(axis=(0, 1)), 1e-30)
-    im_max = np.maximum(np.abs(im).max(axis=(0, 1)), 1e-30)
-    re_q = np.round(re / re_max[None, None, :, :] * 32767).astype(np.int16)
-    im_q = np.round(im / im_max[None, None, :, :] * 32767).astype(np.int16)
-    return {"re_q":   re_q,
-            "im_q":   im_q,
-            "re_max": re_max.astype(np.float32),
-            "im_max": im_max.astype(np.float32)}
-
-
-def _dequantize_S_frame(quant, joint):
-    """Reconstruct a single frame's S-matrix (shape (N, 2, 2) complex64)
-    from the int16-quantized store built by ``_quantize_S_batch_int16``."""
-    re = quant["re_q"][joint].astype(np.float32) * (
-        quant["re_max"][None, :, :] / 32767.0)
-    im = quant["im_q"][joint].astype(np.float32) * (
-        quant["im_max"][None, :, :] / 32767.0)
-    return (re + 1j * im).astype(np.complex64)
-
-
 def _chunked_simulate_batch_to_host(model_cls, p_batch, freq, z0, *,
                                      xp, chunk_size: int = 5000,
                                      dtype=np.complex64):
@@ -1954,138 +1919,6 @@ def _chunked_simulate_batch_to_host(model_cls, p_batch, freq, z0, *,
 
 
 @_FRAGMENT
-def _render_plotly_server_cached_view(state, S_raw, freq, model_cls,
-                                       fname, topo_key, decim_n_max,
-                                       smith_mults=None):
-    """Server-cached rendering: Streamlit slider per axis + Plotly figure
-    with the SINGLE current frame.  No browser-side bulk transfer — the
-    pre-computed ``S_batch`` lives in session_state on the server, and
-    each slider tick triggers a Streamlit rerun that looks up exactly
-    one frame.  ~100-300 ms per drag tick but supports arbitrarily large
-    sweeps (only bounded by server RAM)."""
-    from ..ssm_plots import render_ft_fmax_card
-
-    slider_specs = state["slider_specs"]
-    dims = [len(sp["values_disp"]) for sp in slider_specs]
-    S_batch = state.get("S_batch")
-    S_quant = state.get("S_quant")
-    if S_batch is None and S_quant is None:
-        st.error("Build state is missing both S_batch and S_quant — "
-                 "click 🧮 Build animation to refresh.")
-        return
-
-    # ── Streamlit sliders, 2 per row ────────────────────────────────────
-    pos: list[int] = []
-    for row_start in range(0, len(slider_specs), 2):
-        row = slider_specs[row_start:row_start + 2]
-        row_cols = st.columns(len(row))
-        for col_w, sp in zip(row_cols, row):
-            idx = slider_specs.index(sp)
-            n = len(sp["values_disp"])
-            key = f"slprev_pl_sc_pos_{topo_key}_{fname}_{idx}"
-            if key not in st.session_state:
-                st.session_state[key] = n // 2
-            with col_w:
-                v_idx = st.slider(
-                    f"{sp['label']} ({sp['unit']})" if sp["unit"]
-                    else sp["label"],
-                    min_value=0, max_value=n - 1, step=1, key=key)
-                v_disp = sp["values_disp"][v_idx]
-                fmt = sp.get("fmt", "%.4g").lstrip("%")
-                try:
-                    v_str = format(float(v_disp), fmt)
-                except (ValueError, TypeError):
-                    v_str = str(v_disp)
-                st.caption(f"= **{v_str} {sp['unit']}**".rstrip())
-            pos.append(v_idx)
-
-    # Joint frame index (row-major over slider_specs)
-    joint = 0
-    for k, p in enumerate(pos):
-        joint = joint * dims[k] + p
-
-    # Pull single frame (decode from int16 if quantized) and decimate freq.
-    if S_batch is not None:
-        S_frame = S_batch[joint]
-    else:
-        S_frame = _dequantize_S_frame(S_quant, joint)
-    if decim_n_max < S_frame.shape[0]:
-        stride = max(1, int(np.ceil(S_frame.shape[0] / decim_n_max)))
-        S_frame_d = S_frame[::stride]
-        freq_d    = np.asarray(freq)[::stride]
-    else:
-        S_frame_d = S_frame
-        freq_d    = np.asarray(freq)
-    if S_raw is not None:
-        if S_raw.shape[0] != len(freq_d):
-            r = max(1, S_raw.shape[0] // len(freq_d))
-            S_raw_d = S_raw[::r][: len(freq_d)]
-        else:
-            S_raw_d = S_raw
-    else:
-        S_raw_d = None
-
-    _mults = smith_mults or {"S11": 1.0, "S12": 1.0, "S21": 1.0, "S22": 1.0}
-
-    # Render Smith + Bode side by side using existing helpers
-    col_smith, col_bode = st.columns([1.05, 1])
-    with col_smith:
-        st.markdown("**Smith chart**")
-        if S_raw_d is not None:
-            render_smith_chart(S_raw_d, S_frame_d, model_cls.NAME,
-                               ssm_residual(S_raw_d, S_frame_d),
-                               scales=_mults,
-                               key=f"slprev_pl_sc_smith_{topo_key}_{fname}",
-                               show_title=False)
-        else:
-            # Model-only Smith chart (RF simulator path).  make_smith expects an
-            # (N,2,2) S array and DICT toggles/scales — passing a DataFrame +
-            # tuples raised "'tuple' object has no attribute 'get'".
-            from ..helpers.plotly_plots import make_smith as _make_smith
-            _toggles = {"S11": True, "S12": True, "S21": True, "S22": True}
-            fig = _make_smith(S_frame_d, freq_d * 1e-9,
-                              float(freq_d[0] * 1e-9),
-                              float(freq_d[-1] * 1e-9),
-                              _toggles, _mults,
-                              model_cls.NAME)
-            st.plotly_chart(fig, width="stretch",
-                            key=f"slprev_pl_sc_smith_{topo_key}_{fname}")
-
-    with col_bode:
-        st.markdown("**fT / fmax**")
-        if S_raw_d is not None:
-            render_ft_fmax_card(S_raw_d, S_frame_d, freq_d,
-                                model_name=model_cls.NAME,
-                                key=f"slprev_pl_sc_bode_{topo_key}_{fname}",
-                                height=560)
-        else:
-            # Model-only bode — quick build
-            from ..helpers.metrics import compute_h21_U
-            h21_db, U_db = compute_h21_U(S_frame_d)
-            import plotly.graph_objects as _go
-            f_g = freq_d * 1e-9
-            fig = _go.Figure()
-            fig.add_trace(_go.Scatter(x=f_g, y=h21_db, mode="lines",
-                                      name="|h21|² model",
-                                      line=dict(color="#1f77b4", width=2)))
-            fig.add_trace(_go.Scatter(x=f_g, y=U_db, mode="lines",
-                                      name="Mason U model",
-                                      line=dict(color="#d62728", width=2,
-                                                dash="dash")))
-            fig.update_layout(
-                height=560, plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(title="Frequency (GHz)", type="log",
-                           showgrid=True, gridcolor="#ebebeb"),
-                yaxis=dict(title="Gain (dB)", range=[0, 50],
-                           showgrid=True, gridcolor="#ebebeb"),
-                margin=dict(l=55, r=20, t=20, b=50),
-                legend=dict(orientation="h", x=0.5, y=-0.18,
-                            xanchor="center", yanchor="top"))
-            st.plotly_chart(fig, width="stretch",
-                            key=f"slprev_pl_sc_bode_{topo_key}_{fname}")
-
-
-@_FRAGMENT
 def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
                                   tuning_specs, fname, topo_key):
     """Pre-computed Plotly slider — joint (cartesian) multi-param scan.
@@ -2099,7 +1932,8 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
     Performance notes
     -----------------
     • All traces use ``Scattergl`` (WebGL).
-    • Frequency axis is decimated to ≤ 200 points per trace.
+    • Frequency axis defaults to full fidelity (≤ 1001 points per trace);
+      the **Freq points** input decimates it when the payload grows large.
     • Single ``simulate_batch`` call runs the full cartesian product —
       one GPU pass when CUDA is available.
 
@@ -2133,6 +1967,11 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
         return
 
     # ── Initialize per-param ranges ────────────────────────────────────
+    # Default frames-per-axis shrinks as more params are selected so the
+    # cartesian product (and thus the embedded payload) stays manageable
+    # at full frequency fidelity: 11 for 1-2 params, 7 for 3, 5 for 4+.
+    n_sel = len(selected_specs)
+    default_frames = 11 if n_sel <= 2 else (7 if n_sel == 3 else 5)
     for spec in selected_specs:
         key, _, scale = spec[0], spec[1], spec[2]
         current_disp  = float(all_p.get(key, 0.0)) * scale
@@ -2141,7 +1980,7 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
             d_min, d_max, _ = _slider_default_range(current_disp)
             st.session_state[f"{kp}_min"]    = float(d_min)
             st.session_state[f"{kp}_max"]    = float(d_max)
-            st.session_state[f"{kp}_frames"] = 11
+            st.session_state[f"{kp}_frames"] = default_frames
 
     # ── 2-column variable-card grid (min / max / frames per card) ──────
     def _render_one_range_card(spec):
@@ -2179,18 +2018,20 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
 
     # ── Decimation (fidelity) control + payload estimate ───────────────
     n_freq_full = int(len(freq))
+    decim_default = min(1001, n_freq_full)
     decim_key   = f"slprev_pl_decim_{topo_key}_{fname}"
     if decim_key not in st.session_state:
-        st.session_state[decim_key] = min(120, n_freq_full)
+        st.session_state[decim_key] = decim_default
 
     dims_preview = []
     for spec in selected_specs:
         kp = f"slprev_pl_{topo_key}_{spec[0]}_{fname}"
-        dims_preview.append(int(st.session_state.get(f"{kp}_frames", 11)))
+        dims_preview.append(int(st.session_state.get(f"{kp}_frames",
+                                                     default_frames)))
     total_frames = int(np.prod(dims_preview)) if dims_preview else 0
 
     # Estimated payload: (5-sig-fig ≈ 7 chars / number) × 10 numbers / sample.
-    decim_n = int(st.session_state.get(decim_key, min(120, n_freq_full)))
+    decim_n = int(st.session_state.get(decim_key, decim_default))
     decim_n = min(decim_n, n_freq_full)
     est_mb  = total_frames * decim_n * 10 * 7 / 1024 / 1024
 
@@ -2201,8 +2042,8 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
             min_value=20, max_value=n_freq_full, step=10,
             key=decim_key,
             help=f"Frequency points kept per trace (max = {n_freq_full} = "
-                 "full fidelity).  Smith and Bode look smooth from ~120 "
-                 "onward; raising it just makes the browser payload bigger.")
+                 "full fidelity).  Lower this (~120 still looks smooth on "
+                 "Smith / Bode) when the payload estimate grows large.")
     with fd_col2:
         st.caption(
             "Cartesian sweep: "
@@ -2210,59 +2051,19 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
             + f" = **{total_frames}** frames · {decim_n} freq pts · "
             f"estimated payload ≈ **{est_mb:.0f} MB**")
 
-    # ── Server-cached toggle.  When ON: pre-compute stays in server RAM
-    #    and only the current frame is shipped per slider tick (Streamlit
-    #    reruns drive the slider).  Bypasses Streamlit's 200 MB browser
-    #    message limit at the cost of ~100-300 ms per drag.
-    sc_key = f"slprev_pl_servercached_{topo_key}_{fname}"
-    server_cached = st.checkbox(
-        "📡 Server-cached mode (Streamlit sliders, supports unlimited "
-        "sweep size, slower drag)",
-        value=st.session_state.get(sc_key, False), key=sc_key,
-        help="OFF (default): pre-computed frames are embedded in the "
-             "browser and scrubbing is instant — but the total payload is "
-             "capped at Streamlit's 200 MB message size.  ON: frames stay "
-             "in server RAM and only the current frame is sent per slider "
-             "drag.  Each drag triggers a Streamlit rerun (~100-300 ms) "
-             "but the sweep can be arbitrarily large.")
-    int16_key = f"slprev_pl_int16_{topo_key}_{fname}"
-    if server_cached:
-        # Memory estimate — complex64 storage = 8 bytes per S element,
-        # int16 quant = 4 bytes per element (2× compression over c64).
-        bytes_per_elem = 4 if st.session_state.get(int16_key, False) else 8
-        ram_mb = total_frames * n_freq_full * bytes_per_elem * 4 / 1024 / 1024
-        col_lbl, col_q = st.columns([2, 1])
-        col_lbl.caption(
-            f"Server RAM estimate ("
-            f"{'int16 quant' if bytes_per_elem == 4 else 'complex64'}, "
-            f"full-fidelity batch): ≈ **{ram_mb:.0f} MB** in session_state.")
-        col_q.checkbox(
-            "🗜️ int16 quantize",
-            value=st.session_state.get(int16_key, False),
-            key=int16_key,
-            help="Per-trace int16 quantization (rescaled by element-wise "
-                 "max) — 2× memory savings vs. complex64 with ~3e-5 "
-                 "round-trip error.  Negligible visual difference on "
-                 "Smith / Bode plots, recommended for very large batches.")
-        if ram_mb > 8000:
-            st.warning(f"⚠️ ~{ram_mb/1024:.1f} GB server-side may OOM on "
-                       "modest machines.  Reduce per-axis frame counts if "
-                       "Build runs out of memory.")
-    else:
-        if est_mb > 180:
-            st.error(
-                f"❌ Estimated payload ≈ {est_mb:.0f} MB will exceed "
-                "Streamlit's 200 MB browser-message limit.  Enable "
-                "**📡 Server-cached mode** above, lower the **Freq points** "
-                "value, reduce per-axis frame counts, or raise the limit "
-                "via `.streamlit/config.toml` → `[server] maxMessageSize "
-                "= 500`.")
-        elif est_mb > 120:
-            st.warning(f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
-                       "to Streamlit's 200 MB limit.")
-        elif total_frames > 2000:
-            st.warning(f"⚠️ {total_frames} frames may stutter on "
-                       "slider drag.")
+    if est_mb > 180:
+        st.error(
+            f"❌ Estimated payload ≈ {est_mb:.0f} MB will exceed "
+            "Streamlit's 200 MB browser-message limit.  Lower the "
+            "**Freq points** value, reduce per-axis frame counts, or "
+            "raise the limit via `.streamlit/config.toml` → "
+            "`[server] maxMessageSize = 500`.")
+    elif est_mb > 120:
+        st.warning(f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
+                   "to Streamlit's 200 MB limit.")
+    elif total_frames > 2000:
+        st.warning(f"⚠️ {total_frames} frames may stutter on "
+                   "slider drag.")
 
     # ── CUDA checkbox + Build button (button next to checkbox when CUDA available)
     cuda_toggle_key = f"slprev_pl_cuda_{topo_key}_{fname}"
@@ -2345,22 +2146,14 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
             st.warning("Some frames contain non-finite S-parameters — "
                        "narrow the ranges to avoid singular combinations.")
 
-        state_dict = {
+        st.session_state[state_key] = {
             "slider_specs":  slider_specs_out,
+            "S_batch":       S_b,
             "selected_keys": [s[0] for s in selected_specs],
             "elapsed_s":     elapsed,
             "device":        device_label,
             "n_total":       n_total,
         }
-        if server_cached and st.session_state.get(int16_key, False):
-            # Pack the batch as int16 (per-element rescaled).  4× smaller
-            # than complex128, 2× smaller than complex64.  Slider lookup
-            # decodes one frame at a time via _dequantize_S_frame.
-            state_dict["S_quant"] = _quantize_S_batch_int16(S_b)
-            state_dict["S_batch"] = None  # free the big complex array
-        else:
-            state_dict["S_batch"] = S_b
-        st.session_state[state_key] = state_dict
 
     state = st.session_state.get(state_key)
     if state is None:
@@ -2376,59 +2169,46 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
                    "Click **🧮 Build animation** to refresh.")
         return
 
+    if state.get("S_batch") is None:
+        # e.g. a stale build from the removed server-cached/int16 path.
+        st.warning("Cached build is unusable — click **🧮 Build animation** "
+                   "to refresh.")
+        return
+
     # Device + elapsed banner so the user can confirm GPU vs CPU.
     elapsed = float(state.get("elapsed_s", 0.0))
-    if state.get("S_batch") is not None:
-        n_total = int(state.get("n_total", 0)) or len(state["S_batch"])
-    elif state.get("S_quant") is not None:
-        n_total = int(state.get("n_total", 0)) or state["S_quant"]["re_q"].shape[0]
-    else:
-        n_total = 0
+    n_total = int(state.get("n_total", 0)) or len(state["S_batch"])
     device  = str(state.get("device", "?"))
     ms_each = (elapsed / max(1, n_total)) * 1000.0
-    storage = "int16-quant" if state.get("S_quant") is not None else "complex64"
     st.caption(f"✅ Built **{n_total}** frames on **{device}** in "
-               f"**{elapsed:.2f} s** ({ms_each:.1f} ms/frame, "
-               f"storage: {storage}).  Drag any slider below to scrub.")
+               f"**{elapsed:.2f} s** ({ms_each:.1f} ms/frame).  "
+               "Drag any slider below to scrub.")
 
-    if server_cached:
-        _render_plotly_server_cached_view(
-            state, S_raw, freq, model_cls, fname, topo_key,
-            decim_n_max=int(st.session_state.get(decim_key, 120)),
-            smith_mults={nm: float(st.session_state.get(
+    html = make_smith_bode_joint_slider_html(
+        S_batch_joint=state["S_batch"],
+        freq=freq,
+        slider_specs=state["slider_specs"],
+        model_name=model_cls.NAME,
+        S_meas=S_raw,
+        decimate_points=int(st.session_state.get(decim_key, decim_default)),
+        # Mirror the Plotly Smith chart's per-trace display scale (set via
+        # smith_scale_controls) so the slider's Smith view matches it.
+        smith_mults={
+            nm: float(st.session_state.get(
                 f"smith_scale_{topo_key}_{nm}_{fname}", 1.0))
-                for nm in ("S11", "S12", "S21", "S22")})
-    else:
-        if state.get("S_batch") is None:
-            st.warning("Last build used int16 quantization (server-cached "
-                       "only).  Rebuild without **🗜️ int16 quantize** to "
-                       "embed frames in the browser.")
-            return
-        html = make_smith_bode_joint_slider_html(
-            S_batch_joint=state["S_batch"],
-            freq=freq,
-            slider_specs=state["slider_specs"],
-            model_name=model_cls.NAME,
-            S_meas=S_raw,
-            decimate_points=int(st.session_state.get(decim_key, 120)),
-            # Mirror the Plotly Smith chart's per-trace display scale (set via
-            # smith_scale_controls) so the slider's Smith view matches it.
-            smith_mults={
-                nm: float(st.session_state.get(
-                    f"smith_scale_{topo_key}_{nm}_{fname}", 1.0))
-                for nm in ("S11", "S12", "S21", "S22")
-            },
-        )
-        # Plotly figure (height=500) + HTML slider rows below.  Each row
-        # is ~36 px tall; container has ~26 px padding.  +40 px buffer.
-        n_sl = len(state["slider_specs"])
-        iframe_height = 500 + 26 + 36 * n_sl + 30
-        # st.iframe replaced components.v1.html (deprecated 2026-06-01).
-        # When src is a raw HTML string (no http(s) / file / Path prefix)
-        # Streamlit embeds it directly in an iframe — same behaviour as
-        # the old components.html call.  No `scrolling` parameter; the
-        # `height=` integer is interpreted in pixels just like before.
-        st.iframe(html, height=iframe_height)
+            for nm in ("S11", "S12", "S21", "S22")
+        },
+    )
+    # Plotly figure (height=500) + HTML slider rows below.  Each row
+    # is ~36 px tall; container has ~26 px padding.  +40 px buffer.
+    n_sl = len(state["slider_specs"])
+    iframe_height = 500 + 26 + 36 * n_sl + 30
+    # st.iframe replaced components.v1.html (deprecated 2026-06-01).
+    # When src is a raw HTML string (no http(s) / file / Path prefix)
+    # Streamlit embeds it directly in an iframe — same behaviour as
+    # the old components.html call.  No `scrolling` parameter; the
+    # `height=` integer is interpreted in pixels just like before.
+    st.iframe(html, height=iframe_height)
 
 
 def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,

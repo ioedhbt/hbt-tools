@@ -5,6 +5,13 @@
 # radios and tab underlines.  A scientific tool reads as "everything is an
 # alarm".  A calm blue primary keeps red reserved for genuinely destructive
 # actions and removes most of the visual noise across the app.
+[server]
+# Default is 200 MB. 250 MB GDS masks are validated to parse within a
+# 1 GB-RAM host (~770 MB peak); past ~330 MB the upload buffer + parsed
+# geometry would OOM Streamlit Community Cloud, so don't raise this
+# much further without re-profiling (tools/ebeam_calculator.py).
+maxUploadSize = 250
+
 [theme]
 primaryColor = "#2563EB"            # calm blue — actions & selection, not alarm
 backgroundColor = "#FFFFFF"

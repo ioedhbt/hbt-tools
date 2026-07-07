@@ -130,7 +130,8 @@ Canonical home for the small shape/broadcast utilities formerly duplicated acros
 | `build_Y_pad(p, w)` | 34 | 2×2 pad admittance matrix at angular freq `w`. |
 | `build_Z_ser(p, w)` | 49 | 2×2 series-lead impedance matrix at angular freq `w`. |
 | `write_s2p(freq_hz, S, title="", params=None)` | 65 | Serialize to Touchstone `.s2p` (DB format) bytes. Header `!` lines list `params`. |
-| `parse_s2p(content)` | 93 | Parse a Touchstone `.s2p` (accepts str or bytes) → `(freq, S, z0)`. |
+| `parse_s2p(content)` | 102 | Parse a Touchstone `.s2p` (accepts str or bytes) → `(freq, S, z0)`. Strips trailing `!` comments on any line (option + data rows) and skips stray non-numeric tokens — same tolerance as the Rust `parse_and_compute_batch` parser, so both paths accept the same files. Raises `ValueError` when no 9-column data rows are found (was: silently returned empty arrays). |
+| `_maybe_float(tok)` | 93 | `float(tok)` or `None` — tolerant token parser used by `parse_s2p`'s data rows. |
 | `parse_s2p_bytes(raw)` | 138 | Bytes-only alias of `parse_s2p` (backwards-compat). |
 | `parse_csv(content, z0=50.0)` | 143 | Parse VNA CSV export (RI columns) → `(freq, S, z0)`. |
 | `interpolate_s2f(f_src, S_src, f_tgt)` | 159 | Interpolate S to a new frequency grid. |
@@ -353,11 +354,8 @@ After the array-utility consolidation, this module is mostly font code. The thre
 | `_slider_default_range(current_disp)` | 1047 | Sane `(min, max, step)` for a slider. |
 | `_multi_metric_top_n(arr, per_metric=10)` | 1058 | Take an `(N, n_cols)` residual table and return the union of top-`per_metric` rows by each metric. |
 | `_render_live_slider_preview(...)` *@fragment* | 1087 | Streamlit-rerun-per-drag preview with pre-baked static cache + `simulate_batch(B=1)`. |
-| `_quantize_S_batch_int16(S_batch)` | 1327 | Per-element int16 quantization. 4× memory savings vs complex128. |
-| `_dequantize_S_frame(quant, joint)` | 1353 | Inverse of `_quantize_S_batch_int16`. |
 | `_chunked_simulate_batch_to_host(...)` | 1363 | Run `simulate_batch` in slabs so OOM doesn't bite on million-frame sweeps. |
-| `_render_plotly_server_cached_view(state, S_raw, freq, model_cls, fname, topo_key, decim_n_max, smith_mults=None)` *@fragment* | 1405 | Server-cached Wide-sweep rendering (one frame per slider tick). The model-only path calls `make_smith` with an `(N,2,2)` S array + **dict** toggles/scales (previously passed a DataFrame + tuples → `'tuple' object has no attribute 'get'`). **`smith_mults`** applies the page's per-trace Smith multipliers to both the measured and model-only charts. |
-| `_render_plotly_slider_preview(...)` *@fragment* | 1540 | Pre-computed Plotly slider — joint cartesian sweep. |
+| `_render_plotly_slider_preview(...)` *@fragment* | 1540 | Pre-computed Plotly slider — joint cartesian sweep, always embedded client-side (the 📡 server-cached mode + int16 quantization were removed — they duplicated Live tweak's UX). Freq points default to full fidelity (≤ 1001); default frames-per-axis shrinks with selection count (11 / 7 / 5 for ≤2 / 3 / ≥4 params) to keep the embedded payload under Streamlit's 200 MB message limit. |
 | `render_visual_tuning_expander(...)` | 1875 | 🎚️ Visual Tuning expander — wraps `_render_slider_preview`. |
 | `render_tuning_expander(...)` | 1944 | 🔧 Auto Tuning for Minimum Residuals — grid sweep + per-metric top-10 ranking + residual table. Toolbar above the table (under "Compute backend" line) has `Use default values` + `Select all` + `De-select all` buttons. |
 | `class SSMModelTemplate` | 4318 | Mixin parent for SSM model classes. |
@@ -535,9 +533,9 @@ between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ
 | `BUILTIN_PRESETS` / `builtin_custom_model(label)` | — | Built-in topology presets so the builder's "modify" flow can start from a registered model. `BUILTIN_PRESETS` = `{human label → factory}` (Cheng T `_cheng_t`, Cheng π `_cheng_pi`, Xu T `_xu_t`, Kun-Yang `_kunyang`); `builtin_custom_model` returns a fresh `CustomModel` for a label. Structures mirror each model's `_sim_wrap_vec`/forward-sim netlist exactly (intrinsic junctions, extrinsic/parasitic caps, access legs, KY source-delay branch + substrate pads) so the loaded copy reproduces the same topology. Helpers `_net(*groups)` / `_shunt(place, *groups)` / `_hbt_pads()` / `_HBT_ACCESS` build the Networks. |
 | `SimPlan` (dataclass) | — | Value-free compiled topology: `n` nodes, `branches` `(ia,ib,series,groups)`, `twoport` `(ia,ib,iref,be,bc,ce)`, `itype`, `source_keys`, `value_keys`, **`alpha_cbex`** (`None` or `(i_bb,i_ci,i_ei,[groups,…])` for the "Ie after Cbex" extra α-controlled source). Consumed by the vectorised evaluator **and** the Rust `sim_custom_batch` (plans with `alpha_cbex` set bypass Rust → NumPy/CuPy path). |
 | `compile_plan(model)` | — | Resolve topology to a `SimPlan` **once** (structural node merges via union-find — a structurally-empty series branch is a wire). Raises on degenerate (port-to-GND / merged ports). |
-| `simulate_custom_model_batch(plan, freq, values, z0, xp=np, max_batch_elems)` | — | Vectorised forward sim over a parameter batch → `S[B,N,2,2]`. Scatter-stamps a `(B,N,n,n)` Y, batched `xp.linalg.solve` Kron reduction, `y_to_s_vec`. `xp=cupy` ⇒ runs on GPU; chunks the batch axis to bound memory. |
+| `simulate_custom_model_batch(plan, freq, values, z0, xp=np, max_batch_elems)` | — | Vectorised forward sim over a parameter batch → `S[B,N,2,2]`. Scatter-stamps a `(B,N,n,n)` Y, batched `xp.linalg.solve` Kron reduction, `y_to_s_vec`. `xp=cupy` ⇒ runs on GPU; chunks the batch axis to bound memory. Raises `ValueError` when two value arrays disagree on batch size (was: silently mis-sliced). |
 | `simulate_custom_model(model, freq, values, z0)` | — | Thin scalar wrapper: `compile_plan` → `simulate_custom_model_batch` with scalar values → `S[N,2,2]` (forward-sim / "Use" mode, back-compat). |
-| `_elem_adm_b` / `_group_adm_b` / `_branch_series_b` / `_branch_shunt_b` / `_junction_adm_b` | — | Batched `xp`-aware admittance kernels. Series: Σ group impedances (zero group = short; all-zero ⇒ near-short `_SHORT_Y`). Shunt/junction: any absent group ⇒ open. |
+| `_elem_adm_b` / `_group_adm_b` / `_branch_series_b` / `_branch_shunt_b` / `_junction_adm_b` | — | Batched `xp`-aware admittance kernels. Series: Σ group impedances (zero group = short; all-zero ⇒ near-short `_SHORT_Y`). Shunt/junction: any absent group ⇒ open. A present inductor at a `jw = 0` (DC) sweep point reads as a short (`_SHORT_Y`), not a spurious 1 S — mirrored in the Rust `_elem_adm`. |
 | `_intrinsic_Y_b(itype, Ybe, Ybc, Yce, src, jw, xp)` | — | Batched common-emitter 2-port from junction admittances + scalar source params (π / T α-source). |
 | `_simulate_plan_core(plan, jw, vals, z0, xp, B)` / `_stamp(...)` | — | One-chunk evaluator: build `(B,N,n,n)` Y, embed indefinite 2-port, Kron-reduce, Y→S. When `plan.alpha_cbex` is set, also stamps the extra α·Y_cbex·(V_bb−V_ei) collector source ("Ie after Cbex"). |
 
@@ -552,8 +550,9 @@ between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ
 | `_draw_junction_v` / `_draw_junction_h` | — | Stack a junction Network's series groups vertically/horizontally, appending the controlled source to the last group as a parallel branch. |
 | `intrinsic_thumbnail(model, selected)` | — | Abstracted intrinsic view: each editable part (base / B–E / B–C / C–E / source) as a labelled box around the base node, `selected` highlighted — pairs with the build-UI chip selector. |
 | `section_thumbnail(model, section, selected)` | — | Cumulative abstracted view for an outer section (extrinsic / delay / access / parasitic): inner circuit collapsed into one labelled **core block** + that section's components, `selected` highlighted, absent parts dashed. The **extrinsic** view of a T-core also draws the **"Ie" arrow** on the emitter leg (high = before-Cbex, low = after-Cbex / no Cbex) so the build page's before/after radio gives live feedback. |
-| `svg_to_png(svg, zoom=2)` | — | Rasterise an SVG string to PNG bytes via `rsvg-convert` (15 s timeout) → `cairosvg` fallback → `None`. Powers the schematic PNG download. |
-| `copy_image_button(png, …)` | — | A clipboard "copy image" button (mirrors `copy_button` styling) that writes the PNG via the `ClipboardItem` API; sits beside the Download-PNG buttons. |
+| `svg_png_buttons(svg, filename, …)` | — | Renders **Download PNG** + **Copy image** buttons in one iframe that rasterise the SVG to PNG **in the browser** (HTML `<canvas>`, single cached raster) — no server-side `rsvg-convert`/`cairosvg` and no native packages, so PNG export works identically on Streamlit Cloud and any local machine. Powers the schematic PNG export in the build/use pages. |
+| `svg_to_png(svg, zoom=2)` | — | *(legacy server-side path, no longer wired into the UI)* Rasterise an SVG string to PNG bytes via `rsvg-convert` (15 s timeout) → `cairosvg` fallback → `None`. |
+| `copy_image_button(png, …)` | — | A clipboard "copy image" button (mirrors `copy_button` styling) that writes an already-rasterised PNG via the `ClipboardItem` API. Superseded in the schematic UI by `svg_png_buttons`. |
 
 `CustomModel.emitter` (a `Network`) holds source/emitter-leg "delay" extras drawn between the intrinsic emitter and the emitter access R/L — e.g. the Kun-Yang R_delay∥C_delay above the Rs node.
 

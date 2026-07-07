@@ -90,6 +90,14 @@ def write_s2p(freq_hz: np.ndarray, S: np.ndarray,
 
 # ── Touchstone read ───────────────────────────────────────────────────────────
 
+def _maybe_float(tok: str):
+    """float(tok) or None — data-row tokens that aren't numbers are skipped."""
+    try:
+        return float(tok)
+    except ValueError:
+        return None
+
+
 def parse_s2p(content: Union[str, bytes]):
     """
     Parse a .s2p file. Accepts either str or bytes.
@@ -104,8 +112,11 @@ def parse_s2p(content: Union[str, bytes]):
     data_lines = []
 
     for line in content.splitlines():
-        s = line.strip()
-        if not s or s.startswith("!"): continue
+        # Touchstone allows trailing "!" comments on any line — strip them
+        # before parsing so "1e9 -10 45 ... ! bias 25 mA" doesn't crash (or,
+        # worse, inject the comment's numbers into the data columns).
+        s = line.split("!", 1)[0].strip()
+        if not s: continue
         if s.startswith("#"):
             parts = s[1:].lower().split()
             for i, p in enumerate(parts):
@@ -113,12 +124,18 @@ def parse_s2p(content: Union[str, bytes]):
                 elif p in ("ma","db","ri"):           fmt = p
                 elif p == "r" and i+1 < len(parts):
                     try: z0 = float(parts[i+1])
-                    except: pass
+                    except ValueError: pass
             continue
         data_lines.append(s)
 
-    vals = np.array([float(x) for x in " ".join(data_lines).split()])
+    # Tolerate stray non-numeric tokens (same behaviour as the Rust kernel's
+    # parser) so both parse paths accept the same files.
+    vals = np.array([v for v in
+                     (_maybe_float(x) for x in " ".join(data_lines).split())
+                     if v is not None])
     n = len(vals)//9
+    if n == 0:
+        raise ValueError("parse_s2p: no 9-column S-parameter data rows found")
     vals = vals[:n*9].reshape(n, 9)
     scale = {"hz":1.0, "khz":1e3, "mhz":1e6, "ghz":1e9}[freq_unit]
     freq  = vals[:,0] * scale

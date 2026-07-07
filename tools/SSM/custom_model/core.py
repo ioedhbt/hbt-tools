@@ -575,7 +575,10 @@ def _elem_adm_b(kind: str, v, jw, xp):
     if kind == "R":
         return xp.where(v != 0, 1.0 / _safe(v, xp), 0.0)            # (B, 1)
     if kind == "L":
-        return xp.where(v != 0, 1.0 / _safe(jw * v, xp), 0.0)       # (B, N)
+        # At jw = 0 (DC point in the sweep) a present inductor is a short —
+        # 1/_safe(0) would otherwise return a spurious 1 S admittance.
+        y = xp.where(xp.abs(jw * v) > 0, 1.0 / _safe(jw * v, xp), _SHORT_Y)
+        return xp.where(v != 0, y, 0.0)                             # (B, N)
     if kind == "C":
         return jw * v                                              # (B, N); 0 if v=0
     return xp.zeros_like(jw)
@@ -949,6 +952,10 @@ def simulate_custom_model_batch(plan: SimPlan, freq: np.ndarray, values: dict,
         arr = xp.asarray(values.get(key, 0.0), dtype=complex).reshape(-1)
         raw[key] = arr
         if arr.size > 1:
+            if B > 1 and arr.size != B:
+                raise ValueError(
+                    f"simulate_custom_model_batch: value arrays disagree on "
+                    f"batch size ({arr.size} vs {B} for key {key!r})")
             B = max(B, int(arr.size))
 
     def view(key, lo, hi):
