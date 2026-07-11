@@ -2275,7 +2275,7 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         "restart the launcher (`python LAUNCH_Tool.py`) to "
                         "pick it up.  If the import error persists after a "
                         "fresh restart, the .pyd may be from a different ABI; "
-                        "delete it and run `python build_rust_kernels.py`.")
+                        "delete it and run `python rust_things/build_rust_kernels.py`.")
         _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
                                tuning_specs, fname, topo_key)
 
@@ -2372,7 +2372,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                    "font-weight:600'>🐢 NumPy</span>"
                    "  <span style='font-size:0.78em;color:#666'>"
                    "(CPU buttons → NumPy.  Build the Rust crate "
-                   "(<code>python build_rust_kernels.py</code>) and set "
+                   "(<code>python rust_things/build_rust_kernels.py</code>) and set "
                    "<code>HBT_USE_RUST_SIM_BATCH=1</code> for ~25× speedup.)"
                    "</span>")
         st.markdown(f"Compute backend: {_bk}", unsafe_allow_html=True)

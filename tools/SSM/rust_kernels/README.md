@@ -32,7 +32,7 @@ NumPy path.  The tool still works — they just don't get the speedup.
 Run **once per OS** from the repo root:
 
 ```
-python build_rust_kernels.py
+python rust_things/build_rust_kernels.py
 ```
 
 What it does:
@@ -81,7 +81,7 @@ you if it's missing (offers a one-click install of the Visual Studio
 Build Tools).  On Debian/Ubuntu: `apt install build-essential`.  On
 macOS: Xcode Command Line Tools.
 
-After that, `python build_rust_kernels.py` handles everything else.
+After that, `python rust_things/build_rust_kernels.py` handles everything else.
 
 ## Verifying / benchmarking
 
@@ -150,11 +150,11 @@ A-B parity checks.
    `tools/SSM/helpers/rust_kernels.py`.
 4. Extend `benchmark.py` with a parity + timing block.
 5. Rebuild and commit a fresh binary per OS:
-   `python build_rust_kernels.py`.
+   `python rust_things/build_rust_kernels.py`.
 
 Callers in `helpers/` and `models/` should import from
 `tools.SSM.helpers.rust_kernels`, never from `hbt_rust_kernels`
 directly — that preserves the NumPy fallback for unbuilt platforms.
 
 (note To ship to Streamlit Cloud
-Run python build_rust_kernels.py on Linux x86_64 (a WSL box, a Docker image, or a one-off VM). It'll drop a .so at tools/SSM/rust_kernels/bin/linux_x86_64/hbt_rust_kernels.so. Commit it. Streamlit Cloud picks it up automatically on next deploy — no pip install needed there either.)
+Run python rust_things/build_rust_kernels.py on Linux x86_64 (a WSL box, a Docker image, or a one-off VM). It'll drop a .so at tools/SSM/rust_kernels/bin/linux_x86_64/hbt_rust_kernels.so. Commit it. Streamlit Cloud picks it up automatically on next deploy — no pip install needed there either.)

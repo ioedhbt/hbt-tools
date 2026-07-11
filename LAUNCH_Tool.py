@@ -482,7 +482,7 @@ def main():
                   f"for {_arch_dir} (one-time, ~30 s)…")
             try:
                 run([sys.executable,
-                     str(ROOT / "build_rust_kernels.py")])
+                     str(ROOT / "rust_things" / "build_rust_kernels.py")])
                 _rust_binary = _has_active_binary(_rust_bin_dir)
             except subprocess.CalledProcessError as e:
                 print(f"  Build failed ({e}).  Continuing with "

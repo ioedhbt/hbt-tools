@@ -7,7 +7,7 @@ ships with the repo.  End users / Streamlit Cloud / anyone who just clones
 the repo gets the prebuilt binary on their platform automatically — no pip
 install, no maturin, no Rust toolchain on their side.
 
-    python build_rust_kernels.py
+    python rust_things/build_rust_kernels.py
 
 What it does
 ------------
@@ -52,7 +52,8 @@ import zipfile
 from pathlib import Path
 
 
-ROOT       = Path(__file__).parent.resolve()
+# This file lives in rust_things/ — the repo root is one level up.
+ROOT       = Path(__file__).parent.parent.resolve()
 CRATE_DIR  = ROOT / "tools" / "SSM" / "rust_kernels"
 BIN_BASE   = CRATE_DIR / "bin"
 BUILD_VENV = ROOT / ".hbttools_build"
@@ -229,7 +230,7 @@ def main() -> int:
         print("      https://rustup.rs/")
         print()
         print("  After installation, open a NEW terminal and re-run:")
-        print("      python build_rust_kernels.py")
+        print("      python rust_things/build_rust_kernels.py")
         print("=" * 64)
         return 1
 

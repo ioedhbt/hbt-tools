@@ -41,10 +41,11 @@ APP_FILE = _find_app_file()
 # ── Packages the EBL calculator needs (import name, pip name) ─────────────────
 # The app imports only these third-party modules (plus stdlib math/os/tempfile).
 REQUIRED = [
-    ("streamlit", "streamlit"),
-    ("numpy",     "numpy"),
-    ("plotly",    "plotly"),
-    ("gdstk",     "gdstk"),
+    ("streamlit",  "streamlit"),
+    ("numpy",      "numpy"),
+    ("plotly",     "plotly"),
+    ("matplotlib", "matplotlib"),
+    ("gdstk",      "gdstk"),
 ]
 
 # ── Resolve venv interpreter paths (Windows vs. Unix) ─────────────────────────

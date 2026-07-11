@@ -31,7 +31,7 @@ need to rebuild when upgrading the runtime Python.
 Run **once per OS** from the repo root:
 
 ```
-python build_rust_kernels.py
+python rust_things/build_rust_kernels.py
 ```
 
 The script creates a separate `.hbttools_build/` venv (so the runtime

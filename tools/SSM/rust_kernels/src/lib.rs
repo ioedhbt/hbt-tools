@@ -261,7 +261,7 @@ fn port_residuals_batch<'py>(
 //   2. The Python wrapper at `helpers/rust_kernels.py::sim_<topology>_batch`
 //      starts taking the Rust branch automatically when the env var
 //      `HBT_USE_RUST_SIM_BATCH=1` is set.
-//   3. Bump the binary by re-running `python build_rust_kernels.py`.
+//   3. Bump the binary by re-running `python rust_things/build_rust_kernels.py`.
 //
 // The stubs deliberately accept the FULL signature now so adding the
 // implementation later is purely additive — no Python-side wrapper

@@ -1,0 +1,6 @@
+# Keep launcher line endings correct across OSes regardless of core.autocrlf.
+# Unix shell launchers MUST stay LF, or bash reports "bad interpreter: ^M".
+*.sh        text eol=lf
+*.command   text eol=lf
+# Windows batch files use CRLF.
+*.bat       text eol=crlf

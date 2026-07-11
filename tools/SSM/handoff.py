@@ -35,6 +35,8 @@ from __future__ import annotations
 import streamlit as st
 
 # Page paths (must match the st.Page entries in IOED_Tool_Web.py / i18n).
+# st.switch_page resolves these relative to the main script's directory
+# (the repo root) — hence the "tools/" prefix.
 PAGE_AT_A_GLANCE = "tools/IOED_HBT_RF_extract.py"
 PAGE_EXTRACTION  = "tools/SSM_extraction.py"
 PAGE_SIMFIT      = "tools/RF_simulator.py"

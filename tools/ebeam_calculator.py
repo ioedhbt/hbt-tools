@@ -18,9 +18,6 @@ import math
 import struct
 import numpy as np
 import streamlit as st
-
-from tools import i18n
-from tools.SSM.helpers import segmented_radio
 import plotly.graph_objects as go
 
 try:
@@ -29,10 +26,72 @@ except ImportError:  # pragma: no cover
     gdstk = None
 
 
+# ─── Standalone helpers (inlined so this file needs no repo modules) ──────────
+# Static UI strings the tool needs. Kept here (instead of an external i18n
+# registry) so ``ebeam_calculator.py`` is fully self-contained and can be run
+# on its own via ``streamlit run ebeam_calculator.py``.
+_EBL_TITLE = "EBL Calculator"
+_EBL_DESC = "Compute JEOL ELS-7000 chip positions and exposure workflow."
+_EBL_CORNER_GUIDE = "ℹ️ How corners are labeled"
+_EBL_CORNER_NOTE = (
+    "Holder frame: x increases →, y increases ↑. In Rectangular mode you "
+    "edit one diagonal pair (BL–TR or BR–TL); the other pair is computed."
+)
+
+
+def segmented_radio(label, options, *, index: int = 0, key=None,
+                    horizontal: bool = True, format_func=None, help=None,
+                    label_visibility: str = "visible",
+                    disabled: bool = False):
+    """Drop-in replacement for :func:`st.radio` that renders as a segmented
+    button group (``st.segmented_control``) instead of radio circles.
+
+    Returns the *selected option value* (not its label), matching ``st.radio``.
+    A selection is always guaranteed: ``st.segmented_control`` can otherwise
+    return ``None`` when the user clicks the active chip to deselect it, so we
+    fall back to the default value in that case. Falls back to ``st.radio`` on
+    Streamlit builds without ``segmented_control`` (added in 1.40).
+    """
+    options = list(options)
+    seg = getattr(st, "segmented_control", None)
+    if seg is None or not options:
+        return st.radio(label, options, index=index, key=key,
+                        horizontal=horizontal,
+                        format_func=(format_func or str),
+                        help=help, label_visibility=label_visibility,
+                        disabled=disabled)
+
+    idx = index if 0 <= index < len(options) else 0
+
+    kwargs = dict(options=options, key=key, help=help,
+                  label_visibility=label_visibility, disabled=disabled,
+                  selection_mode="single")
+    if format_func is not None:
+        kwargs["format_func"] = format_func
+
+    if key is not None:
+        # Seed / repair the value BEFORE the widget exists (allowed). Covers
+        # first render (no value yet) and a stale value whose option list has
+        # changed; both resolve to the default option.
+        if st.session_state.get(key) not in options:
+            st.session_state[key] = options[idx]
+        # `key` already carries the value → must NOT also pass `default`.
+    else:
+        kwargs["default"] = options[idx]
+
+    picked = seg(label, **kwargs)
+    # Deselect (user clicked the active chip) → segmented_control returns None.
+    if picked is None:
+        picked = options[idx]
+    return picked
+
+
 # ─── Page header ─────────────────────────────────────────────────────────────
 
-st.title(i18n.title("ebl"))
-st.caption(i18n.tool_desc("ebl"))
+st.set_page_config(page_title=_EBL_TITLE, layout="wide", page_icon="🧮")
+
+st.title(_EBL_TITLE)
+st.caption(_EBL_DESC)
 
 # ─── Session-state defaults ──────────────────────────────────────────────────
 # Corner defaults:
@@ -120,9 +179,9 @@ with st.container(border=True):
     with col_left:
         st.subheader("Corner Positions")
 
-        with st.expander(i18n.t("ebl_corner_guide"), expanded=False):
+        with st.expander(_EBL_CORNER_GUIDE, expanded=False):
             st.image(_chip_corner_guide_png(), width="stretch")
-            st.caption(i18n.t("ebl_corner_note"))
+            st.caption(_EBL_CORNER_NOTE)
 
         shape_mode = segmented_radio(
             "Shape", ["Rectangular", "Custom"],

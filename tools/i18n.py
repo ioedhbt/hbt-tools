@@ -36,7 +36,9 @@ def is_zh() -> bool:
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Tool registry — key → metadata.  ``path`` matches the st.Page file so the
-#  home page's st.page_link and the navigation stay in sync.
+#  home page's st.page_link and the navigation stay in sync.  Paths are
+#  relative to the main script's directory (the repo root, where
+#  IOED_Tool_Web.py lives) — hence the "tools/" prefix.
 # ─────────────────────────────────────────────────────────────────────────────
 TOOLS: dict[str, dict] = {
     "rf_extract": {
