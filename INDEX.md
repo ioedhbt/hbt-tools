@@ -48,6 +48,7 @@ prefix.
 
 | Function | Purpose |
 |---|---|
+| `_inject_button_css()` | Global CSS: light-gray fill on all secondary buttons (st.button / download / form submit / popover / uploader Browse) so they read as buttons. Primary buttons and segmented chips excluded. Kept in sync with the inline copies in `tools/ebeam_calculator.py` (standalone) and the iframe copy-button in `helpers/chart_export.py`. |
 | `check_password()` | Password gate; correct password from `st.secrets["APP_PASSWORD"]` (fallback `"IOED"` for local testing). |
 | `_page(tool_key, *, default=False)` | Build an `st.Page` for a tool key, pulling path/title/icon from the i18n registry so sidebar and in-page titles can't drift. |
 

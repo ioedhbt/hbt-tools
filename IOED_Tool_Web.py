@@ -8,6 +8,44 @@ from tools import i18n
 from tools.SSM.helpers import segmented_radio
 
 
+# ── Global button styling ─────────────────────────────────────────────────────
+# Streamlit's default (secondary) buttons are white with a thin border, which
+# users kept mistaking for labels.  Give every secondary button — st.button,
+# st.download_button, form submits, popover triggers, the uploader's "Browse
+# files" — a light-gray fill so it reads as a clickable button.  Primary
+# buttons (theme blue) and segmented-control chips are deliberately excluded.
+# The theme is locked to light mode in .streamlit/config.toml, so fixed hex
+# grays are safe.  Keep in sync with the standalone copy in
+# tools/ebeam_calculator.py and the iframe copy-button in
+# tools/SSM/helpers/chart_export.py.
+def _inject_button_css() -> None:
+    st.markdown(
+        """
+        <style>
+        button[data-testid="stBaseButton-secondary"],
+        button[data-testid="stBaseButton-secondaryFormSubmit"] {
+            background-color: #E9EDF3;
+        }
+        button[data-testid="stBaseButton-secondary"]:hover,
+        button[data-testid="stBaseButton-secondaryFormSubmit"]:hover {
+            background-color: #DDE3EB;
+        }
+        button[data-testid="stBaseButton-secondary"]:active,
+        button[data-testid="stBaseButton-secondaryFormSubmit"]:active {
+            background-color: #D1D8E2;
+        }
+        button[data-testid="stBaseButton-secondary"]:disabled,
+        button[data-testid="stBaseButton-secondaryFormSubmit"]:disabled {
+            background-color: #F1F3F7;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+_inject_button_css()
+
 # ── Firefox-only styling fix (DISABLED) ───────────────────────────────────────
 # On macOS Firefox the default Streamlit chrome renders with near-invisible
 # input borders and thin container outlines (text fields blend into the page,

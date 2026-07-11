@@ -90,6 +90,33 @@ def segmented_radio(label, options, *, index: int = 0, key=None,
 
 st.set_page_config(page_title=_EBL_TITLE, layout="wide", page_icon="🧮")
 
+# Gray fill for secondary buttons so they read as buttons.  Inline copy of the
+# portal-wide block in IOED_Tool_Web.py (this file stays repo-import-free so
+# launch_ebl_calculator.py can run it standalone) — keep the two in sync.
+st.markdown(
+    """
+    <style>
+    button[data-testid="stBaseButton-secondary"],
+    button[data-testid="stBaseButton-secondaryFormSubmit"] {
+        background-color: #E9EDF3;
+    }
+    button[data-testid="stBaseButton-secondary"]:hover,
+    button[data-testid="stBaseButton-secondaryFormSubmit"]:hover {
+        background-color: #DDE3EB;
+    }
+    button[data-testid="stBaseButton-secondary"]:active,
+    button[data-testid="stBaseButton-secondaryFormSubmit"]:active {
+        background-color: #D1D8E2;
+    }
+    button[data-testid="stBaseButton-secondary"]:disabled,
+    button[data-testid="stBaseButton-secondaryFormSubmit"]:disabled {
+        background-color: #F1F3F7;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.title(_EBL_TITLE)
 st.caption(_EBL_DESC)
 

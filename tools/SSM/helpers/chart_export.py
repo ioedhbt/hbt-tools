@@ -390,10 +390,13 @@ def copy_button(
     font-family:"Source Sans Pro","Segoe UI",sans-serif;font-size:0.875rem;
     line-height:1.6;padding:0.25rem 0.75rem;min-height:38.4px;
     border:1px solid rgba(49,51,63,0.2);border-radius:0.5rem;
-    background:#fff;color:rgb(38,39,48);transition:border-color .15s,color .15s;
+    /* Gray fill matches the global secondary-button CSS in IOED_Tool_Web.py
+       (this iframe can't inherit page styles) — keep the two in sync. */
+    background:#E9EDF3;color:rgb(38,39,48);
+    transition:border-color .15s,color .15s,background-color .15s;
   }}
-  button:hover{{border-color:#4A90D9;color:#4A90D9;}}
-  button:active{{border-color:#357ABD;color:#357ABD;}}
+  button:hover{{border-color:#4A90D9;color:#4A90D9;background:#DDE3EB;}}
+  button:active{{border-color:#357ABD;color:#357ABD;background:#D1D8E2;}}
   #toast{{
     position:absolute;left:50%;top:50%;
     transform:translate(-50%,-50%) scale(0.96);
