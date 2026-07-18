@@ -997,7 +997,9 @@ def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
     def _num(v, nd=4):
         return f"{v:.{nd}f}" if (v is not None and np.isfinite(v)) else "n/a"
 
-    with st.expander("🔣 Calculated τ_total and fmax", expanded=False):
+    with st.container(
+            key="hbt_exp_view_tau_" + re.sub(r"[^0-9A-Za-z_-]", "-", key)
+    ), st.expander("🔣 Calculated τ_total and fmax", expanded=False):
         col_tau, col_fmax = st.columns(2)
 
         # ── τ_total ───────────────────────────────────────────────────────

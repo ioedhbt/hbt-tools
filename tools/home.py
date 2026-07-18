@@ -2,10 +2,10 @@
 home.py — Landing page for the IOED Lab Portal.
 
 A bilingual orientation screen: a short intro, then one card per tool grouped
-by measurement domain.  Each card is a clickable ``st.page_link`` so a
-first-time user can see everything the portal offers at a glance and jump
-straight in, instead of being dropped into the RF extraction upload screen
-with no context.
+by measurement domain.  Each card shows the tool name (with a hover tooltip
+listing key features), a one-line description, and an Open button, so the
+home page stays compact while full feature details remain accessible via the
+"?" icon.
 """
 from __future__ import annotations
 
@@ -30,11 +30,13 @@ for group_key in i18n.GROUP_ORDER:
         meta = i18n.TOOLS[tool_key]
         with col:
             with st.container(border=True):
-                st.markdown(f"### {meta['icon']} {i18n.tool_name(tool_key)}")
-                st.caption(i18n.tool_desc(tool_key))
                 feats = i18n.tool_features(tool_key)
-                if feats:
-                    st.markdown("\n".join(f"- {f}" for f in feats))
+                st.subheader(
+                    f"{meta['icon']} {i18n.tool_name(tool_key)}",
+                    help="\n".join(f"- {f}" for f in feats) if feats else None,
+                    anchor=False,
+                )
+                st.caption(i18n.tool_desc(tool_key))
                 st.page_link(
                     meta["path"],
                     label=i18n.t("open_tool"),

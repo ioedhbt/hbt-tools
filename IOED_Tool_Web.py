@@ -6,45 +6,11 @@ st.set_page_config(page_title="IOED Lab Portal", layout="wide", page_icon="🔬"
 
 from tools import i18n
 from tools.SSM.helpers import segmented_radio
+# All app-wide CSS lives in tools/ui_theme.py — edit there, not here.
+from tools.ui_theme import inject_css
 
 
-# ── Global button styling ─────────────────────────────────────────────────────
-# Streamlit's default (secondary) buttons are white with a thin border, which
-# users kept mistaking for labels.  Give every secondary button — st.button,
-# st.download_button, form submits, popover triggers, the uploader's "Browse
-# files" — a light-gray fill so it reads as a clickable button.  Primary
-# buttons (theme blue) and segmented-control chips are deliberately excluded.
-# The theme is locked to light mode in .streamlit/config.toml, so fixed hex
-# grays are safe.  Keep in sync with the standalone copy in
-# tools/ebeam_calculator.py and the iframe copy-button in
-# tools/SSM/helpers/chart_export.py.
-def _inject_button_css() -> None:
-    st.markdown(
-        """
-        <style>
-        button[data-testid="stBaseButton-secondary"],
-        button[data-testid="stBaseButton-secondaryFormSubmit"] {
-            background-color: #E9EDF3;
-        }
-        button[data-testid="stBaseButton-secondary"]:hover,
-        button[data-testid="stBaseButton-secondaryFormSubmit"]:hover {
-            background-color: #DDE3EB;
-        }
-        button[data-testid="stBaseButton-secondary"]:active,
-        button[data-testid="stBaseButton-secondaryFormSubmit"]:active {
-            background-color: #D1D8E2;
-        }
-        button[data-testid="stBaseButton-secondary"]:disabled,
-        button[data-testid="stBaseButton-secondaryFormSubmit"]:disabled {
-            background-color: #F1F3F7;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-_inject_button_css()
+inject_css()
 
 # ── Firefox-only styling fix (DISABLED) ───────────────────────────────────────
 # On macOS Firefox the default Streamlit chrome renders with near-invisible
@@ -130,13 +96,13 @@ def check_password():
 if not _LOCAL_LAUNCH and not check_password():
     st.stop()
 
-# 2. 語言切換 (drives tools/i18n.get_lang()).  Pinned top-right of the main
-#    content area — st.navigation always renders the page list at the top of the
-#    sidebar and pushes any sidebar widgets below it, where the language toggle
-#    was easy to miss.  Rendered before st.navigation so the nav group headers +
-#    tool titles still localize on the same rerun.
-_top_spacer, _top_lang = st.columns([5, 2])
-with _top_lang:
+# 2. 語言切換 (drives tools/i18n.get_lang()).  Must be rendered BEFORE
+#    st.navigation so nav group headers + tool titles localize on the same
+#    rerun.  Visual placement (fixed top-right) is handled entirely by CSS in
+#    tools/ui_theme.py targeting div.st-key-lang_toggle — the widget itself
+#    sits here in the normal flow but is lifted out of the document flow by
+#    position:fixed, so it no longer pushes content down.
+with st.container(key="lang_toggle"):
     segmented_radio(
         i18n.t("language_label"), i18n.LANGS, key="ui_lang",
         format_func=lambda l: f"🌐 {l}", label_visibility="collapsed",
@@ -166,6 +132,21 @@ for group_key in i18n.GROUP_ORDER:
     pages = [_page(k) for k, m in i18n.TOOLS.items() if m["group"] == group_key]
     if pages:
         nav[i18n.group_label(group_key)] = pages
+
+# ── Widget-state keep-alive across page switches ──────────────────────────────
+# Streamlit garbage-collects session_state entries belonging to widgets that
+# skip a single script run — so every page switch used to wipe the other RF
+# pages' fine-tune / forward-sim inputs back to 0 (while the plain sync-hash
+# keys survived, blocking any reseed: the "all values are 0 after handoff"
+# bug).  Re-assigning each key marks it programmatic for this run, which
+# exempts it from cleanup.  Button-like keys refuse assignment — skip them.
+_KEEPALIVE_PREFIXES = ("sim_", "rfsim_", "smith_scale_")
+for _k in list(st.session_state.keys()):
+    if _k.startswith(_KEEPALIVE_PREFIXES):
+        try:
+            st.session_state[_k] = st.session_state[_k]
+        except Exception:                                       # noqa: BLE001
+            pass
 
 pg = st.navigation(nav)
 

@@ -92,7 +92,8 @@ st.set_page_config(page_title=_EBL_TITLE, layout="wide", page_icon="🧮")
 
 # Gray fill for secondary buttons so they read as buttons.  Inline copy of the
 # portal-wide block in IOED_Tool_Web.py (this file stays repo-import-free so
-# launch_ebl_calculator.py can run it standalone) — keep the two in sync.
+# launch_ebl_calculator.py can run it standalone) — keep the two in sync with
+# tools/ui_theme.py (master copy for the portal).
 st.markdown(
     """
     <style>
@@ -112,6 +113,16 @@ st.markdown(
     button[data-testid="stBaseButton-secondaryFormSubmit"]:disabled {
         background-color: #F1F3F7;
     }
+    /* Help-hint circle — inline copy of .hbt-help from tools/ui_theme.py */
+    .hbt-help {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 1.05em; height: 1.05em; margin-left: 0.35em;
+        border: 1px solid #94A3B8; border-radius: 50%;
+        color: #64748B; font-size: 0.72em; font-weight: 700;
+        line-height: 1; cursor: help; vertical-align: 15%;
+        user-select: none;
+    }
+    .hbt-help:hover { color: #1F2933; border-color: #64748B; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -197,9 +208,10 @@ def _chip_corner_guide_png() -> bytes:
 
 # ─── Section 1: Chip Position in the E-beam Holder ───────────────────────────
 with st.container(border=True):
-    st.header("Chip Position in the E-beam Holder")
-    st.caption("Check the positions of the chip corners — especially the "
-            "bottom-left and top-right.")
+    st.header("Chip Position in the E-beam Holder",
+              help="Check the positions of the chip corners - especially the "
+                   "bottom-left and top-right.",
+              anchor=False)
 
     col_left, col_right = st.columns([1, 1])
 

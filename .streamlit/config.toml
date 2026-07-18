@@ -18,3 +18,8 @@ backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F4F6F9"  # soft neutral for cards / sidebar
 textColor = "#1F2933"
 baseRadius = "0.5rem"
+linkColor = "#2563EB"               # hyperlinks match primary for consistency
+borderColor = "#E2E8F0"             # subtle border for inputs / cards
+
+[client]
+toolbarMode = "minimal"             # hides Deploy/menu chrome for viewers

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 __version__ = "7.1"
 
+import re
 from pathlib import Path
 
 import streamlit as st
@@ -100,8 +101,12 @@ if _inc is not None:
         _n_extra += 1
     st.session_state["ssm_active_file"] = lbl
     _extra_msg = f" (+{_n_extra} more file{'s' if _n_extra != 1 else ''})" if _n_extra else ""
-    st.success(f"📥 Received **{lbl}** ({_inc.get('stage', 'raw')}){_extra_msg} "
-               f"from another RF page.")
+    st.markdown(
+        f"<span class='hbt-chip-ok'>📥 {lbl} · {_inc.get('stage', 'raw')}"
+        f"{_extra_msg}</span>"
+        "<span class='hbt-help' title='Forwarded from another RF page. The "
+        "processing stage (raw or de-embedded) is preserved.'>?</span>",
+        unsafe_allow_html=True)
 _injected: dict = st.session_state.get("ssm_injected", {})
 
 
@@ -190,7 +195,8 @@ run_key = f"ssm_run_{n}"
 if not st.session_state.get(run_key, False):
     col_ctr, _, _ = st.columns([1, 2, 2])
     if col_ctr.button(i18n.t("run_ssm"), key=f"ssm_btn_{n}",
-                      width="stretch", type="primary"):
+                      width="stretch", type="primary",
+                      help=i18n.t("ssm_run_hint")):
         st.session_state[run_key] = True
         # Force the fit-cache restore to re-run on this Run-SSM cycle.
         for _k in list(st.session_state.keys()):
@@ -201,10 +207,11 @@ if not st.session_state.get(run_key, False):
                     or _k.startswith("ssm_cache_params_snap_")) and _k.endswith(f"_{n}"):
                 del st.session_state[_k]
         st.rerun()
-    st.caption(i18n.t("ssm_run_hint"))
 else:
-    if st.button(i18n.t("clear_ssm"), key=f"ssm_clear_{n}",
-                 help=i18n.t("ssm_clear_help")):
+    if st.container(
+            key=f"hbt_danger_clear_{re.sub(r'[^0-9A-Za-z_-]', '-', n)}"
+    ).button(i18n.t("clear_ssm"), key=f"ssm_clear_{n}",
+             help=i18n.t("ssm_clear_help")):
         st.session_state[run_key] = False
         for k in list(st.session_state.keys()):
             if k.endswith(f"_{n}") and k != run_key:
@@ -221,11 +228,13 @@ else:
     _available = [(sh, cp) for sh, cp in _available if isinstance(cp, dict)]
     if _available:
         st.divider()
-        st.markdown("#### 🛠️ Continue in Simulation & Fitting")
-        st.caption("Carry this device and its extracted values straight to the "
-                   "Simulation & Fitting page for final tuning — no re-upload. "
-                   "The exact same S-parameters loaded here (de-embedded if this "
-                   "device came from RF At a Glance) are forwarded unchanged.")
+        st.markdown(
+            "#### 🛠️ Continue in Simulation & Fitting"
+            "<span class='hbt-help' title='Carry this device and its extracted "
+            "values straight to the Simulation & Fitting page for final tuning "
+            "- no re-upload. The S-parameters loaded here (de-embedded if this "
+            "device came from RF At a Glance) are forwarded unchanged.'>?</span>",
+            unsafe_allow_html=True)
         # Preserve the provenance of the active device: an injected file keeps
         # the stage it arrived with (e.g. "deembedded"); a directly-uploaded
         # file is "raw".  d["S_raw"] holds exactly those arrays either way, so

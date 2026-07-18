@@ -13,6 +13,7 @@ Call from your app tab:
 """
 from __future__ import annotations
 import io
+import re
 from pathlib import Path
 
 import numpy as np
@@ -55,7 +56,9 @@ import plotly.graph_objects as go
 BUILTIN_SHORTS = ("T", "pi")
 
 
-def render_builtin_forward_sim(short, S_raw, freq, z0, fname):
+def render_builtin_forward_sim(short, S_raw, freq, z0, fname,
+                                show_header: bool = True,
+                                show_cache_banner: bool = True):
     """Forward-simulation-only view for a built-in model (Xu / Kun-Yang),
     surfaced under the Custom-model section.
 
@@ -64,14 +67,26 @@ def render_builtin_forward_sim(short, S_raw, freq, z0, fname):
     THIS device (pads forced to zero), then the shared override → simulate →
     Smith/residual/fT-fmax → grid-sweep tuning UI takes over so the user can
     forward-simulate and fit by hand.
+
+    ``show_header=False`` suppresses the "### 🧩 {NAME} — forward simulation"
+    markdown — used by RF_simulator.py's fit-mode call, which already shows
+    its own "### 🎯 Fit — {NAME}" header immediately above, so the model name
+    doesn't render twice back-to-back.
+
+    ``show_cache_banner=False`` is threaded through to
+    ``render_override_and_smith`` — RF_simulator.py's fit-mode call renders
+    its own compact cache pill in the header row instead of the full banner.
     """
     from .models.base_ui import PAD_SPECS
     ModelClass = REGISTRY[short]
-    st.markdown(f"### 🧩 {ModelClass.NAME} — forward simulation")
-    st.caption("Starting values are guessed from this device (no Open/Short "
-               "de-embedding). Edit any parameter, read the residual, and use "
-               "the **Auto-tuning** expander (same grid sweep as the built-in "
-               "models) to fit this DUT.")
+    if show_header:
+        st.markdown(
+            f"### 🧩 {ModelClass.NAME} — forward simulation"
+            " <span class='hbt-help' title='Starting values are guessed from this"
+            " device (no Open/Short de-embedding). Edit any parameter, read the"
+            " residual, and use the Auto-tuning expander (same grid sweep as the"
+            " built-in models) to fit this DUT.'>?</span>",
+            unsafe_allow_html=True)
     para_eff = {k: 0.0 for k, *_ in PAD_SPECS}     # no pad parasitics
     try:
         Y_seed = peel_parasitics(S_raw, freq, z0, para_eff)
@@ -81,7 +96,8 @@ def render_builtin_forward_sim(short, S_raw, freq, z0, fname):
                    "starting from zeros — set the values manually below.")
         params, arrays = {}, {}
     ModelClass.render_override_and_smith(
-        fname, S_raw, freq, z0, para_eff, (params, arrays))
+        fname, S_raw, freq, z0, para_eff, (params, arrays),
+        show_cache_banner=show_cache_banner)
 
 
 # `_agg` was a dead duplicate of `helpers/deembed_math.py::_agg_arr` —
@@ -894,7 +910,10 @@ def _render_fit_cache_panel(fname):
                 row1, row2 = st.columns([5, 1])
                 row1.text(f"• {short} — saved {ts}  "
                           f"({_dut_stem}_{short}.json)")
-                if row2.button("🗑️ Delete", key=f"cache_del_{short}_{fname}"):
+                if row2.container(
+                        key=f"hbt_danger_del_{short}_"
+                            + re.sub(r"[^0-9A-Za-z_-]", "-", fname)
+                ).button("🗑️ Delete", key=f"cache_del_{short}_{fname}"):
                     delete_fit(fname, short)
                     st.session_state.pop(f"cache_applied_{short}_{fname}",   None)
                     st.session_state.pop(f"cache_dismissed_{short}_{fname}", None)

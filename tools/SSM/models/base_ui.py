@@ -6,6 +6,8 @@ not a chain of ssm_* modules.
 """
 from __future__ import annotations
 import gc
+import re
+import time
 import numpy as np
 import threading
 import streamlit as st
@@ -72,6 +74,247 @@ PAD_SPECS = [
     ("Rpe", "Re",   1.0, "Ω", "%.4f",0.01),
 ]
 _PAD_KEYS = [k for k, *_ in PAD_SPECS]
+
+
+# ── Physics-informed sweep ranges + hard physical limits ──────────────────────
+#
+# Everything here is in DISPLAY units (i.e. SI × spec-scale — fF / pH / Ω / …),
+# so the tables can be consulted directly against the number_input widgets and
+# the sweep rows without re-scaling.  The reference anchors are three published
+# InP-HBT extraction columns: this work / Xu 2014 / Cheng 2022.
+
+# Hard physical limits per parameter key: key → (lo, hi).  Every parameter not
+# listed gets (0.0, None) — negative component values are never physical.
+# alpha0 is additionally boxed to the physically plausible HBT range.
+TUNE_HARD_LIMITS: dict = {"alpha0": (0.95, 0.99)}
+
+# Physics-informed default sweep ranges (DISPLAY units), (lo, hi) per key.
+TUNE_DEFAULT_RANGES: dict = {
+    # access resistances (Ω)
+    "Rpb": (2.0, 60.0), "Rpe": (5.0, 50.0), "Rpc": (0.5, 30.0),
+    # extrinsic network
+    "Cbex": (5.0, 200.0), "Cbcx": (1.0, 50.0),      # fF
+    "Rbcx": (50.0, 500.0),                          # kΩ
+    # intrinsic
+    "Rbi": (2.0, 50.0), "Rbe": (1.0, 100.0),        # Ω
+    "Cbe": (20.0, 3000.0), "Cbc": (1.0, 50.0),      # fF
+    "Rbc": (20.0, 300.0),                           # kΩ
+    "alpha0": (0.95, 0.99),
+    "tauB": (0.05, 1.0), "tauC": (0.05, 1.0),       # ps
+    # π-topology (τ is shared with the Kun-Yang HEMT — keep it wide)
+    "Gm0": (10.0, 2000.0),                          # mS
+    "tau": (0.05, 5.0),                             # ps
+    # Kun-Yang HEMT — intrinsic RC branches, delay network, substrate pads.
+    # (Pads reuse the canonical Rpb/Rpc/Rpe + Lb/Lc/Le keys, relabelled
+    # Rg/Rd/Rs + Lg/Ld/Ls in the KY specs.)
+    "Cgs": (100.0, 2000.0), "Cgd": (2.0, 150.0), "Cds": (20.0, 500.0),   # fF
+    "Ri": (0.2, 20.0), "Rgd": (20.0, 5000.0), "Rds": (30.0, 2000.0),     # Ω
+    "R_delay": (0.5, 100.0), "C_delay": (10.0, 50000.0),                 # Ω / fF
+    "Cgsp": (5.0, 100.0), "Cdsp": (5.0, 100.0), "Cgdp": (0.5, 50.0),     # fF
+    "Rsub1": (0.5, 100.0), "Rsub2": (0.5, 100.0),                        # Ω
+    # parasitics (not in the default fit scope, but seeds still want them)
+    "Cpbe": (0.0, 20.0), "Cpce": (0.0, 20.0), "Cpbc": (0.0, 20.0),  # fF
+    "Lb": (0.0, 150.0), "Lc": (0.0, 150.0), "Le": (0.0, 150.0),     # pH
+}
+
+# Low-performance variants (fmax < fT, or fT below ~40 GHz): such devices sit
+# at much higher Cbc/Cbcx/Rbi and slower τ — cf. the "this work" column of the
+# reference table.
+TUNE_LOW_PERF_RANGES: dict = {
+    "Cbcx": (20.0, 300.0), "Cbc": (50.0, 400.0),
+    "Rbi": (50.0, 2500.0),
+    "tauB": (0.1, 8.0), "tauC": (0.05, 3.0), "tau": (0.5, 10.0),
+}
+
+_PARASITIC_KEYS = frozenset({"Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le"})
+
+# Union of every key that appears in any of the range tables — used to match a
+# canonical key against.  Ordered largest-first so multi-letter keys (alpha0)
+# win before their prefix tokens ever could.
+_TUNE_TABLE_KEYS = tuple(sorted(
+    set(TUNE_DEFAULT_RANGES) | set(TUNE_LOW_PERF_RANGES)
+    | set(TUNE_HARD_LIMITS) | _PARASITIC_KEYS,
+    key=len, reverse=True))
+
+# Greek / typeset label aliases → canonical key (labels carry these glyphs).
+_TUNE_LABEL_ALIASES = {"α₀": "alpha0", "τB": "tauB", "τC": "tauC", "τ": "tau"}
+
+# Secondary token aliases, only consulted when no table key matched a token —
+# custom-model access resistors are named "Rb"/"Rc"/"Re" (core.py access
+# specs) while the tables key them as Rpb/Rpc/Rpe.  Kept separate from the
+# primary pass so an intrinsic label like "Rbe … aka rE" still resolves to
+# Rbe (its own token matches first) and never to the access Rpe.
+_TUNE_TOKEN_ALIASES = {"rb": "Rpb", "rc": "Rpc", "re": "Rpe"}
+
+
+def _canonical_tune_key(key, label="") -> str | None:
+    """Map a spec key OR a custom-model component name to the canonical table
+    key.  Returns None when nothing plausibly matches.
+
+    Matching, in order:
+      1. Exact key match against the union of table keys.
+      2. Greek/typeset label aliases (α₀ → alpha0, τB → tauB, …).
+      3. Case-insensitive standalone-token match: split both the key and the
+         label into alpha[+digits] tokens and compare (lower-cased) against
+         the (lower-cased) table keys.  So a custom component named "Rbe" or a
+         Cheng label "Rbe (from Cheng's T) aka rE (from Xu)" both resolve to
+         "Rbe".
+    """
+    key_s = str(key or "")
+    label_s = str(label or "")
+    # 1 — exact key.
+    if key_s in _TUNE_TABLE_KEYS:
+        return key_s
+    # 2 — Greek / typeset label alias (also honour the aliases on the key).
+    for src in (label_s, key_s):
+        if src in _TUNE_LABEL_ALIASES:
+            return _TUNE_LABEL_ALIASES[src]
+    # 3 — standalone-token match.  Longest table keys first so alpha0 wins
+    #     over a bare "alpha"/"a" prefix.
+    tokens = set()
+    for src in (key_s, label_s):
+        tokens.update(t.lower() for t in re.findall(r"[A-Za-z]+[0-9]*", src))
+    for tk in _TUNE_TABLE_KEYS:
+        if tk.lower() in tokens:
+            return tk
+    # 4 — secondary token aliases (custom access names Rb/Rc/Re → Rpb/…).
+    for tok, tk in _TUNE_TOKEN_ALIASES.items():
+        if tok in tokens:
+            return tk
+    return None
+
+
+def tune_hard_limits(key, label="") -> tuple:
+    """Return the hard (lo, hi) physical limits for a parameter, in display
+    units.  hi may be None (no upper bound).  Defaults to (0.0, None) — no
+    negative component values — for anything not explicitly boxed."""
+    if key in TUNE_HARD_LIMITS:
+        return TUNE_HARD_LIMITS[key]
+    canon = _canonical_tune_key(key, label)
+    if canon is not None and canon in TUNE_HARD_LIMITS:
+        return TUNE_HARD_LIMITS[canon]
+    return (0.0, None)
+
+
+def _clamp_to_hard(lo, hi, hard_lo, hard_hi):
+    """Clamp a (lo, hi) display-unit interval into hard limits (hi may be
+    None → unbounded above).  Hard limits win over everything else."""
+    if hard_lo is not None:
+        lo = max(lo, hard_lo)
+        hi = max(hi, hard_lo)
+    if hard_hi is not None:
+        lo = min(lo, hard_hi)
+        hi = min(hi, hard_hi)
+    if hi < lo:
+        hi = lo
+    return lo, hi
+
+
+def _range_step(span, spec_step=None):
+    """Default sweep step for a span: ``span/20`` rounded to 2 significant
+    digits, floored at ``spec_step`` (the fine per-param step) when given.
+    Zero span → zero step."""
+    if span <= 0:
+        return 0.0
+    step = float(f"{span / 20.0:.2g}")
+    if step <= 0:
+        step = span / 20.0
+    if spec_step is not None and spec_step > 0:
+        step = max(step, float(spec_step))
+    return step
+
+
+def informed_default_range(key, label, current_disp, *,
+                           low_perf=False, spec_step=None) -> tuple:
+    """Physics-informed default (min, step, max) for one parameter, in display
+    units.
+
+    Behaviour:
+      • Canonicalise the key/label.  On a match, take (lo, hi) from
+        ``TUNE_LOW_PERF_RANGES`` when ``low_perf`` and the canonical key is
+        listed there, else ``TUNE_DEFAULT_RANGES``.
+          – Zero-current parasitic rule: a parasitic key (pad C / lead L) whose
+            current value is ~0 was deliberately zeroed (e.g. a pre-de-embedded
+            file), so it stays at (0, 0, 0).
+          – Otherwise widen (lo, hi) to include the current finite nonzero
+            value so the seed sits inside the box.
+      • No canonical match (custom / HEMT params): decade box around the
+        current value (current > 0 → current/10 … current×10); current == 0 →
+        (0, 0, 0) so unknown zero params stay put.
+      • Clamp the result into the hard limits (hard limits win over
+        widen-to-include-current).
+    """
+    cur = float(current_disp)
+    cur_finite = np.isfinite(cur)
+    hard_lo, hard_hi = tune_hard_limits(key, label)
+    canon = _canonical_tune_key(key, label)
+
+    rng = None
+    if canon is not None:
+        # Deliberately-zeroed parasitics stay zero.
+        if canon in _PARASITIC_KEYS and abs(cur) < 1e-30:
+            return (0.0, 0.0, 0.0)
+        if low_perf and canon in TUNE_LOW_PERF_RANGES:
+            rng = TUNE_LOW_PERF_RANGES[canon]
+        else:
+            rng = TUNE_DEFAULT_RANGES.get(canon)
+
+    if rng is not None:
+        lo, hi = float(rng[0]), float(rng[1])
+        # Widen to include the current value (finite + nonzero only).
+        if cur_finite and abs(cur) > 1e-30:
+            lo = min(lo, cur)
+            hi = max(hi, cur)
+    else:
+        # No table entry (unknown custom / HEMT param, or a key boxed only in
+        # TUNE_HARD_LIMITS): decade box around the current value.
+        if cur_finite and cur > 0:
+            lo, hi = cur / 10.0, cur * 10.0
+        else:
+            return (0.0, 0.0, 0.0)
+
+    lo, hi = _clamp_to_hard(lo, hi, hard_lo, hard_hi)
+    step = _range_step(hi - lo, spec_step)
+    return (lo, step, hi)
+
+
+def _detect_low_perf_device(S_raw, freq) -> bool:
+    """Heuristic: is this a low-performance device (slow / lossy)?
+
+    Computes fT/fmax from |h21|² and Mason's U; falls back to the
+    20 dB/dec extrapolated 0-dB crossing when there's no in-band crossing.
+    Returns True iff (both fT and fmax are known and fmax < fT) or (fT is known
+    and below ~40 GHz).  Any failure → False (assume high-perf default ranges).
+    """
+    try:
+        from ..helpers.metrics import (compute_h21_U, find_ft_fmax,
+                                        extrap_20dbdec)
+        h21_db, U_db = compute_h21_U(S_raw)
+        f_ghz = np.asarray(freq, dtype=float) / 1e9
+        fT, fmax = find_ft_fmax(f_ghz, h21_db, U_db)
+
+        def _extrap_zero(gain_db):
+            try:
+                _fe, _ge, f_zero = extrap_20dbdec(f_ghz, gain_db)
+                if f_zero is None or not np.isfinite(f_zero):
+                    return None
+                return float(f_zero)
+            except Exception:
+                return None
+
+        if fT is None:
+            fT = _extrap_zero(h21_db)
+        if fmax is None:
+            fmax = _extrap_zero(U_db)
+
+        if (fT is not None and fmax is not None
+                and np.isfinite(fT) and np.isfinite(fmax) and fmax < fT):
+            return True
+        if fT is not None and np.isfinite(fT) and fT < 40.0:
+            return True
+        return False
+    except Exception:
+        return False
 
 
 # ── Residual ──────────────────────────────────────────────────────────────────
@@ -246,10 +489,13 @@ def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
     """
     Two-column layout: Smith chart (left) + fT/fmax mini-card (right).
 
-    The Smith chart still owns the residual line in its title; the mini-card
-    on the right shows |h21|² and Mason U for both measured and modeled with
-    20 dB/dec extrapolation when needed.  Use this in place of the bare
-    `render_smith_chart()` call inside each model's `render_override_and_smith`.
+    A sticky st.metric row (Total + per-port S11/S12/S21/S22 residuals, keyed
+    container `hbt_resrow_<model_short>` pinned via ui_theme.py CSS) renders
+    above the Smith chart in place of the old title-line residual sentence;
+    the mini-card on the right shows |h21|² and Mason U for both measured and
+    modeled with 20 dB/dec extrapolation when needed.  Use this in place of
+    the bare `render_smith_chart()` call inside each model's
+    `render_override_and_smith`.
 
     When ``s2p_bytes`` is supplied, the Smith chart's download row gains a
     second button (📥 S2P) right next to the standard xlsx — this replaced
@@ -261,11 +507,30 @@ def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
     from ..ssm_plots import render_ft_fmax_card
 
     port_res = _port_residuals(S_raw, S_sim)
-    err = ssm_residual(S_raw, S_sim)
-    title_line1 = f"**{model_name} Measured vs Modeled** — **Total Residual**: {err:.2f}%"
-    title_line2 = (f"**per-trace residuals**: **S11**: {port_res['S11']:.2f}%  , **S12**: {port_res['S12']:.2f}%  , "
-                   f"**S21**: {port_res['S21']:.2f}%  , **S22**: {port_res['S22']:.2f}%")
-    st.markdown(f"{title_line1}; {title_line2}")
+    err = float(port_res["Total"])
+    # Sticky residual strip — keyed container so ui_theme.py can pin it
+    # (position:sticky) while the user scrolls the tuning expanders.  The key
+    # deliberately excludes fname (dots/commas would break the st-key-* CSS
+    # class); model_short is unique per rendered page.
+    _prev_key = f"hbt_res_prev_{model_short}_{fname}"
+    _prev = st.session_state.get(_prev_key)
+    with st.container(key=f"hbt_resrow_{model_short}"):
+        mc = st.columns(5)
+        for i, pname in enumerate(("Total", "S11", "S12", "S21", "S22")):
+            cur = float(port_res[pname])
+            delta = None
+            if isinstance(_prev, dict) and pname in _prev:
+                d = cur - float(_prev[pname])
+                if abs(d) >= 0.005:
+                    delta = f"{d:+.2f}%"
+            mc[i].metric(
+                "Total residual" if pname == "Total" else pname,
+                f"{cur:.2f}%", delta=delta, delta_color="inverse",
+                help=("RMS relative S-parameter error across all four ports —"
+                      " the number to minimise.  Deltas compare against the"
+                      " previous simulation of this model.")
+                     if pname == "Total" else None)
+    st.session_state[_prev_key] = {k: float(v) for k, v in port_res.items()}
     extra_dl = None
     if s2p_bytes is not None and s2p_filename is not None:
         extra_dl = ("📥 modeled S2P", s2p_bytes, s2p_filename, "text/plain")
@@ -282,8 +547,11 @@ def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
 
 
 def smith_scale_controls(fname, topo_key) -> dict:
-    st.markdown("<small>**S-param display scale** — multiply before plotting "
-                "(does not affect residual)</small>", unsafe_allow_html=True)
+    st.markdown(
+        "<b>S display scale</b>"
+        " <span class='hbt-help' title='Multiply each trace before plotting."
+        " Display only - does not affect the residual.'>?</span>",
+        unsafe_allow_html=True)
     sc = {}
     for col_w, name, default in zip(st.columns(4),
                                     ["S11","S12","S21","S22"],
@@ -312,7 +580,13 @@ def sync_pad_from_preov(fname: str, topo_key: str, para_eff: dict):
     """
     preov_hash  = params_hash({k: para_eff.get(k, 0.0) for k in _PAD_KEYS})
     sync_key    = f"smith_pad_synced_{topo_key}_{fname}"
-    if st.session_state.get(sync_key) != preov_hash:
+    # Also reseed when a widget key was GC'd by a page switch — Streamlit
+    # drops session_state for widgets that skip a run, while this sync hash
+    # (a plain value, not a widget) survives and would otherwise block the
+    # reseed, leaving the pad inputs to recreate at 0.
+    _keys_missing = any(f"sim_{topo_key}_{key}_{fname}" not in st.session_state
+                        for key, *_ in PAD_SPECS)
+    if _keys_missing or st.session_state.get(sync_key) != preov_hash:
         for key, _, scale, *_ in PAD_SPECS:
             st.session_state[f"sim_{topo_key}_{key}_{fname}"] = float(para_eff.get(key, 0.0)) * scale
         st.session_state[sync_key] = preov_hash
@@ -1590,13 +1864,21 @@ def _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
                                      tuning_specs, fname, topo_key)
 
 
-def _slider_default_range(current_disp):
-    """Sane default (min, max, step) for one slider given the current value."""
+def _slider_default_range(current_disp, key="", label=""):
+    """Sane default (min, max, step) for one slider given the current value.
+
+    The (min, max) are clamped into ``tune_hard_limits(key, label)`` so R / L / C
+    sliders floor at 0 and alpha0 stays inside [0.95, 0.99].  A zero current
+    value defaults to (0.0, 1.0, 0.01) rather than a symmetric ±1 span.
+    """
+    hard_lo, hard_hi = tune_hard_limits(key, label)
     if abs(current_disp) < 1e-30:
-        return -1.0, 1.0, 0.01
-    lo = current_disp * 0.1 if current_disp > 0 else current_disp * 10
-    hi = current_disp * 10  if current_disp > 0 else current_disp * 0.1
-    d_min, d_max = min(lo, hi), max(lo, hi)
+        d_min, d_max = 0.0, 1.0
+    else:
+        lo = current_disp * 0.1 if current_disp > 0 else current_disp * 10
+        hi = current_disp * 10  if current_disp > 0 else current_disp * 0.1
+        d_min, d_max = min(lo, hi), max(lo, hi)
+    d_min, d_max = _clamp_to_hard(d_min, d_max, hard_lo, hard_hi)
     d_step = max((d_max - d_min) / 100, 1e-9)
     return d_min, d_max, d_step
 
@@ -1627,6 +1909,163 @@ def _multi_metric_top_n(arr, per_metric: int = 10):
     sub = arr[sorted(keep)]
     unique = np.unique(sub, axis=0)
     return unique[np.argsort(unique[:, 0])]
+
+
+# ── Progressive auto-fit (🪜) — constants + pure geometry helpers ─────────────
+#
+# The progressive driver (nested inside render_tuning_expander) leans on these
+# pure module-level helpers so the grid geometry / bounds-shrink logic can be
+# unit-tested without a Streamlit session.
+
+# Combo budgets — how many candidate points a single pass may evaluate.
+_PROG_GLOBAL_BUDGET_CPU = 100_000
+_PROG_GLOBAL_BUDGET_GPU = 2_000_000
+_PROG_GROUP_BUDGET_CPU  = 2_000
+_PROG_GROUP_BUDGET_GPU  = 50_000
+# Per-simulate chunk sizes (rows fed to simulate_batch at once).
+_PROG_CHUNK_CPU = 16_384
+_PROG_CHUNK_GPU = 262_144
+# Bounds geometry per refinement cycle.
+_PROG_SHRINK    = 0.35   # new half-span = 0.35 × old span (interior best)
+_PROG_EXPAND    = 1.6    # widen a side by 1.6 × span when best sits on an edge
+_PROG_EDGE_FRAC = 0.05   # "on an edge" = within 5 % of the span from a bound
+_PROG_MAX_CYCLES = 1000   # cycles are memo-cheap; 200 cut off real-file runs
+                          # (KY HEMT benchmark still improving ~0.1%/cycle)
+_PROG_MIN_STEP   = 0.01  # default step floor when a spec has no explicit step
+# Escape phase — fires when refinement stalls above the per-port goal: pinned
+# params get one wide log re-scan (alone + with a group partner) and their
+# boxes re-widened, so a bad local minimum can't trap the whole fit.
+_PROG_PORT_GOAL    = 5.0   # per-port residual goal (%) — escape runs while any port is above
+_PROG_STALL_CYCLES = 4     # consecutive low-improvement cycles before an escape fires
+_PROG_STALL_REL    = 2e-3  # "low improvement" = relative best-Total drop below this
+_PROG_ESCAPE_PTS   = 48    # points on a wide escape axis
+
+# Canonical refinement groups — pair-wise (Zbe / Zbc / …) refinement mirrors the
+# physical coupling between each pole's R and C.  Fit keys map onto a group when
+# their canonical key is in that group's tuple.
+_PROG_GROUPS = [
+    ("Zbe",       ("Rbe", "Cbe")),
+    ("Zbc",       ("Rbc", "Cbc")),
+    ("extrinsic", ("Cbex", "Cbcx", "Rbcx")),
+    ("transport", ("alpha0", "tauB", "tauC")),
+    ("gm",        ("Gm0", "tau")),
+    ("access",    ("Rpb", "Rpc", "Rpe")),
+    ("base",      ("Rbi",)),
+    # Kun-Yang HEMT — per-branch RC pairs, delay network, substrate pads,
+    # plus lead-L / pad-C groups for full-scope fits.
+    ("Ygs",       ("Cgs", "Ri")),
+    ("Ygd",       ("Cgd", "Rgd")),
+    ("Yds",       ("Cds", "Rds")),
+    ("ky-delay",  ("R_delay", "C_delay")),
+    ("ky-pad-gs", ("Cgsp", "Rsub1")),
+    ("ky-pad-ds", ("Cdsp", "Rsub2")),
+    ("ky-pad-gd", ("Cgdp",)),
+    ("leads",     ("Lb", "Lc", "Le")),
+    ("pads",      ("Cpbe", "Cpce", "Cpbc")),
+]
+
+
+def _prog_axis_values(lo, hi, n_pts, floor, include=None) -> np.ndarray:
+    """Value list for one sweep axis over [lo, hi] in display units.
+
+    • Log spacing when ``lo > 0 and hi / lo >= 50`` (many-decade span), else
+      linear.
+    • Spacing floor: never place points closer than ``floor`` — drop excess
+      points so consecutive samples are ≥ floor apart.
+    • Optionally insert ``include`` (e.g. the current best) into the list.
+    • Always ≥ 1 point; clipped into [lo, hi].
+    """
+    lo = float(lo); hi = float(hi)
+    if hi < lo:
+        lo, hi = hi, lo
+    n_pts = max(1, int(n_pts))
+    span = hi - lo
+    if span <= 0:
+        vals = np.array([lo], dtype=np.float64)
+    else:
+        # Cap the point count so spacing never drops below the floor.
+        if floor is not None and floor > 0:
+            max_by_floor = int(span / float(floor)) + 1
+            n_pts = max(1, min(n_pts, max_by_floor))
+        if n_pts <= 1:
+            vals = np.array([0.5 * (lo + hi)], dtype=np.float64)
+        elif lo > 0 and hi / lo >= 50.0:
+            vals = np.geomspace(lo, hi, n_pts)
+        else:
+            vals = np.linspace(lo, hi, n_pts)
+    if include is not None and np.isfinite(include):
+        vals = np.append(vals, float(np.clip(include, lo, hi)))
+    vals = np.clip(vals, lo, hi)
+    # Dedup values closer than floor/2 apart (keeps the inserted value).
+    vals = np.unique(np.round(vals, 12))
+    if floor is not None and floor > 0 and vals.size > 1:
+        keep = [vals[0]]
+        for v in vals[1:]:
+            if v - keep[-1] >= float(floor) * 0.5:
+                keep.append(v)
+        vals = np.asarray(keep, dtype=np.float64)
+    if vals.size == 0:
+        vals = np.array([lo], dtype=np.float64)
+    return vals
+
+
+def _prog_signature(row_vals, floors) -> tuple:
+    """Quantised signature of one candidate row for the memo set.  Two rows
+    whose every coordinate lands in the same ``floor/2`` bucket collide (never
+    re-evaluated); values a full floor apart land in distinct buckets."""
+    sig = []
+    for v, fl in zip(row_vals, floors):
+        f = float(fl) if fl and fl > 0 else _PROG_MIN_STEP
+        sig.append(int(round(float(v) / (f * 0.5))))
+    return tuple(sig)
+
+
+def _prog_next_bounds(lo, hi, best, hard_lo, hard_hi, floor) -> tuple:
+    """New (lo, hi) for one axis after a refinement cycle.
+
+    • Best sits within ``_PROG_EDGE_FRAC × span`` of a bound → expand THAT side
+      by ``_PROG_EXPAND × span`` (search ran into the wall — widen it).
+      When the hard-limit clamp makes that expansion a no-op (best pinned
+      against a hard limit — nowhere left to widen), fall through to the
+      shrink rule instead: otherwise the axis would never shrink and stay
+      coarsely sampled forever.
+    • Otherwise shrink to ``best ± _PROG_SHRINK × span``.
+    • Result clipped into hard limits; span kept ≥ 2 × floor so the box never
+      collapses below the step floor.
+    """
+    lo = float(lo); hi = float(hi); best = float(best)
+    span = hi - lo
+    fl = float(floor) if floor and floor > 0 else _PROG_MIN_STEP
+    if span <= 0:
+        span = fl
+    edge = _PROG_EDGE_FRAC * span
+    expanded = False
+    if best - lo <= edge:
+        new_lo = lo - _PROG_EXPAND * span
+        new_hi = hi
+        expanded = True
+    elif hi - best <= edge:
+        new_lo = lo
+        new_hi = hi + _PROG_EXPAND * span
+        expanded = True
+    else:
+        half = _PROG_SHRINK * span
+        new_lo = best - half
+        new_hi = best + half
+    new_lo, new_hi = _clamp_to_hard(new_lo, new_hi, hard_lo, hard_hi)
+    if (expanded and abs(new_lo - lo) < 1e-15 and abs(new_hi - hi) < 1e-15):
+        # Expansion fully clipped away — best is pinned against a hard limit.
+        # Shrink instead so the axis still refines.
+        half = _PROG_SHRINK * span
+        new_lo, new_hi = _clamp_to_hard(best - half, best + half,
+                                        hard_lo, hard_hi)
+    # Keep the box at least 2×floor wide, centred on best where possible.
+    if new_hi - new_lo < 2.0 * fl:
+        c = float(np.clip(best, new_lo, new_hi))
+        new_lo = c - fl
+        new_hi = c + fl
+        new_lo, new_hi = _clamp_to_hard(new_lo, new_hi, hard_lo, hard_hi)
+    return new_lo, new_hi
 
 
 @_FRAGMENT
@@ -1702,11 +2141,12 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
 
         # Initialize ranges + sliders
         for spec in selected_specs:
-            key, _, scale = spec[0], spec[1], spec[2]
+            key, _label, scale = spec[0], spec[1], spec[2]
             current_disp  = float(all_p.get(key, 0.0)) * scale
             kp = f"slpreview_{topo_key}_{key}_{fname}"
             if f"{kp}_min" not in st.session_state:
-                d_min, d_max, d_step = _slider_default_range(current_disp)
+                d_min, d_max, d_step = _slider_default_range(
+                    current_disp, key, _label)
                 st.session_state[f"{kp}_min"]  = float(d_min)
                 st.session_state[f"{kp}_max"]  = float(d_max)
                 st.session_state[f"{kp}_step"] = float(d_step)
@@ -1849,7 +2289,7 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
     #    without scrolling the slider list.
     with controls_col:
         bc1, bc2 = st.columns(2)
-        commit_clicked = bc1.button(
+        commit_clicked = bc1.container(key=f"hbt_amber_slcommit_{topo_key}").button(
             "✅ Use these values",
             key=f"slpreview_commit_{topo_key}_{fname}",
             disabled=(len(preview_overrides) == 0),
@@ -1973,11 +2413,11 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
     n_sel = len(selected_specs)
     default_frames = 11 if n_sel <= 2 else (7 if n_sel == 3 else 5)
     for spec in selected_specs:
-        key, _, scale = spec[0], spec[1], spec[2]
+        key, _label, scale = spec[0], spec[1], spec[2]
         current_disp  = float(all_p.get(key, 0.0)) * scale
         kp = f"slprev_pl_{topo_key}_{key}_{fname}"
         if f"{kp}_min" not in st.session_state:
-            d_min, d_max, _ = _slider_default_range(current_disp)
+            d_min, d_max, _ = _slider_default_range(current_disp, key, _label)
             st.session_state[f"{kp}_min"]    = float(d_min)
             st.session_state[f"{kp}_max"]    = float(d_max)
             st.session_state[f"{kp}_frames"] = default_frames
@@ -2219,7 +2659,8 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
     keys via the ✅ commit button.  Auto-save is suppressed for slider
     commits (see ``render_override_and_smith``).
     """
-    with st.expander("🎚️ Visual Tuning", expanded=False):
+    with st.container(key="hbt_exp_tune_vis_" + topo_key), \
+         st.expander("🎚️ Visual Tuning", expanded=False):
         # ── Backend status badges — show ALL active accelerators.
         #    When both CUDA and Rust are available, the Visual Tuning
         #    Live mode picks CUDA via `xp=cupy`, but the Plotly slider
@@ -2245,12 +2686,12 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             _chips.append(
                 "<span style='background:#eceff1;color:#37474f;"
                 "padding:2px 8px;border-radius:4px;font-size:0.8em;"
-                "font-weight:600'>🐢 NumPy fallback</span>"
-                "  <span style='font-size:0.78em;color:#666'>"
-                "(build the Rust crate for ~10× speedup — see "
-                "tools/SSM/rust_kernels/README.md)</span>")
+                "font-weight:600'"
+                " title='Build the Rust crate for ~10x speedup."
+                " See tools/SSM/rust_kernels/README.md.'"
+                ">🐢 NumPy fallback</span>")
         st.markdown(
-            "Compute backends available: " + "  ".join(_chips),
+            "Backends: " + "  ".join(_chips),
             unsafe_allow_html=True)
 
         # ── Diagnostic: when the binary exists on disk but Rust didn't
@@ -2281,11 +2722,13 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
 
 
 def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
-                           tuning_specs, fname, topo_key):
+                           tuning_specs, fname, topo_key,
+                           *, default_fit_keys=None):
     """🔧 Auto Tuning for Minimum Residuals — grid sweep + residual ranking.
 
     Renders the full sweep-grid / brute-force / optimized / prioritize /
-    minimize-deviation toolset.  Kept as ``render_tuning_expander`` for
+    minimize-deviation toolset, plus a 🪜 Progressive auto-fit card (coarse →
+    fine, physics-informed ranges).  Kept as ``render_tuning_expander`` for
     call-site stability (still imported under that name); the visible
     label is "Auto Tuning for Minimum Residuals".
 
@@ -2300,10 +2743,24 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                    scale converts SI → display unit (e.g. 1e15 for fF)
     fname     : str — filename for unique widget keys
     topo_key  : str — topology short name for unique widget keys
+    default_fit_keys : iterable of spec keys, optional
+        Spec keys pre-selected in the 🪜 Progressive auto-fit "Parameters to
+        fit" multiselect.  When None, defaults to every spec whose canonical
+        key is NOT a parasitic (pads / leads) — so intrinsic + extrinsic +
+        access params (and unknown custom params) are on by default.
     """
     import pandas as pd
 
-    with st.expander("🔧 Auto Tuning for Minimum Residuals", expanded=False):
+    # Physics-informed default sweep ranges (and the low-perf flag they key on)
+    # are used at every seeding site below; cache the low-perf detection once
+    # per (topo, file) so we don't recompute fT/fmax on every rerun.
+    _lp_key = f"tune_lowperf_{topo_key}_{fname}"
+    if _lp_key not in st.session_state:
+        st.session_state[_lp_key] = _detect_low_perf_device(S_raw, freq)
+    _low_perf = bool(st.session_state[_lp_key])
+
+    with st.container(key="hbt_exp_tune_auto_" + topo_key), \
+         st.expander("🔧 Auto Tuning for Minimum Residuals", expanded=False):
 
         # ── Compute backend badge — cached in session_state so the
         #    label stays stable across reruns.  Without the cache the
@@ -2349,157 +2806,35 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         if _HAS_CUDA and _rust_active_here:
             _bk = ("<span style='background:#e3f2fd;color:#0d47a1;"
                    "padding:2px 8px;border-radius:4px;font-size:0.8em;"
-                   "font-weight:600'>⚡ CUDA available + 🦀 Rust active</span>"
-                   "  <span style='font-size:0.78em;color:#666'>"
-                   "(CUDA buttons → cupy; CPU buttons → Rust)</span>")
+                   "font-weight:600'"
+                   " title='CUDA buttons use cupy; CPU buttons use the Rust kernel.'"
+                   ">⚡ CUDA available + 🦀 Rust active</span>")
         elif _HAS_CUDA:
             _bk = ("<span style='background:#e3f2fd;color:#0d47a1;"
                    "padding:2px 8px;border-radius:4px;font-size:0.8em;"
-                   "font-weight:600'>⚡ CUDA available</span>"
-                   "  <span style='font-size:0.78em;color:#666'>"
-                   "(CUDA buttons → cupy; CPU buttons → NumPy.  "
-                   "Set <code>HBT_USE_RUST_SIM_BATCH=1</code> to enable "
-                   "Rust on the CPU path for ~25× faster sweeps.)</span>")
+                   "font-weight:600'"
+                   " title='CUDA buttons use cupy; CPU buttons use NumPy."
+                   " Set HBT_USE_RUST_SIM_BATCH=1 to enable Rust on the"
+                   " CPU path for ~25x faster sweeps.'"
+                   ">⚡ CUDA available</span>")
         elif _rust_active_here:
             _bk = ("<span style='background:#fff3e0;color:#e65100;"
                    "padding:2px 8px;border-radius:4px;font-size:0.8em;"
-                   "font-weight:600'>🦀 Rust active</span>"
-                   "  <span style='font-size:0.78em;color:#666'>"
-                   "(CPU buttons → Rust kernel)</span>")
+                   "font-weight:600'"
+                   " title='CPU buttons use the Rust kernel.'"
+                   ">🦀 Rust active</span>")
         else:
             _bk = ("<span style='background:#eceff1;color:#37474f;"
                    "padding:2px 8px;border-radius:4px;font-size:0.8em;"
-                   "font-weight:600'>🐢 NumPy</span>"
-                   "  <span style='font-size:0.78em;color:#666'>"
-                   "(CPU buttons → NumPy.  Build the Rust crate "
-                   "(<code>python rust_things/build_rust_kernels.py</code>) and set "
-                   "<code>HBT_USE_RUST_SIM_BATCH=1</code> for ~25× speedup.)"
-                   "</span>")
+                   "font-weight:600'"
+                   " title='CPU buttons use NumPy. Build the Rust crate"
+                   " (python rust_things/build_rust_kernels.py) and set"
+                   " HBT_USE_RUST_SIM_BATCH=1 for ~25x speedup.'"
+                   ">🐢 NumPy</span>")
         st.markdown(f"Compute backend: {_bk}", unsafe_allow_html=True)
 
-        # ── Toolbar: Use default values + Select all + De-select all ──
-        # All three buttons live above the table so users hit the bulk
-        # actions before scanning per-row.  Each writes to session_state
-        # and reruns so the table picks up the new values on the next
-        # render pass.
-        _tb1, _tb2, _tb3, _ = st.columns([1.0, 1.0, 1.0, 3.0])
-        if _tb1.button("↩️ Use default values",
-                        key=f"tune_defaults_{topo_key}_{fname}"):
-            for spec in tuning_specs:
-                key, scale = spec[0], spec[2]
-                current_si = float(all_p.get(key, 0.0))
-                current_disp = current_si * scale
-                kp = f"tune_{topo_key}_{key}_{fname}"
-                if abs(current_si) < 1e-30:
-                    st.session_state[f"{kp}_min"] = 0.0
-                    st.session_state[f"{kp}_step"] = 0.0
-                    st.session_state[f"{kp}_max"] = 0.0
-                else:
-                    st.session_state[f"{kp}_min"] = current_disp - 1.0
-                    st.session_state[f"{kp}_step"] = 1.0
-                    st.session_state[f"{kp}_max"] = current_disp + 1.0
-            st.rerun()
-        if _tb2.button("✅ Select all",
-                        key=f"tune_select_all_{topo_key}_{fname}"):
-            for spec in tuning_specs:
-                key = spec[0]
-                st.session_state[f"tune_{topo_key}_{key}_{fname}_chk"] = True
-            st.rerun()
-        if _tb3.button("❌ De-select all",
-                        key=f"tune_deselect_all_{topo_key}_{fname}"):
-            for spec in tuning_specs:
-                key = spec[0]
-                st.session_state[f"tune_{topo_key}_{key}_{fname}_chk"] = False
-            st.rerun()
-
-        # Column headers
-        hdr = st.columns([0.5, 1.5, 1.2, 1.2, 1.2, 1.0])
-        hdr[0].markdown("**Sweep**")
-        hdr[1].markdown("**Parameter**")
-        hdr[2].markdown("**Min**")
-        hdr[3].markdown("**Step**")
-        hdr[4].markdown("**Max**")
-        hdr[5].markdown("**# Calc**")
-
-        # Pre-initialize session state defaults (only on first render of each key)
-        for spec in tuning_specs:
-            key, scale = spec[0], spec[2]
-            current_si = float(all_p.get(key, 0.0))
-            current_disp = current_si * scale
-            is_zero = abs(current_si) < 1e-30
-            kp = f"tune_{topo_key}_{key}_{fname}"
-            if f"{kp}_chk" not in st.session_state:
-                st.session_state[f"{kp}_chk"]  = not is_zero
-                st.session_state[f"{kp}_min"]  = 0.0 if is_zero else current_disp - 1.0
-                st.session_state[f"{kp}_step"] = 0.0 if is_zero else 1.0
-                st.session_state[f"{kp}_max"]  = 0.0 if is_zero else current_disp + 1.0
-
-        # Build per-parameter rows
-        param_rows = []
-        for spec in tuning_specs:
-            key, label, scale = spec[0], spec[1], spec[2]
-            unit = spec[3] if len(spec) > 3 else ""
-            current_si = float(all_p.get(key, 0.0))
-            current_disp = current_si * scale
-
-            kp = f"tune_{topo_key}_{key}_{fname}"
-
-            cols = st.columns([0.5, 1.5, 1.2, 1.2, 1.2, 1.0])
-            enabled = cols[0].checkbox(f"sweep_{key}", value=False, key=f"{kp}_chk",
-                                       label_visibility="collapsed")
-            cur_str = f"{current_disp:.2f} {unit}".strip()
-            cols[1].markdown(f"**{label}** ({unit}) ({cur_str})" if unit else f"**{label}** ({cur_str})")
-
-            if enabled:
-                min_val = cols[2].number_input("Min", format="%.5g", key=f"{kp}_min",
-                                               label_visibility="collapsed")
-                step_val = cols[3].number_input("Step", format="%.5g", key=f"{kp}_step",
-                                                label_visibility="collapsed")
-                max_val = cols[4].number_input("Max", format="%.5g", key=f"{kp}_max",
-                                               label_visibility="collapsed")
-                sweep = _make_sweep_values(min_val, max_val, step_val)
-                n_calc = len(sweep)
-            else:
-                min_val = current_disp
-                step_val = 0.0
-                max_val = current_disp
-                cols[2].markdown(f"{current_disp:.2f}")
-                cols[3].markdown("0")
-                cols[4].markdown(f"{current_disp:.2f}")
-                sweep = np.array([current_disp])
-                n_calc = 1
-            cols[5].markdown(f"**{n_calc}**")
-
-            param_rows.append({
-                "key": key, "label": label, "scale": scale, "unit": unit,
-                "enabled": enabled, "sweep": sweep, "n_calc": n_calc,
-            })
-
-        # Header row (shown above first data row)
-        # We display it once at the top with column labels
-        # (Streamlit renders top-to-bottom, so we insert it via a caption)
-
-        # Total calculation count
-        total_calcs = 1
-        for row in param_rows:
-            if row["enabled"]:
-                total_calcs *= row["n_calc"]
-            # unchecked params contribute 1 (single current value)
-
-        st.markdown(f"**Total calculations: {total_calcs:,}**")
-
-        if total_calcs > 500_000:
-            st.warning("More than 500,000 combinations — this may take a long time.")
-
-        # ── CUDA availability note ──────────────────────────────────────
-        if _HAS_CUDA:
-            st.caption(f"CUDA {_CUDA_VER} detected — GPU acceleration available")
-
-        # ── Calculate buttons — table-style layout, one bordered card
-        #    per "mode" with title, description, and (CPU, CUDA) button
-        #    pair.  Visually separates the four orthogonal strategies
-        #    so the user doesn't have to read button labels to know
-        #    what's what.
+        # ── Mode-card shared bits — used by the Full Auto Tune card here
+        #    AND the Semi-Auto cards further below, so they live above both.
         _cpu_tag = "🦀 Rust" if _rust_active_here else "🐢 NumPy"
         # The backend (Rust vs NumPy) is no longer shown on the CPU button
         # face — it's surfaced in the hover tooltip instead.
@@ -2511,164 +2846,440 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             return st.columns(2) if _HAS_CUDA else (st.columns(1)[0],
                                                      st.empty())
 
-        # ── 🧮 Brute-force all combos ───────────────────────────────────
-        _calc_all_help = (
-            "Evaluates EVERY combination in the sweep grid above and ranks "
-            "the top-100 results by lowest TOTAL residual.")
-        with st.container(border=True):
-            st.markdown(
-                "**🧮 Brute force — all combos**  "
-                "<span style='color:#666;font-size:0.85em'>"
-                "Evaluate every combination in the grid, rank by total "
-                "residual.</span>",
-                unsafe_allow_html=True)
-            _c_cpu, _c_cuda = _action_cols()
-            cpu_clicked = _c_cpu.button(
-                "Brute force with CPU",
-                key=f"tune_calc_{topo_key}_{fname}",
-                help=_calc_all_help + _cpu_help_suffix,
-                width="stretch")
-            cuda_clicked = (
-                _HAS_CUDA
-                and _c_cuda.button(
-                    "⚡ Brute force with CUDA",
-                    key=f"tune_calc_cuda_{topo_key}_{fname}",
-                    help=_calc_all_help,
-                    width="stretch"))
+        # ── 🪜 Full Auto Tune (recommended) — first card under the badge ──
+        # Global coarse scan from physics-informed ranges, then pair-wise
+        # (Zbe / Zbc / …) refinement with shrinking steps.  Never
+        # re-evaluates a combo; keeps the best result on Stop.
+        _prog_label_map = {}
+        for _s in tuning_specs:
+            _u = _s[3] if len(_s) > 3 else ""
+            _prog_label_map[_s[0]] = f"{_s[1]} ({_u})" if _u else _s[1]
+        _prog_opt_keys = [s[0] for s in tuning_specs]
 
-        # ── 🎯 Optimized recursive bisection ────────────────────────────
-        _opt_help = (
-            "Repeatedly subsamples 5 evenly-spaced values per swept parameter "
-            "(e.g. min=1, step=1, max=100 → 1, 25, 50, 75, 100), picks the 2 "
-            "combos with the lowest total residual, then narrows the search "
-            "box to those two values and recurses.  Iteration stops once a "
-            "brute-force sweep at the user's chosen step would fit ≤ 5,000,000 "
-            "combos, and that final refinement is run as the closing pass.")
-        with st.container(border=True):
-            st.markdown(
-                "**🎯 Optimized — recursive bisection**  "
-                "<span style='color:#666;font-size:0.85em'>"
-                "Iteratively narrow the search box: 5-point subsample → "
-                "keep top-2 → recurse until the final pass fits ≤5M combos."
-                "</span>",
-                unsafe_allow_html=True)
-            _c_cpu, _c_cuda = _action_cols()
-            opt_cpu_clicked = _c_cpu.button(
-                "Optimized with CPU",
-                key=f"tune_calc_opt_{topo_key}_{fname}",
-                help=_opt_help + _cpu_help_suffix,
-                width="stretch")
-            opt_cuda_clicked = (
-                _HAS_CUDA
-                and _c_cuda.button(
-                    "⚡ Optimized with CUDA",
-                    key=f"tune_calc_opt_cuda_{topo_key}_{fname}",
-                    help=_opt_help,
-                    width="stretch"))
-
-        # ── 🥇 Prioritized by single S-parameter ────────────────────────
-        _prio_help = (
-            "Runs the same full-grid sweep but ranks results by the residual "
-            "of a single chosen S-parameter instead of the total.")
-        with st.container(border=True):
-            st.markdown(
-                "**🥇 Prioritized — rank by one S-parameter**  "
-                "<span style='color:#666;font-size:0.85em'>"
-                "Same full-grid sweep, but the top-100 selection is sorted "
-                "by a single S-param's residual rather than the total."
-                "</span>",
-                unsafe_allow_html=True)
-            _prio_row = st.columns([0.6, 2])
-            _prio_row[0].markdown(
-                "<div style='padding-top:0.4em'>"
-                "<small><b>Sort by</b></small></div>",
-                unsafe_allow_html=True)
-            prio_metric = _prio_row[1].radio(
-                "Prioritize sort metric",
-                ["S11", "S12", "S21", "S22"],
-                horizontal=True,
-                label_visibility="collapsed",
-                key=f"tune_prio_metric_{topo_key}_{fname}")
-            _c_cpu, _c_cuda = _action_cols()
-            prio_cpu_clicked = _c_cpu.button(
-                "Prioritized with CPU",
-                key=f"tune_calc_prio_{topo_key}_{fname}",
-                help=_prio_help + _cpu_help_suffix,
-                width="stretch")
-            prio_cuda_clicked = (
-                _HAS_CUDA
-                and _c_cuda.button(
-                    "⚡ Prioritized with CUDA",
-                    key=f"tune_calc_prio_cuda_{topo_key}_{fname}",
-                    help=_prio_help,
-                    width="stretch"))
-
-        # ── 🎚️  Minimize deviation (HIDDEN for now — to re-enable, flip
-        #    `_SHOW_MIN_DEV` to True.  All the underlying logic at the
-        #    `bal_cpu_clicked or bal_cuda_clicked` dispatch site below
-        #    stays wired up; the only thing the toggle gates is the
-        #    UI section.).
-        _SHOW_MIN_DEV = False
-        if _SHOW_MIN_DEV:
-            _bal_help = (
-                "Runs the full-grid sweep but discards combos whose per-port "
-                "residuals are unbalanced (peak-to-peak spread > threshold).  "
-                "Surviving balanced combos are then ranked by lowest total "
-                "residual.  Optionally also drop combos where any single port "
-                "residual exceeds a quality floor.")
-            with st.container(border=True):
-                st.markdown(
-                    "**🎚️ Minimize deviation — peak-to-peak filter**  "
-                    "<span style='color:#666;font-size:0.85em'>"
-                    "Discard unbalanced combos, then rank survivors by "
-                    "total residual.</span>",
-                    unsafe_allow_html=True)
-                _bal_inputs = st.columns([1, 1, 2])
-                bal_dev_threshold = _bal_inputs[0].number_input(
-                    "Max per-port deviation (%)",
-                    min_value=0.0, max_value=100.0,
-                    value=float(st.session_state.get(
-                        f"tune_bal_dev_{topo_key}_{fname}", 3.0)),
-                    step=0.5, format="%.2f",
-                    key=f"tune_bal_dev_{topo_key}_{fname}",
-                    help="Max allowed |max(S11,S12,S21,S22) − min(...)| residual "
-                         "spread (in %).  Smaller = more balanced.")
-                _bal_use_res = _bal_inputs[1].checkbox(
-                    "Use residual cap",
-                    value=False,
-                    key=f"tune_bal_use_res_{topo_key}_{fname}")
-                bal_res_threshold = _bal_inputs[2].number_input(
-                    "Max per-port residual (%)",
-                    min_value=0.0, max_value=100.0,
-                    value=float(st.session_state.get(
-                        f"tune_bal_res_{topo_key}_{fname}", 5.0)),
-                    step=0.5, format="%.2f",
-                    key=f"tune_bal_res_{topo_key}_{fname}",
-                    disabled=(not _bal_use_res),
-                    help="Quality floor — drop combos where any port's residual "
-                         "exceeds this.")
-                _c_cpu, _c_cuda = _action_cols()
-                bal_cpu_clicked = _c_cpu.button(
-                    f"CPU — {_cpu_tag}",
-                    key=f"tune_calc_bal_{topo_key}_{fname}",
-                    help=_bal_help,
-                    width="stretch")
-                bal_cuda_clicked = (
-                    _HAS_CUDA
-                    and _c_cuda.button(
-                        "⚡ CUDA",
-                        key=f"tune_calc_bal_cuda_{topo_key}_{fname}",
-                        help=_bal_help,
-                        width="stretch"))
+        # Default selection: caller-supplied keys, else all non-parasitic
+        # (canonical) keys.  Intersect with the actual option keys so
+        # st.multiselect never sees an unknown default.
+        if default_fit_keys is None:
+            _prog_default = [
+                s[0] for s in tuning_specs
+                if _canonical_tune_key(s[0], s[1]) not in _PARASITIC_KEYS]
         else:
-            # Section hidden — neutralise the flags + defaults so the
-            # downstream dispatch (`elif bal_cpu_clicked or
-            # bal_cuda_clicked:` further below) is a no-op.
-            bal_cpu_clicked = False
-            bal_cuda_clicked = False
-            bal_dev_threshold = 3.0
-            _bal_use_res = False
-            bal_res_threshold = 5.0
+            _prog_default = list(default_fit_keys)
+        _prog_default = [k for k in _prog_default if k in _prog_opt_keys]
+
+        with st.container(border=True):
+            st.markdown(
+                "**🪜 Full Auto Tune** "
+                "<span style='color:#666;font-size:0.85em'>(recommended)</span>"
+                " <span class='hbt-help' title='Coarse-to-fine: global scan"
+                " from physics-informed ranges, then pair-wise refinement with"
+                " shrinking steps. Best result is kept when you press Stop."
+                " Deselect a parameter to pin it at its current value"
+                " (including 0).'>?</span>",
+                unsafe_allow_html=True)
+            _prog_scope_key = f"tune_prog_scope_{topo_key}_{fname}"
+            # Once the widget owns its state, use that as the default (matches
+            # the slider-preview multiselect pattern) so Streamlit doesn't warn
+            # about a keyed widget also carrying a fixed default.
+            _prog_seed = st.session_state.get(_prog_scope_key, _prog_default)
+            _prog_seed = [k for k in _prog_seed if k in _prog_opt_keys]
+            prog_fit_keys = st.multiselect(
+                "Parameters to fit",
+                options=_prog_opt_keys,
+                default=_prog_seed,
+                format_func=lambda k: _prog_label_map.get(k, k),
+                key=_prog_scope_key)
+            _prog_help = (
+                "Coarse global scan from the physics-informed ranges, then "
+                "pair-wise refinement with shrinking steps. Memoises every "
+                "combo so no work is repeated; keeps the best result on "
+                "Stop. Fitted parameters are floored above 0 — deselect one "
+                "to pin it at its current value instead.")
+            _c_cpu, _c_cuda = _action_cols()
+            prog_cpu_clicked = _c_cpu.button(
+                "Evaluate with CPU",
+                key=f"tune_calc_prog_{topo_key}_{fname}",
+                help=_prog_help + _cpu_help_suffix,
+                width="stretch")
+            prog_cuda_clicked = (
+                _HAS_CUDA
+                and _c_cuda.button(
+                    "⚡ Evaluate with CUDA",
+                    key=f"tune_calc_prog_cuda_{topo_key}_{fname}",
+                    help=_prog_help,
+                    width="stretch"))
+
+        # ── Pre-initialize session state defaults (only on first render of
+        #    each key).  MUST stay outside the Semi-Auto toggle: every driver
+        #    (Full Auto included) and the closed-path row build below read
+        #    these keys.
+        for spec in tuning_specs:
+            key, label, scale = spec[0], spec[1], spec[2]
+            spec_step = spec[5] if len(spec) > 5 else None
+            current_si = float(all_p.get(key, 0.0))
+            current_disp = current_si * scale
+            is_zero = abs(current_si) < 1e-30
+            kp = f"tune_{topo_key}_{key}_{fname}"
+            if f"{kp}_chk" not in st.session_state:
+                d_min, d_step, d_max = informed_default_range(
+                    key, label, current_disp,
+                    low_perf=_low_perf, spec_step=spec_step)
+                st.session_state[f"{kp}_chk"]  = not is_zero
+                st.session_state[f"{kp}_min"]  = d_min
+                st.session_state[f"{kp}_step"] = d_step
+                st.session_state[f"{kp}_max"]  = d_max
+
+        # ── Per-parameter sweep-row data — ONE source of truth ──────────
+        # param_rows feeds every driver (_run_one_sweep / _run_nelder_mead /
+        # _run_progressive col-names + constant fill) and the sensitivity
+        # section, so it must exist on every run whether or not the
+        # Semi-Auto section below is open.  The row widgets are keyed, so
+        # the closed path reads the very same session keys the widgets
+        # would return — identical values by construction.
+        def _clamp_row_session(kp, h_lo, h_hi):
+            """Pre-clamp stale session Min/Max into the hard limits (the
+            keyed number_inputs would otherwise raise
+            StreamlitAPIException) and floor Step at 0.  Runs in BOTH the
+            open (widget) and closed (session-read) paths."""
+            for _sfx in ("_min", "_max"):
+                _sk = f"{kp}{_sfx}"
+                if _sk in st.session_state:
+                    _v = float(st.session_state[_sk])
+                    _v = max(_v, h_lo)
+                    if h_hi is not None:
+                        _v = min(_v, float(h_hi))
+                    st.session_state[_sk] = _v
+            _step_sk = f"{kp}_step"
+            if _step_sk in st.session_state:
+                st.session_state[_step_sk] = max(
+                    0.0, float(st.session_state[_step_sk]))
+
+        def _row_entry(spec, enabled, min_val, step_val, max_val):
+            """Build one param_rows dict — the single place sweep/n_calc
+            come from, so the open and closed paths can never diverge."""
+            key, label, scale = spec[0], spec[1], spec[2]
+            unit = spec[3] if len(spec) > 3 else ""
+            if enabled:
+                sweep = _make_sweep_values(min_val, max_val, step_val)
+            else:
+                sweep = np.array([float(all_p.get(key, 0.0)) * scale])
+            return {"key": key, "label": label, "scale": scale, "unit": unit,
+                    "enabled": enabled, "sweep": sweep, "n_calc": len(sweep)}
+
+        # Mode-click flags must exist even when the Semi-Auto section is
+        # closed (the dispatch below reads all of them) — default everything
+        # False / neutral and let the open branch's widgets overwrite.
+        cpu_clicked = cuda_clicked = False
+        opt_cpu_clicked = opt_cuda_clicked = False
+        prio_cpu_clicked = prio_cuda_clicked = False
+        bal_cpu_clicked = bal_cuda_clicked = False
+        bal_dev_threshold = 3.0
+        _bal_use_res = False
+        bal_res_threshold = 5.0
+        prio_metric = st.session_state.get(
+            f"tune_prio_metric_{topo_key}_{fname}", "S11")
+
+        # ── 🔬 Semi-Auto Tune (toggle-collapsed section) ────────────────
+        # Streamlit forbids nesting st.expander, so the collapsible section
+        # is a toggle-gated bordered container instead (toggle off =
+        # collapsed).
+        param_rows = []
+        semi_open = st.toggle(
+            "🔬 Semi-Auto Tune",
+            key=f"tune_semi_open_{topo_key}_{fname}",
+            help="Manual sweep grid: pick parameters, set Min/Step/Max, "
+                 "then run Brute force / Optimized / Prioritized passes.")
+        if semi_open:
+            with st.container(border=True):
+                # ── Toolbar: Use default values + Select all + De-select ──
+                # All three buttons live above the table so users hit the
+                # bulk actions before scanning per-row.  Each writes to
+                # session_state and reruns so the table picks up the new
+                # values on the next render pass.
+                _tb1, _tb2, _tb3, _ = st.columns([1.0, 1.0, 1.0, 3.0])
+                if _tb1.button("↩️ Use default values",
+                                key=f"tune_defaults_{topo_key}_{fname}"):
+                    for spec in tuning_specs:
+                        key, label, scale = spec[0], spec[1], spec[2]
+                        spec_step = spec[5] if len(spec) > 5 else None
+                        current_disp = float(all_p.get(key, 0.0)) * scale
+                        kp = f"tune_{topo_key}_{key}_{fname}"
+                        d_min, d_step, d_max = informed_default_range(
+                            key, label, current_disp,
+                            low_perf=_low_perf, spec_step=spec_step)
+                        st.session_state[f"{kp}_min"] = d_min
+                        st.session_state[f"{kp}_step"] = d_step
+                        st.session_state[f"{kp}_max"] = d_max
+                    st.rerun()
+                if _tb2.button("✅ Select all",
+                                key=f"tune_select_all_{topo_key}_{fname}"):
+                    for spec in tuning_specs:
+                        key = spec[0]
+                        st.session_state[
+                            f"tune_{topo_key}_{key}_{fname}_chk"] = True
+                    st.rerun()
+                if _tb3.button("❌ De-select all",
+                                key=f"tune_deselect_all_{topo_key}_{fname}"):
+                    for spec in tuning_specs:
+                        key = spec[0]
+                        st.session_state[
+                            f"tune_{topo_key}_{key}_{fname}_chk"] = False
+                    st.rerun()
+
+                # Column headers
+                hdr = st.columns([0.5, 1.5, 1.2, 1.2, 1.2, 1.0])
+                hdr[0].markdown("**Sweep**")
+                hdr[1].markdown("**Parameter**")
+                hdr[2].markdown("**Min**")
+                hdr[3].markdown("**Step**")
+                hdr[4].markdown("**Max**")
+                hdr[5].markdown("**# Calc**")
+
+                # Per-parameter rows — widget path
+                for spec in tuning_specs:
+                    key, label, scale = spec[0], spec[1], spec[2]
+                    unit = spec[3] if len(spec) > 3 else ""
+                    current_disp = float(all_p.get(key, 0.0)) * scale
+                    kp = f"tune_{topo_key}_{key}_{fname}"
+
+                    cols = st.columns([0.5, 1.5, 1.2, 1.2, 1.2, 1.0])
+                    enabled = cols[0].checkbox(
+                        f"sweep_{key}", value=False, key=f"{kp}_chk",
+                        label_visibility="collapsed")
+                    cur_str = f"{current_disp:.2f} {unit}".strip()
+                    cols[1].markdown(
+                        f"**{label}** ({unit}) ({cur_str})" if unit
+                        else f"**{label}** ({cur_str})")
+
+                    if enabled:
+                        # Hard physical limits: floor Min/Max at (h_lo,
+                        # h_hi) — pads can't go negative, alpha0 is boxed
+                        # to [0.95, 0.99], etc.
+                        h_lo, h_hi = tune_hard_limits(key, label)
+                        h_lo = float(h_lo)
+                        _clamp_row_session(kp, h_lo, h_hi)
+                        _min_kwargs = {"min_value": h_lo}
+                        _max_kwargs = {"min_value": h_lo}
+                        if h_hi is not None:
+                            _min_kwargs["max_value"] = float(h_hi)
+                            _max_kwargs["max_value"] = float(h_hi)
+                        min_val = cols[2].number_input(
+                            "Min", format="%.5g", key=f"{kp}_min",
+                            label_visibility="collapsed", **_min_kwargs)
+                        step_val = cols[3].number_input(
+                            "Step", format="%.5g", key=f"{kp}_step",
+                            min_value=0.0, label_visibility="collapsed")
+                        max_val = cols[4].number_input(
+                            "Max", format="%.5g", key=f"{kp}_max",
+                            label_visibility="collapsed", **_max_kwargs)
+                    else:
+                        min_val = current_disp
+                        step_val = 0.0
+                        max_val = current_disp
+                        cols[2].markdown(f"{current_disp:.2f}")
+                        cols[3].markdown("0")
+                        cols[4].markdown(f"{current_disp:.2f}")
+
+                    row = _row_entry(spec, enabled,
+                                     min_val, step_val, max_val)
+                    cols[5].markdown(f"**{row['n_calc']}**")
+                    param_rows.append(row)
+
+                # Total calculation count
+                total_calcs = 1
+                for row in param_rows:
+                    if row["enabled"]:
+                        total_calcs *= row["n_calc"]
+                    # unchecked params contribute 1 (single current value)
+
+                st.markdown(f"**Total calculations: {total_calcs:,}**")
+
+                if total_calcs > 500_000:
+                    st.warning("More than 500,000 combinations — this may "
+                               "take a long time.")
+
+                # ── CUDA availability note ──────────────────────────────
+                if _HAS_CUDA:
+                    st.caption(f"CUDA {_CUDA_VER} detected — GPU "
+                               "acceleration available")
+
+                # ── Grid-mode cards ── Brute force / Optimized / Prioritized
+                #    (min-dev stays hidden behind _SHOW_MIN_DEV).  Flags were
+                #    pre-neutralised above, so no else-branches are needed here.
+                # ── 🧮 Brute-force all combos ───────────────────────────────────
+                _calc_all_help = (
+                    "Evaluates EVERY combination in the sweep grid above and ranks "
+                    "the top-100 results by lowest TOTAL residual.")
+                with st.container(border=True):
+                    st.markdown(
+                        "**🧮 Brute force — all combos**"
+                        " <span class='hbt-help' title='Evaluate every"
+                        " combination in the grid, rank by total residual.'"
+                        ">?</span>",
+                        unsafe_allow_html=True)
+                    _c_cpu, _c_cuda = _action_cols()
+                    cpu_clicked = _c_cpu.button(
+                        "Brute force with CPU",
+                        key=f"tune_calc_{topo_key}_{fname}",
+                        help=_calc_all_help + _cpu_help_suffix,
+                        width="stretch")
+                    cuda_clicked = (
+                        _HAS_CUDA
+                        and _c_cuda.button(
+                            "⚡ Brute force with CUDA",
+                            key=f"tune_calc_cuda_{topo_key}_{fname}",
+                            help=_calc_all_help,
+                            width="stretch"))
+
+                # ── 🎯 Optimized recursive bisection ────────────────────────────
+                _opt_help = (
+                    "Repeatedly subsamples 5 evenly-spaced values per swept parameter "
+                    "(e.g. min=1, step=1, max=100 → 1, 25, 50, 75, 100), picks the 2 "
+                    "combos with the lowest total residual, then narrows the search "
+                    "box to those two values and recurses.  Iteration stops once a "
+                    "brute-force sweep at the user's chosen step would fit ≤ 5,000,000 "
+                    "combos, and that final refinement is run as the closing pass.")
+                with st.container(border=True):
+                    st.markdown(
+                        "**🎯 Optimized — recursive bisection**"
+                        " <span class='hbt-help' title='Iteratively narrows the"
+                        " search box: 5-point subsample, keep top-2, recurse"
+                        " until the final pass fits at most 5 million combos.'"
+                        ">?</span>",
+                        unsafe_allow_html=True)
+                    _c_cpu, _c_cuda = _action_cols()
+                    opt_cpu_clicked = _c_cpu.button(
+                        "Optimized with CPU",
+                        key=f"tune_calc_opt_{topo_key}_{fname}",
+                        help=_opt_help + _cpu_help_suffix,
+                        width="stretch")
+                    opt_cuda_clicked = (
+                        _HAS_CUDA
+                        and _c_cuda.button(
+                            "⚡ Optimized with CUDA",
+                            key=f"tune_calc_opt_cuda_{topo_key}_{fname}",
+                            help=_opt_help,
+                            width="stretch"))
+
+                # ── 🥇 Prioritized by single S-parameter ────────────────────────
+                _prio_help = (
+                    "Runs the same full-grid sweep but ranks results by the residual "
+                    "of a single chosen S-parameter instead of the total.")
+                with st.container(border=True):
+                    st.markdown(
+                        "**🥇 Prioritized — rank by one S-parameter**"
+                        " <span class='hbt-help' title='Same full-grid sweep,"
+                        " but the top-100 selection is sorted by a single"
+                        " S-parameter residual rather than the total.'"
+                        ">?</span>",
+                        unsafe_allow_html=True)
+                    _prio_row = st.columns([0.6, 2])
+                    _prio_row[0].markdown(
+                        "<div style='padding-top:0.4em'>"
+                        "<small><b>Sort by</b></small></div>",
+                        unsafe_allow_html=True)
+                    prio_metric = _prio_row[1].radio(
+                        "Prioritize sort metric",
+                        ["S11", "S12", "S21", "S22"],
+                        horizontal=True,
+                        label_visibility="collapsed",
+                        key=f"tune_prio_metric_{topo_key}_{fname}")
+                    _c_cpu, _c_cuda = _action_cols()
+                    prio_cpu_clicked = _c_cpu.button(
+                        "Prioritized with CPU",
+                        key=f"tune_calc_prio_{topo_key}_{fname}",
+                        help=_prio_help + _cpu_help_suffix,
+                        width="stretch")
+                    prio_cuda_clicked = (
+                        _HAS_CUDA
+                        and _c_cuda.button(
+                            "⚡ Prioritized with CUDA",
+                            key=f"tune_calc_prio_cuda_{topo_key}_{fname}",
+                            help=_prio_help,
+                            width="stretch"))
+
+                # ── 🎚️  Minimize deviation (HIDDEN for now — to re-enable, flip
+                #    `_SHOW_MIN_DEV` to True.  All the underlying logic at the
+                #    `bal_cpu_clicked or bal_cuda_clicked` dispatch site below
+                #    stays wired up; the only thing the toggle gates is the
+                #    UI section.).
+                _SHOW_MIN_DEV = False
+                if _SHOW_MIN_DEV:
+                    _bal_help = (
+                        "Runs the full-grid sweep but discards combos whose per-port "
+                        "residuals are unbalanced (peak-to-peak spread > threshold).  "
+                        "Surviving balanced combos are then ranked by lowest total "
+                        "residual.  Optionally also drop combos where any single port "
+                        "residual exceeds a quality floor.")
+                    with st.container(border=True):
+                        st.markdown(
+                            "**🎚️ Minimize deviation — peak-to-peak filter**  "
+                            "<span style='color:#666;font-size:0.85em'>"
+                            "Discard unbalanced combos, then rank survivors by "
+                            "total residual.</span>",
+                            unsafe_allow_html=True)
+                        _bal_inputs = st.columns([1, 1, 2])
+                        bal_dev_threshold = _bal_inputs[0].number_input(
+                            "Max per-port deviation (%)",
+                            min_value=0.0, max_value=100.0,
+                            value=float(st.session_state.get(
+                                f"tune_bal_dev_{topo_key}_{fname}", 3.0)),
+                            step=0.5, format="%.2f",
+                            key=f"tune_bal_dev_{topo_key}_{fname}",
+                            help="Max allowed |max(S11,S12,S21,S22) − min(...)| residual "
+                                 "spread (in %).  Smaller = more balanced.")
+                        _bal_use_res = _bal_inputs[1].checkbox(
+                            "Use residual cap",
+                            value=False,
+                            key=f"tune_bal_use_res_{topo_key}_{fname}")
+                        bal_res_threshold = _bal_inputs[2].number_input(
+                            "Max per-port residual (%)",
+                            min_value=0.0, max_value=100.0,
+                            value=float(st.session_state.get(
+                                f"tune_bal_res_{topo_key}_{fname}", 5.0)),
+                            step=0.5, format="%.2f",
+                            key=f"tune_bal_res_{topo_key}_{fname}",
+                            disabled=(not _bal_use_res),
+                            help="Quality floor — drop combos where any port's residual "
+                                 "exceeds this.")
+                        _c_cpu, _c_cuda = _action_cols()
+                        bal_cpu_clicked = _c_cpu.button(
+                            f"CPU — {_cpu_tag}",
+                            key=f"tune_calc_bal_{topo_key}_{fname}",
+                            help=_bal_help,
+                            width="stretch")
+                        bal_cuda_clicked = (
+                            _HAS_CUDA
+                            and _c_cuda.button(
+                                "⚡ CUDA",
+                                key=f"tune_calc_bal_cuda_{topo_key}_{fname}",
+                                help=_bal_help,
+                                width="stretch"))
+        else:
+            # Semi-Auto collapsed — the row widgets aren't rendered, but every
+            # driver (Full Auto included) still needs param_rows.  Read the
+            # same keyed session state the widgets would return; _row_entry is
+            # the shared source of truth for sweep/n_calc, so the two paths
+            # cannot diverge.  (The pre-init seeding loop above guarantees the
+            # _chk/_min/_step/_max keys exist.)
+            for spec in tuning_specs:
+                key, label, scale = spec[0], spec[1], spec[2]
+                kp = f"tune_{topo_key}_{key}_{fname}"
+                h_lo, h_hi = tune_hard_limits(key, label)
+                _clamp_row_session(kp, float(h_lo), h_hi)
+                enabled = bool(st.session_state.get(f"{kp}_chk", False))
+                current_disp = float(all_p.get(key, 0.0)) * scale
+                if enabled:
+                    min_val  = float(st.session_state.get(
+                        f"{kp}_min", current_disp))
+                    step_val = float(st.session_state.get(f"{kp}_step", 0.0))
+                    max_val  = float(st.session_state.get(
+                        f"{kp}_max", current_disp))
+                else:
+                    min_val, step_val, max_val = (current_disp, 0.0,
+                                                  current_disp)
+                param_rows.append(
+                    _row_entry(spec, enabled, min_val, step_val, max_val))
 
         # # ── Auto (Nelder-Mead) ──────────────────────────────────────────
         # st.caption(
@@ -4023,6 +4634,12 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 hi   = float(np.max(arr))
                 if hi <= lo:
                     hi = lo + max(abs(lo), 1.0) * 0.5  # avoid degenerate box
+                # Clip the box into the hard physical limits so the simplex
+                # can never wander into negative components / out-of-range α₀.
+                _h_lo, _h_hi = tune_hard_limits(r["key"], r["label"])
+                lo, hi = _clamp_to_hard(lo, hi, _h_lo, _h_hi)
+                if hi <= lo:
+                    hi = lo + max(abs(lo), 1.0) * 0.5
                 cur  = max(lo, min(hi, cur))
                 x0_disp.append(cur)
                 bounds.append((lo, hi))
@@ -4255,6 +4872,560 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     f"Auto tuning done ({_mode}) — {n_eval[0]} evals, "
                     f"best Total = {top_rows[0][0]:.3f}%")
 
+        # ── 🪜 Full Auto Tune driver (progressive coarse → fine) ────────
+        def _run_progressive(*, use_cuda: bool, fit_keys: list,
+                             target_pct: float):
+            """Coarse → fine Full Auto Tune (progressive refinement).
+
+            A global coarse scan over physics-informed ranges seeds a set of
+            pair-wise (Zbe / Zbc / …) refinement cycles with shrinking boxes.
+            Every candidate is memoised (quantised to floor/2) so no combo is
+            ever re-evaluated; the best result is kept regardless of how the
+            run ends (step floor / target residual / ⏹ Stop).  Selected
+            parameters carry a strictly-positive lower limit (max(hard_lo,
+            step floor)) so the fit can never propose 0 — deselecting a
+            parameter pins it at its current value (incl. 0) instead.
+
+            ``target_pct`` is kept in the signature for programmatic use; the
+            UI card no longer exposes it and dispatches with 0.0 (= refine
+            until the step floor or ⏹ Stop).
+
+            Closes over param_rows / all_p / tuning_specs / S_raw / freq / z0 /
+            model_cls / topo_key / fname / _low_perf.  Structured around the
+            module-level pure helpers (_prog_axis_values / _prog_signature /
+            _prog_next_bounds) so the geometry is unit-testable.
+            """
+            import pandas as pd
+
+            xp = _cp if (use_cuda and _HAS_CUDA) else np
+            if use_cuda and not _HAS_CUDA:
+                st.warning("CUDA not available — falling back to CPU.")
+            if not hasattr(model_cls, "simulate_batch"):
+                st.error(
+                    f"{model_cls.__name__} has no simulate_batch — "
+                    "Full Auto Tune needs it.")
+                return
+            fit_keys = [k for k in fit_keys if k in
+                        {s[0] for s in tuning_specs}]
+            if not fit_keys:
+                st.warning("Full Auto Tune needs at least one parameter "
+                           "selected under **Parameters to fit**.")
+                return
+
+            _global_budget = (_PROG_GLOBAL_BUDGET_GPU if xp is not np
+                              else _PROG_GLOBAL_BUDGET_CPU)
+            _group_budget  = (_PROG_GROUP_BUDGET_GPU if xp is not np
+                              else _PROG_GROUP_BUDGET_CPU)
+            _chunk_max     = (_PROG_CHUNK_GPU if xp is not np
+                              else _PROG_CHUNK_CPU)
+
+            # Per-fit-key metadata: label / scale / hard limits / initial box /
+            # step floor.  Order = fit_keys order.
+            spec_by_key = {s[0]: s for s in tuning_specs}
+            n_fit  = len(fit_keys)
+            labels, scales = [], []
+            bounds  = {}    # key -> [lo, hi] (display units), mutated per cycle
+            floors  = []    # per fit key step floor
+            pos_floors = []  # per fit key strictly-positive lower limit
+            hard_lims = {}
+            for k in fit_keys:
+                s = spec_by_key[k]
+                lbl   = s[1]
+                scale = s[2]
+                sstep = s[5] if len(s) > 5 else None
+                labels.append(lbl)
+                scales.append(scale)
+                cur_disp = float(all_p.get(k, 0.0)) * scale
+                lo, _st, hi = informed_default_range(
+                    k, lbl, cur_disp, low_perf=_low_perf, spec_step=sstep)
+                # A parasitic pinned to (0,0,0) can't be fit — give it a tiny
+                # informed box anyway so the axis has room to move.
+                if hi <= lo:
+                    _dlo, _dhi = TUNE_DEFAULT_RANGES.get(
+                        _canonical_tune_key(k, lbl) or "", (0.0, 1.0))
+                    lo, hi = float(_dlo), float(_dhi)
+                floor_val = (float(sstep) if sstep and sstep > 0
+                             else _PROG_MIN_STEP)
+                floors.append(floor_val)
+                h_lo, h_hi = tune_hard_limits(k, lbl)
+                hard_lims[k] = (h_lo, h_hi)
+                # No-zero floor: a *selected* parameter is never proposed at 0
+                # (a 0-valued Cbe/tau just compensates degenerately elsewhere).
+                # Keys whose hard lower limit is 0 get one step floor (>0) as
+                # the effective lower limit; alpha0's 0.95 is already above.
+                # Deselected params stay pinned at their current value —
+                # including 0 — that's the user's escape hatch.
+                pos_floor = max(float(h_lo) if h_lo is not None else 0.0,
+                                floor_val)
+                pos_floors.append(pos_floor)
+                lo = max(float(lo), pos_floor)
+                if hi <= lo:
+                    # Floor swallowed the box (tiny decade range) — keep a
+                    # minimal viable span above the floor.
+                    hi = lo + 2.0 * floor_val
+                    if h_hi is not None:
+                        hi = min(hi, float(h_hi))
+                bounds[k] = [float(lo), float(hi)]
+            floors_arr = np.asarray(floors, dtype=np.float64)
+
+            # ── Result table plumbing (mirrors _run_one_sweep / _run_nm) ──
+            TOP_K = 100
+            col_names = [
+                "Total Residual (%)", "S11 (%)", "S12 (%)", "S21 (%)", "S22 (%)"]
+            for r in param_rows:
+                u = r["unit"]; lbl = r["label"]
+                col_names.append(f"{lbl} ({u})" if u else lbl)
+            sess_key = f"tune_df_{topo_key}_{fname}"
+            top_rows: list = []
+
+            def _push_topk(row: list):
+                if len(top_rows) < TOP_K:
+                    top_rows.append(row)
+                    top_rows.sort(key=lambda r: r[0])
+                    return
+                if row[0] < top_rows[-1][0]:
+                    top_rows[-1] = row
+                    top_rows.sort(key=lambda r: r[0])
+
+            def _persist_now():
+                if not top_rows:
+                    return
+                try:
+                    st.session_state[sess_key] = pd.DataFrame(
+                        _multi_metric_top_n(np.asarray(top_rows, dtype=float),
+                                             per_metric=10),
+                        columns=col_names)
+                except Exception:
+                    pass
+
+            # ── Refinement groups: map canonical groups onto fit keys, then
+            #    chunk leftovers into pairs (spec order). ──────────────────
+            _fit_set = list(fit_keys)
+            _assigned = set()
+            groups: list = []
+            for _gname, _gkeys in _PROG_GROUPS:
+                members = [k for k in _fit_set
+                           if _canonical_tune_key(k, spec_by_key[k][1]) in _gkeys
+                           and k not in _assigned]
+                if members:
+                    groups.append((_gname, members))
+                    _assigned.update(members)
+            _leftover = [k for k in _fit_set if k not in _assigned]
+            for _i in range(0, len(_leftover), 2):
+                groups.append(("misc", _leftover[_i:_i + 2]))
+
+            # ── State / memo / UI ─────────────────────────────────────────
+            memo: set = set()
+            best_disp = {k: float(all_p.get(k, 0.0)) * scales[i]
+                         for i, k in enumerate(fit_keys)}
+            best_tot = [float("inf")]
+            n_eval = [0]
+            n_skip = [0]
+
+            ui_cols = st.columns([5, 1])
+            with ui_cols[0]:
+                progress = st.progress(0, text="Full Auto Tune…")
+            with ui_cols[1]:
+                stop_box = st.empty()
+            best_box = st.empty()
+            stop_key = f"tune_stop_{topo_key}_{fname}_prog"
+            stop_box.button(
+                "⏹ Stop", key=stop_key, type="secondary",
+                help="Stop the calculation. Best result so far is kept.")
+
+            last_ui = [0.0]
+            _t_start = time.time()
+            S_mea_dev = xp.asarray(S_raw)
+
+            def _release():
+                if xp is np:
+                    gc.collect(); gc.collect(); return
+                try:
+                    _cp.cuda.runtime.deviceSynchronize()
+                except Exception:
+                    pass
+                gc.collect(); gc.collect()
+                try:
+                    _cp.get_default_memory_pool().free_all_blocks()
+                    _cp.get_default_pinned_memory_pool().free_all_blocks()
+                except Exception:
+                    pass
+
+            _PORT_NAMES = ("S11", "S12", "S21", "S22")
+
+            def _worst_port():
+                """(name, value) of the worst per-port residual on the current
+                best row — inf before any result exists."""
+                if not top_rows:
+                    return _PORT_NAMES[0], float("inf")
+                vals = top_rows[0][1:5]
+                i = int(np.argmax(vals))
+                return _PORT_NAMES[i], float(vals[i])
+
+            def _ui_tick(phase, cyc, frac):
+                if time.time() - last_ui[0] < 0.5:
+                    return
+                last_ui[0] = time.time()
+                _txt = (f"Full Auto… {phase} | cycle {cyc} | "
+                        f"{n_eval[0]:,} evals ({n_skip[0]:,} memo-skipped) | "
+                        f"best Total {best_tot[0]:.2f}%")
+                if top_rows:
+                    _wn, _wv = _worst_port()
+                    _txt += f" | worst {_wn} {_wv:.2f}%"
+                # Any st.* call is the Stop-button cancellation point.
+                progress.progress(min(1.0, max(0.0, float(frac))), text=_txt)
+                if top_rows:
+                    best_box.markdown(
+                        _best_summary_md(pd.Series(top_rows[0], index=col_names),
+                                         label="Best so far"),
+                        unsafe_allow_html=True)
+                _persist_now()
+
+            def _row_for(cand_disp):
+                """Assemble a (5 + n_params) result-table row from a fitted
+                candidate (display units) + the constant params."""
+                cand = {k: float(v) for k, v in zip(fit_keys, cand_disp)}
+                row = [0.0, 0.0, 0.0, 0.0, 0.0]
+                for pr in param_rows:
+                    k = pr["key"]
+                    if k in cand:
+                        row.append(cand[k])
+                    else:
+                        row.append(float(all_p.get(k, 0.0)) * pr["scale"])
+                return row
+
+            def _eval_block(cands, phase, cyc):
+                """Evaluate a (B, n_fit) host array of display-unit candidates.
+
+                Filters memoised rows, chunks the survivors through
+                simulate_batch, scores residuals, and pushes into the top-K.
+                Returns the number of *new* (non-skipped) rows evaluated.
+                """
+                cands = np.asarray(cands, dtype=np.float64)
+                if cands.ndim != 2 or cands.shape[0] == 0:
+                    return 0
+                B = cands.shape[0]
+                # Vectorised signature buckets, then a python loop to filter.
+                buckets = np.round(cands / (floors_arr * 0.5)).astype(np.int64)
+                survivors = []
+                for bi in range(B):
+                    sig = tuple(int(x) for x in buckets[bi])
+                    if sig in memo:
+                        n_skip[0] += 1
+                        continue
+                    memo.add(sig)
+                    survivors.append(cands[bi])
+                if not survivors:
+                    return 0
+                surv = np.asarray(survivors, dtype=np.float64)
+                n_new = surv.shape[0]
+
+                start = 0
+                chunk = _chunk_max
+                while start < surv.shape[0]:
+                    sub = surv[start:start + chunk]
+                    Bc = sub.shape[0]
+                    try:
+                        p = dict(all_p)
+                        for j, k in enumerate(fit_keys):
+                            p[k] = xp.asarray(sub[:, j] / scales[j],
+                                              dtype=np.float64)
+                        S = model_cls.simulate_batch(p, freq, z0, xp=xp)
+                        S_flat = xp.asarray(S).reshape(Bc, len(freq), 2, 2)
+                        res = _port_residuals_batch(S_mea_dev, S_flat, xp)
+                        if xp is np:
+                            tot = np.asarray(res["Total"], dtype=float)
+                            s11 = np.asarray(res["S11"], dtype=float)
+                            s12 = np.asarray(res["S12"], dtype=float)
+                            s21 = np.asarray(res["S21"], dtype=float)
+                            s22 = np.asarray(res["S22"], dtype=float)
+                        else:
+                            tot = _cp.asnumpy(res["Total"])
+                            s11 = _cp.asnumpy(res["S11"])
+                            s12 = _cp.asnumpy(res["S12"])
+                            s21 = _cp.asnumpy(res["S21"])
+                            s22 = _cp.asnumpy(res["S22"])
+                    except Exception as exc:
+                        _is_oom = (isinstance(exc, MemoryError)
+                                   or "out of memory" in str(exc).lower()
+                                   or "OutOfMemoryError" in type(exc).__name__)
+                        if _is_oom and chunk > 1:
+                            # Halve the chunk and retry from the same offset.
+                            chunk = max(1, chunk // 2)
+                            _release()
+                            continue
+                        if _is_oom:
+                            st.error("Out of memory — a single candidate row "
+                                     "won't fit. Aborting Full Auto Tune.")
+                            return n_new
+                        raise
+                    for _a in (tot, s11, s12, s21, s22):
+                        _a[~np.isfinite(_a)] = np.inf
+                    # Only the chunk's TOP_K lowest totals can possibly enter
+                    # the (Total-sorted) global top-K, so prefilter with one
+                    # argsort instead of building a Python row per candidate —
+                    # keeps the host loop negligible even for 262k-row GPU
+                    # chunks.
+                    n_eval[0] += Bc
+                    for ri in np.argsort(tot)[:TOP_K]:
+                        if not np.isfinite(tot[ri]):
+                            break        # sorted → the rest are inf too
+                        row = _row_for(sub[ri])
+                        row[0] = float(tot[ri]); row[1] = float(s11[ri])
+                        row[2] = float(s12[ri]); row[3] = float(s21[ri])
+                        row[4] = float(s22[ri])
+                        _push_topk(row)
+                        if row[0] < best_tot[0]:
+                            best_tot[0] = row[0]
+                            for j, k in enumerate(fit_keys):
+                                best_disp[k] = float(sub[ri, j])
+                    start += Bc
+                    _ui_tick(phase, cyc, min(1.0, start / max(1, surv.shape[0])))
+                return n_new
+
+            # ── Cartesian grid builder within current bounds ───────────────
+            def _grid(keys, n_pts_per):
+                """Cartesian product over ``keys`` axis value-lists (current
+                bounds, best value inserted, floor-limited).  Non-listed fit
+                keys are pinned at their current best.  Returns (B, n_fit)."""
+                axis_vals = []
+                for k in fit_keys:
+                    if k in keys:
+                        i = fit_keys.index(k)
+                        lo, hi = bounds[k]
+                        axis_vals.append(_prog_axis_values(
+                            lo, hi, n_pts_per, floors[i],
+                            include=best_disp[k]))
+                    else:
+                        axis_vals.append(np.array([best_disp[k]],
+                                                  dtype=np.float64))
+                mesh = np.meshgrid(*axis_vals, indexing="ij")
+                return np.stack([m.ravel() for m in mesh], axis=1)
+
+            # ── Escape pass — wide re-scan of box-pinned params ────────────
+            def _escape_pass(cyc):
+                """One wide log re-scan for every fitted param pinned at a box
+                edge (all fit keys when none are pinned): 1-D over a much
+                wider range, then 2-D with the first group partner so
+                compensating pairs can move together.  Each scanned param's
+                box is re-widened so later cycles keep exploring the
+                discovery.  All work goes through _eval_block (memo / top-K /
+                UI tick / ⏹ Stop).  Returns True when best_tot improved."""
+                _before = best_tot[0]
+                pinned = []
+                for i, k in enumerate(fit_keys):
+                    lo, hi = bounds[k]
+                    span = hi - lo
+                    if (best_disp[k] <= lo + 3.0 * floors[i]
+                            or best_disp[k] >= hi - _PROG_EDGE_FRAC * span):
+                        pinned.append(k)
+                if not pinned:
+                    pinned = list(fit_keys)
+                for k in pinned:
+                    i = fit_keys.index(k)
+                    s = spec_by_key[k]
+                    sstep = s[5] if len(s) > 5 else None
+                    _ilo, _istep, inf_hi = informed_default_range(
+                        k, s[1], best_disp[k],
+                        low_perf=_low_perf, spec_step=sstep)
+                    wide_hi = max(float(inf_hi), bounds[k][1],
+                                  abs(best_disp[k]) * 100.0,
+                                  100.0 * floors[i])
+                    _h_hi = hard_lims[k][1]
+                    if _h_hi is not None:
+                        wide_hi = min(wide_hi, float(_h_hi))
+                    # 1-D wide scan — log spacing kicks in automatically for
+                    # the many-decade span; others pinned at the current best.
+                    axis_w = _prog_axis_values(
+                        pos_floors[i], wide_hi, _PROG_ESCAPE_PTS,
+                        floors[i], include=best_disp[k])
+                    base = np.asarray([best_disp[kk] for kk in fit_keys],
+                                      dtype=np.float64)
+                    cands = np.tile(base, (len(axis_w), 1))
+                    cands[:, i] = axis_w
+                    _eval_block(cands, f"escape {k}", cyc)
+                    # 2-D with the FIRST other member of k's group present in
+                    # the fit scope — compensating pairs move together.
+                    partner = None
+                    for _gn, members in groups:
+                        if k in members:
+                            partner = next(
+                                (m for m in members if m != k), None)
+                            break
+                    if partner is not None:
+                        j = fit_keys.index(partner)
+                        ax_k = _prog_axis_values(
+                            pos_floors[i], wide_hi, 24, floors[i],
+                            include=best_disp[k])
+                        ax_p = _prog_axis_values(
+                            bounds[partner][0], bounds[partner][1], 12,
+                            floors[j], include=best_disp[partner])
+                        mk, mp = np.meshgrid(ax_k, ax_p, indexing="ij")
+                        cands2 = np.tile(base, (mk.size, 1))
+                        cands2[:, i] = mk.ravel()
+                        cands2[:, j] = mp.ravel()
+                        _eval_block(cands2, f"escape {k}", cyc)
+                    # Re-widen so later cycles keep exploring the discovery.
+                    bounds[k] = [pos_floors[i], wide_hi]
+                return best_tot[0] < _before - 1e-15
+
+            cancelled = False
+            try:
+                # 0 — evaluate the current point first (baseline in the table).
+                _eval_block(np.asarray([[best_disp[k] for k in fit_keys]],
+                                       dtype=np.float64), "baseline", 0)
+
+                # 1 — GLOBAL coarse pass.
+                _n_pts_global = 3
+                for _cand in (5, 4, 3):
+                    if _cand ** n_fit <= _global_budget:
+                        _n_pts_global = _cand
+                        break
+                if 3 ** n_fit > _global_budget:
+                    # Too many dims for even a 3-point full cartesian — draw
+                    # `budget` random combos from per-axis 3-point lists.
+                    rng = np.random.default_rng(0)
+                    axis3 = []
+                    for i, k in enumerate(fit_keys):
+                        lo, hi = bounds[k]
+                        axis3.append(_prog_axis_values(
+                            lo, hi, 3, floors[i], include=best_disp[k]))
+                    cols_rand = [rng.choice(a, size=_global_budget) for a in axis3]
+                    _eval_block(np.stack(cols_rand, axis=1), "global", 0)
+                else:
+                    _eval_block(_grid(set(fit_keys), _n_pts_global), "global", 0)
+
+                # 2 — cycle loop, with an automatic escape phase.
+                #
+                # `stall` counts consecutive low-improvement cycles.  While
+                # any port residual is above _PROG_PORT_GOAL, a stall (or a
+                # fully-memoised cycle) triggers ONE escape: box-pinned
+                # params get a wide log re-scan (alone + with a group
+                # partner) and re-widened bounds; a fruitless escape falls
+                # back to a single global random re-scan.  Only after that
+                # may the normal termination paths end the run above the
+                # goal.
+                _converged = False
+                stall = 0
+                escape_spent = False
+                for cyc in range(1, _PROG_MAX_CYCLES + 1):
+                    _prev_best = best_tot[0]
+                    _cycle_new = 0
+                    for _gname, members in groups:
+                        _k = len(members)
+                        if _k == 0:
+                            continue
+                        _pts = max(3, int(round(_group_budget ** (1.0 / _k))))
+                        _cycle_new += _eval_block(
+                            _grid(set(members), _pts), _gname, cyc)
+
+                    # Shrink / expand each axis around its best.  The no-zero
+                    # floor doubles as the effective hard lower limit so an
+                    # edge-expansion can never re-open the box down to 0.
+                    for i, k in enumerate(fit_keys):
+                        lo, hi = bounds[k]
+                        h_lo, h_hi = hard_lims[k]
+                        h_lo_eff = max(float(h_lo) if h_lo is not None else 0.0,
+                                       pos_floors[i])
+                        bounds[k] = list(_prog_next_bounds(
+                            lo, hi, best_disp[k], h_lo_eff, h_hi, floors[i]))
+
+                    # Stall tracking + worst-port status.
+                    _rel_impr = ((_prev_best - best_tot[0])
+                                 / max(_prev_best, 1e-9))
+                    stall = 0 if _rel_impr > _PROG_STALL_REL else stall + 1
+                    _wname, _wval = _worst_port()
+
+                    # Termination: explicit target reached.
+                    if target_pct > 0 and best_tot[0] <= target_pct:
+                        _converged = True
+                        break
+
+                    # Escape phase — refinement is stuck above the per-port
+                    # goal (stalled, or the grids collapsed onto memoised
+                    # points) and the escape hasn't been spent yet.
+                    if (not escape_spent and _wval > _PROG_PORT_GOAL
+                            and (stall >= _PROG_STALL_CYCLES
+                                 or _cycle_new == 0)):
+                        if _escape_pass(cyc):
+                            stall = 0
+                            continue      # keep cycling from the discovery
+                        # Escape found nothing — one global random re-scan
+                        # over the (re-widened) bounds, then let the normal
+                        # termination paths end the run.
+                        escape_spent = True
+                        rng_esc = np.random.default_rng(1)
+                        axis5 = []
+                        for i, k in enumerate(fit_keys):
+                            lo, hi = bounds[k]
+                            axis5.append(_prog_axis_values(
+                                lo, hi, 5, floors[i]))
+                        _n_rand = max(1, _global_budget // 4)
+                        cols_esc = [rng_esc.choice(a, size=_n_rand)
+                                    for a in axis5]
+                        _before_r = best_tot[0]
+                        _eval_block(np.stack(cols_esc, axis=1),
+                                    "escape rescan", cyc)
+                        if best_tot[0] < _before_r - 1e-15:
+                            stall = 0
+                        continue
+
+                    if _cycle_new == 0:
+                        # Planned cycle produced no new evaluations and no
+                        # escape is available (spent, or the per-port goal
+                        # is met).  Stop.
+                        _converged = True
+                        break
+                    _all_at_floor = all(
+                        (bounds[k][1] - bounds[k][0]) <= 2.0 * floors[i] + 1e-30
+                        for i, k in enumerate(fit_keys))
+                    if (_all_at_floor and _rel_impr < 1e-3
+                            and (_wval <= _PROG_PORT_GOAL or escape_spent)):
+                        _converged = True
+                        break
+
+                _persist_now()
+                progress.empty(); best_box.empty(); stop_box.empty()
+                st.session_state[f"tune_elapsed_{topo_key}_{fname}"] = (
+                    time.time() - _t_start)
+                _wname, _wval = _worst_port()
+                if _wval <= _PROG_PORT_GOAL:
+                    st.success(
+                        f"Full Auto Tune done — {n_eval[0]:,} evals, "
+                        f"best Total = {best_tot[0]:.2f}% "
+                        f"(all ports ≤ {_PROG_PORT_GOAL:.0f}%)")
+                else:
+                    st.info(
+                        f"Full Auto Tune stopped above the per-port goal — "
+                        f"best kept (worst {_wname} {_wval:.2f}%, Total "
+                        f"{best_tot[0]:.2f}%, {n_eval[0]:,} evals). "
+                        f"Re-running Evaluate continues from the best values "
+                        f"after 🏆 Use best values.")
+            except BaseException as exc:
+                _is_rerun = (_RerunException is not None
+                             and isinstance(exc, _RerunException))
+                _is_stop  = (_StopException is not None
+                             and isinstance(exc, _StopException))
+                _name = type(exc).__name__
+                if _is_rerun or _is_stop or _name in (
+                        "RerunException", "StopException"):
+                    cancelled = True
+                    _persist_now()
+                    try:
+                        S_mea_dev = None
+                    except Exception:
+                        pass
+                    _release()
+                    raise
+                st.error(f"Full Auto Tune failed: {exc!r}")
+            finally:
+                _persist_now()
+                try:
+                    S_mea_dev = None
+                except Exception:
+                    pass
+                _release()
+
         # ── Helper: column-name lookup for a tuning_specs row ──────────
         def _col_name(row):
             return f"{row['label']} ({row['unit']})" if row["unit"] else row["label"]
@@ -4473,6 +5644,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 dev_threshold=float(bal_dev_threshold),
                 res_threshold=_res_thr,
             )
+        elif prog_cpu_clicked or prog_cuda_clicked:
+            _run_progressive(
+                use_cuda=bool(prog_cuda_clicked),
+                fit_keys=list(prog_fit_keys),
+                target_pct=0.0)
         # elif auto_cpu_clicked or auto_cuda_clicked:
         #     _run_nelder_mead(
         #         max_iter=int(auto_max_iter),
@@ -4480,7 +5656,158 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         #         use_cuda=bool(auto_cuda_clicked),
         #     )
 
-        # Display results if available
+        # ── 📈 Parameter sensitivity (toggle-collapsed section) ────────
+        # Same toggle-not-expander workaround as Semi-Auto Tune (Streamlit
+        # forbids nested expanders).  Reads the persisted results df, so a
+        # fresh run's charts appear on the rerun after it finishes.
+        sens_open = st.toggle(
+            "📈 Parameter sensitivity",
+            key=f"tune_sens_open_{topo_key}_{fname}",
+            help="Per-parameter residual curves swept around the best "
+                 "result, other parameters held at their best values.  "
+                 "Curves are plotted for parameters with a ticked Sweep "
+                 "checkbox in Semi-Auto Tune.")
+        if sens_open:
+            with st.container(border=True):
+                df_sens = st.session_state.get(f"tune_df_{topo_key}_{fname}")
+                ticked_specs = [
+                    spec for spec in tuning_specs
+                    if st.session_state.get(
+                        f"tune_{topo_key}_{spec[0]}_{fname}_chk", False)
+                ]
+                if df_sens is None:
+                    st.caption("Run a tune first — the sensitivity plots "
+                               "sweep each parameter around the best result.")
+                elif not ticked_specs:
+                    st.caption("Tick at least one **Sweep** checkbox in "
+                               "Semi-Auto Tune to choose which parameters "
+                               "to plot.")
+                else:
+                    best = df_sens.iloc[0]
+                    st.markdown("**Parameter sensitivity** *(other params held at best values)*")
+                    # Build baseline param dict from best row (in SI).
+                    # Missing column (stale parameter-less table) → keep
+                    # the all_p value.
+                    best_p = dict(all_p)
+                    for spec in tuning_specs:
+                        key, label, scale = spec[0], spec[1], spec[2]
+                        unit = spec[3] if len(spec) > 3 else ""
+                        col_name = f"{label} ({unit})" if unit else label
+                        if col_name in best.index:
+                            best_p[key] = float(best[col_name]) / scale
+
+                    _sp_colors = {"S11": "#1f77b4", "S12": "#d62728",
+                                  "S21": "#2ca02c", "S22": "#ff7f0e"}
+
+                    # Lay sensitivity charts out in a 2-column grid.  Even
+                    # index → left column, odd index → right column.  An
+                    # odd total leaves the final chart alone in the left
+                    # column (right column stays empty).
+                    _sens_col_pair = None  # current (left_col, right_col)
+                    _sens_rendered = 0
+
+                    for spec in ticked_specs:
+                        key, label, scale = spec[0], spec[1], spec[2]
+                        unit = spec[3] if len(spec) > 3 else ""
+                        kp = f"tune_{topo_key}_{key}_{fname}"
+                        sweep_min = float(st.session_state.get(f"{kp}_min", 0))
+                        sweep_step = float(st.session_state.get(f"{kp}_step", 0))
+                        sweep_max = float(st.session_state.get(f"{kp}_max", 0))
+                        sweep_vals = _make_sweep_values(sweep_min, sweep_max, sweep_step)
+
+                        # Cap the sensitivity chart at 50 points — when the
+                        # user-defined sweep is denser, drop to 50 evenly-spaced
+                        # samples (always keeping the endpoints).
+                        SENS_MAX_PTS = 50
+                        if len(sweep_vals) > SENS_MAX_PTS:
+                            idxs = np.linspace(0, len(sweep_vals) - 1,
+                                                SENS_MAX_PTS).round().astype(int)
+                            idxs = np.unique(idxs)
+                            sweep_vals = sweep_vals[idxs]
+
+                        if len(sweep_vals) < 2:
+                            continue  # nothing to plot for a single point
+
+                        # Residuals for the whole sweep in ONE batched call (the
+                        # swept param as a length-M array) instead of M sequential
+                        # simulate_vec calls — keeps the sensitivity panel cheap even
+                        # when many parameters are ticked (matters most for the custom
+                        # model, whose per-call path crosses the Rust/PyO3 boundary).
+                        res_s11 = res_s12 = res_s21 = res_s22 = None
+                        if hasattr(model_cls, "simulate_batch"):
+                            try:
+                                p_b = dict(best_p)
+                                p_b[key] = np.asarray(sweep_vals, dtype=float) / scale
+                                S_b = np.asarray(
+                                    model_cls.simulate_batch(p_b, freq, z0, xp=np)
+                                ).reshape(len(sweep_vals), len(freq), 2, 2)
+                                rb = _port_residuals_batch(S_raw, S_b, np)
+                                res_s11 = np.asarray(rb["S11"], dtype=float)
+                                res_s12 = np.asarray(rb["S12"], dtype=float)
+                                res_s21 = np.asarray(rb["S21"], dtype=float)
+                                res_s22 = np.asarray(rb["S22"], dtype=float)
+                                for _a in (res_s11, res_s12, res_s21, res_s22):
+                                    _a[~np.isfinite(_a)] = float("inf")
+                            except Exception:
+                                res_s11 = None       # fall back to the per-point loop
+
+                        if res_s11 is None:
+                            res_s11 = np.zeros(len(sweep_vals))
+                            res_s12 = np.zeros(len(sweep_vals))
+                            res_s21 = np.zeros(len(sweep_vals))
+                            res_s22 = np.zeros(len(sweep_vals))
+                            _sens_has_vec = hasattr(model_cls, "simulate_vec")
+                            for vi, sv in enumerate(sweep_vals):
+                                p = dict(best_p)
+                                p[key] = sv / scale  # convert display -> SI
+                                try:
+                                    if _sens_has_vec:
+                                        S_sim = model_cls.simulate_vec(p, freq, z0, xp=np)
+                                    else:
+                                        S_sim = model_cls.simulate(p, freq, z0)
+                                except Exception:
+                                    S_sim = None
+                                if S_sim is None:
+                                    res_s11[vi] = res_s12[vi] = float("inf")
+                                    res_s21[vi] = res_s22[vi] = float("inf")
+                                else:
+                                    r = _port_residuals(S_raw, S_sim)
+                                    res_s11[vi] = r["S11"]
+                                    res_s12[vi] = r["S12"]
+                                    res_s21[vi] = r["S21"]
+                                    res_s22[vi] = r["S22"]
+
+                        x_label = f"{label} ({unit})" if unit else label
+                        fig = go.Figure()
+                        for sp_name, y_data in [("S11", res_s11), ("S12", res_s12),
+                                                ("S21", res_s21), ("S22", res_s22)]:
+                            fig.add_trace(go.Scattergl(
+                                x=sweep_vals, y=y_data, mode="lines+markers",
+                                name=sp_name,
+                                line=dict(color=_sp_colors[sp_name], width=2),
+                                marker=dict(size=4),
+                            ))
+                        fig.update_layout(
+                            title=f"Sensitivity -- {x_label}",
+                            xaxis_title=x_label,
+                            yaxis_title="Residual (%)",
+                            height=350,
+                            margin=dict(l=50, r=30, t=40, b=50),
+                            legend=dict(orientation="h", y=1.12),
+                            hovermode="x unified",
+                        )
+                        # Open a fresh 2-column pair every even-indexed chart.
+                        if _sens_rendered % 2 == 0:
+                            _sens_col_pair = st.columns(2)
+                        _target = _sens_col_pair[_sens_rendered % 2]
+                        with _target:
+                            plotly_with_dl(
+                                fig,
+                                key=f"tune_sens_{topo_key}_{key}_{fname}",
+                                filename=f"tune_sens_{topo_key}_{key}_{fname}")
+                        _sens_rendered += 1
+
+        # ── Results — evaluated-in line + best residual + top-K table ──
         df = st.session_state.get(f"tune_df_{topo_key}_{fname}")
         if df is not None:
             best = df.iloc[0]
@@ -4494,27 +5821,33 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
 
             # "Use best values" — push best-row params into the fine-tune widgets.
             # Uses on_click callback so writes happen *before* widgets re-render.
-            def _apply_best(best_row, specs, topo, fn):
+            def _apply_best(best_row, specs, topo, fn, low_perf):
                 for spec in specs:
                     key, label, scale = spec[0], spec[1], spec[2]
                     unit = spec[3] if len(spec) > 3 else ""
+                    spec_step = spec[5] if len(spec) > 5 else None
                     col_name = f"{label} ({unit})" if unit else label
+                    # A stale results table (e.g. persisted before the
+                    # closed-path param_rows fix) may lack parameter
+                    # columns — skip those instead of KeyError'ing.
+                    if col_name not in best_row.index:
+                        continue
                     disp_val = float(best_row[col_name])
                     st.session_state[f"sim_{topo}_{key}_{fn}"] = disp_val
                     kp = f"tune_{topo}_{key}_{fn}"
-                    si_val = disp_val / scale
-                    if abs(si_val) < 1e-30:
-                        st.session_state[f"{kp}_min"] = 0.0
-                        st.session_state[f"{kp}_step"] = 0.0
-                        st.session_state[f"{kp}_max"] = 0.0
-                    else:
-                        st.session_state[f"{kp}_min"] = disp_val - 1.0
-                        st.session_state[f"{kp}_step"] = 1.0
-                        st.session_state[f"{kp}_max"] = disp_val + 1.0
+                    # Re-seed the sweep box around the newly-applied best value
+                    # from the physics-informed ranges (widened to include it).
+                    d_min, d_step, d_max = informed_default_range(
+                        key, label, disp_val,
+                        low_perf=low_perf, spec_step=spec_step)
+                    st.session_state[f"{kp}_min"] = d_min
+                    st.session_state[f"{kp}_step"] = d_step
+                    st.session_state[f"{kp}_max"] = d_max
 
-            st.button("🏆 Use best values", key=f"tune_best_{topo_key}_{fname}",
-                      on_click=_apply_best,
-                      args=(best, tuning_specs, topo_key, fname))
+            st.container(key=f"hbt_amber_best_{topo_key}").button(
+                "🏆 Use best values", key=f"tune_best_{topo_key}_{fname}",
+                on_click=_apply_best,
+                args=(best, tuning_specs, topo_key, fname, _low_perf))
 
             st.dataframe(df, width="stretch", hide_index=True)
 
@@ -4530,136 +5863,6 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 key=f"tune_dl_{topo_key}_{fname}",
             )
 
-            # ── Per-parameter sensitivity graphs ─────────────────────���───
-            # For each ticked parameter, sweep it while holding others at
-            # the best-row values.  Plot S11/S12/S21/S22 residuals.
-            ticked_specs = [
-                spec for spec in tuning_specs
-                if st.session_state.get(
-                    f"tune_{topo_key}_{spec[0]}_{fname}_chk", False)
-            ]
-            if ticked_specs:
-                st.markdown("---")
-                st.markdown("**Parameter sensitivity** *(other params held at best values)*")
-
-                # Build baseline param dict from best row (in SI)
-                best_p = dict(all_p)
-                for spec in tuning_specs:
-                    key, label, scale = spec[0], spec[1], spec[2]
-                    unit = spec[3] if len(spec) > 3 else ""
-                    col_name = f"{label} ({unit})" if unit else label
-                    best_p[key] = float(best[col_name]) / scale
-
-                _sp_colors = {"S11": "#1f77b4", "S12": "#d62728",
-                              "S21": "#2ca02c", "S22": "#ff7f0e"}
-
-                # Lay sensitivity charts out in a 2-column grid.  Even
-                # index → left column, odd index → right column.  An
-                # odd total leaves the final chart alone in the left
-                # column (right column stays empty).
-                _sens_col_pair = None  # current (left_col, right_col)
-                _sens_rendered = 0
-
-                for spec in ticked_specs:
-                    key, label, scale = spec[0], spec[1], spec[2]
-                    unit = spec[3] if len(spec) > 3 else ""
-                    kp = f"tune_{topo_key}_{key}_{fname}"
-                    sweep_min = float(st.session_state.get(f"{kp}_min", 0))
-                    sweep_step = float(st.session_state.get(f"{kp}_step", 0))
-                    sweep_max = float(st.session_state.get(f"{kp}_max", 0))
-                    sweep_vals = _make_sweep_values(sweep_min, sweep_max, sweep_step)
-
-                    # Cap the sensitivity chart at 50 points — when the
-                    # user-defined sweep is denser, drop to 50 evenly-spaced
-                    # samples (always keeping the endpoints).
-                    SENS_MAX_PTS = 50
-                    if len(sweep_vals) > SENS_MAX_PTS:
-                        idxs = np.linspace(0, len(sweep_vals) - 1,
-                                            SENS_MAX_PTS).round().astype(int)
-                        idxs = np.unique(idxs)
-                        sweep_vals = sweep_vals[idxs]
-
-                    if len(sweep_vals) < 2:
-                        continue  # nothing to plot for a single point
-
-                    # Residuals for the whole sweep in ONE batched call (the
-                    # swept param as a length-M array) instead of M sequential
-                    # simulate_vec calls — keeps the sensitivity panel cheap even
-                    # when many parameters are ticked (matters most for the custom
-                    # model, whose per-call path crosses the Rust/PyO3 boundary).
-                    res_s11 = res_s12 = res_s21 = res_s22 = None
-                    if hasattr(model_cls, "simulate_batch"):
-                        try:
-                            p_b = dict(best_p)
-                            p_b[key] = np.asarray(sweep_vals, dtype=float) / scale
-                            S_b = np.asarray(
-                                model_cls.simulate_batch(p_b, freq, z0, xp=np)
-                            ).reshape(len(sweep_vals), len(freq), 2, 2)
-                            rb = _port_residuals_batch(S_raw, S_b, np)
-                            res_s11 = np.asarray(rb["S11"], dtype=float)
-                            res_s12 = np.asarray(rb["S12"], dtype=float)
-                            res_s21 = np.asarray(rb["S21"], dtype=float)
-                            res_s22 = np.asarray(rb["S22"], dtype=float)
-                            for _a in (res_s11, res_s12, res_s21, res_s22):
-                                _a[~np.isfinite(_a)] = float("inf")
-                        except Exception:
-                            res_s11 = None       # fall back to the per-point loop
-
-                    if res_s11 is None:
-                        res_s11 = np.zeros(len(sweep_vals))
-                        res_s12 = np.zeros(len(sweep_vals))
-                        res_s21 = np.zeros(len(sweep_vals))
-                        res_s22 = np.zeros(len(sweep_vals))
-                        _sens_has_vec = hasattr(model_cls, "simulate_vec")
-                        for vi, sv in enumerate(sweep_vals):
-                            p = dict(best_p)
-                            p[key] = sv / scale  # convert display -> SI
-                            try:
-                                if _sens_has_vec:
-                                    S_sim = model_cls.simulate_vec(p, freq, z0, xp=np)
-                                else:
-                                    S_sim = model_cls.simulate(p, freq, z0)
-                            except Exception:
-                                S_sim = None
-                            if S_sim is None:
-                                res_s11[vi] = res_s12[vi] = float("inf")
-                                res_s21[vi] = res_s22[vi] = float("inf")
-                            else:
-                                r = _port_residuals(S_raw, S_sim)
-                                res_s11[vi] = r["S11"]
-                                res_s12[vi] = r["S12"]
-                                res_s21[vi] = r["S21"]
-                                res_s22[vi] = r["S22"]
-
-                    x_label = f"{label} ({unit})" if unit else label
-                    fig = go.Figure()
-                    for sp_name, y_data in [("S11", res_s11), ("S12", res_s12),
-                                            ("S21", res_s21), ("S22", res_s22)]:
-                        fig.add_trace(go.Scattergl(
-                            x=sweep_vals, y=y_data, mode="lines+markers",
-                            name=sp_name,
-                            line=dict(color=_sp_colors[sp_name], width=2),
-                            marker=dict(size=4),
-                        ))
-                    fig.update_layout(
-                        title=f"Sensitivity -- {x_label}",
-                        xaxis_title=x_label,
-                        yaxis_title="Residual (%)",
-                        height=350,
-                        margin=dict(l=50, r=30, t=40, b=50),
-                        legend=dict(orientation="h", y=1.12),
-                        hovermode="x unified",
-                    )
-                    # Open a fresh 2-column pair every even-indexed chart.
-                    if _sens_rendered % 2 == 0:
-                        _sens_col_pair = st.columns(2)
-                    _target = _sens_col_pair[_sens_rendered % 2]
-                    with _target:
-                        plotly_with_dl(
-                            fig,
-                            key=f"tune_sens_{topo_key}_{key}_{fname}",
-                            filename=f"tune_sens_{topo_key}_{key}_{fname}")
-                    _sens_rendered += 1
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -4684,7 +5887,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
 #         _SIM_WRAP_BATCH_FN= staticmethod(_sim_wrap_batch) # model's wrap
 #
 #         @classmethod
-#         def _do_override_ui(cls, fname, calc_vals): ...   # call model's _override_ui
+#         def _do_override_ui(cls, fname, calc_vals, cache_ctx=None): ...  # call model's _override_ui
 #         @classmethod
 #         def _render_topology(cls, all_p, fname): ...      # render topology illus
 #         @classmethod
@@ -4935,7 +6138,9 @@ class SSMModelTemplate:
     @classmethod
     def render_override_and_smith(cls, fname, S_raw, freq, z0,
                                   para_eff, extract_result, *,
-                                  show_tuning: bool = True, **kwargs):
+                                  show_tuning: bool = True,
+                                  prefer_calc_vals: bool = False,
+                                  show_cache_banner: bool = True, **kwargs):
         """
         Standard override-UI → cached sim → Smith chart → topology illustration
         → matplotlib Smith expander → tuning expander.
@@ -4944,8 +6149,26 @@ class SSMModelTemplate:
         Visual Tuning + Auto Tuning expanders — tuning now lives on the
         Simulation & Fitting page.
 
+        ``prefer_calc_vals=True`` (set by the Simulation & Fitting page when a
+        fresh extraction handoff arrives) makes calc_vals win over both stale
+        widget state and any cached fit: the sim widget keys and sync hashes
+        for this (model, fname) are cleared so ``_override_ui`` reseeds
+        everything from calc_vals; the cache auto-restore is skipped (the
+        banner + "📌 Use cache" button inside Fine-tune remain available).
+
+        ``show_cache_banner=False`` suppresses the "📌 Cached fit for ..."
+        banner entirely — used by RF_simulator.py's fit-mode call, which
+        renders its own compact cache pill in the header row instead.  The
+        "📌 Use cache" button inside the Fine-tune expander (see cache_ctx
+        below) still works regardless of this flag.
+
         Concrete subclasses supply the per-model UI pieces via:
-          cls._do_override_ui(fname, calc_vals)  → all_p
+          cls._do_override_ui(fname, calc_vals, cache_ctx=None)  → all_p
+              cache_ctx is {"has_cache": bool, "ts": str|None, "req_key": str}
+              — forwarded to the module-level _override_ui so it can render a
+              "📌 Use cache" button that sets session_state[req_key] = True
+              and reruns; this function applies the cache on the next render
+              before any sim widgets instantiate (see _cache_req_key below).
           cls._render_topology(all_p, fname)     → render illustration
           cls._INT_SPECS / _EXT_SPECS            → tuning specs
 
@@ -4972,6 +6195,19 @@ class SSMModelTemplate:
         cached_ts     = get_fit_timestamp(fname, cls.SHORT)
         applied_key   = f"cache_applied_{cls.SHORT}_{fname}"
         dismissed_key = f"cache_dismissed_{cls.SHORT}_{fname}"
+
+        # ── Fresh-handoff priority — the Sim & Fitting page sets this when an
+        #    extraction handoff just arrived: the forwarded values must win
+        #    over both stale widget state and the cached fit (previously the
+        #    cache silently clobbered a fresh extraction in a new session).
+        if prefer_calc_vals:
+            for _k in list(st.session_state.keys()):
+                if (_k.startswith(f"sim_{cls.SHORT}_")
+                        and _k.endswith(f"_{fname}")):
+                    del st.session_state[_k]
+            st.session_state.pop(f"sim_synchash_{cls.SHORT}_{fname}", None)
+            st.session_state.pop(f"smith_pad_synced_{cls.SHORT}_{fname}", None)
+            st.session_state[applied_key] = True
 
         # Helper closure — write cached values (including pad) into the
         # fine-tune session_state and align the sync hashes so subsequent
@@ -5017,6 +6253,16 @@ class SSMModelTemplate:
             st.session_state[f"smith_pad_synced_{cls.SHORT}_{fname}"] = params_hash(
                 {k: para_eff.get(k, 0.0) for k in _PAD_KEYS})
 
+        # ── "Use cache" request — set by the "📌 Use cache" button inside the
+        #    Fine-tune expander (module-level _override_ui in cheng/xu/kunyang).
+        #    Runs before any sim widgets instantiate this run, so writing their
+        #    session_state values here is legal (same pattern as the cache
+        #    auto-restore below).
+        _cache_req_key = f"cache_apply_request_{cls.SHORT}_{fname}"
+        if st.session_state.pop(_cache_req_key, False) and cached:
+            _apply_cached_to_simstate(cached)
+            st.session_state[applied_key] = True
+
         # ── Cache restore — runs on the first call after Run SSM is clicked
         #    (applied_key resides in session_state, which IOED's "Clear SSM
         #    results" button wipes for the file; so a fresh Run SSM cycle
@@ -5030,31 +6276,39 @@ class SSMModelTemplate:
         #    clobbering the user's in-progress edit with the previous value
         #    (the "have to type every value twice" bug).  Setting the flag now
         #    guarantees the override widgets own session_state from here on.
-        if (not st.session_state.get(applied_key)
+        # Widget keys can be GC'd by a page switch (see the keep-alive in
+        # IOED_Tool_Web.py); if that happened, re-apply the cache — thanks to
+        # auto-save the cache IS the user's last-seen state — instead of
+        # letting every input recreate at 0.
+        _widgets_missing = any(
+            f"sim_{cls.SHORT}_{k}_{fname}" not in st.session_state
+            for k in int_ext_keys)
+        if (not prefer_calc_vals
+                and (not st.session_state.get(applied_key) or _widgets_missing)
                 and not st.session_state.get(dismissed_key)):
             if cached:
                 _apply_cached_to_simstate(cached)
             st.session_state[applied_key] = True
 
-        # Banner whenever a cache entry exists for this (file, model)
-        if cached_ts and not st.session_state.get(dismissed_key):
-            bc1, bc2 = st.columns([5, 1])
-            bc1.info(f"📌 Loaded cached fit for **{cls.NAME}** "
-                     f"(saved {cached_ts}).")
-            if bc2.button("↩️ Use saved",
-                          key=f"cache_reset_{cls.SHORT}_{fname}",
-                          help="Re-apply the cached intrinsic/extrinsic values "
-                               "into the fine-tune fields below — handy after "
-                               "experimenting if you want to revert to the last "
-                               "saved snapshot.  Pad fields are always sourced "
-                               "from Step 1 / pre-extraction override."):
-                _apply_cached_to_simstate(cached)
-                # Mark applied so the auto-restore branch above no-ops, then
-                # rerun so the fine-tune widgets read the freshly-set values.
-                st.session_state[applied_key] = True
-                st.rerun()
+        # The container renders unconditionally so the element tree above the
+        # fine-tune expander stays stable whether or not the banner shows —
+        # conditional siblings above an expander reset its client-side open
+        # state (the "expander always closes" bug).
+        _banner_slot = st.container()
+        if show_cache_banner and cached_ts and not st.session_state.get(dismissed_key):
+            with _banner_slot:
+                st.markdown(
+                    f"<small>📌 Cached fit for <b>{cls.NAME}</b> — saved {cached_ts}"
+                    " <span class='hbt-help' title='A fit saved earlier for this"
+                    " file and model. It is applied automatically on entry -"
+                    " except right after a handoff from Extraction, where the"
+                    " freshly extracted values take priority. Load it into the"
+                    " fields below with “📌 Use cache” inside the Fine-tune"
+                    " expander.'>?</span></small>",
+                    unsafe_allow_html=True)
 
-        all_p = cls._do_override_ui(fname, calc_vals)
+        all_p = cls._do_override_ui(fname, calc_vals, cache_ctx={
+            "has_cache": bool(cached), "ts": cached_ts, "req_key": _cache_req_key})
 
         S_sim = cls._cached_simulate_vec(all_p, freq, z0, fname)
 
@@ -5121,7 +6375,15 @@ class SSMModelTemplate:
                 if _k in scale_for and isinstance(_v, (int, float)):
                     baseline[_k] = float(_v)
         check_keys = _PAD_KEYS + int_ext_keys
-        if (not st.session_state.get(dismissed_key)
+        # Refuse to persist a degenerate/uninitialised state: a genuine fit
+        # has (nearly) all intrinsic/extrinsic values nonzero, while a
+        # GC-wiped widget set is all zeros except whatever the user just
+        # touched — exactly the state that poisoned the cache before.
+        _n_nonzero = sum(
+            1 for k in int_ext_keys
+            if isinstance(all_p.get(k), (int, float)) and float(all_p[k]) != 0.0)
+        if (_n_nonzero >= max(2, len(int_ext_keys) // 2)
+                and not st.session_state.get(dismissed_key)
                 and differs_from(all_p, baseline, keys=check_keys)):
             save_fit(fname, cls.SHORT, dict(all_p))
 
@@ -5139,7 +6401,8 @@ class SSMModelTemplate:
                     phase="chart", freq_hz=freq, return_png=True)
             except Exception:                            # noqa: BLE001
                 _smith_png = None
-        with st.expander("🖼️ Topology illustration", expanded=False):
+        with st.container(key=f"hbt_exp_view_topo_{cls.SHORT}"), \
+             st.expander("🖼️ Topology illustration", expanded=False):
             cls._render_topology(all_p, fname, smith_png=_smith_png)
 
         # Smith chart (matplotlib) + its controls live in a single
@@ -5149,7 +6412,8 @@ class SSMModelTemplate:
         # left) preserves the order-of-operations requirement that
         # widgets render BEFORE the chart so session_state is fresh when
         # the chart half reads it.
-        with st.expander("🍩 Smith Chart (Matplotlib)", expanded=False):
+        with st.container(key=f"hbt_exp_view_mplsmith_{cls.SHORT}"), \
+             st.expander("🍩 Smith Chart (Matplotlib)", expanded=False):
             col_mpl_left, col_mpl_right = st.columns([1.2, 1])
             with col_mpl_right:
                 render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT,
@@ -5164,7 +6428,9 @@ class SSMModelTemplate:
             render_visual_tuning_expander(cls, all_p, S_raw, freq, z0,
                                            all_specs,
                                            fname, cls.SHORT)
-            render_tuning_expander(cls, all_p, S_raw, freq, z0,
-                                   all_specs,
-                                   fname, cls.SHORT)
+            render_tuning_expander(
+                cls, all_p, S_raw, freq, z0, all_specs, fname, cls.SHORT,
+                default_fit_keys=(
+                    [k for k, *_ in cls._EXT_SPECS + cls._INT_SPECS]
+                    + ["Rpb", "Rpc", "Rpe"]))
         return S_sim

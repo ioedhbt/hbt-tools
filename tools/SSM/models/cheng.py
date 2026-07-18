@@ -866,7 +866,8 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str,
         st.image(buf.getvalue(), width="stretch")
 
 
-def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS):
+def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS,
+                  cache_ctx=None):
     """Render the override expander for one Cheng topology."""
     all_specs = PAD_SPECS + ext_specs + int_specs
     sync_pad_from_preov(fname, tK, calc_vals)
@@ -875,16 +876,41 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS):
     _sync_hash_key = f"sim_synchash_{tK}_{fname}"
     _sync_hash = params_hash({k: str(round(float(calc_vals.get(k, 0.0)), 15))
                             for k in _int_keys})
-    if st.session_state.get(_sync_hash_key) != _sync_hash:
+    # Also reseed when any widget key is missing — Streamlit GCs widget state
+    # for widgets that skip a run (page switch), while the sync hash survives;
+    # without this check the inputs would all recreate at 0.
+    _keys_missing = any(f"sim_{tK}_{k}_{fname}" not in st.session_state
+                        for k in _int_keys)
+    if _keys_missing or st.session_state.get(_sync_hash_key) != _sync_hash:
         for key, _, scale, *_ in ext_specs + int_specs:
             st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
         st.session_state[_sync_hash_key] = _sync_hash
 
-    with st.expander(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters", expanded=False):
-        if st.button(f"↩️ Reset {label} to interactive section values",
-                     key=f"rst_sim_{tK}_{fname}"):
+    with st.container(key=f"hbt_exp_edit_{tK}"), \
+         st.expander(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters", expanded=False):
+        rc1, rc2, rc3 = st.columns(3)
+        if rc1.button(f"↩️ Reset {label} to interactive section values",
+                     key=f"rst_sim_{tK}_{fname}", width="stretch"):
             for key, _, scale, *_ in all_specs:
                 st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
+            st.rerun()
+
+        if (cache_ctx or {}).get("has_cache"):
+            _ts = (cache_ctx or {}).get("ts")
+            if rc2.container(key=f"hbt_amber_usecache_{tK}").button(
+                    "📌 Use cache", key=f"use_cache_{tK}_{fname}", width="stretch",
+                    help=f"Load the fit saved {_ts} for this device+model into "
+                         "these fields. Pad fields keep following the "
+                         "pre-extraction override."):
+                st.session_state[cache_ctx["req_key"]] = True
+                st.rerun()
+
+        if rc3.button("0️⃣ Reset all to 0", key=f"zero_sim_{tK}_{fname}",
+                     width="stretch",
+                     help="Set every field in this expander to 0. The saved "
+                          "cache is untouched — recover with Use cache."):
+            for key, *_ in all_specs:
+                st.session_state[f"sim_{tK}_{key}_{fname}"] = 0.0
             st.rerun()
 
         _mode = segmented_radio(
@@ -1210,9 +1236,9 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
                      r"S=(I-Z_0[Y_{tot}+Y_{pad}])(I+Z_0[Y_{tot}+Y_{pad}])^{-1}")
 
     @classmethod
-    def _do_override_ui(cls, fname, calc_vals):
+    def _do_override_ui(cls, fname, calc_vals, cache_ctx=None):
         return _override_ui(fname, cls.SHORT, calc_vals, _INT_T_SPECS, cls.NAME,
-                            ext_specs=_EXT_T_SPECS)
+                            ext_specs=_EXT_T_SPECS, cache_ctx=cache_ctx)
 
     @classmethod
     def _render_topology(cls, all_p, fname, smith_png=None, highlight_key=None):
@@ -1462,9 +1488,9 @@ class ChengPi(SSMModelTemplate, AbstractSSMModel):
     # the π-topology table doesn't ship with a formula-trace expander today.
 
     @classmethod
-    def _do_override_ui(cls, fname, calc_vals):
+    def _do_override_ui(cls, fname, calc_vals, cache_ctx=None):
         return _override_ui(fname, cls.SHORT, calc_vals, _INT_PI_SPECS, cls.NAME,
-                            ext_specs=_EXT_PI_SPECS)
+                            ext_specs=_EXT_PI_SPECS, cache_ctx=cache_ctx)
 
     @classmethod
     def _render_topology(cls, all_p, fname, smith_png=None, highlight_key=None):

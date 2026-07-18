@@ -597,7 +597,8 @@ _KY_PAD_SPECS = [
 ]
 
 
-def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_KY_SPECS):
+def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_KY_SPECS,
+                  cache_ctx=None):
     """Render the fine-tune override expander for the Kun-Yang HEMT model."""
     all_specs = _KY_PAD_SPECS + ext_specs + int_specs
     sync_pad_from_preov(fname, tK, calc_vals)
@@ -606,16 +607,39 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_KY_SPECS
     _sync_hash_key = f"sim_synchash_{tK}_{fname}"
     _sync_hash = params_hash({k: str(round(float(calc_vals.get(k, 0.0)), 15))
                               for k in _int_keys})
-    if st.session_state.get(_sync_hash_key) != _sync_hash:
+    # Also reseed when a widget key was GC'd by a page switch — see cheng.py.
+    _keys_missing = any(f"sim_{tK}_{k}_{fname}" not in st.session_state
+                        for k in _int_keys)
+    if _keys_missing or st.session_state.get(_sync_hash_key) != _sync_hash:
         for key, _, scale, *_ in ext_specs + int_specs:
             st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
         st.session_state[_sync_hash_key] = _sync_hash
 
-    with st.expander(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters", expanded=False):
-        if st.button(f"↩️ Reset {label} to default values",
-                     key=f"rst_sim_{tK}_{fname}"):
+    with st.container(key=f"hbt_exp_edit_{tK}"), \
+         st.expander(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters", expanded=False):
+        rc1, rc2, rc3 = st.columns(3)
+        if rc1.button(f"↩️ Reset {label} to default values",
+                     key=f"rst_sim_{tK}_{fname}", width="stretch"):
             for key, _, scale, *_ in all_specs:
                 st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
+            st.rerun()
+
+        if (cache_ctx or {}).get("has_cache"):
+            _ts = (cache_ctx or {}).get("ts")
+            if rc2.container(key=f"hbt_amber_usecache_{tK}").button(
+                    "📌 Use cache", key=f"use_cache_{tK}_{fname}", width="stretch",
+                    help=f"Load the fit saved {_ts} for this device+model into "
+                         "these fields. Pad fields keep following the "
+                         "pre-extraction override."):
+                st.session_state[cache_ctx["req_key"]] = True
+                st.rerun()
+
+        if rc3.button("0️⃣ Reset all to 0", key=f"zero_sim_{tK}_{fname}",
+                     width="stretch",
+                     help="Set every field in this expander to 0. The saved "
+                          "cache is untouched — recover with Use cache."):
+            for key, *_ in all_specs:
+                st.session_state[f"sim_{tK}_{key}_{fname}"] = 0.0
             st.rerun()
 
         _mode = segmented_radio(
@@ -650,7 +674,7 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_KY_SPECS
                     col_w.number_input(f"{lbl} ({unit})" if unit else lbl,
                                        key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
 
-            st.markdown("**Intrinsic Pi-Model**")
+            st.markdown("**Intrinsic π-Model**")
             for row_start in range(0, len(int_specs), 4):
                 row = int_specs[row_start:row_start + 4]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
@@ -711,7 +735,7 @@ class KunYangHEMT(SSMModelTemplate, AbstractSSMModel):
     The standard open-dummy pad (Cpbe / Cpce / Cpbc) is NOT applied;
     the Kun-Yang substrate network IS the pad layer for this model.
     """
-    NAME          = "Kun-Yang HEMT (pi-model)"
+    NAME          = "Kun-Yang HEMT (π-model)"
     SHORT         = "KY"
     TOPOLOGY_CHAR = "pi"
 
@@ -772,7 +796,7 @@ class KunYangHEMT(SSMModelTemplate, AbstractSSMModel):
     def render_step_formulas(cls):
         with st.expander("📐 Kun-Yang HEMT formulas — forward simulation (no extraction)",
                          expanded=False):
-            st.markdown("**1) Intrinsic pi-model**")
+            st.markdown("**1) Intrinsic π-model**")
             st.latex(r"Y_{gs}=\frac{j\omega C_{gs}}{1+j\omega R_i C_{gs}},\quad "
                      r"Y_{gd}=\frac{j\omega C_{gd}}{1+j\omega R_{gd} C_{gd}}")
             st.latex(r"Y_{ds}=\frac{1}{R_{ds}}+j\omega C_{ds},\quad "
@@ -829,8 +853,8 @@ class KunYangHEMT(SSMModelTemplate, AbstractSSMModel):
     @classmethod
     def _render_results_trace(cls):
         with st.expander("📐 Full formula trace — Kun-Yang HEMT", expanded=False):
-            st.markdown("**Inside → out:** intrinsic pi → source-delay → Z_ser → KY-pad → S")
-            st.markdown("**Intrinsic pi-model**")
+            st.markdown("**Inside → out:** intrinsic π → source-delay → Z_ser → KY-pad → S")
+            st.markdown("**Intrinsic π-model**")
             st.latex(r"Y_{gs}=\frac{j\omega C_{gs}}{1+j\omega R_i C_{gs}}")
             st.latex(r"Y_{gd}=\frac{j\omega C_{gd}}{1+j\omega R_{gd} C_{gd}}")
             st.latex(r"Y_{ds}=\tfrac{1}{R_{ds}}+j\omega C_{ds}")
@@ -855,10 +879,10 @@ class KunYangHEMT(SSMModelTemplate, AbstractSSMModel):
             st.latex(r"S=(I-Z_0[Y_{tot}])(I+Z_0[Y_{tot}])^{-1}")
 
     @classmethod
-    def _do_override_ui(cls, fname, calc_vals):
+    def _do_override_ui(cls, fname, calc_vals, cache_ctx=None):
         return _override_ui(fname, cls.SHORT, calc_vals,
                             _INT_KY_SPECS, cls.NAME,
-                            ext_specs=_EXT_KY_SPECS)
+                            ext_specs=_EXT_KY_SPECS, cache_ctx=cache_ctx)
 
     @classmethod
     def _render_topology(cls, all_p, fname, smith_png=None, highlight_key=None):

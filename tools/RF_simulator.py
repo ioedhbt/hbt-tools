@@ -69,15 +69,6 @@ _EXCEL_MIME = ("application/vnd.openxmlformats-officedocument."
 st.title(i18n.title("rf_sim"))
 st.caption(i18n.tool_desc("rf_sim"))
 
-with st.expander(i18n.t("how_it_works"), expanded=False):
-    from tools.diagrams import pipeline_png
-    st.image(pipeline_png((
-        ("Pick model",   "Cheng · Xu · KY"),
-        ("Set params",   "R · C · L"),
-        ("Simulate",     "Y → S"),
-        ("View · Export", "Smith · Bode · s2p"),
-    ), accent="#d62728"), width="stretch")
-
 
 # ─── Handoff from the other RF pages (device / extracted values) ─────────────
 _MS_TO_OPTION = {"T": "Cheng's T", "pi": "Cheng's π", "XuT": "Xu T",
@@ -96,6 +87,9 @@ if _inc is not None:
         st.session_state["rfsim_model_choice"] = _MS_TO_OPTION[_ms]
     if _inc.get("params") and _ms:
         st.session_state[f"_simfit_seed_{_ms}"] = dict(_inc["params"])
+        # Flag consumed by the fit branch below: a just-arrived handoff must
+        # override stale widget state AND any cached fit for this device.
+        st.session_state[f"_simfit_seed_pending_{_ms}"] = True
 
 
 def _resolve_fit_target():
@@ -111,13 +105,17 @@ def _resolve_fit_target():
             st.session_state.pop(_k, None)
 
     meas = st.session_state.get("_simfit_meas")
-    with st.expander("📂 Fit to a measured device (optional)",
+    with st.container(key="hbt_exp_edit_fitdev"), \
+         st.expander("📂 Fit to a measured device (optional)",
                      expanded=meas is not None):
         if meas is not None:
             cc, cdl, cclr = st.columns([3, 1, 1])
-            cc.success(f"🎯 Fitting **{meas['label']}** ({meas['stage']}, "
-                       f"{len(meas['freq'])} pts). The simulation frequency "
-                       f"axis follows the measured grid.")
+            cc.markdown(
+                f"<span class='hbt-chip-ok'>🎯 {meas['label']} · {meas['stage']} · "
+                f"{len(meas['freq'])} pts</span>"
+                "<span class='hbt-help' title='The simulation frequency axis"
+                " follows the measured grid point-for-point.'>?</span>",
+                unsafe_allow_html=True)
             # Download the exact measured device being fitted (de-embedded if it
             # was forwarded that way) as an .s2p.
             try:
@@ -132,7 +130,8 @@ def _resolve_fit_target():
                     help="Download the exact S-parameters loaded for fitting.")
             except Exception:                                  # noqa: BLE001
                 cdl.caption("—")
-            if cclr.button("✕ Clear", key="simfit_clear", width="stretch"):
+            if cclr.container(key="hbt_danger_simfit_clear").button(
+                    "✕ Clear", key="simfit_clear", width="stretch"):
                 st.session_state.pop("_simfit_meas", None)
                 _drop_seeds()
                 st.rerun()
@@ -185,8 +184,6 @@ if model_choice == "🧩 Custom model":
 if measured is not None:
     freq  = np.asarray(measured["freq"], dtype=float)
     f_ghz = freq * 1e-9
-    st.caption(f"Frequency axis: **{f_ghz[0]:.3g} – {f_ghz[-1]:.3g} GHz** "
-               f"({len(freq)} pts) — from the measured device.")
 else:
     c_f1, c_f2, c_f3 = st.columns(3)
     f_start = c_f1.number_input("Start Frequency (GHz)",
@@ -481,7 +478,7 @@ def _render_rfsim_live_slider_preview(model_cls, all_p, freq, mults, prefix: str
                             key=f"rfsim_slpreview_bode_{prefix}")
 
     bc1, bc2 = st.columns(2)
-    commit_clicked = bc1.button(
+    commit_clicked = bc1.container(key=f"hbt_amber_slcommit_rfsim_{prefix}").button(
         "✅ Use these values",
         key=f"rfsim_slpreview_commit_{prefix}",
         disabled=(len(preview_overrides) == 0),
@@ -977,7 +974,8 @@ if model_choice == "Open and Short Pad":
     # Cheng/Xu models use above.  The "controls" phase must run before the
     # "chart" phase (it writes the session state the chart reads), so the
     # right column is invoked first in code even though it sits on the right.
-    with st.expander("📐 Smith chart (Matplotlib) — Open", expanded=False):
+    with st.container(key="hbt_exp_view_mplsmith_open"), \
+         st.expander("📐 Smith chart (Matplotlib) — Open", expanded=False):
         col_o_left, col_o_right = st.columns([1.2, 1])
         with col_o_right:
             render_matplotlib_smith(
@@ -993,7 +991,8 @@ if model_choice == "Open and Short Pad":
                        "kind": "line", "style": "solid"}],
                 default_multiplier=mults, phase="chart", freq_hz=freq,
             )
-    with st.expander("📐 Smith chart (Matplotlib) — Short", expanded=False):
+    with st.container(key="hbt_exp_view_mplsmith_short"), \
+         st.expander("📐 Smith chart (Matplotlib) — Short", expanded=False):
         col_s_left, col_s_right = st.columns([1.2, 1])
         with col_s_right:
             render_matplotlib_smith(
@@ -1061,18 +1060,51 @@ else:
         _seed  = st.session_state.get(f"_simfit_seed_{_short}")
         _fit_fname = f"simfit_{_short}_{measured['label']}"
         st.markdown(f"### 🎯 Fit — {model_cls.NAME}")
-        st.caption(f"Fitting **{measured['label']}** ({measured['stage']}). "
-                   "Edit any parameter, read the residual, and use the Visual "
-                   "/ Auto tuning expanders to fit this device.")
+
+        from tools.SSM.helpers.fit_cache import get_fit_timestamp
+        _cache_ts = get_fit_timestamp(_fit_fname, _short)
+        _tooltip = (f"{measured['stage']} · {f_ghz[0]:.3g}–{f_ghz[-1]:.3g} GHz · "
+                    f"{len(freq)} pts — the simulation follows the measured grid "
+                    "point-for-point. Edit any parameter, read the residual, and "
+                    "use the Visual / Auto tuning expanders to fit.")
+        _pill_row = (
+            "<span style='color:#808495'><small>Fitting</small></span> "
+            f"<span class='hbt-chip-file' title='{_tooltip}'>{measured['label']}</span>"
+        )
+        if _cache_ts:
+            from datetime import datetime
+            try:
+                _dt = datetime.fromisoformat(_cache_ts)
+                if _dt.date() == datetime.now().date():
+                    _short_ts = _dt.strftime("%H:%M")
+                else:
+                    _short_ts = _dt.strftime("%Y-%m-%d %H:%M")
+            except ValueError:
+                _short_ts = _cache_ts
+            _pill_row += (
+                " <span class='hbt-chip-cache' title='A fit for this device+model was "
+                "saved earlier and auto-applies on entry (a fresh handoff from "
+                "Extraction takes priority). Load it anytime with “Use cache” inside "
+                f"the Fine-tune expander.'>📌 cache from {_short_ts}</span>"
+            )
+        _pill_row += (
+            " <span style='color:#808495'><small>→</small></span> "
+            f"<span class='hbt-chip-model'>{model_cls.NAME}</span>"
+        )
+        st.markdown(_pill_row, unsafe_allow_html=True)
+
         if _seed:
+            _fresh = st.session_state.pop(f"_simfit_seed_pending_{_short}", False)
             para_eff = {k: float(_seed.get(k, 0.0)) for k, *_ in PAD_SPECS}
             model_cls.render_override_and_smith(
                 _fit_fname, measured["S"], freq, measured["z0"],
-                para_eff, (dict(_seed), {}), show_tuning=True)
+                para_eff, (dict(_seed), {}), show_tuning=True,
+                prefer_calc_vals=_fresh, show_cache_banner=False)
         else:
             from tools.SSM.main_ssm_extraction import render_builtin_forward_sim
             render_builtin_forward_sim(_short, measured["S"], freq,
-                                       measured["z0"], _fit_fname)
+                                       measured["z0"], _fit_fname,
+                                       show_header=False, show_cache_banner=False)
         st.stop()
 
     # Split pad specs by group for the requested layout.  Xu uses its own
@@ -1103,7 +1135,8 @@ else:
                                format=fmt, step=step)
 
     st.markdown("### Inputs")
-    with st.expander(f"✏️ {model_cls.NAME} parameters", expanded=True):
+    with st.container(key="hbt_exp_edit_rfsim_" + prefix), \
+         st.expander(f"✏️ {model_cls.NAME} parameters", expanded=True):
         _mode = segmented_radio(
             "Editor mode", ["List", "Diagram"],
             key=f"rfsim_mode_{prefix}",
@@ -1148,7 +1181,7 @@ else:
             st.markdown("**Access Resistance & Lead Inductance**")
             _render_pad_row(pad_short_specs)
             _render_pad_row(pad_r_specs)
-            _render_spec_inputs(int_specs, prefix + "_int", "Intrinsic Pi-Model")
+            _render_spec_inputs(int_specs, prefix + "_int", "Intrinsic π-Model")
         else:
             st.markdown("**Pad Parasitics**")
             _render_pad_row(pad_open_specs)
@@ -1231,7 +1264,8 @@ else:
     except Exception:                                    # noqa: BLE001
         _smith_png = None
 
-    with st.expander("🖼️ Topology Illustration", expanded=False):
+    with st.container(key="hbt_exp_view_topo_rfsim"), \
+         st.expander("🖼️ Topology Illustration", expanded=False):
         try:
             if model_cls is XuModel:
                 _render_xu_illustration(p, f"rfsim_{prefix}", smith_png=_smith_png)
@@ -1243,7 +1277,8 @@ else:
         except Exception as e:
             st.warning(f"Topology illustration unavailable: {e}")
 
-    with st.expander("🍩 Smith Chart (Matplotlib)", expanded=False):
+    with st.container(key="hbt_exp_view_mplsmith_rfsim"), \
+         st.expander("🍩 Smith Chart (Matplotlib)", expanded=False):
         # Controls on the right column, chart on the left — same
         # split-call pattern the SSM tab uses inside its expander.
         col_mpl_left, col_mpl_right = st.columns([1.2, 1])
@@ -1264,6 +1299,7 @@ else:
                 phase="chart", freq_hz=freq,
             )
 
-    with st.expander("🔧 Tuning — Interactive slider preview", expanded=False):
+    with st.container(key="hbt_exp_tune_rfsim_" + prefix), \
+         st.expander("🔧 Tuning — Interactive slider preview", expanded=False):
         _render_slider_preview(model_cls, p, freq, mults, prefix,
                                 _pad_specs_for_model, ext_specs, int_specs)

@@ -232,5 +232,13 @@ def render_use_ui(measured: dict | None = None) -> None:
     render_visual_tuning_expander(adapter, values, S_ref, freq, z0,
                                   tuning_specs, fname, _FTOPO)
     if has_dev:
+        # Progressive auto-fit default scope: everything except the parasitic
+        # pad caps + lead inductances (the outermost de-embedded shells).
+        _prog_default = [
+            cid
+            for _t, items in model.grouped_value_specs()
+            if _t not in ("Parasitic pad capacitances", "Lead inductance")
+            for cid, _k, _n in items]
         render_tuning_expander(adapter, values, S_meas, freq, z0,
-                               tuning_specs, fname, _FTOPO)
+                               tuning_specs, fname, _FTOPO,
+                               default_fit_keys=_prog_default)
