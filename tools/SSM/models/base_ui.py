@@ -20,6 +20,7 @@ from ..helpers import (extended_smith_grid, params_hash, s_to_y,
                         build_Y_pad_batch, build_Z_ser_batch,
                         plotly_with_dl,
                         quickset_buttons, apply_pending, segmented_radio)
+from ..helpers.mem_budget import ram_available_bytes
 
 # Streamlit's "rerun current script" exception — raised when any st.* call
 # happens after the user has clicked a widget that triggers a re-run (e.g.
@@ -2329,6 +2330,18 @@ def _chunked_simulate_batch_to_host(model_cls, p_batch, freq, z0, *,
     Pass ``dtype=np.complex128`` for full fp64 storage if you need it
     for downstream residual calculations.
     """
+    if xp is np:
+        # Shrink the effective chunk size to whatever CPU RAM is actually
+        # available right now — same per-row working-set model as the
+        # Full Auto Tune driver (_run_progressive) and _run_one_sweep's
+        # per_combo_bytes. Prevents a caller-supplied (or default) chunk_size
+        # from allocating more than the Streamlit Cloud cgroup limit in one
+        # simulate_batch call, which would get SIGKILLed before any
+        # except MemoryError recovery path could run.
+        per_row_bytes = 16 * 4 * len(freq) * 12
+        cap = max(256, int(ram_available_bytes() * 0.25 // max(per_row_bytes, 1)))
+        chunk_size = min(chunk_size, cap)
+
     sweep_keys = []
     B = None
     for k, v in p_batch.items():
@@ -3719,12 +3732,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 except Exception:
                     budget = 1 * 1024**3
             else:
-                try:
-                    import psutil
-                    avail = psutil.virtual_memory().available
-                    free_label = f"CPU RAM: {avail/1024**3:.2f} GiB free"
-                except Exception:
-                    avail = 4 * 1024**3
+                # ram_available_bytes() is cgroup-aware (Streamlit Cloud runs
+                # inside a memory-limited container) and never raises, so no
+                # try/except is needed here — see helpers/mem_budget.py.
+                avail = ram_available_bytes()
+                free_label = f"CPU RAM: {avail/1024**3:.2f} GiB free"
                 budget = int(avail * 0.25)
 
             max_inner = max(1, budget // max(per_combo_bytes, 1))
@@ -4916,8 +4928,19 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                               else _PROG_GLOBAL_BUDGET_CPU)
             _group_budget  = (_PROG_GROUP_BUDGET_GPU if xp is not np
                               else _PROG_GROUP_BUDGET_CPU)
-            _chunk_max     = (_PROG_CHUNK_GPU if xp is not np
-                              else _PROG_CHUNK_CPU)
+            if xp is not np:
+                _chunk_max = _PROG_CHUNK_GPU
+            else:
+                # CPU: derive the chunk size from RAM actually available right
+                # now instead of the fixed _PROG_CHUNK_CPU constant — same
+                # per-row working-set model as _run_one_sweep's
+                # per_combo_bytes. At high freq-point counts the fixed constant
+                # could allocate several GB in one simulate_batch call and
+                # get SIGKILLed by the Streamlit Cloud cgroup OOM-killer
+                # before the try/except MemoryError path below ever runs.
+                per_row_bytes = 16 * 4 * len(freq) * 12
+                _chunk_max = max(256, min(_PROG_CHUNK_CPU,
+                                  int(ram_available_bytes() * 0.25 // per_row_bytes)))
 
             # Per-fit-key metadata: label / scale / hard limits / initial box /
             # step floor.  Order = fit_keys order.

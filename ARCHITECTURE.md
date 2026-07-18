@@ -119,6 +119,15 @@ JSON under `$HBT_FIT_CACHE_DIR` → `~/.hbt-tools/fits/…`
 (`helpers/fit_cache.py`; auto-disabled on Streamlit Cloud). Everything
 else is `st.session_state` (lost on refresh).
 
+CPU-side Auto Tuning chunk/budget sizes are cgroup-aware via
+`helpers/mem_budget.py` (reads `/sys/fs/cgroup/...` before falling back
+to `psutil`), so they're sized against Streamlit Cloud's actual
+container memory limit instead of the host's — a fixed-size chunk sized
+off host RAM was getting SIGKILLed by the cgroup OOM-killer before any
+`except MemoryError` path could run. The portal sidebar also shows a
+live RAM-usage bar (`tools/ui_theme.py::render_ram_badge`) built on the
+same probe.
+
 ## 6. EBL calculator (`tools/ebeam_calculator.py`)
 
 Deliberately self-contained (see §1). Page sections:

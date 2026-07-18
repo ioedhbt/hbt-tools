@@ -7,7 +7,7 @@ st.set_page_config(page_title="IOED Lab Portal", layout="wide", page_icon="🔬"
 from tools import i18n
 from tools.SSM.helpers import segmented_radio
 # All app-wide CSS lives in tools/ui_theme.py — edit there, not here.
-from tools.ui_theme import inject_css
+from tools.ui_theme import inject_css, render_ram_badge
 
 
 inject_css()
@@ -112,6 +112,8 @@ with st.container(key="lang_toggle"):
 st.sidebar.title(f"🔬 {i18n.t('portal_title')}")
 st.sidebar.caption(i18n.t("portal_caption"))
 st.sidebar.divider()
+with st.sidebar:
+    render_ram_badge()
 
 # 3. 定義功能頁面 — names + icons come from the i18n registry so the sidebar
 #    label and each tool's in-page st.title() can never drift apart again.

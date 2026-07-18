@@ -9,15 +9,30 @@ Public API
 inject_css()
     Emit one <style> block via st.markdown.  Call once, right after
     st.set_page_config, before any other st.* call that renders visible content.
+render_ram_badge()
+    Compact sidebar RAM-usage bar (server-side, cgroup-aware). Call inside
+    ``with st.sidebar:``.  Renders nothing when usage can't be determined.
 """
 
+from pathlib import Path
+
 import streamlit as st
+
+from tools.SSM.helpers import mem_budget
+
+
+# Streamlit Community Cloud mounts the checkout under /mount/src — same
+# detection rule as tools/SSM/helpers/fit_cache.py.  Used to move the
+# language-toggle CSS below the Cloud header (see inject_css()).
+try:
+    _IS_STREAMLIT_CLOUD = Path("/mount/src").exists()
+except OSError:
+    _IS_STREAMLIT_CLOUD = False
 
 
 def inject_css() -> None:
     """Inject all app-wide CSS in a single st.markdown call."""
-    st.markdown(
-        """
+    css = """
         <style>
 
         /* ── Secondary button fill ────────────────────────────────────────────
@@ -250,6 +265,89 @@ def inject_css() -> None:
         }
 
         </style>
+        """
+    if _IS_STREAMLIT_CLOUD:
+        # ── Cloud-only language-toggle offset ───────────────────────────────
+        # Streamlit Community Cloud renders its own header + toolbar ("Manage
+        # app", share, hamburger) at a very high z-index (~999990) and opaque
+        # background, pinned across the same top-right strip the toggle uses
+        # locally (top: 0.5rem) — so on Cloud the toolbar simply covers the
+        # toggle. Fighting that z-index is a losing game (Cloud reserves the
+        # right to raise its own chrome further), so instead of stacking
+        # above it we push the toggle DOWN below the header, which is about
+        # 2.875rem tall. Locally (toolbarMode=minimal, no Cloud chrome) the
+        # base top: 0.5rem position above is fine and stays unchanged.
+        css += """
+        <style>
+        div.st-key-lang_toggle {
+            top: 3.25rem;
+        }
+        </style>
+        """
+    st.markdown(css, unsafe_allow_html=True)
+
+
+# ── RAM usage badge (sidebar) ────────────────────────────────────────────────
+#
+# Streamlit >= 1.36 (pinned in requirements.txt) supports st.fragment's
+# run_every= kwarg, so the badge body re-renders on its own timer without
+# forcing a full-page rerun. If a future downgrade drops that support the
+# TypeError falls back to plain per-rerun rendering (still correct, just
+# not self-refreshing).
+try:
+    _ram_fragment_decorator = st.fragment(run_every="10s")
+except TypeError:
+    _ram_fragment_decorator = st.fragment
+
+
+@_ram_fragment_decorator
+def _render_ram_badge_body() -> None:
+    """Auto-refreshing sidebar RAM-usage bar. No-ops when mem_budget can't
+    determine usage/limit (e.g. neither cgroup accounting nor psutil is
+    available)."""
+    usage = mem_budget.ram_usage()
+    if usage is None:
+        return
+    used, limit = usage
+    if not limit:
+        return
+    pct = max(0.0, min(100.0, used / limit * 100.0))
+    if pct < 60:
+        fill_color = "#16a34a"       # green
+    elif pct < 85:
+        fill_color = "#d97706"       # amber
+    else:
+        fill_color = "#dc2626"       # red
+    st.markdown(
+        f"""
+        <div style="margin: 0.25rem 0 0.6rem 0;">
+          <div style="
+              width: 100%;
+              height: 0.55rem;
+              border-radius: 999px;
+              background: rgba(128,128,128,.25);
+              overflow: hidden;
+          ">
+            <div style="
+                width: {pct:.1f}%;
+                height: 100%;
+                background: {fill_color};
+                border-radius: 999px;
+            "></div>
+          </div>
+          <div style="font-size: 0.72rem; opacity: 0.75; margin-top: 0.2rem;">
+            RAM {used/1024**3:.2f} / {limit/1024**3:.2f} GB ({pct:.0f}%)
+          </div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_ram_badge() -> None:
+    """Render the sidebar RAM-usage bar. Call inside ``with st.sidebar:``.
+
+    Renders nothing when ``mem_budget.ram_usage()`` returns ``None`` (no
+    cgroup accounting and no psutil available).
+    """
+    _render_ram_badge_body()

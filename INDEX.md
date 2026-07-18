@@ -146,6 +146,13 @@ bullets and portal-level UI strings. The sidebar nav and each page's
 |---|---|
 | `pipeline_png(stages, accent)` | Cached matplotlib left-to-right arrow pipeline PNG used by each tool's collapsed "ℹ️ How it works" block. |
 
+### `tools/ui_theme.py` — single home for all app-wide CSS
+
+| Function | Purpose |
+|---|---|
+| `inject_css()` | Emit every app-wide `<style>` rule in one `st.markdown` call (button fills, chips, sticky residual strip, action-color system, language-toggle pinning, …). On Streamlit Cloud (`_IS_STREAMLIT_CLOUD`, same `/mount/src` detection as `tools/SSM/helpers/fit_cache.py`) an extra override block is appended that pushes `div.st-key-lang_toggle` down to `top: 3.25rem` — Cloud's own header + toolbar sit at the same top-right strip the toggle uses locally (`top: 0.5rem`) at a much higher z-index, so the toggle is fought below the header instead of trying to float above it. |
+| `render_ram_badge()` | Sidebar RAM-usage bar — thin rounded track + colored fill (green `<60%`, amber `60–85%`, red `≥85%`) + a `RAM used / limit GB (pct%)` label, sourced from `tools/SSM/helpers/mem_budget.py::ram_usage()`. Renders nothing when that returns `None`. Wrapped in `st.fragment(run_every="10s")` so it self-refreshes without a full-page rerun (falls back to plain rendering if the installed Streamlit lacks `run_every`). Called from `IOED_Tool_Web.py` inside `with st.sidebar:`, right after `st.sidebar.divider()`. |
+
 ---
 
 ## DC / curve-tracer tools (`tools/`)
