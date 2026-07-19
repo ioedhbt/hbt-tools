@@ -142,6 +142,69 @@ def saturation_current(v, i, vmin, vmax):
     return np.exp(intercept)
 
 
+def window_resistance(v, i, vmin, vmax):
+    """Chord resistance R = ΔV/ΔI between the lowest- and highest-V samples
+    inside the η window."""
+    v = np.asarray(v, float)
+    i = np.asarray(i, float)
+    mask = (v >= vmin) & (v <= vmax) & (i > 0)
+    if mask.sum() < 2:
+        return np.nan
+    v_lo, v_hi = v[mask].min(), v[mask].max()
+    i_lo = i[mask][v[mask].argmin()]
+    i_hi = i[mask][v[mask].argmax()]
+    di = i_hi - i_lo
+    return (v_hi - v_lo) / di if di != 0 else np.nan
+
+
+def box_x_range(key):
+    """Raw (x0, x1) sorted tuple from the box selection on the chart
+    registered under `key`, or None when there is no usable selection."""
+    event = st.session_state.get(key) or {}
+    boxes = (event.get("selection") or {}).get("box") or []
+    if not boxes:
+        return None
+    xs = boxes[0].get("x") or []
+    if len(xs) < 2:
+        return None
+    return tuple(sorted((float(xs[0]), float(xs[1]))))
+
+
+def range_inputs(container, label, key, default, lo, hi):
+    """Numeric start/end inputs for a plot x-window. Last-edited-wins: a new
+    box selection on the chart registered under `key` overwrites the inputs
+    before they're instantiated; otherwise typed values persist."""
+    lo, hi = float(lo), float(hi)
+    lo_key, hi_key = f"{key}_lo", f"{key}_hi"
+    st.session_state.setdefault(lo_key, min(max(float(default[0]), lo), hi))
+    st.session_state.setdefault(hi_key, min(max(float(default[1]), lo), hi))
+
+    box = box_x_range(key)
+    if box is not None and box != st.session_state.get(f"{key}_box"):
+        st.session_state[f"{key}_box"] = box
+        st.session_state[lo_key] = min(max(box[0], lo), hi)
+        st.session_state[hi_key] = min(max(box[1], lo), hi)
+
+    step = max((hi - lo) / 100, 1e-6)
+    c1, c2 = container.columns(2)
+    v_lo = c1.number_input(
+        f"{label} start (V)", min_value=lo, max_value=hi,
+        step=step, format="%.3f", key=lo_key
+    )
+    v_hi = c2.number_input(
+        f"{label} end (V)", min_value=lo, max_value=hi,
+        step=step, format="%.3f", key=hi_key
+    )
+
+    if v_lo >= v_hi:
+        container.warning(
+            f"Start must be below end — falling back to "
+            f"{default[0]:.3f}–{default[1]:.3f} V."
+        )
+        return default
+    return v_lo, v_hi
+
+
 # =================================================
 # Sidebar
 # =================================================
@@ -209,30 +272,34 @@ if page == "B1500A Viewer":
         # live in the results container below
         plot_area = st.container()
 
+        diode_key = f"diode_sel_{uploaded.name}_{sheet}"
+
         with st.container(border=True):
             st.subheader("Extracted parameters")
 
-            vmin, vmax = st.slider(
-                "Ideality factor (η) voltage range (V)",
-                float(v.min()), float(v.max()), (0.35, 0.4)
+            vmin, vmax = range_inputs(
+                st, "η window", diode_key, (0.35, 0.4),
+                float(v.min()), float(v.max())
             )
+            st.caption("Dragging a band across the plot also sets this window.")
 
             cv1, cv2 = st.columns(2)
             v_fwd_default = 1.0 if float(v.max()) >= 1.0 else float(v.max())
             v_rev_default = -1.0 if float(v.min()) <= -1.0 else float(v.min())
-            v_fwd = cv1.number_input(
-                "Forward-current readout voltage (V)",
-                float(v.min()), float(v.max()), v_fwd_default
-            )
-            v_rev = cv2.number_input(
+            v_rev = cv1.number_input(
                 "Leakage-current readout voltage (V)",
                 float(v.min()), float(v.max()), v_rev_default
+            )
+            v_fwd = cv2.number_input(
+                "Forward-current readout voltage (V)",
+                float(v.min()), float(v.max()), v_fwd_default
             )
 
             # --- extractions ---
             n = ideality_factor(v, i, vmin, vmax)
             i_s = saturation_current(v, i, vmin, vmax)
             knee = diode_knee_voltage(v, i_signed)
+            r_series = window_resistance(v, i, vmin, vmax)
             i_fwd = i[(v - v_fwd).abs().idxmin()]
             i_leak = i[(v - v_rev).abs().idxmin()]
             vmag = min(abs(float(v.min())), abs(float(v.max())))
@@ -242,10 +309,19 @@ if page == "B1500A Viewer":
                 r_pt = i[(v + vmag).abs().idxmin()]
                 rect = f_pt / r_pt if r_pt else np.nan
 
+            if re.search(r"(?<![a-z])be(?![a-z])", name):
+                r_label = "BE resistance"
+            elif re.search(r"(?<![a-z])bc(?![a-z])", name):
+                r_label = "BC resistance"
+            else:
+                r_label = "Series resistance"
+
             c1, c2, c3 = st.columns(3)
             c1.metric("Ideality factor, η", f"{n:.2f}")
             c1.metric("Knee / turn-on voltage",
                       f"{knee:.3f} V" if np.isfinite(knee) else "—")
+            c1.metric(r_label,
+                      f"{r_series:.3g} Ω" if np.isfinite(r_series) else "—")
             c2.metric("Saturation current, Is", fmt_current(i_s))
             c2.metric(f"Forward current @ {v_fwd:g} V", fmt_current(i_fwd))
             c3.metric(f"Leakage current @ {v_rev:g} V", fmt_current(i_leak))
@@ -254,7 +330,8 @@ if page == "B1500A Viewer":
             st.caption(
                 "η ≈ 1 → diffusion-dominated · η → 2 → recombination-dominated. "
                 "Knee from linear extrapolation of the steep forward region; "
-                "Is from the semilog-fit intercept over the η window."
+                "Is from the semilog-fit intercept over the η window. "
+                "R is ΔV/ΔI between the endpoints of the η window."
             )
 
         # --- plot (rendered into the reserved area above) ---
@@ -264,8 +341,12 @@ if page == "B1500A Viewer":
         fig.add_vline(x=vmax, line_dash="dash", line_color="gray")
         fig.update_yaxes(type="log", title="Current (A)")
         fig.update_xaxes(title="Voltage (V)")
-        fig.update_layout(title="Diode I–V")
-        plot_area.plotly_chart(fig, width="stretch")
+        fig.update_layout(title="Diode I–V", dragmode="select",
+                          selectdirection="h")
+        plot_area.plotly_chart(
+            fig, width="stretch", key=diode_key,
+            on_select="rerun", selection_mode="box"
+        )
 
     # =================================================
     # GUMMEL
@@ -288,22 +369,23 @@ if page == "B1500A Viewer":
         beta_v = vb.loc[beta.idxmax()]
         ic_at_betamax = abs(ic).loc[beta.idxmax()]
 
-        # reserve the plot's slot; its η window slider lives in the
+        # reserve the plot's slot; its η window selection lives in the
         # ideality container below
         plot_area = st.container()
 
+        gummel_key = f"gummel_sel_{uploaded.name}_{sheet}"
+
         with st.container(border=True):
             st.subheader("Ideality factors (η)")
-            vmin, vmax = st.slider(
-                "Ideality factor (η) voltage range (V)",
-                0.0, float(vb.max()), (0.35, 0.4)
+            vmin, vmax = range_inputs(
+                st, "η window", gummel_key, (0.35, 0.4), 0.0, float(vb.max())
             )
             n_ic = ideality_factor(vb, abs(ic), vmin, vmax)
             n_ib = ideality_factor(vb, abs(ib), vmin, vmax)
             c1, c2 = st.columns(2)
             c1.metric("Collector ideality, η(Ic)", f"{n_ic:.2f}")
             c2.metric("Base ideality, η(Ib)", f"{n_ib:.2f}")
-            st.caption("Extracted over the dashed Vb window on the plot.")
+            st.caption("Dragging a band across the plot also sets this window.")
 
         with st.container(border=True):
             st.subheader("Current gain (β)")
@@ -337,9 +419,13 @@ if page == "B1500A Viewer":
             title="β"
         )
         fig.update_xaxes(title="Vb (V)")
-        fig.update_layout(title="Gummel Plot")
+        fig.update_layout(title="Gummel Plot", dragmode="select",
+                          selectdirection="h")
 
-        plot_area.plotly_chart(fig, width="stretch")
+        plot_area.plotly_chart(
+            fig, width="stretch", key=gummel_key,
+            on_select="rerun", selection_mode="box"
+        )
 
     # =================================================
     # FAMILY
@@ -368,17 +454,20 @@ if page == "B1500A Viewer":
             key=lambda c: (ib_vals[c] is not None, ib_vals[c] or 0.0)
         )
 
-        # reserve the plot's slot; the Rsat-window slider lives in the
+        # reserve the plot's slot; the Rsat-window selection lives in the
         # output-region container below
         plot_area = st.container()
 
+        family_key = f"family_sel_{uploaded.name}_{sheet}"
+
         with st.container(border=True):
             st.subheader("Output-region parameters")
-            st.caption(f"Fitted on the highest-Ib curve: **{top_col}**")
-            r_min, r_max = st.slider(
-                "Saturation-resistance fit window — Vc (V)",
-                vc_lo, vc_hi, (default_lo, round(vc_hi, 3))
+            r_min, r_max = range_inputs(
+                st, "Rsat window", family_key,
+                (default_lo, round(vc_hi, 3)), vc_lo, vc_hi
             )
+            st.caption(f"Fitted on the highest-Ib curve: **{top_col}**")
+            st.caption("Dragging a band across the plot also sets this window.")
             ic_top = df[top_col].astype(float)
             r_out, v_early, _ = linear_fit_resistance(vc, ic_top, r_min, r_max)
             knee = knee_voltage(vc, ic_top)
@@ -424,8 +513,12 @@ if page == "B1500A Viewer":
             title="Ic (A)",
             range=[min(0.0, all_min) * 1.2, all_max * 1.2]
         )
-        fig.update_layout(title="Family I–V", hovermode="closest")
-        plot_area.plotly_chart(fig, width="stretch")
+        fig.update_layout(title="Family I–V", hovermode="closest",
+                          dragmode="select", selectdirection="h")
+        plot_area.plotly_chart(
+            fig, width="stretch", key=family_key,
+            on_select="rerun", selection_mode="box"
+        )
 
         valid_off = [o for o in offsets.values() if np.isfinite(o)]
         off_avg = float(np.mean(valid_off)) if valid_off else np.nan
