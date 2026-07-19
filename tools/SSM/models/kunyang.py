@@ -738,6 +738,7 @@ class KunYangHEMT(SSMModelTemplate, AbstractSSMModel):
     NAME          = "Kun-Yang HEMT (π-model)"
     SHORT         = "KY"
     TOPOLOGY_CHAR = "pi"
+    _SVG_TOPOLOGY = True    # built-in custom-model preset available (svg_topology.py)
 
     SUPPORTS_FP32_SWEEP = True
 

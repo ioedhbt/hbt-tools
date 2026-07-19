@@ -38,6 +38,16 @@ use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIter
 // Windows allocator (HeapAlloc) serialises across threads on small/medium
 // allocations, throttling Rayon parse paths that grow many small Vecs
 // per task.  mimalloc's per-thread arenas remove the contention.
+//
+// Windows ONLY.  On macOS/Linux this cdylib exports mimalloc's `mi_*`
+// symbols into a process that already contains a second, statically
+// linked mimalloc inside pyarrow's libarrow.  dyld cross-binds the two
+// copies, so a buffer arrow allocates via its mimalloc gets collected
+// via ours — SIGSEGV (EXC_BAD_ACCESS) during DataFrame→Arrow conversion,
+// which Streamlit does on every render.  Windows resolves DLL imports
+// per-module, so the collision does not arise there and the perf win is
+// kept where the HeapAlloc contention it addresses actually exists.
+#[cfg(target_os = "windows")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 

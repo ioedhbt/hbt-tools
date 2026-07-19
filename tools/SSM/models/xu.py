@@ -720,6 +720,7 @@ class XuModel(SSMModelTemplate, AbstractSSMModel):
     NAME          = "Xu's T (2014)"
     SHORT         = "XuT"
     TOPOLOGY_CHAR = "T"
+    _SVG_TOPOLOGY = True    # built-in custom-model preset available (svg_topology.py)
 
     SUPPORTS_FP32_SWEEP = True
     # ── Template hooks (see SSMModelTemplate in base_ui.py) ──────────────────

@@ -6426,7 +6426,44 @@ class SSMModelTemplate:
                 _smith_png = None
         with st.container(key=f"hbt_exp_view_topo_{cls.SHORT}"), \
              st.expander("🖼️ Topology illustration", expanded=False):
-            cls._render_topology(all_p, fname, smith_png=_smith_png)
+            # Models registered with a built-in custom-model preset (Cheng
+            # T/π, Xu T, Kun-Yang HEMT — see svg_topology._PRESET_LABEL) can
+            # switch to a live SVG schematic that omits every zero-valued
+            # component.  Degachi (no preset) has no ``_SVG_TOPOLOGY`` attr,
+            # so it keeps the plain PNG-template path unchanged.
+            svg_mode = False
+            if getattr(cls, "_SVG_TOPOLOGY", False):
+                svg_mode = st.toggle(
+                    "Simplified schematic (non-zero components only)",
+                    key=f"topo_svg_{cls.SHORT}_{fname}",
+                    help="ON: a live SVG schematic built from the model "
+                         "topology, showing only components with a "
+                         "non-zero current value. OFF: the standard "
+                         "labeled template illustration.")
+            if svg_mode:
+                from .svg_topology import render_svg_topology
+                render_svg_topology(cls.SHORT, all_p, fname)
+            else:
+                cls._render_topology(all_p, fname, smith_png=_smith_png)
+
+        # Open/Short pad-dummy topology — two columns (open | short), its own
+        # collapsed expander right before the Smith chart one below.  Skipped
+        # only if *none* of the six pad keys are in all_p at all (defensive;
+        # every registered model carries at least some of them — Kun-Yang has
+        # no Cpbe/Cpce/Cpbc but does have Lb/Lc/Le, so its Open column just
+        # renders blank cap values, which is fine — no HEMT special-casing).
+        _pad_topo_keys = ("Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le")
+        if any(k in all_p for k in _pad_topo_keys):
+            with st.container(key=f"hbt_exp_view_padtopo_{cls.SHORT}"), \
+                 st.expander("🖼️ Open/short topology", expanded=False):
+                from .svg_topology import render_pad_topology
+                c_open, c_short = st.columns(2)
+                c_open.caption("Open pad")
+                render_pad_topology("open", all_p, f"{cls.SHORT}_{fname}",
+                                    container=c_open)
+                c_short.caption("Short pad")
+                render_pad_topology("short", all_p, f"{cls.SHORT}_{fname}",
+                                    container=c_short)
 
         # Smith chart (matplotlib) + its controls live in a single
         # expander, rendered side-by-side — matches the RF simulator

@@ -966,6 +966,7 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
     NAME          = "T-topology (Cheng 2022)"
     SHORT         = "T"
     TOPOLOGY_CHAR = "T"
+    _SVG_TOPOLOGY = True    # built-in custom-model preset available (svg_topology.py)
     # ── Template hooks (see SSMModelTemplate in base_ui.py) ──────────────────
     _INT_SPECS         = _INT_T_SPECS
     _EXT_SPECS         = _EXT_T_SPECS
@@ -1300,6 +1301,7 @@ class ChengPi(SSMModelTemplate, AbstractSSMModel):
     NAME          = "π-topology (Cheng 2022)"
     SHORT         = "pi"
     TOPOLOGY_CHAR = "pi"
+    _SVG_TOPOLOGY = True    # built-in custom-model preset available (svg_topology.py)
     SUPPORTS_FP32_SWEEP = True   # see ChengT for rationale
     # ── Template hooks (see SSMModelTemplate in base_ui.py) ──────────────────
     _INT_SPECS         = _INT_PI_SPECS

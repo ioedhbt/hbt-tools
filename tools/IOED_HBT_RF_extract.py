@@ -39,7 +39,7 @@ from tools.SSM.helpers        import (
     PALETTE, FT_FMAX_SYMBOLS, FT_FMAX_COLORS, darken, bode_layout, make_smith, make_bode, make_plateau,
     add_overlay_trace_with_markers,
     metric_card, build_excel, load_cal,
-    xlsx_bytes_to_tsv, copy_button,
+    xlsx_bytes_to_tsv, copy_button, frames_to_tsv,
     rust_parse_and_compute_batch,
 )
 
@@ -856,9 +856,15 @@ with tab_ind:
         with st.expander("📋 Data Table"):
             if d["df_fin"] is not None:
                 ta2,tb2=st.tabs(["De-embedded","Raw"])
-                with ta2: st.dataframe(df_p.round(4),width="stretch",hide_index=True)
-                with tb2: st.dataframe(d["df_raw"].round(4),width="stretch",hide_index=True)
-            else: st.dataframe(df_p.round(4),width="stretch",hide_index=True)
+                with ta2:
+                    st.dataframe(df_p.round(4),width="stretch",hide_index=True)
+                    copy_button(frames_to_tsv([("De-embedded",df_p.round(4))]),key=f"dtab_de_{n}")
+                with tb2:
+                    st.dataframe(d["df_raw"].round(4),width="stretch",hide_index=True)
+                    copy_button(frames_to_tsv([("Raw",d["df_raw"].round(4))]),key=f"dtab_raw_{n}")
+            else:
+                st.dataframe(df_p.round(4),width="stretch",hide_index=True)
+                copy_button(frames_to_tsv([("Data",df_p.round(4))]),key=f"dtab_{n}")
 
 with tab_sum:
     if not all_data:
@@ -874,7 +880,7 @@ with tab_sum:
         fmt["Vce (V)"]="{:.3f}"; fmt["Ib (µA)"]="{:.1f}"
         st.dataframe(sum_df.style.format(fmt,na_rep="—"),width="stretch",hide_index=True)
         date=datetime.now().strftime("%Y-%m-%d")
-        d1,d2=st.columns(2)
+        d1,d2,d3=st.columns(3)
         with d1:
             st.download_button("📥 Excel",data=build_excel(sum_df,all_data),
                                file_name=f"RF_Extraction_{date}.xlsx",
@@ -890,6 +896,8 @@ with tab_sum:
             st.download_button("📦 ZIP (CSV)",data=zbuf.getvalue(),
                                file_name=f"RF_Extraction_{date}.zip",
                                mime="application/zip",width="stretch")
+        with d3:
+            copy_button(frames_to_tsv([("Summary",sum_df)]),key="sum_copy")
 
 with tab_bd:
     render_batch_deembedding_tab(

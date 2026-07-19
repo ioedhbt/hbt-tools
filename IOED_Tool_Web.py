@@ -101,8 +101,11 @@ if not _LOCAL_LAUNCH and not check_password():
 #    rerun.  Visual placement (fixed top-right) is handled entirely by CSS in
 #    tools/ui_theme.py targeting div.st-key-lang_toggle — the widget itself
 #    sits here in the normal flow but is lifted out of the document flow by
-#    position:fixed, so it no longer pushes content down.
+#    position:fixed, so it no longer pushes content down.  The RAM badge
+#    renders first inside the same container so it sits left of the toggle
+#    in the CSS row layout.
 with st.container(key="lang_toggle"):
+    render_ram_badge()
     segmented_radio(
         i18n.t("language_label"), i18n.LANGS, key="ui_lang",
         format_func=lambda l: f"🌐 {l}", label_visibility="collapsed",
@@ -112,8 +115,6 @@ with st.container(key="lang_toggle"):
 st.sidebar.title(f"🔬 {i18n.t('portal_title')}")
 st.sidebar.caption(i18n.t("portal_caption"))
 st.sidebar.divider()
-with st.sidebar:
-    render_ram_badge()
 
 # 3. 定義功能頁面 — names + icons come from the i18n registry so the sidebar
 #    label and each tool's in-page st.title() can never drift apart again.

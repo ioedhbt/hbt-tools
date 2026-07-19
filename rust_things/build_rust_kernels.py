@@ -96,6 +96,14 @@ def _run(cmd: list[str], **kw):
 def _ensure_build_venv() -> Path:
     """Create the .hbttools_build venv if missing.  Return its python exe."""
     if _BUILD_VENV_PY.exists():
+        r = subprocess.run([str(_BUILD_VENV_PY), "-m", "pip", "--version"],
+                           capture_output=True)
+        if r.returncode == 0:
+            return _BUILD_VENV_PY
+        # Half-created venv (interrupted setup, or ensurepip failed once):
+        # the interpreter is there but pip never landed.
+        print("Build venv is missing pip; bootstrapping…")
+        _run([str(_BUILD_VENV_PY), "-m", "ensurepip", "--upgrade"])
         return _BUILD_VENV_PY
     print(f"Creating build-only venv at {BUILD_VENV} (one-time setup)…")
     _run([sys.executable, "-m", "venv", str(BUILD_VENV)])
