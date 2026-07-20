@@ -361,22 +361,30 @@ def format_ib_label(ib):
     return f"{sign}{val:.3g}{unit}"
 
 
+_PAGE_LABELS_ZH = {
+    "B1500A Smart Batch Tool": "B1500A 智慧批次工具",
+    "TLM Resistance Avg": "TLM 電阻平均",
+    "E5270B citi File Tool": "E5270B CITI 檔案工具",
+    "HP4155A Data Processing Tool": "HP4155A 資料處理工具",
+    "B1500A Column Selection & Batch": "B1500A 欄位選取與批次",
+}
+# Values stay English — `page` is compared against literal strings throughout
+# this file (if/elif branches below); only the on-screen label localizes.
 page = st.sidebar.radio(
-    "Choose page:",
-    [
-        "B1500A Smart Batch Tool",
-        "TLM Resistance Avg",
-        "E5270B citi File Tool",
-        "HP4155A Data Processing Tool",
-        "B1500A Column Selection & Batch"
-    ],
+    i18n.tr("Choose page:", "選擇頁面:"),
+    list(_PAGE_LABELS_ZH.keys()),
+    format_func=lambda p: i18n.tr(p, _PAGE_LABELS_ZH[p]),
 )
 
 if page == "B1500A Smart Batch Tool":
-    st.header("B1500A Smart Batch Tool")
-    st.caption("Upload multiple B1500A CSV files. The tool auto-detects measurement type and prepares batch downloads.")
+    st.header(i18n.tr("B1500A Smart Batch Tool", "B1500A 智慧批次工具"))
+    st.caption(i18n.tr(
+        "Upload multiple B1500A CSV files. The tool auto-detects measurement type and prepares batch downloads.",
+        "上傳多個 B1500A CSV 檔案。工具會自動偵測量測類型並準備批次下載。"))
 
-    uploaded_files = st.file_uploader("Upload B1500A CSV files", type=["csv"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader(
+        i18n.tr("Upload B1500A CSV files", "上傳 B1500A CSV 檔案"),
+        type=["csv"], accept_multiple_files=True)
     if not uploaded_files: st.stop()
 
     processed = []
@@ -406,8 +414,11 @@ if page == "B1500A Smart Batch Tool":
                     df.to_excel(writer, sheet_name=sheet, index=False)
                 zf.writestr(f"{sheet}.xlsx", buf.getvalue())
 
-        st.download_button("📦 Download each data as an Excel file (ZIP)", data=zip_buf.getvalue(),
-                           file_name="B1500A_Individual_Files.zip", mime="application/zip")
+        st.download_button(
+            i18n.tr("📦 Download each data as an Excel file (ZIP)",
+                    "📦 下載各檔案的 Excel 檔（ZIP）"),
+            data=zip_buf.getvalue(),
+            file_name="B1500A_Individual_Files.zip", mime="application/zip")
 
         type_files = {}
         for fname, preset, gtype, df in processed:
@@ -427,14 +438,17 @@ if page == "B1500A Smart Batch Tool":
                                                                                                    f"{gtype}.xlsx")
                 zf.writestr(out_name, buf.getvalue())
 
-        st.download_button("📊 Download grouped files by measurement type", data=zip_buf2.getvalue(),
-                           file_name="B1500A_Grouped_By_Type.zip", mime="application/zip")
+        st.download_button(
+            i18n.tr("📊 Download grouped files by measurement type", "📊 依量測類型下載分組檔案"),
+            data=zip_buf2.getvalue(),
+            file_name="B1500A_Grouped_By_Type.zip", mime="application/zip")
 
 elif page == "B1500A Column Selection & Batch":
-    st.header("R307B B1500A CSV Batch Processing Tool")
-    st.header("Step 1: Upload a sample CSV")
+    st.header(i18n.tr("R307B B1500A CSV Batch Processing Tool", "R307B B1500A CSV 批次處理工具"))
+    st.header(i18n.tr("Step 1: Upload a sample CSV", "步驟一：上傳範例 CSV"))
 
-    sample_file = st.file_uploader("Upload sample CSV", type=["csv"], key="sample")
+    sample_file = st.file_uploader(
+        i18n.tr("Upload sample CSV", "上傳範例 CSV"), type=["csv"], key="sample")
     if sample_file:
         text = sample_file.getvalue().decode("utf-8", errors="ignore")
         header_idx = detect_header_row(text)
@@ -442,11 +456,24 @@ elif page == "B1500A Column Selection & Batch":
         df.columns = df.columns.str.strip()
 
         detected_preset = detect_preset_from_filename(sample_file.name)
+        # Values stay English — preset_choice flows into get_preset_columns(),
+        # format_output_filename() and preset_to_type() as a literal key;
+        # only the displayed label localizes via format_func.
+        _preset_opts = ["none", "BC diode preset", "BE diode preset", "Gummel preset",
+                        "Ic-Vc Family preset", "TLM preset"]
+        _preset_labels_zh = {
+            "none": "無",
+            "BC diode preset": "BC 二極體預設",
+            "BE diode preset": "BE 二極體預設",
+            "Gummel preset": "Gummel 預設",
+            "Ic-Vc Family preset": "Ic-Vc 族群預設",
+            "TLM preset": "TLM 預設",
+        }
         preset_choice = st.selectbox(
-            "Choose a preset:",
-            ["none", "BC diode preset", "BE diode preset", "Gummel preset", "Ic-Vc Family preset", "TLM preset"],
-            index=["none", "BC diode preset", "BE diode preset", "Gummel preset", "Ic-Vc Family preset",
-                   "TLM preset"].index(detected_preset) if detected_preset else 0
+            i18n.tr("Choose a preset:", "選擇預設:"),
+            _preset_opts,
+            index=_preset_opts.index(detected_preset) if detected_preset else 0,
+            format_func=lambda p: i18n.tr(p, _preset_labels_zh[p]),
         )
 
         if preset_choice != "none":
@@ -456,25 +483,31 @@ elif page == "B1500A Column Selection & Batch":
             preset_cols = []
             selected_cols = df.columns.tolist()
 
-        st.write("Detected header columns:")
-        selected_cols = st.multiselect("Select columns to keep", df.columns.tolist(), default=selected_cols,
-                                       key="col_select_widget")
+        st.write(i18n.tr("Detected header columns:", "偵測到的欄位:"))
+        selected_cols = st.multiselect(
+            i18n.tr("Select columns to keep", "選擇要保留的欄位"),
+            df.columns.tolist(), default=selected_cols,
+            key="col_select_widget",
+            placeholder=i18n.tr("Choose options", "請選擇項目"))
 
         if preset_choice != "none" and set(selected_cols) != set(preset_cols):
             preset_choice = "none"
 
-        if st.button("💾 Save template"):
+        if st.button(i18n.tr("💾 Save template", "💾 儲存範本")):
             st.session_state.batch_template_cols = selected_cols
             st.session_state.batch_template_header_idx = header_idx
             st.session_state.batch_preset_choice = preset_choice
-            st.success(f"Template saved with {len(selected_cols)} columns.")
+            st.success(i18n.tr(f"Template saved with {len(selected_cols)} columns.",
+                               f"範本已儲存，共 {len(selected_cols)} 個欄位。"))
 
     if "batch_template_cols" in st.session_state:
-        st.subheader("Step 2: Upload batch CSV files")
-        batch_files = st.file_uploader("Upload multiple CSV files", type=["csv"], accept_multiple_files=True,
-                                       key="batch")
+        st.subheader(i18n.tr("Step 2: Upload batch CSV files", "步驟二：上傳批次 CSV 檔案"))
+        batch_files = st.file_uploader(
+            i18n.tr("Upload multiple CSV files", "上傳多個 CSV 檔案"),
+            type=["csv"], accept_multiple_files=True,
+            key="batch")
 
-        if batch_files and st.button("⚡ Process Batch"):
+        if batch_files and st.button(i18n.tr("⚡ Process Batch", "⚡ 批次處理")):
             all_sheets = {}
             for f in batch_files:
                 df_proc = process_file(f, st.session_state.batch_template_cols,
@@ -492,26 +525,32 @@ elif page == "B1500A Column Selection & Batch":
             st.session_state.batch_ready = {"data": out_buffer.getvalue(), "filename": out_filename}
 
         if "batch_ready" in st.session_state:
-            st.download_button("📥 Download processed Excel", data=st.session_state.batch_ready["data"],
-                               file_name=st.session_state.batch_ready["filename"],
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            if st.button("🔄 Refresh"):
+            st.download_button(
+                i18n.tr("📥 Download processed Excel", "📥 下載處理後的 Excel"),
+                data=st.session_state.batch_ready["data"],
+                file_name=st.session_state.batch_ready["filename"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            if st.button(i18n.tr("🔄 Refresh", "🔄 重新整理")):
                 for key in ["batch_template_cols", "batch_template_header_idx", "batch_preset_choice", "batch_ready"]:
                     if key in st.session_state: del st.session_state[key]
                 st.rerun()
 
 elif page == "TLM Resistance Avg":
-    st.header("TLM Resistance Average Calculator")
-    excel_file = st.file_uploader("Upload TLM Excel file. The file name should be 'TLM batch output.xlsx'.",
-                                  type=["xlsx"], key="tlm_batch")
+    st.header(i18n.tr("TLM Resistance Average Calculator", "TLM 電阻平均計算機"))
+    excel_file = st.file_uploader(
+        i18n.tr("Upload TLM Excel file. The file name should be 'TLM batch output.xlsx'.",
+                "上傳 TLM Excel 檔案。檔名應為 'TLM batch output.xlsx'。"),
+        type=["xlsx"], key="tlm_batch")
     if excel_file:
         xls = pd.ExcelFile(excel_file)
         sheet_names = xls.sheet_names
-        st.write(f"Found sheets: {sheet_names}")
+        st.write(f"{i18n.tr('Found sheets:', '找到的工作表:')} {sheet_names}")
         resistance_avgs = []
-        chosen_col = st.text_input("Enter column name for resistance (case-sensitive):", value="Rsa")
+        chosen_col = st.text_input(
+            i18n.tr("Enter column name for resistance (case-sensitive):", "輸入電阻欄位名稱（區分大小寫）:"),
+            value="Rsa")
 
-        if st.button("⚡ Process Averages"):
+        if st.button(i18n.tr("⚡ Process Averages", "⚡ 計算平均值")):
             for sheet in sheet_names:
                 df = pd.read_excel(excel_file, sheet_name=sheet)
                 avg_val = df[chosen_col].mean() if chosen_col in df.columns else None
@@ -520,13 +559,17 @@ elif page == "TLM Resistance Avg":
             out_buffer = io.BytesIO()
             result_df.to_excel(out_buffer, index=False)
             st.dataframe(result_df)
-            st.download_button("📥 Download averages Excel", data=out_buffer.getvalue(), file_name="TLM_avg_output.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                i18n.tr("📥 Download averages Excel", "📥 下載平均值 Excel"),
+                data=out_buffer.getvalue(), file_name="TLM_avg_output.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 elif page == "E5270B citi File Tool":
-    st.header("CITI File → Excel Converter")
-    uploaded_files = st.file_uploader("Upload .citi or .txt files", accept_multiple_files=True,
-                                      type=["citi", "txt", "csv"])
+    st.header(i18n.tr("CITI File → Excel Converter", "CITI 檔案 → Excel 轉換器"))
+    uploaded_files = st.file_uploader(
+        i18n.tr("Upload .citi or .txt files", "上傳 .citi 或 .txt 檔案"),
+        accept_multiple_files=True,
+        type=["citi", "txt", "csv"])
     if "citi_preview_visible" not in st.session_state:
         st.session_state.citi_preview_visible = False
 
@@ -546,23 +589,25 @@ elif page == "E5270B citi File Tool":
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
                     df.to_excel(writer, sheet_name=name[:31], index=False)
-                st.download_button(f"📥 Download {name}_excel.xlsx", data=buf.getvalue(), file_name=f"{name}_excel.xlsx",
-                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                   key=f"dl_{name}")
+                st.download_button(
+                    f"📥 {i18n.tr('Download', '下載')} {name}_excel.xlsx",
+                    data=buf.getvalue(), file_name=f"{name}_excel.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_{name}")
             except Exception as e:
                 st.error(f"❌ {f.name}: {e}")
 
         if parsed_sheets:
-            if st.button("Show/Hide Preview"):
+            if st.button(i18n.tr("Show/Hide Preview", "顯示/隱藏預覽")):
                 st.session_state.citi_preview_visible = not st.session_state.citi_preview_visible
 
             if st.session_state.citi_preview_visible:
-                st.subheader("File Preview")
+                st.subheader(i18n.tr("File Preview", "檔案預覽"))
                 for fname, df, ftype in parsed_sheets:
                     st.write(f"{fname} ({ftype})")
                     st.dataframe(df.head(), height=200)
 
-            st.subheader("Grouped Downloads")
+            st.subheader(i18n.tr("Grouped Downloads", "分組下載"))
             groups = ["BE", "BC", "Gummel", "Family"]
             for g in groups:
                 group_sheets = [(n, df) for n, df, ftype in parsed_sheets if ftype == g]
@@ -572,24 +617,31 @@ elif page == "E5270B citi File Tool":
                         for n, df in group_sheets:
                             df.to_excel(writer, sheet_name=n.rsplit(".", 1)[0][:31], index=False)
                     buf.seek(0)
-                    st.download_button(f"📥 Download {g} Excel ({len(group_sheets)} files)", data=buf,
-                                       file_name=f"{g.upper()} Batch Output.xlsx",
-                                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    st.download_button(
+                        f"📥 {i18n.tr('Download', '下載')} {g} Excel "
+                        f"({len(group_sheets)} {i18n.tr('files', '個檔案')})",
+                        data=buf,
+                        file_name=f"{g.upper()} Batch Output.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-            st.subheader("Download All")
+            st.subheader(i18n.tr("Download All", "下載全部"))
             all_buf = io.BytesIO()
             with pd.ExcelWriter(all_buf, engine="openpyxl") as writer:
                 for n, df, _ in parsed_sheets:
                     df.to_excel(writer, sheet_name=n.rsplit(".", 1)[0][:31], index=False)
             all_buf.seek(0)
-            st.download_button("📦 Download ALL files", data=all_buf, file_name="All_CITI_Converted.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                i18n.tr("📦 Download ALL files", "📦 下載全部檔案"),
+                data=all_buf, file_name="All_CITI_Converted.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
-        st.info("Upload one or more .citi files (BE/BC/Family/Gummel).")
+        st.info(i18n.tr("Upload one or more .citi files (BE/BC/Family/Gummel).",
+                        "請上傳一個以上的 .citi 檔案（BE/BC/Family/Gummel）。"))
 
 elif page == "HP4155A Data Processing Tool":
-    st.header("HP4155A SMU Table Processor")
-    uploaded_files = st.file_uploader("Upload raw data file(s)", accept_multiple_files=True)
+    st.header(i18n.tr("HP4155A SMU Table Processor", "HP4155A SMU 表格處理器"))
+    uploaded_files = st.file_uploader(
+        i18n.tr("Upload raw data file(s)", "上傳原始資料檔"), accept_multiple_files=True)
     if not uploaded_files: st.stop()
 
     results = []
@@ -602,20 +654,35 @@ elif page == "HP4155A Data Processing Tool":
         df.columns = df.columns.str.strip()
         results.append((uploaded.name or "data", df))
 
-    st.subheader("SMU role assignment")
+    st.subheader(i18n.tr("SMU role assignment", "SMU 角色指定"))
+    # Values stay English — lower-cased into smu_role_map's dict keys
+    # ("collector"/"base"/…) which downstream parse_smu_table() looks up
+    # by literal name; only the on-screen label localizes.
     roles = ["Collector", "Base", "Emitter", "PD", "None"]
+    _role_labels_zh = {"Collector": "集極 (Collector)", "Base": "基極 (Base)",
+                       "Emitter": "射極 (Emitter)", "PD": "PD", "None": "無"}
     smu_cols = [("V1", "I1"), ("V2", "I2"), ("V3", "I3"), ("V4", "I4")]
     smu_role_map = {}
     for vcol, icol in smu_cols:
-        choice = st.selectbox(f"{vcol}/{icol}", roles, key=f"hp_batch_{vcol}_{icol}")
+        choice = st.selectbox(f"{vcol}/{icol}", roles, key=f"hp_batch_{vcol}_{icol}",
+                              format_func=lambda r: i18n.tr(r, _role_labels_zh[r]))
         if choice != "None": smu_role_map[choice.lower()] = (vcol, icol)
 
-    st.subheader("Measurement type")
-    meas = st.selectbox("Select measurement", ["family Ic-Vc", "family L-Ic-Vc", "gummel", "BE diode", "BC diode"])
-    responsivity = st.number_input("Responsivity (A/W)", value=0.35,
-                                   format="%.3f") if meas == "family L-Ic-Vc" else None
+    st.subheader(i18n.tr("Measurement type", "量測類型"))
+    # Values stay English — `meas` is compared against these literals
+    # throughout the processing block below; only the label localizes.
+    _meas_opts = ["family Ic-Vc", "family L-Ic-Vc", "gummel", "BE diode", "BC diode"]
+    _meas_labels_zh = {
+        "family Ic-Vc": "族群 Ic-Vc", "family L-Ic-Vc": "族群 L-Ic-Vc",
+        "gummel": "Gummel", "BE diode": "BE 二極體", "BC diode": "BC 二極體",
+    }
+    meas = st.selectbox(i18n.tr("Select measurement", "選擇量測"), _meas_opts,
+                        format_func=lambda m: i18n.tr(m, _meas_labels_zh[m]))
+    responsivity = st.number_input(
+        i18n.tr("Responsivity (A/W)", "響應率 (A/W)"), value=0.35,
+        format="%.3f") if meas == "family L-Ic-Vc" else None
 
-    if st.button("⚡ Process"):
+    if st.button(i18n.tr("⚡ Process", "⚡ 處理")):
         per_file_outputs = []
         for uploaded in uploaded_files:
             raw = uploaded.getvalue().decode("utf-8", errors="ignore")
@@ -645,7 +712,9 @@ elif page == "HP4155A Data Processing Tool":
                     out_elec.to_excel(buf, index=False)
                 else:
                     if "pd" not in parsed:
-                        st.error(f"{uploaded.name}: PD SMU required for L-Ic-Vc")
+                        st.error(f"{uploaded.name}: "
+                                + i18n.tr("PD SMU required for L-Ic-Vc",
+                                          "L-Ic-Vc 模式需要 PD SMU"))
                         continue
                     _, ipd = parsed["pd"]
                     L = -ipd / responsivity
@@ -670,7 +739,7 @@ elif page == "HP4155A Data Processing Tool":
 
             per_file_outputs.append((fname, buf.getvalue()))
 
-        st.subheader("Per-file downloads")
+        st.subheader(i18n.tr("Per-file downloads", "個別檔案下載"))
         for fname, data in per_file_outputs:
             st.download_button(f"📥 {fname}.xlsx", data=data, file_name=f"{fname}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -680,5 +749,7 @@ elif page == "HP4155A Data Processing Tool":
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for fname, data in per_file_outputs: zf.writestr(f"{fname}.xlsx", data)
-            st.download_button("📦 Download ALL (ZIP)", data=zip_buf.getvalue(), file_name="SMU_Table_ALL.zip",
-                               mime="application/zip")
+            st.download_button(
+                i18n.tr("📦 Download ALL (ZIP)", "📦 下載全部（ZIP）"),
+                data=zip_buf.getvalue(), file_name="SMU_Table_ALL.zip",
+                mime="application/zip")

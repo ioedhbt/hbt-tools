@@ -18,6 +18,7 @@ from .helpers          import (open_elem_Y, s_to_y, y_to_z,
                                 single_pole_extrap, segmented_radio,
                                 FT_FMAX_SYMBOLS, FT_FMAX_COLORS)
 from .models.base_ui   import render_smith_chart, ssm_residual
+from ..i18n             import tr
 
 
 # ── Open element mode constants ───────────────────────────────────────────────
@@ -25,6 +26,23 @@ from .models.base_ui   import render_smith_chart, ssm_residual
 OPEN_MODES      = ["None", "Parallel L", "Series L", "Series R"]
 _MODE_UNIT      = {"None": None, "Parallel L": "pH", "Series L": "pH", "Series R": "Ω"}
 _MODE_SCALE     = {"None": 1,    "Parallel L": 1e12, "Series L": 1e12, "Series R": 1.0}
+# Display-only translations for OPEN_MODES — the option VALUE stored in
+# session_state / compared elsewhere (`mode != "None"`, `"L" in mode`, the
+# _MODE_UNIT / _MODE_SCALE lookups) must stay the English id, so this is
+# only ever used through `format_func`.
+_OPEN_MODE_ZH   = {"None": "無", "Parallel L": "並聯電感", "Series L": "串聯電感",
+                   "Series R": "串聯電阻"}
+
+# Display-only translation for the "−20 dB/dec" / "Single-pole" extrapolation
+# method radio, which appears in several places below and whose VALUE is
+# compared against the literal English string (`extrap_method == "Single-pole"`)
+# well after the widget is drawn — so only the label goes through tr(), never
+# the stored value.  "−20 dB/dec" is left as-is (a slope spec, not prose).
+_EXTRAP_METHOD_ZH = {"Single-pole": "單極擬合"}
+
+
+def _extrap_method_label(v: str) -> str:
+    return tr(v, _EXTRAP_METHOD_ZH.get(v, v))
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -49,13 +67,19 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
     omega  = 2.0*np.pi*f_o
 
     # ── 1. Per-cap extra element controls ─────────────────────────────────────
-    with st.expander("🔧 Open Pad Element Model — extra parasitic options", expanded=False):
+    with st.expander(tr("🔧 Open Pad Element Model — extra parasitic options",
+                         "🔧 Open Pad 元件模型 — 額外寄生選項"), expanded=False):
         st.markdown(
-            "Each pad capacitor can include one secondary parasitic element.  \n"
-            "**Parallel L** = inductor ∥ C → resonance at 1/√LC, affects Im(Y)/ω.  \n"
-            "**Series L**   = inductor in series with C → increases effective C near resonance.  \n"
-            "**Series R**   = resistor in series with C → adds Re(Y) that rises then saturates.  \n"
-            "These choices propagate into de-embedding, Cold-HBT correction, and S2P downloads."
+            tr("Each pad capacitor can include one secondary parasitic element.  \n"
+               "**Parallel L** = inductor ∥ C → resonance at 1/√LC, affects Im(Y)/ω.  \n"
+               "**Series L**   = inductor in series with C → increases effective C near resonance.  \n"
+               "**Series R**   = resistor in series with C → adds Re(Y) that rises then saturates.  \n"
+               "These choices propagate into de-embedding, Cold-HBT correction, and S2P downloads.",
+               "每個 pad 電容都可加入一個次要寄生元件。  \n"
+               "**並聯電感** = 電感 ∥ C → 於 1/√LC 處產生共振，影響 Im(Y)/ω。  \n"
+               "**串聯電感** = 電感與 C 串聯 → 使共振附近的等效 C 增大。  \n"
+               "**串聯電阻** = 電阻與 C 串聯 → 使 Re(Y) 先上升後飽和。  \n"
+               "這些選擇會傳遞至去嵌入、冷 HBT 修正與 S2P 下載。")
         )
         for cap, cap_lbl in [("Cpbe","Cpbe (B-E)"), ("Cpce","Cpce (C-E)"), ("Cpbc","Cpbc (B-C)")]:
             st.markdown(f"**{cap_lbl}**")
@@ -64,13 +88,15 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
             extra_sk = f"open_extra_{cap}_{fname}"
             if mode_sk  not in st.session_state: st.session_state[mode_sk]  = "None"
             if extra_sk not in st.session_state: st.session_state[extra_sk] = 0.0
-            c1.radio(f"Open-element mode for {cap}", OPEN_MODES,
+            c1.radio(tr(f"Open-element mode for {cap}", f"{cap} 的 Open 元件模式"),
+                     OPEN_MODES,
                      horizontal=True, key=mode_sk,
+                     format_func=lambda m: tr(m, _OPEN_MODE_ZH.get(m, m)),
                      label_visibility="collapsed")
             mode = st.session_state[mode_sk]
             if mode != "None":
                 unit = _MODE_UNIT[mode]
-                c2.number_input(f"Extra {unit}", min_value=0.0,
+                c2.number_input(tr(f"Extra {unit}", f"額外 {unit}"), min_value=0.0,
                                 step=0.1 if unit == "pH" else 0.01,
                                 format="%.3f" if unit == "pH" else "%.4f",
                                 key=extra_sk)
@@ -83,7 +109,8 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
         return mode, extra_disp / sc
 
     # ── 2. Capacitance plot ───────────────────────────────────────────────────
-    with st.expander("📊 Open — Pad Capacitances vs Frequency", expanded=True):
+    with st.expander(tr("📊 Open — Pad Capacitances vs Frequency",
+                         "📊 Open — Pad 電容 vs 頻率"), expanded=True):
         fig_cap = go.Figure()
         for key, lbl, col in [("Cpbe","Cpbe","#1f77b4"),
                                ("Cpce","Cpce","#ff7f0e"),
@@ -112,10 +139,12 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
         fig_cap.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_cap.update_yaxes(showgrid=True, gridcolor="#ebebeb", range=[0, 50])
         plotly_with_dl(fig_cap, key=f"step1_cap_{fname}", filename=f"open_cap_{fname}")
-        st.caption("Flat line = pure C. Slope/resonance = inductive effect. Range fixed 0–50 fF.")
+        st.caption(tr("Flat line = pure C. Slope/resonance = inductive effect. Range fixed 0–50 fF.",
+                      "水平線 = 純電容。斜率／共振 = 電感效應。範圍固定為 0–50 fF。"))
 
     # ── 3. Conductance plot (Series R indicator) ──────────────────────────────
-    with st.expander("📊 Open — Pad Conductance vs Frequency (Re(Y) — series R indicator)",
+    with st.expander(tr("📊 Open — Pad Conductance vs Frequency (Re(Y) — series R indicator)",
+                         "📊 Open — Pad 電導 vs 頻率（Re(Y) — 串聯電阻指標）"),
                      expanded=False):
         fig_g = go.Figure()
         for key, lbl, col in [("Cpbe","Gpbe","#1f77b4"),
@@ -142,13 +171,17 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
         fig_g.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_g.update_yaxes(showgrid=True, gridcolor="#ebebeb")
         plotly_with_dl(fig_g, key=f"step1_cond_{fname}", filename=f"open_conductance_{fname}")
-        st.caption(
+        st.caption(tr(
             "Pure C → Re(Y)=0.  "
             "Series R → Re(Y) = ω²RC² / (1+ω²R²C²) — rises then saturates.  \n"
-            "Select 'Series R' above to overlay the modelled curve.")
+            "Select 'Series R' above to overlay the modelled curve.",
+            "純電容 → Re(Y)=0。  "
+            "串聯電阻 → Re(Y) = ω²RC² / (1+ω²R²C²) — 先上升後飽和。  \n"
+            "於上方選擇「串聯電阻」以疊加模型曲線。"))
 
     # ── 4. Im(Y)/ω vs 1/ω² (Parallel L linearisation) ───────────────────────
-    with st.expander("📊 Open — Im(Y)/ω vs 1/ω²  (Parallel L linearisation)", expanded=False):
+    with st.expander(tr("📊 Open — Im(Y)/ω vs 1/ω²  (Parallel L linearisation)",
+                         "📊 Open — Im(Y)/ω vs 1/ω²（並聯電感線性化）"), expanded=False):
         fig_l = go.Figure()
         one_over_omega2 = 1.0 / (omega**2 + 1e-60)
         for key, lbl, col in [("Cpbe","Cpbe","#1f77b4"),
@@ -168,12 +201,15 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
         fig_l.update_xaxes(showgrid=True, gridcolor="#ebebeb")
         fig_l.update_yaxes(showgrid=True, gridcolor="#ebebeb", range=[0, 50])
         plotly_with_dl(fig_l, key=f"step1_lind_{fname}", filename=f"open_lind_{fname}")
-        st.caption(
+        st.caption(tr(
             "Parallel L model: Im(Y)/ω = C − 1/(ω²L).  "
-            "A straight line with negative slope → L = −1/slope (SI).")
+            "A straight line with negative slope → L = −1/slope (SI).",
+            "並聯電感模型：Im(Y)/ω = C − 1/(ω²L)。  "
+            "斜率為負的直線 → L = −1/斜率（SI 單位）。"))
 
     # ── 5. Smith chart: measured vs modelled Open ─────────────────────────────
-    with st.expander("📡 Open — Measured vs Modelled Smith Chart", expanded=False):
+    with st.expander(tr("📡 Open — Measured vs Modelled Smith Chart",
+                         "📡 Open — 量測 vs 模型 Smith 圖"), expanded=False):
         _p_open = {}
         for cap in ["Cpbe", "Cpce", "Cpbc"]:
             mode, extra = _get_mode_extra(cap)
@@ -188,7 +224,8 @@ def render_open_plots(open_data, para_caps, open_arr, fname=""):
                            err_open,
                            scales={"S11":1.0,"S12":1.0,"S21":1.0,"S22":1.0},
                            key=f"smith_open_{fname}")
-        st.caption("Adjust the extra element controls above — the modelled curve updates live.")
+        st.caption(tr("Adjust the extra element controls above — the modelled curve updates live.",
+                      "調整上方的額外元件控制項 — 模型曲線會即時更新。"))
 
     return {cap: _get_mode_extra(cap) for cap in ["Cpbe", "Cpce", "Cpbc"]}
 
@@ -211,7 +248,8 @@ def render_short_plots(short_arr, para_short, fname="", freq=None):
                  index). When None the legacy point-index axis is used.
     """
 
-    with st.expander("📊 Short — Lead Inductances vs Frequency", expanded=True):
+    with st.expander(tr("📊 Short — Lead Inductances vs Frequency",
+                         "📊 Short — 引線電感 vs 頻率"), expanded=True):
         fig_ind = go.Figure(); any_neg = False
         for key, lbl, col in [("Lb","Lb","#8e44ad"),
                                ("Lc","Lc","#e67e22"),
@@ -246,8 +284,9 @@ def render_short_plots(short_arr, para_short, fname="", freq=None):
         fig_ind.update_yaxes(showgrid=True, gridcolor="#ebebeb", range=[0, 150])
         plotly_with_dl(fig_ind, key=f"step1_ind_{fname}", filename=f"short_inductances_{fname}")
         if any_neg:
-            st.warning("One or more lead inductances are negative. Use Short Override to correct.")
-        st.caption("Range fixed 0–150 pH.")
+            st.warning(tr("One or more lead inductances are negative. Use Short Override to correct.",
+                          "一個或多個引線電感為負值。請使用 Short Override 修正。"))
+        st.caption(tr("Range fixed 0–150 pH.", "範圍固定為 0–150 pH。"))
 
 
 
@@ -378,10 +417,12 @@ def _compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix,
                     borderwidth=1, font=dict(size=18)),
         hovermode="x unified", margin=dict(l=55, r=20, t=40, b=220))
 
-    extrap_note = ("   Dotted = 20 dB/dec extrapolation past the measured band."
+    extrap_note = (tr("   Dotted = 20 dB/dec extrapolation past the measured band.",
+                      "　點線 = 超出量測頻段的 20 dB/dec 外插。")
                    if extrap_used else "")
     st.markdown(
-        f"○ = |h21|² (→ fT).   □ = Mason U (→ fmax).   Y-axis fixed 0–50 dB.{extrap_note}")
+        tr(f"○ = |h21|² (→ fT).   □ = Mason U (→ fmax).   Y-axis fixed 0–50 dB.{extrap_note}",
+           f"○ = |h21|²（→ fT）。   □ = Mason U（→ fmax）。   Y 軸固定為 0–50 dB。{extrap_note}"))
 
     sc = smith_scale_controls(fname, key_suffix)
     col_gain, col_smith = st.columns([1, 1])
@@ -391,7 +432,8 @@ def _compare_bode_smith(*, S_a, S_b, freq, fname, key_suffix,
                        filename=f"bode_{key_suffix}_{fname}",
                        excel_bytes=bode_excel_bytes(f_ghz, sim_traces, extrap_traces))
     with col_smith:
-        st.markdown(f"**S-Parameters: {smith_meas_label} vs {smith_sim_label}**")
+        st.markdown(tr(f"**S-Parameters: {smith_meas_label} vs {smith_sim_label}**",
+                       f"**S 參數：{smith_meas_label} vs {smith_sim_label}**"))
         err = ssm_residual(S_a, S_b)
         _extra_dl = (extra_download_fn(fT_b, fmax_b)
                      if extra_download_fn is not None else None)
@@ -424,30 +466,43 @@ def render_os_deemb_preview(S_raw, freq, z0, para_step1, fname):
     Y_step1 = peel_parasitics(S_raw, freq, z0, para_step1)
     S_step1 = y_to_s_batch(Y_step1, z0)
 
-    with st.expander("📐 Open/Short de-embedding formulas", expanded=False):
+    with st.expander(tr("📐 Open/Short de-embedding formulas",
+                         "📐 Open/Short 去嵌入公式"), expanded=False):
         st.markdown(
-            "**Open + Short de-embedding chain** *(Gao §4.2)*  \n"
-            "Applied at every frequency point independently.")
-        st.markdown("**Step 1 — Open (parallel pad subtraction):**  \n"
-                    "S → Y,  then Y − Y_open:")
+            tr("**Open + Short de-embedding chain** *(Gao §4.2)*  \n"
+               "Applied at every frequency point independently.",
+               "**Open + Short 去嵌入鏈** *(Gao §4.2)*  \n"
+               "各頻率點皆獨立套用。"))
+        st.markdown(tr("**Step 1 — Open (parallel pad subtraction):**  \n"
+                       "S → Y,  then Y − Y_open:",
+                       "**步驟 1 — Open（並聯 pad 扣除）：**  \n"
+                       "S → Y，再 Y − Y_open："))
         st.latex(
             r"Y_1 = Y_{DUT} - Y_{pad},\quad "
             r"Y_{pad}=\begin{bmatrix}Y_{pbe}+Y_{pbc}&-Y_{pbc}\\-Y_{pbc}&Y_{pce}+Y_{pbc}\end{bmatrix}")
-        st.markdown("where $Y_{pXX} = j\\omega C_{pXX}$ (extended: Parallel L, Series L, or Series R).")
-        st.markdown("**Step 2 — Short (series lead subtraction):**  \n"
-                    "Y → Z,  then Z − Z_short,  then Z → Y:")
+        st.markdown(tr("where $Y_{pXX} = j\\omega C_{pXX}$ (extended: Parallel L, Series L, or Series R).",
+                       "其中 $Y_{pXX} = j\\omega C_{pXX}$（擴充：並聯電感、串聯電感或串聯電阻）。"))
+        st.markdown(tr("**Step 2 — Short (series lead subtraction):**  \n"
+                       "Y → Z,  then Z − Z_short,  then Z → Y:",
+                       "**步驟 2 — Short（串聯引線扣除）：**  \n"
+                       "Y → Z，再 Z − Z_short，再 Z → Y："))
         st.latex(
             r"Z_2 = Z_1 - Z_{ser},\quad "
             r"Z_{ser}=\begin{bmatrix}Z_b+Z_e&Z_e\\Z_e&Z_c+Z_e\end{bmatrix}")
-        st.markdown(
+        st.markdown(tr(
             r"where $Z_b = R_b + j\omega L_b$, etc. (Rb/Rc/Re here come from the Short dummy only — "
-            r"access-resistance correction is applied later in Step 3).")
+            r"access-resistance correction is applied later in Step 3).",
+            r"其中 $Z_b = R_b + j\omega L_b$，其餘依此類推（此處的 Rb/Rc/Re 僅來自 Short dummy — "
+            r"存取電阻修正將於步驟 3 套用）。"))
 
-    with st.expander("📊 Plots", expanded=False):
+    with st.expander(tr("📊 Plots", "📊 圖表"), expanded=False):
         st.markdown(
-            "**Raw** = measured DUT (no de-embedding).  \n"
-            "**OS de-embedded** = Open+Short parasitics removed using Step 1a/1b "
-            "extracted values (Cpbe/Cpce/Cpbc + Lb/Lc/Le + short-dummy Rs).")
+            tr("**Raw** = measured DUT (no de-embedding).  \n"
+               "**OS de-embedded** = Open+Short parasitics removed using Step 1a/1b "
+               "extracted values (Cpbe/Cpce/Cpbc + Lb/Lc/Le + short-dummy Rs).",
+               "**Raw** = 量測 DUT（未去嵌入）。  \n"
+               "**OS de-embedded** = 以步驟 1a/1b 萃取值（Cpbe/Cpce/Cpbc + Lb/Lc/Le + "
+               "short dummy Rs）移除 Open+Short 寄生。"))
 
         # OS de-embedded S2P download — sits beside the Smith chart's
         # ⬇ xlsx button (built from the right-hand trace's fT/fmax).
@@ -467,7 +522,8 @@ def render_os_deemb_preview(S_raw, freq, z0, para_step1, fname):
             label_a="Raw", label_b="OS de-embedded",
             color_a="#2ca02c", color_b="#1f77b4",
             smith_meas_label="Raw", smith_sim_label="OS de-embedded",
-            gain_title="Gain vs Frequency — Raw vs OS De-embedded",
+            gain_title=tr("Gain vs Frequency — Raw vs OS De-embedded",
+                          "增益 vs 頻率 — Raw vs OS De-embedded"),
             extra_download_fn=_os_extra_dl)
 
     return S_step1
@@ -499,7 +555,7 @@ def render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname,
     Y_pareff = peel_parasitics(S_raw, freq, z0, para_eff)
     S_pareff = y_to_s_batch(Y_pareff, z0)
 
-    with st.expander("📊 Plots", expanded=False):
+    with st.expander(tr("📊 Plots", "📊 圖表"), expanded=False):
         # Intrinsic S2P download — sits beside the Smith chart's ⬇ xlsx button
         # (built from the right-hand trace's fT/fmax).
         def _intrinsic_extra_dl(fT_b, fmax_b):
@@ -518,7 +574,8 @@ def render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname,
             label_a="OS de-embedded", label_b="Intrinsic",
             color_a="#1f77b4", color_b="#e67e22",
             smith_meas_label="OS de-embedded", smith_sim_label="Intrinsic",
-            gain_title="Gain vs Frequency — OS De-embedded vs Intrinsic",
+            gain_title=tr("Gain vs Frequency — OS De-embedded vs Intrinsic",
+                          "增益 vs 頻率 — OS De-embedded vs Intrinsic"),
             extra_download_fn=_intrinsic_extra_dl)
 
 
@@ -733,18 +790,24 @@ def render_ft_fmax_card(S_mea, S_sim, freq, *, model_name: str,
             st.session_state[f"{key}_extrap_method"] = "−20 dB/dec"
         with ec1:
             segmented_radio(
-                "Extrap. method", ["−20 dB/dec", "Single-pole"],
+                tr("Extrap. method", "外插方法"),
+                ["−20 dB/dec", "Single-pole"],
                 key=f"{key}_extrap_method",
-                help="−20 dB/dec anchors a slope-locked line at the last data "
-                     "point (textbook fT/fmax projection).  Single-pole fits a "
-                     "log-linear least-squares line over the chosen window "
-                     "(default = final 5 GHz); slope is set by the data.")
+                format_func=_extrap_method_label,
+                help=tr("−20 dB/dec anchors a slope-locked line at the last data "
+                        "point (textbook fT/fmax projection).  Single-pole fits a "
+                        "log-linear least-squares line over the chosen window "
+                        "(default = final 5 GHz); slope is set by the data.",
+                        "−20 dB/dec 於最後一個資料點錨定固定斜率的直線"
+                        "（教科書式 fT/fmax 投影）。單極擬合則在所選視窗"
+                        "（預設為最後 5 GHz）內做對數-線性最小平方擬合；"
+                        "斜率由資料決定。"))
         if (st.session_state[f"{key}_extrap_method"] == "Single-pole"
                 and len(f_ghz) >= 4):
             f_lo, f_hi = float(f_ghz[0]), float(f_ghz[-1])
             sp_default = (max(f_lo, f_hi - 5.0), f_hi)
             ec2.slider(
-                "Single-pole fit window (GHz)",
+                tr("Single-pole fit window (GHz)", "單極擬合視窗 (GHz)"),
                 min_value=f_lo, max_value=f_hi,
                 value=st.session_state.get(f"{key}_sp_window", sp_default),
                 step=max((f_hi - f_lo) / 400.0, 1e-3),
@@ -874,17 +937,22 @@ def render_forward_bode_block(S, freq_hz, title: str, key: str):
             st.session_state[f"{key}_extrap_method"] = "−20 dB/dec"
         with ec1:
             segmented_radio(
-                "Extrap. method", ["−20 dB/dec", "Single-pole"],
+                tr("Extrap. method", "外插方法"),
+                ["−20 dB/dec", "Single-pole"],
                 key=f"{key}_extrap_method",
-                help="−20 dB/dec anchors a slope-locked line at the last data "
-                     "point.  Single-pole fits a log-linear line over the "
-                     "chosen window (default = final 5 GHz).")
+                format_func=_extrap_method_label,
+                help=tr("−20 dB/dec anchors a slope-locked line at the last data "
+                        "point.  Single-pole fits a log-linear line over the "
+                        "chosen window (default = final 5 GHz).",
+                        "−20 dB/dec 於最後一個資料點錨定固定斜率的直線。"
+                        "單極擬合則在所選視窗（預設為最後 5 GHz）內做"
+                        "對數-線性擬合。"))
         if (st.session_state[f"{key}_extrap_method"] == "Single-pole"
                 and len(f_ghz) >= 4):
             f_lo, f_hi = float(f_ghz[0]), float(f_ghz[-1])
             sp_default = (max(f_lo, f_hi - 5.0), f_hi)
             ec2.slider(
-                "Single-pole fit window (GHz)",
+                tr("Single-pole fit window (GHz)", "單極擬合視窗 (GHz)"),
                 min_value=f_lo, max_value=f_hi,
                 value=st.session_state.get(f"{key}_sp_window", sp_default),
                 step=max((f_hi - f_lo) / 400.0, 1e-3),
@@ -999,12 +1067,14 @@ def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
 
     with st.container(
             key="hbt_exp_view_tau_" + re.sub(r"[^0-9A-Za-z_-]", "-", key)
-    ), st.expander("🔣 Calculated τ_total and fmax", expanded=False):
+    ), st.expander(tr("🔣 Calculated τ_total and fmax", "🔣 計算 τ_total 與 fmax"),
+                   expanded=False):
         col_tau, col_fmax = st.columns(2)
 
         # ── τ_total ───────────────────────────────────────────────────────
         with col_tau:
-            st.markdown("**Total transit time, τ_total**")
+            st.markdown(tr("**Total transit time, τ_total**",
+                           "**總傳輸時間, τ_total**"))
             st.latex(r"\tau_{total}=\frac{1}{2\pi f_T}")
             st.latex(r"\tau_{total}=\tau_B+\tau_C+\frac{nkT}{qI_c}C_{je}"
                      r"+\left(R_c+R_e+\frac{nkT}{qI_c}\right)C_{bc}")
@@ -1015,7 +1085,8 @@ def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
             # Table — rows = Measured / Modeled (single "Value" row when there
             # is no model).  Columns: fT (first), τ_total, then
             # τ_total − (τ_B+τ_C).
-            _rows = ["Measured", "Modeled"] if has_model else ["Value"]
+            _rows = [tr("Measured", "量測"), tr("Modeled", "模型")] if has_model \
+                else [tr("Value", "數值")]
             _taus = [tau_m_ps, tau_s_ps] if has_model else [tau_m_ps]
             _fts  = [fT_m, fT_s] if has_model else [fT_m]
             _tau_tbl = {
@@ -1028,17 +1099,25 @@ def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
             st.table(pd.DataFrame(_tau_tbl, index=_rows))
 
             if tau_sum_ps is not None:
-                st.caption("τ_total − (τ_B+τ_C) = emitter charging time "
-                           "(nkT/qI_c · C_je) + collector charging time "
-                           "((R_c+R_e+nkT/qI_c) · C_bc).")
+                st.caption(tr("τ_total − (τ_B+τ_C) = emitter charging time "
+                              "(nkT/qI_c · C_je) + collector charging time "
+                              "((R_c+R_e+nkT/qI_c) · C_bc).",
+                              "τ_total − (τ_B+τ_C) = 射極充電時間 "
+                              "(nkT/qI_c · C_je) + 集極充電時間 "
+                              "((R_c+R_e+nkT/qI_c) · C_bc)。"))
 
         # ── calculated fmax ───────────────────────────────────────────────
         with col_fmax:
-            st.markdown("**Maximum oscillation frequency, fmax**")
+            st.markdown(tr("**Maximum oscillation frequency, fmax**",
+                           "**最大振盪頻率, fmax**"))
             st.latex(r"f_{max}=\sqrt{\frac{f_T}{8\pi C_{BC} R_{bb}}}")
 
-            src = segmented_radio("C_BC / R_bb source", ["Extracted", "Custom"],
-                                  key=f"{key}_cbcrbb_src")
+            src = segmented_radio(
+                tr("C_BC / R_bb source", "C_BC / R_bb 來源"),
+                ["Extracted", "Custom"],
+                key=f"{key}_cbcrbb_src",
+                format_func=lambda v: tr(v, {"Extracted": "萃取值",
+                                              "Custom": "自訂"}.get(v, v)))
             if src == "Custom":
                 cc1, cc2 = st.columns(2)
                 sk_cbc, sk_rbb = f"{key}_cbc_fF", f"{key}_rbb"
@@ -1061,14 +1140,15 @@ def render_tau_fmax_expander(*, key, freq, S_meas, CBC, Rbb, S_model=None,
             # is no model).  Columns: fT (first), fmax from the S-parameter
             # 0-dB crossing (simulation), then fmax from the formula above
             # (calculation).
-            _frows = ["Measured", "Modeled"] if has_model else ["Value"]
+            _frows = [tr("Measured", "量測"), tr("Modeled", "模型")] if has_model \
+                else [tr("Value", "數值")]
             _fsim  = [fmax_m, fmax_s] if has_model else [fmax_m]
             _fts2  = [fT_m, fT_s] if has_model else [fT_m]
             _fcalc = [_calc_fmax_ghz(ft, CBC_use, Rbb_use) for ft in _fts2]
             st.table(pd.DataFrame({
-                "fT (GHz)":               [_num(v, 2) for v in _fts2],
-                "fmax simulation (GHz)":  [_num(v, 2) for v in _fsim],
-                "fmax calculation (GHz)": [_num(v, 2) for v in _fcalc],
+                "fT (GHz)":                                    [_num(v, 2) for v in _fts2],
+                tr("fmax simulation (GHz)", "fmax 模擬 (GHz)"):  [_num(v, 2) for v in _fsim],
+                tr("fmax calculation (GHz)", "fmax 計算 (GHz)"): [_num(v, 2) for v in _fcalc],
             }, index=_frows))
 
 
@@ -1283,7 +1363,8 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         sets = _sets
     sets = [s for s in sets if s.get("S") is not None]
     if not sets:
-        st.info("No S-parameter data available to plot.")
+        st.info(tr("No S-parameter data available to plot.",
+                   "沒有可繪製的 S 參數資料。"))
         return
 
     # ── Additional uploaded-file traces (the "➕" under the styling table) ────
@@ -1444,7 +1525,7 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     # ── Smith chart background thickness + grid density + text size ─────────
     if _run_controls:
         c_smith, c_grid, c_density, c_textsize = st.columns(4)
-        smith_lw = c_smith.number_input("Line thickness",
+        smith_lw = c_smith.number_input(tr("Line thickness", "線寬"),
                                         min_value=0.1, max_value=5.0, value=3.0,
                                         step=0.1, format="%.2f",
                                         key=f"{skey}_smith_lw")
@@ -1457,22 +1538,25 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                                                   _SMITH_GRID_DEFAULT))
         text_size    = float(st.session_state.get(f"{skey}_text_size", 18.0))
     if _run_controls:
-        grid_lw  = c_grid.number_input("Grid thickness",
+        grid_lw  = c_grid.number_input(tr("Grid thickness", "格線線寬"),
                                        min_value=0.1, max_value=5.0, value=1.0,
                                        step=0.1, format="%.2f",
                                        key=f"{skey}_grid_lw")
         grid_density = c_density.number_input(
-            "Grid circles",
+            tr("Grid circles", "格線圓數"),
             min_value=_SMITH_GRID_MIN, max_value=_SMITH_GRID_MAX,
             value=_SMITH_GRID_DEFAULT, step=1,
-            help="Number of constant-R circles to draw.  Positions are "
-                 "recomputed (evenly-spaced radii) for each value.",
+            help=tr("Number of constant-R circles to draw.  Positions are "
+                    "recomputed (evenly-spaced radii) for each value.",
+                    "要繪製的等電阻圓數量。每次改值都會重新計算圓的位置"
+                    "（半徑等間距分布）。"),
             key=f"{skey}_grid_count")
         text_size = c_textsize.number_input(
-            "Text size", min_value=4.0, max_value=48.0, value=18.0,
+            tr("Text size", "文字大小"), min_value=4.0, max_value=48.0, value=18.0,
             step=1.0, format="%.1f",
-            help="Font size for all on-chart text annotations "
-                 "(S-param labels + free text).",
+            help=tr("Font size for all on-chart text annotations "
+                    "(S-param labels + free text).",
+                    "圖上所有文字標註的字級（S 參數標籤 + 自由文字）。"),
             key=f"{skey}_text_size")
 
     # ── Coloring mode (decided up-front so the per-set / per-trace UIs
@@ -1485,17 +1569,30 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     _COLOR_MODE_CUSTOM    = "custom"
 
     if has_measured and _run_controls:
+        # Option VALUES stay the canonical "trace"/"bicolor"/"custom" codes
+        # (compared just below and persisted in session_state); only the chip
+        # label localizes via format_func.
+        _color_mode_labels = {
+            _COLOR_MODE_PER_TRACE: tr("trace", "依 S 參數"),
+            _COLOR_MODE_PER_SET:   tr("bicolor", "雙色"),
+            _COLOR_MODE_CUSTOM:    tr("custom", "自訂"),
+        }
         color_mode = segmented_radio(
-            "Coloring mode",
+            tr("Coloring mode", "配色模式"),
             [_COLOR_MODE_PER_TRACE, _COLOR_MODE_PER_SET, _COLOR_MODE_CUSTOM],
             key=f"{skey}_color_mode",
-            help=("**trace** — each S-param has its own color, shared "
-                  "across all sets.  \n"
-                  "**bicolor** — each set (Measured / Modeled) has one "
-                  "color, shared across its four S-params.  \n"
-                  "**custom** — pick a color independently for every "
-                  "(set, S-param) combination; defaults give measured "
-                  "the legacy palette and modeled a darker version."))
+            format_func=lambda m: _color_mode_labels.get(m, m),
+            help=tr("**trace** — each S-param has its own color, shared "
+                    "across all sets.  \n"
+                    "**bicolor** — each set (Measured / Modeled) has one "
+                    "color, shared across its four S-params.  \n"
+                    "**custom** — pick a color independently for every "
+                    "(set, S-param) combination; defaults give measured "
+                    "the legacy palette and modeled a darker version.",
+                    "**依 S 參數** — 每個 S 參數各有顏色，所有資料組共用。  \n"
+                    "**雙色** — 每組（量測 / 模型）各一色，四個 S 參數共用。  \n"
+                    "**自訂** — 每個（資料組, S 參數）組合各自挑色；預設量測用"
+                    "原色盤、模型用較深版本。"))
     else:
         # Only one kind of trace — per-set / custom split is meaningless.
         color_mode = _COLOR_MODE_PER_TRACE
@@ -1530,12 +1627,15 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                 _resolve_color(ck, default_fn(sp))
 
     if is_custom_color and _run_controls:
-        st.markdown("**Custom per-(set, S-param) colors** — defaults: "
-                    "measured = legacy palette · modeled = darker version. "
-                    "Your edits persist when switching coloring modes.")
+        st.markdown(tr("**Custom per-(set, S-param) colors** — defaults: "
+                       "measured = legacy palette · modeled = darker version. "
+                       "Your edits persist when switching coloring modes.",
+                       "**每個（資料組, S 參數）自訂顏色** — 預設：量測 = 原色盤 · "
+                       "模型 = 較深版本。切換配色模式時你的設定會保留。"))
         for set_name, default_fn in [("meas",  lambda sp: _MPL_SMITH_COLORS[sp]),
                                       ("model", lambda sp: _hex_darken(_MPL_SMITH_COLORS[sp]))]:
-            row_lbl = "Measured" if set_name == "meas" else "Modeled"
+            row_lbl = (tr("Measured", "量測") if set_name == "meas"
+                       else tr("Modeled", "模型"))
             cust_cols = st.columns([0.9, 1, 1, 1, 1])
             cust_cols[0].markdown(f"**{row_lbl}**")
             for ci, sp in enumerate(sparams):
@@ -1561,10 +1661,15 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
             _col_weights = [0.9, 1.0, 1.1, 0.8, 0.8]
             _set_headers = ["Trace", "Kind", "Style", "Size", "Decimate"]
 
+        # Header cells localize on render; the list itself keeps the canonical
+        # English names because ``lbl == "Decimate"`` gates a column below.
+        _set_header_zh = {"Trace": "曲線", "Kind": "類型", "Style": "樣式",
+                          "Size": "大小", "Color": "顏色", "Decimate": "抽樣間隔"}
         st.markdown(
             "<div style='margin:0 0 2px 0;font-size:0.78em;"
             "color:#555;letter-spacing:.02em;text-transform:uppercase'>"
-            "Measured / Modeled trace styling</div>",
+            + tr("Measured / Modeled trace styling", "量測 / 模型曲線樣式")
+            + "</div>",
             unsafe_allow_html=True)
         with st.container(border=True):
             header_cols = st.columns(_col_weights)
@@ -1575,7 +1680,7 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                     continue
                 header_cols[i].markdown(
                     f"<span style='font-size:0.85em;color:#444;"
-                    f"font-weight:600'>{lbl}</span>",
+                    f"font-weight:600'>{tr(lbl, _set_header_zh[lbl])}</span>",
                     unsafe_allow_html=True)
 
             for si, s in enumerate(sets):
@@ -1621,7 +1726,8 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                     pick = pcol.selectbox(f"File {si+1}", _opts, key=pk,
                                           label_visibility="collapsed")
                     if xcol.button("🗑", key=f"{skey}_extra_rm_{j}",
-                                   help="Remove this file from the chart"):
+                                   help=tr("Remove this file from the chart",
+                                           "從圖上移除此檔案")):
                         _cur = list(st.session_state[_extra_sel_key])
                         _cur.pop(j)
                         st.session_state[_extra_sel_key] = _cur
@@ -1634,9 +1740,13 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                 else:
                     row_cols[0].markdown(
                         f"**{s.get('label', f'Set {si+1}')}**")
-                kind = row_cols[1].selectbox(f"Kind {si+1}", ["Markers", "Line"],
-                                              key=kind_sk,
-                                              label_visibility="collapsed")
+                # Values stay "Markers"/"Line" — compared just below and
+                # persisted in session_state; only the chip text localizes.
+                kind = row_cols[1].selectbox(
+                    f"Kind {si+1}", ["Markers", "Line"], key=kind_sk,
+                    format_func=lambda k: tr(k, {"Markers": "標記",
+                                                 "Line": "線條"}[k]),
+                    label_visibility="collapsed")
                 if kind == "Line":
                     opts = list(_MPL_LINE_STYLES.keys())
                     if st.session_state[style_sk] not in opts:
@@ -1679,15 +1789,19 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                 _avail = [l for l in _pool_labels
                           if l not in set(st.session_state[_extra_sel_key])]
                 if _avail:
-                    if st.button("➕ Add a file trace", key=f"{skey}_extra_add",
-                                 help="Overlay another uploaded S-parameter "
-                                      "file on this Smith chart"):
+                    if st.button(tr("➕ Add a file trace", "➕ 新增檔案曲線"),
+                                 key=f"{skey}_extra_add",
+                                 help=tr("Overlay another uploaded S-parameter "
+                                         "file on this Smith chart",
+                                         "在此 Smith 圖上疊加另一個已上傳的 "
+                                         "S 參數檔")):
                         _cur = list(st.session_state[_extra_sel_key])
                         _cur.append(_avail[0])
                         st.session_state[_extra_sel_key] = _cur
                         st.rerun()
                 else:
-                    st.caption("All uploaded files are already on the chart.")
+                    st.caption(tr("All uploaded files are already on the chart.",
+                                  "所有已上傳的檔案都已顯示在圖上。"))
 
     # ── Per-S-param table — S-param | Multiplier | Text | x | y | [Trace] | Text
     # Text color picker is ALWAYS shown (independent of color mode); the
@@ -1701,7 +1815,9 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         st.markdown(
             "<div style='margin:0 0 2px 0;font-size:0.78em;"
             "color:#555;letter-spacing:.02em;text-transform:uppercase'>"
-            "Per-S-parameter trace + label settings</div>",
+            + tr("Per-S-parameter trace + label settings",
+                 "各 S 參數曲線與標籤設定")
+            + "</div>",
             unsafe_allow_html=True)
 
         # Column widths — first column is a narrow label cell, "Text" input
@@ -1712,12 +1828,15 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         _sp_hide_trace = is_per_set_color or is_custom_color or _has_extra
         if _sp_hide_trace:
             sp_weights = [0.5, 0.7, 1.2, 0.7, 0.7, 0.7]
-            sp_headers = ["S-param", "Multiplier", "Text",
-                          "x pos", "y pos", "Text"]
+            sp_headers = [tr("S-param", "S 參數"), tr("Multiplier", "倍率"),
+                          tr("Text", "文字"), tr("x pos", "x 位置"),
+                          tr("y pos", "y 位置"), tr("Text", "文字")]
         else:
             sp_weights = [0.5, 0.7, 1.2, 0.7, 0.7, 0.7, 0.7]
-            sp_headers = ["S-param", "Multiplier", "Text",
-                          "x pos", "y pos", "Trace", "Text"]
+            sp_headers = [tr("S-param", "S 參數"), tr("Multiplier", "倍率"),
+                          tr("Text", "文字"), tr("x pos", "x 位置"),
+                          tr("y pos", "y 位置"), tr("Trace", "曲線"),
+                          tr("Text", "文字")]
 
         with st.container(border=True):
             head = st.columns(sp_weights)
@@ -1741,9 +1860,11 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                                     on_change=_sync_text_to_mult,
                                     args=(skey, sp),
                                     label_visibility="collapsed",
-                                    help="Scales this S-param trace.  The Text "
-                                         "label auto-updates: >1 → “Sxx×N”, "
-                                         "<1 → “Sxx/N”.")
+                                    help=tr("Scales this S-param trace.  The Text "
+                                            "label auto-updates: >1 → “Sxx×N”, "
+                                            "<1 → “Sxx/N”.",
+                                            "縮放此 S 參數曲線。文字標籤會自動更新："
+                                            ">1 → 「Sxx×N」，<1 → 「Sxx/N」。"))
                 row[2].text_input(f"{sp} text", key=f"{skey}_text_{sp}",
                                   label_visibility="collapsed")
                 row[3].number_input(f"{sp} x position",
@@ -1760,21 +1881,26 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                     row[5].color_picker(f"{sp} text color",
                                         key=f"{skey}_text_color_{sp}",
                                         label_visibility="collapsed",
-                                        help="On-chart label color "
-                                             "(default = darker variant of "
-                                             "the trace color).")
+                                        help=tr("On-chart label color "
+                                                "(default = darker variant of "
+                                                "the trace color).",
+                                                "圖上標籤顏色（預設為曲線顏色的"
+                                                "較深版本）。"))
                 else:
                     row[5].color_picker(f"{sp} color",
                                         key=f"{skey}_color_{sp}",
                                         label_visibility="collapsed",
-                                        help="Trace color for this "
-                                             "S-parameter.")
+                                        help=tr("Trace color for this "
+                                                "S-parameter.",
+                                                "此 S 參數的曲線顏色。"))
                     row[6].color_picker(f"{sp} text color",
                                         key=f"{skey}_text_color_{sp}",
                                         label_visibility="collapsed",
-                                        help="On-chart label color "
-                                             "(default = darker variant of "
-                                             "the trace color).")
+                                        help=tr("On-chart label color "
+                                                "(default = darker variant of "
+                                                "the trace color).",
+                                                "圖上標籤顏色（預設為曲線顏色的"
+                                                "較深版本）。"))
 
         # One-click auto-placement: drop every S-param label just outside its
         # own trace (centroid direction, beyond the curve's outer extent) so the
@@ -1829,33 +1955,39 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                     pass
 
         st.button(
-            "🎯 Auto-place labels", key=f"{skey}_autoplace_btn",
+            tr("🎯 Auto-place labels", "🎯 自動排列標籤"),
+            key=f"{skey}_autoplace_btn",
             on_click=_auto_place_labels,
-            help="Move each S-parameter label next to its trace — just outside "
-                 "the curve so the text does not overlap it.")
+            help=tr("Move each S-parameter label next to its trace — just outside "
+                    "the curve so the text does not overlap it.",
+                    "將每個 S 參數標籤移到對應曲線旁 — 落在曲線外側，"
+                    "文字不會蓋住曲線。"))
 
         # ── Free text annotations + ➕ button ─────────────────────────────
         # (The default freq-range annotation is seeded phase-independently
         #  near the top of this function.)
         n_extra = int(st.session_state.get(extra_key, 0))
         if n_extra > 0:
-            st.markdown("**Extra text annotations**")
+            st.markdown(tr("**Extra text annotations**", "**額外文字標註**"))
         for i in range(n_extra):
             st.session_state.setdefault(f"{skey}_etext_{i}",  "")
             st.session_state.setdefault(f"{skey}_ex_{i}",     0.0)
             st.session_state.setdefault(f"{skey}_ey_{i}",     0.0)
             st.session_state.setdefault(f"{skey}_ecolor_{i}", "#000000")
             ec1, ec2, ec3, ec4 = st.columns([2, 1, 1, 1])
-            ec1.text_input(f"Text {i+1}",     key=f"{skey}_etext_{i}")
+            ec1.text_input(tr(f"Text {i+1}", f"文字 {i+1}"),
+                           key=f"{skey}_etext_{i}")
             ec2.number_input(f"x {i+1}", step=0.05, format="%.3f",
                              key=f"{skey}_ex_{i}")
             ec3.number_input(f"y {i+1}", step=0.05, format="%.3f",
                              key=f"{skey}_ey_{i}")
-            ec4.color_picker(f"Color {i+1}", key=f"{skey}_ecolor_{i}")
+            ec4.color_picker(tr(f"Color {i+1}", f"顏色 {i+1}"),
+                             key=f"{skey}_ecolor_{i}")
 
         def _add_text_slot():
             st.session_state[extra_key] = int(st.session_state[extra_key]) + 1
-        st.button("➕ Add text", key=f"{skey}_add_btn", on_click=_add_text_slot)
+        st.button(tr("➕ Add text", "➕ 新增文字"), key=f"{skey}_add_btn",
+                  on_click=_add_text_slot)
     else:
         # Chart-only phase: just read how many free text slots exist
         n_extra = int(st.session_state.get(extra_key, 0))

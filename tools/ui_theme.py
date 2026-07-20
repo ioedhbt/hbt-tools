@@ -20,6 +20,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from tools import i18n
 from tools.SSM.helpers import mem_budget
 
 
@@ -355,7 +356,7 @@ def _render_ram_badge_body() -> None:
             "></div>
           </div>
           <div style="font-size: 0.72rem; opacity: 0.75; margin-top: 0.2rem;">
-            RAM {used/1024**3:.2f} / {limit/1024**3:.2f} GB ({pct:.0f}%)
+            {i18n.tr("RAM", "記憶體")} {used/1024**3:.2f} / {limit/1024**3:.2f} GB ({pct:.0f}%)
           </div>
         </div>
         """,

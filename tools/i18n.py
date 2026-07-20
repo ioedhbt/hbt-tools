@@ -271,6 +271,17 @@ _UI: dict[str, dict] = {
 }
 
 
+def tr(en: str, zh: str) -> str:
+    """Return ``zh`` when the UI language is 中文, else ``en``.
+
+    Inline counterpart to :func:`t` for the many one-off strings inside tool
+    bodies (expander headers, widget labels, help text) that are not worth a
+    key in ``_UI``.  Pass already-formatted strings — f-strings are fine for
+    both arguments — so dynamic parts localize too.
+    """
+    return zh if is_zh() else en
+
+
 def _pick(d: dict) -> str:
     """Select the ``en``/``zh`` field of a bilingual dict for the active lang."""
     return d["zh"] if is_zh() else d["en"]
@@ -282,9 +293,13 @@ def t(key: str) -> str:
 
 
 def group_label(group_key: str) -> str:
-    """Bilingual sidebar group header, e.g. ``RF Measurement / 高頻量測``."""
-    g = GROUPS[group_key]
-    return f"{g['en']} / {g['zh']}"
+    """Localized sidebar group header.
+
+    Previously always rendered bilingually (``RF Measurement / 高頻量測``),
+    which left English in the sidebar even with the 🌐 toggle on 中文.  Now it
+    follows the active language like every other label.
+    """
+    return _pick(GROUPS[group_key])
 
 
 def tool_name(tool_key: str) -> str:

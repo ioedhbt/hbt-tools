@@ -38,15 +38,22 @@ st.title(i18n.title("ssm"))
 st.caption(i18n.tool_desc("ssm"))
 
 with st.expander(f"{i18n.t('whats_new')} · v{__version__}", expanded=False):
-    st.markdown(
+    st.markdown(i18n.tr(
         "- ✂️ **Extraction only.** This page now does just the analytic peeling "
         "extraction (Cheng T/π).  Forward simulation, custom models, Xu / "
         "Kun-Yang, and all tuning moved to **SSM Simulation & Fitting**.\n"
         "- 🔁 **Seamless handoff.** Send a de-embedded device here from *RF At a "
         "Glance*, and send the extracted model + values onward to *Simulation & "
         "Fitting* with one button — no re-uploading.\n\n"
-        "See [`CHANGELOG.md`](CHANGELOG.md) for full history."
-    )
+        "See [`CHANGELOG.md`](CHANGELOG.md) for full history.",
+
+        "- ✂️ **只做萃取。** 此頁現在只執行解析剝離萃取（Cheng T/π）。"
+        "正向模擬、自訂模型、Xu / Kun-Yang 與所有調諧功能都已移至"
+        "**小訊號模型模擬與擬合**。\n"
+        "- 🔁 **無縫交接。** 可從 *RF 一覽* 將去嵌入後的元件送到這裡，"
+        "再一鍵將萃取出的模型與數值送往 *模擬與擬合* — 完全不需重新上傳。\n\n"
+        "完整紀錄請見 [`CHANGELOG.md`](CHANGELOG.md)。"
+    ))
 
 with st.expander(i18n.t("how_it_works"), expanded=False):
     from tools.diagrams import pipeline_png
@@ -229,11 +236,18 @@ else:
     if _available:
         st.divider()
         st.markdown(
-            "#### 🛠️ Continue in Simulation & Fitting"
-            "<span class='hbt-help' title='Carry this device and its extracted "
-            "values straight to the Simulation & Fitting page for final tuning "
-            "- no re-upload. The S-parameters loaded here (de-embedded if this "
-            "device came from RF At a Glance) are forwarded unchanged.'>?</span>",
+            i18n.tr("#### 🛠️ Continue in Simulation & Fitting",
+                    "#### 🛠️ 前往模擬與擬合繼續")
+            + "<span class='hbt-help' title='"
+            + i18n.tr("Carry this device and its extracted values straight to "
+                      "the Simulation & Fitting page for final tuning - no "
+                      "re-upload. The S-parameters loaded here (de-embedded if "
+                      "this device came from RF At a Glance) are forwarded "
+                      "unchanged.",
+                      "將此元件與其萃取值直接帶到模擬與擬合頁做最後調諧，"
+                      "不需重新上傳。此處載入的 S 參數（若元件來自 RF 一覽則為"
+                      "去嵌入後的資料）會原樣轉送。")
+            + "'>?</span>",
             unsafe_allow_html=True)
         # Preserve the provenance of the active device: an injected file keeps
         # the stage it arrived with (e.g. "deembedded"); a directly-uploaded
@@ -243,7 +257,9 @@ else:
             "stage", "raw")
         hc = st.columns(len(_available))
         for col, (sh, cp) in zip(hc, _available):
-            if col.button(f"→ Send {_SHORT_LABEL[sh]} to Simulation & Fitting",
+            if col.button(
+                    i18n.tr(f"→ Send {_SHORT_LABEL[sh]} to Simulation & Fitting",
+                            f"→ 將 {_SHORT_LABEL[sh]} 送至模擬與擬合"),
                           key=f"ssm_send_simfit_{sh}_{n}", width="stretch",
                           type="primary"):
                 handoff.send(handoff.TARGET_SIMFIT,

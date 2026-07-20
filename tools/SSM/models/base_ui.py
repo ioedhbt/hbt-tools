@@ -21,6 +21,7 @@ from ..helpers import (extended_smith_grid, params_hash, s_to_y,
                         plotly_with_dl,
                         quickset_buttons, apply_pending, segmented_radio)
 from ..helpers.mem_budget import ram_available_bytes
+from ...i18n import is_zh, tr
 
 # Streamlit's "rerun current script" exception — raised when any st.* call
 # happens after the user has clicked a widget that triggers a re-run (e.g.
@@ -525,16 +526,19 @@ def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
                 if abs(d) >= 0.005:
                     delta = f"{d:+.2f}%"
             mc[i].metric(
-                "Total residual" if pname == "Total" else pname,
+                tr("Total residual", "總殘差") if pname == "Total" else pname,
                 f"{cur:.2f}%", delta=delta, delta_color="inverse",
-                help=("RMS relative S-parameter error across all four ports —"
-                      " the number to minimise.  Deltas compare against the"
-                      " previous simulation of this model.")
+                help=tr("RMS relative S-parameter error across all four ports —"
+                        " the number to minimise.  Deltas compare against the"
+                        " previous simulation of this model.",
+                        "四個埠上的均方根相對 S 參數誤差 — 需最小化的數值。"
+                        "差值與此模型上一次模擬結果比較。")
                      if pname == "Total" else None)
     st.session_state[_prev_key] = {k: float(v) for k, v in port_res.items()}
     extra_dl = None
     if s2p_bytes is not None and s2p_filename is not None:
-        extra_dl = ("📥 modeled S2P", s2p_bytes, s2p_filename, "text/plain")
+        extra_dl = (tr("📥 modeled S2P", "📥 模型 S2P"),
+                    s2p_bytes, s2p_filename, "text/plain")
     col_l, col_r = st.columns([1.05, 1])
     with col_l:
         render_smith_chart(S_raw, S_sim, model_name, err, scales,
@@ -549,9 +553,11 @@ def render_smith_with_ftfmax(S_raw, S_sim, freq, model_name: str,
 
 def smith_scale_controls(fname, topo_key) -> dict:
     st.markdown(
-        "<b>S display scale</b>"
-        " <span class='hbt-help' title='Multiply each trace before plotting."
-        " Display only - does not affect the residual.'>?</span>",
+        f"<b>{tr('S display scale', 'S 顯示縮放')}</b>"
+        f" <span class='hbt-help' title='{tr(
+            'Multiply each trace before plotting.'
+            ' Display only - does not affect the residual.',
+            '繪圖前乘上此係數，僅影響顯示，不影響殘差。')}'>?</span>",
         unsafe_allow_html=True)
     sc = {}
     for col_w, name, default in zip(st.columns(4),
@@ -609,7 +615,8 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
     # Defaults: min = min|Cbex_arr| (fF), max = max|Cbex_arr| (fF), step = 10 fF
     fin = cbex_arr[np.isfinite(cbex_arr)]
     if len(fin) == 0:
-        st.caption("Cbex sweep unavailable — no finite Cbex samples.")
+        st.caption(tr("Cbex sweep unavailable — no finite Cbex samples.",
+                      "Cbex 掃描無法使用 — 沒有有限的 Cbex 樣本。"))
         return
     abs_disp = np.abs(fin) * cbex_scale
     default_min = float(np.min(abs_disp))
@@ -626,29 +633,30 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
     k_res  = f"cbex_sweep_result_{model_short}_{fname}"  # persists across reruns
 
     st.markdown("---")
-    st.markdown("**🔍 Cbex sweep — minimise std(Cbcx)**")
+    st.markdown(f"**🔍 {tr('Cbex sweep — minimise std(Cbcx)', 'Cbex 掃描 — 最小化 std(Cbcx)')}**")
 
     c_min, c_step, c_max = st.columns(3)
     sweep_min = c_min.number_input(
-        f"Min ({cbex_unit})",
+        f"{tr('Min', '最小值')} ({cbex_unit})",
         value=float(st.session_state.get(k_min, default_min)),
         min_value=0.0, format="%.4f", key=k_min)
     sweep_step = c_step.number_input(
-        f"Step ({cbex_unit})",
+        f"{tr('Step', '步進')} ({cbex_unit})",
         value=float(st.session_state.get(k_step, default_step)),
         min_value=1e-6, format="%.4f", key=k_step)
     sweep_max = c_max.number_input(
-        f"Max ({cbex_unit})",
+        f"{tr('Max', '最大值')} ({cbex_unit})",
         value=float(st.session_state.get(k_max, default_max)),
         min_value=0.0, format="%.4f", key=k_max)
     run_sweep = st.button(
-        "Calculate",
+        tr("Calculate", "計算"),
         key=f"{sweep_key_base}_btn",
         width="stretch")
 
     if run_sweep:
         if sweep_max < sweep_min or sweep_step <= 0:
-            st.error("Sweep range is invalid: need max ≥ min and step > 0.")
+            st.error(tr("Sweep range is invalid: need max ≥ min and step > 0.",
+                        "掃描範圍無效：需 max ≥ min 且 step > 0。"))
         else:
             # Build candidate array in display units, then convert to SI
             n_pts = int(np.floor((sweep_max - sweep_min) / sweep_step)) + 1
@@ -679,12 +687,13 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
             try:
                 stds = cbex_sweep_fn(cand_SI, mask)
             except Exception as exc:
-                st.error(f"Sweep failed: {exc!r}")
+                st.error(tr(f"Sweep failed: {exc!r}", f"掃描失敗：{exc!r}"))
                 return
             stds = np.asarray(stds, dtype=float)
             if not np.any(np.isfinite(stds)):
-                st.error("All candidates produced non-finite std(Cbcx) — "
-                         "try a different range.")
+                st.error(tr("All candidates produced non-finite std(Cbcx) — "
+                            "try a different range.",
+                            "所有候選值皆產生非有限的 std(Cbcx) — 請嘗試其他範圍。"))
                 return
             best_k = int(np.nanargmin(stds))
             best_cbex_SI = float(cand_SI[best_k])
@@ -717,11 +726,15 @@ def _render_cbex_sweep_tool(*, cbex_arr, freq, f_ghz, f_min_v, f_max_v,
     # clears when the Cbex slider is moved.
     last = st.session_state.get(k_res)
     if last and last.get("rng_tag") == rng_tag:
-        st.success(
+        st.success(tr(
             f"Best Cbex = **{last['best_disp']:.4f} {cbex_unit}**  "
             f"(std(Cbcx) = {last['best_std']:.3e}, "
             f"{last['n_pts']} candidates, "
-            f"Cbcx window {last['f_lo']:.2f}–{last['f_hi']:.2f} GHz)")
+            f"Cbcx window {last['f_lo']:.2f}–{last['f_hi']:.2f} GHz)",
+            f"最佳 Cbex = **{last['best_disp']:.4f} {cbex_unit}**  "
+            f"（std(Cbcx) = {last['best_std']:.3e}，"
+            f"{last['n_pts']} 個候選值，"
+            f"Cbcx 視窗 {last['f_lo']:.2f}–{last['f_hi']:.2f} GHz）"))
 
 
 def _render_tau_total_fit_section(*, all_data, fname, model_short,
@@ -760,19 +773,27 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
     if not all_data or len(all_data) < 2:
         return False
 
-    with st.expander("📐 Cje / τB+τC / τCC / τE from 1/(2πfT) vs 1/IC fit  "
-                     "(T-model reference)",
+    with st.expander(tr("📐 Cje / τB+τC / τCC / τE from 1/(2πfT) vs 1/IC fit  "
+                        "(T-model reference)",
+                        "📐 由 1/(2πfT) 對 1/IC 擬合萃取 Cje / τB+τC / τCC / τE"
+                        "（T 模型參考）"),
                      expanded=False):
         st.caption(
-            "Reference extraction (extracted values do NOT feed back into "
-            "the model fit). Liu, Tao, Watkins, Bolognesi, IEEE EDL 25(12), 2004 'Extraction of the average collector velocity in high-speed Type-II InP-GaAsSb-InP_DHBTs.pdf'")
+            tr("Reference extraction (extracted values do NOT feed back into "
+               "the model fit). Liu, Tao, Watkins, Bolognesi, IEEE EDL 25(12), 2004 'Extraction of the average collector velocity in high-speed Type-II InP-GaAsSb-InP_DHBTs.pdf'",
+               "僅供參考的萃取（萃取值不會回饋至模型擬合）。Liu, Tao, Watkins, "
+               "Bolognesi, IEEE EDL 25(12), 2004 'Extraction of the average "
+               "collector velocity in high-speed Type-II InP-GaAsSb-InP_DHBTs.pdf'"))
         st.latex(
             r"\frac{1}{2\pi f_T}=\tau_B+\tau_C+\frac{\eta k T}{q I_C}\,C_{JE}"
             r"+\left(R_C+R_{EE}+\frac{\eta k T}{q I_C}\right)C_{BC}")
         st.caption(
-            "Notation: REE → emitter access resistance (Rpe here); "
-            "RC → collector access (Rpc here); rE = ηkT/(qIC) → intrinsic "
-            "base-emitter resistance.")
+            tr("Notation: REE → emitter access resistance (Rpe here); "
+               "RC → collector access (Rpc here); rE = ηkT/(qIC) → intrinsic "
+               "base-emitter resistance.",
+               "符號說明：REE → 射極存取電阻（此處為 Rpe）；"
+               "RC → 集極存取電阻（此處為 Rpc）；"
+               "rE = ηkT/(qIC) → 本徵射基電阻。"))
 
         # ── fT per file (Open+Short de-embedded, access R RETAINED) ─────────
         # The Cheng formula's RC/REE refer to the access resistance that the
@@ -826,7 +847,7 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
         #     "— access R RETAINED so RC/REE in the formula remain meaningful; "
         #     "no-op when the file is already pre-de-embedded):**")
         hcols = st.columns([0.3, 2.0, 1.2, 1.4, 1.4])
-        for h, t in zip(hcols, ["", "File", "fT (GHz)",
+        for h, t in zip(hcols, ["", tr("File", "檔案"), "fT (GHz)",
                                   "τ_total (ps)", "IC (mA)"]):
             h.markdown(f"<small><b>{t}</b></small>", unsafe_allow_html=True)
 
@@ -838,7 +859,7 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
             use_key = f"taut_use_{r['fn']}__{fname}__{model_short}"
             if use_key not in st.session_state:
                 st.session_state[use_key] = True
-            use = c0.checkbox(f"Use {r['stem']}",
+            use = c0.checkbox(f"{tr('Use', '使用')} {r['stem']}",
                               key=use_key + "_w",
                               value=st.session_state[use_key],
                               label_visibility="collapsed")
@@ -860,7 +881,7 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
                 st.session_state[ic_key] = float(
                     st.session_state.get(f"rz12_Ie_{r['fn']}", 0.0))
             ic_mA = c4.number_input(
-                f"IC for {r['stem']}",
+                f"IC {tr('for', '對象')} {r['stem']}",
                 min_value=0.0, step=0.1, format="%.3f",
                 value=float(st.session_state[ic_key]),
                 key=ic_key + "_w",
@@ -873,7 +894,8 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
                                 r["stem"], ic_mA))
 
         if len(points) < 2:
-            st.info("Enter IC for at least two enabled files to fit.")
+            st.info(tr("Enter IC for at least two enabled files to fit.",
+                       "請至少為兩個已啟用的檔案輸入 IC 才能進行擬合。"))
             return
 
         x = np.array([p[0] for p in points])     # 1/IC (1/mA)
@@ -882,7 +904,7 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
         try:
             slope, intercept = np.polyfit(x, y, 1)    # slope: ps·mA, int: ps
         except Exception as ex:
-            st.error(f"Linear fit failed: {ex}")
+            st.error(tr(f"Linear fit failed: {ex}", f"線性擬合失敗：{ex}"))
             return
 
         # ── Plot ──────────────────────────────────────────────────────────────
@@ -898,14 +920,14 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
                         line=dict(color="#0d4a7a", width=1.5))))
         fig.add_trace(go.Scattergl(
             x=x_fit, y=y_fit, mode="lines",
-            name=f"Fit  slope={slope:.4g} ps·mA   int={intercept:.4g} ps",
+            name=f"{tr('Fit', '擬合')}  slope={slope:.4g} ps·mA   int={intercept:.4g} ps",
             line=dict(color="#d62728", width=2, dash="dash")))
         fig.add_trace(go.Scattergl(
             x=[0.0], y=[intercept], mode="markers",
-            name=f"Intercept = {intercept:.4f} ps",
+            name=f"{tr('Intercept', '截距')} = {intercept:.4f} ps",
             marker=dict(size=14, symbol="star", color="#d62728")))
         fig.update_layout(
-            title=f"1/(2π f_T) vs 1/I_C  —  {model_short} model (reference)",
+            title=f"1/(2π f_T) vs 1/I_C  —  {model_short} {tr('model (reference)', '模型（參考）')}",
             xaxis=dict(title="1/I_C (1/mA)", rangemode="tozero",
                        showgrid=True, gridcolor="#ebebeb"),
             yaxis=dict(title="τ_total = 1/(2π f_T) (ps)",
@@ -922,7 +944,9 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
                        filename=f"taut_fit_{model_short}_{fname}")
 
         # ── Inputs (defaults from current file's extraction) ─────────────────
-        st.markdown("**Inputs (defaults from this file's extraction):**")
+        _inputs_hdr = tr("Inputs (defaults from this file's extraction):",
+                         "輸入值（預設取自此檔案的萃取結果）：")
+        st.markdown(f"**{_inputs_hdr}**")
         Re_def  = float(para_eff.get("Rpe", 0.0))
         Rc_def  = float(para_eff.get("Rpc", 0.0))
         Cbc_def = (float(params.get("Cbc",  0.0))
@@ -932,26 +956,31 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
         Re_val = ci1.number_input(
             "Re — REE (Ω)", min_value=0.0, value=Re_def, format="%.4f",
             key=f"taut_Re_{model_short}_{fname}",
-            help="Emitter access resistance.  Default = Rpe used in extraction.")
+            help=tr("Emitter access resistance.  Default = Rpe used in extraction.",
+                    "射極存取電阻。預設值 = 萃取所用的 Rpe。"))
         Rc_val = ci2.number_input(
             "Rc (Ω)", min_value=0.0, value=Rc_def, format="%.4f",
             key=f"taut_Rc_{model_short}_{fname}",
-            help="Collector access resistance.  Default = Rpc used in extraction.")
+            help=tr("Collector access resistance.  Default = Rpc used in extraction.",
+                    "集極存取電阻。預設值 = 萃取所用的 Rpc。"))
         Cbc_val_fF = ci3.number_input(
-            "Cbc total (fF)", min_value=0.0,
+            f"Cbc {tr('total', '總計')} (fF)", min_value=0.0,
             value=Cbc_def * 1e15, format="%.4f",
             key=f"taut_Cbc_{model_short}_{fname}",
-            help="Total base-collector cap.  Default = Cbc + Cbcx (intrinsic + extrinsic).")
+            help=tr("Total base-collector cap.  Default = Cbc + Cbcx (intrinsic + extrinsic).",
+                    "總基極-集極電容。預設值 = Cbc + Cbcx（本徵 + 外徵）。"))
         eta_val = ci4.number_input(
-            "η (ideality)", min_value=0.5, max_value=3.0,
+            f"η（{tr('ideality', '理想因子')}）", min_value=0.5, max_value=3.0,
             value=1.0, step=0.05, format="%.3f",
             key=f"taut_eta_{model_short}_{fname}",
-            help="Ideality factor for r_E = η kT/(q IC).  Set this from a "
-                 "Gummel-plot fit of your device (typical InP HBT: 1.0–1.2).")
+            help=tr("Ideality factor for r_E = η kT/(q IC).  Set this from a "
+                    "Gummel-plot fit of your device (typical InP HBT: 1.0–1.2).",
+                    "r_E = η kT/(q IC) 的理想因子。請由元件的 Gummel 圖擬合設定"
+                    "（典型 InP HBT：1.0–1.2）。"))
         T_K = ci5.number_input(
             "T (K)", min_value=1.0, value=300.0, step=5.0, format="%.1f",
             key=f"taut_T_{model_short}_{fname}",
-            help="Temperature for kT/q.")
+            help=tr("Temperature for kT/q.", "kT/q 計算所用的溫度。"))
 
         Cbc_val = Cbc_val_fF * 1e-15
         Vt = 1.380649e-23 * T_K / 1.602176634e-19         # kT/q  (V)
@@ -967,14 +996,18 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
         tau_BC_ps = intercept - (Re_val + Rc_val) * Cbc_val * 1e12
 
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Slope", f"{slope:.4g} ps·mA",
-                  help="d(τ_total)/d(1/I_C) — drives Cje.")
-        m2.metric("Intercept", f"{intercept:.4f} ps",
-                  help="τ_total extrapolated to 1/I_C → 0.")
-        m3.metric("Cje  (ref.)", f"{Cje_fF:.4f} fF",
-                  help="Cje = slope / (η · kT/q).  Reference only.")
-        m4.metric("τB + τC  (ref.)", f"{tau_BC_ps:.4f} ps",
-                  help="τB+τC = intercept − (Rc + Re) · Cbc.")
+        m1.metric(tr("Slope", "斜率"), f"{slope:.4g} ps·mA",
+                  help=tr("d(τ_total)/d(1/I_C) — drives Cje.",
+                          "d(τ_total)/d(1/I_C) — 決定 Cje。"))
+        m2.metric(tr("Intercept", "截距"), f"{intercept:.4f} ps",
+                  help=tr("τ_total extrapolated to 1/I_C → 0.",
+                          "τ_total 外插至 1/I_C → 0 的值。"))
+        m3.metric(f"Cje  ({tr('ref.', '參考')})", f"{Cje_fF:.4f} fF",
+                  help=tr("Cje = slope / (η · kT/q).  Reference only.",
+                          "Cje = slope / (η · kT/q)。僅供參考。"))
+        m4.metric(f"τB + τC  ({tr('ref.', '參考')})", f"{tau_BC_ps:.4f} ps",
+                  help=tr("τB+τC = intercept − (Rc + Re) · Cbc.",
+                          "τB+τC = intercept − (Rc + Re) · Cbc。"))
 
         # ── Split τB / τC using assumed collector velocity v_c ───────────────
         # Liu, Tao, Watkins, Bolognesi, IEEE EDL 25(12), 2004 — "Extraction
@@ -988,21 +1021,27 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
         # other collector materials / thicknesses / biases.  Publishes to
         # session state so the τB / τC number_inputs farther down offer a
         # "v_c = …" quickset button.
-        st.markdown("**Split τB / τC using assumed average collector velocity "
-                    "(Liu et al. 2004 — default for InP collector):**")
+        st.markdown(tr(
+            "**Split τB / τC using assumed average collector velocity "
+            "(Liu et al. 2004 — default for InP collector):**",
+            "**依假設之平均集極速度拆分 τB / τC**"
+            "**（Liu et al. 2004 — InP 集極預設值）：**"))
         cv1, cv2, cv3, cv4 = st.columns(4)
         Wc_nm = cv1.number_input(
             "W_C (nm)", min_value=1.0, value=120.0, step=10.0, format="%.2f",
             key=f"taut_Wc_{model_short}_{fname}",
-            help="Collector depletion width.")
+            help=tr("Collector depletion width.", "集極空乏區寬度。"))
         v_c_cms = cv2.number_input(
             "v_c (cm/s)", min_value=1.0e5, value=4.0e7,
             step=1.0e6, format="%.3e",
             key=f"taut_vc_{model_short}_{fname}",
-            help="Average collector velocity.  Default 4×10⁷ cm/s — peak "
-                 "value extracted for 2000 Å InP collectors in Liu, Tao, "
-                 "Watkins, Bolognesi, IEEE EDL 25(12), 2004.  Adjust for "
-                 "other collector materials / thicknesses / biases.")
+            help=tr("Average collector velocity.  Default 4×10⁷ cm/s — peak "
+                    "value extracted for 2000 Å InP collectors in Liu, Tao, "
+                    "Watkins, Bolognesi, IEEE EDL 25(12), 2004.  Adjust for "
+                    "other collector materials / thicknesses / biases.",
+                    "平均集極速度。預設 4×10⁷ cm/s — 取自 Liu, Tao, Watkins, "
+                    "Bolognesi, IEEE EDL 25(12), 2004 對 2000 Å InP 集極萃取"
+                    "之峰值。可依不同集極材料 / 厚度 / 偏壓調整。"))
         v_c_ms     = v_c_cms * 1e-2                      # cm/s → m/s
         Wc_m       = Wc_nm * 1e-9
         tauC_vc_s  = Wc_m / (2.0 * v_c_ms)               # seconds
@@ -1010,10 +1049,10 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
         tauB_vc_ps = tau_BC_ps - tauC_vc_ps              # ps
         tauB_vc_s  = tauB_vc_ps * 1e-12
 
-        cv3.metric("τC  (from v_c)", f"{tauC_vc_ps:.4f} ps",
-                   help="τ_C = W_C / (2 v_c).")
-        cv4.metric("τB  (from v_c)", f"{tauB_vc_ps:.4f} ps",
-                   help="τ_B = (τ_B+τ_C) − τ_C.")
+        cv3.metric(f"τC  ({tr('from v_c', '由 v_c 計算')})", f"{tauC_vc_ps:.4f} ps",
+                   help=tr("τ_C = W_C / (2 v_c).", "τ_C = W_C / (2 v_c)。"))
+        cv4.metric(f"τB  ({tr('from v_c', '由 v_c 計算')})", f"{tauB_vc_ps:.4f} ps",
+                   help=tr("τ_B = (τ_B+τ_C) − τ_C.", "τ_B = (τ_B+τ_C) − τ_C。"))
 
         # Publish v_c-derived values (SI seconds) so τB / τC number_inputs
         # can read them via the "v_c = …" quickset button.  Stored only when
@@ -1043,7 +1082,7 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
                 "τE = rE·Cje (ps)":  f"{tau_E:.4f}",
                 "τ_total measured (ps)": f"{tau_total_ps:.4f}",
             })
-        st.markdown("**Per-file derived delays (using inputs above):**")
+        st.markdown(f"**{tr('Per-file derived delays (using inputs above):', '各檔案推導延遲（依上述輸入值）：')}**")
         st.dataframe(pd.DataFrame(rows),
                      width="stretch", hide_index=True)
     return True
@@ -1052,7 +1091,7 @@ def _render_tau_total_fit_section(*, all_data, fname, model_short,
 # Component grouping for the diagram-mode fine-tune editor (the "✏️ Fine-tune"
 # override expander).  Keys are matched against each model's spec list; any spec
 # key not named here lands in a trailing "Other" group, so nothing is hidden.
-_FINETUNE_DIAGRAM_GROUPS = [
+_FINETUNE_DIAGRAM_GROUPS_EN = [
     ("Pad parasitics",    ["Cpbe", "Cpbc", "Cpce", "Cgsp", "Cdsp", "Cgdp",
                            "Rsub1", "Rsub2"]),
     ("Lead inductance",   ["Lb", "Lc", "Le"]),
@@ -1061,6 +1100,25 @@ _FINETUNE_DIAGRAM_GROUPS = [
     ("Delay",             ["tauB", "tauC", "tau", "R_delay", "C_delay"]),
     ("Intrinsic",         ["Rbi", "Rbe", "Cbe", "Cbc", "Rbc", "alpha0", "Gm0"]),
 ]
+# label → zh translation — looked up at render time (via _finetune_diagram_groups())
+# so a language switch mid-session relabels the groups immediately, instead of
+# baking in whatever language was active when the module was first imported.
+_FINETUNE_DIAGRAM_GROUP_ZH = {
+    "Pad parasitics":    "焊墊寄生",
+    "Lead inductance":   "引線電感",
+    "Access resistance": "存取電阻",
+    "Extrinsic C":        "外徵電容",
+    "Delay":              "延遲",
+    "Intrinsic":           "本徵",
+}
+
+
+def _finetune_diagram_groups():
+    """Localized ``(label, keys)`` pairs — call fresh each render (see module
+    docstring above ``_FINETUNE_DIAGRAM_GROUP_ZH``); never cache at import
+    time since :func:`tr` depends on the current session's language."""
+    return [(tr(lbl, _FINETUNE_DIAGRAM_GROUP_ZH[lbl]), keys)
+            for lbl, keys in _FINETUNE_DIAGRAM_GROUPS_EN]
 
 
 def render_finetune_diagram(*, all_specs, state_key_for, active_state,
@@ -1087,21 +1145,23 @@ def render_finetune_diagram(*, all_specs, state_key_for, active_state,
     calc_vals        : SI defaults used to seed an unset widget (``{}`` ⇒ 0).
     render_illustration : ``f(preview_all_p_SI, highlight_key) -> None``.
     """
+    _diagram_groups = _finetune_diagram_groups()
     spec_lookup = {s[0]: s for s in all_specs}
     ordered: list[str] = []
-    for _lbl, keys in _FINETUNE_DIAGRAM_GROUPS:
+    for _lbl, keys in _diagram_groups:
         ordered += [k for k in keys if k in spec_lookup]
     groups = [(lbl, [k for k in keys if k in spec_lookup])
-              for lbl, keys in _FINETUNE_DIAGRAM_GROUPS]
+              for lbl, keys in _diagram_groups]
     other = [s[0] for s in all_specs if s[0] not in ordered]
     if other:
-        groups.append(("Other", other))
+        groups.append((tr("Other", "其他"), other))
 
     col_diag, col_inp = st.columns([1.1, 1], gap="medium")
 
     with col_inp:
-        st.caption("Edit any value — the diagram highlights the component you "
-                   "last changed.")
+        st.caption(tr("Edit any value — the diagram highlights the component you "
+                      "last changed.",
+                      "編輯任一數值 — 示意圖會標示你最後修改的元件。"))
         for g_label, keys in groups:
             if not keys:
                 continue
@@ -1132,7 +1192,7 @@ def render_finetune_diagram(*, all_specs, state_key_for, active_state,
             for s in all_specs}
         render_illustration(preview, active)
         if active:
-            st.caption(f"Editing **{active}**")
+            st.caption(f"{tr('Editing', '編輯中')} **{active}**")
 
 
 def render_interactive_param_groups(params, arrays, freq, fname, model_short, param_groups,
@@ -1167,7 +1227,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
     live_params = dict(params)   # updated mid-loop; used for change detection
     prev_range = (f_min_v, f_max_v)
 
-    with st.expander("📊 Interactive Parameter Extraction", expanded=False):
+    with st.expander(tr("📊 Interactive Parameter Extraction", "📊 互動式參數萃取"), expanded=False):
         # Thick outline on the large per-group boxes so each parameter group
         # reads as a bold card, set apart from the thin per-parameter
         # sub-containers inside it.  Streamlit puts the user `key` class on the
@@ -1228,7 +1288,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                 if sl_key not in st.session_state:
                     st.session_state[sl_key] = (f_min_v, f_max_v)
                 f_lo, f_hi = st.slider(
-                    "Frequency range (GHz)",
+                    tr("Frequency range (GHz)", "頻率範圍 (GHz)"),
                     min_value=f_min_v, max_value=f_max_v,
                     value=st.session_state[sl_key],
                     step=step_v, format="%.2f", key=sl_key)
@@ -1249,7 +1309,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                             line=dict(color="#1f77b4", width=2)))
                         fig.update_layout(
                             title=dict(text=f"{part_lbl}({zlabel})", font=dict(size=12)),
-                            xaxis_title="Frequency (GHz)",
+                            xaxis_title=tr("Frequency (GHz)", "頻率 (GHz)"),
                             yaxis_title=f"{part_lbl}({zlabel}) (Ω)",
                             plot_bgcolor="white", paper_bgcolor="white", height=220,
                             margin=dict(l=50, r=20, t=35, b=40), showlegend=False)
@@ -1277,7 +1337,8 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                 if sl_key not in st.session_state:
                     st.session_state[sl_key] = f_max_v
                 f_hi_fbi = st.slider(
-                    "Fbi linear fit upper frequency (GHz)",
+                    tr("Fbi linear fit upper frequency (GHz)",
+                       "Fbi 線性擬合上限頻率 (GHz)"),
                     min_value=f_min_v, max_value=f_max_v,
                     value=float(st.session_state[sl_key]),
                     step=step_v, format="%.2f", key=sl_key)
@@ -1310,15 +1371,15 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     fig = go.Figure()
                     fig.add_trace(go.Scattergl(
                         x=omega2[valid_mask], y=Fbi_arr[valid_mask], mode="markers",
-                        name="All data", marker=dict(size=4, color="#aec7e8")))
+                        name=tr("All data", "全部資料"), marker=dict(size=4, color="#aec7e8")))
                     fig.add_trace(go.Scattergl(
                         x=omega2[win_mask], y=Fbi_arr[win_mask], mode="markers",
-                        name="Fit window", marker=dict(size=6, color="#1f77b4")))
+                        name=tr("Fit window", "擬合視窗"), marker=dict(size=6, color="#1f77b4")))
                     if A0 > 1e-30 and win_mask.any():
                         xf = np.linspace(0, float(omega2[win_mask].max()) * 1.1, 200)
                         fig.add_trace(go.Scattergl(
                             x=xf, y=A0 + B0 * xf, mode="lines",
-                            name=f"Fit  A₀={A0:.3e}  B₀={B0:.3e}",
+                            name=f"{tr('Fit', '擬合')}  A₀={A0:.3e}  B₀={B0:.3e}",
                             line=dict(color="#d62728", dash="dash", width=2)))
                     fig.update_layout(
                         title=dict(text="Fbi vs ω²  [Eq. 8]", font=dict(size=12)),
@@ -1334,10 +1395,11 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
 
                     Tbi_fit = float(np.sqrt(max(B0 / A0, 0.0))) if A0 > 1e-30 else 0.0
                     mc1, mc2, mc3 = st.columns(3)
-                    mc1.metric("A₀", f"{A0:.4e}", help="Intercept of Fbi vs ω²")
-                    mc2.metric("B₀", f"{B0:.4e}", help="Slope of Fbi vs ω²")
+                    mc1.metric("A₀", f"{A0:.4e}", help=tr("Intercept of Fbi vs ω²", "Fbi 對 ω² 的截距"))
+                    mc2.metric("B₀", f"{B0:.4e}", help=tr("Slope of Fbi vs ω²", "Fbi 對 ω² 的斜率"))
                     mc3.metric("Tbi = √(B₀/A₀)", f"{Tbi_fit*1e12:.4f} ps",
-                               help="Intrinsic base time constant from fit")
+                               help=tr("Intrinsic base time constant from fit",
+                                       "由擬合求得的本徵基極時間常數"))
 
                 prev_range = (f_hi_fbi, f_hi_fbi)
                 if g_idx < len(param_groups) - 1:
@@ -1347,7 +1409,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
             # ── f1_fit_group: F1 vs ω² fit + Tbe number_input ───────────────────
             if group.get("f1_fit_group"):
                 if g_deps:
-                    st.caption(f"Depends on: {', '.join(g_deps)}")
+                    st.caption(f"{tr('Depends on', '依存於')}: {', '.join(g_deps)}")
                 for formula_type, formula_content in group.get("formulas", []):
                     if formula_type == "latex":
                         st.latex(formula_content)
@@ -1358,7 +1420,8 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                 if sl_key not in st.session_state:
                     st.session_state[sl_key] = f_max_v
                 f_hi_f1 = st.slider(
-                    "F1 linear fit upper frequency (GHz)",
+                    tr("F1 linear fit upper frequency (GHz)",
+                       "F1 線性擬合上限頻率 (GHz)"),
                     min_value=f_min_v, max_value=f_max_v,
                     value=float(st.session_state[sl_key]),
                     step=step_v, format="%.2f", key=sl_key)
@@ -1391,15 +1454,15 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     fig = go.Figure()
                     fig.add_trace(go.Scattergl(
                         x=omega2[valid_mask], y=F1_arr[valid_mask], mode="markers",
-                        name="All data", marker=dict(size=4, color="#aec7e8")))
+                        name=tr("All data", "全部資料"), marker=dict(size=4, color="#aec7e8")))
                     fig.add_trace(go.Scattergl(
                         x=omega2[win_mask], y=F1_arr[win_mask], mode="markers",
-                        name="Fit window", marker=dict(size=6, color="#1f77b4")))
+                        name=tr("Fit window", "擬合視窗"), marker=dict(size=6, color="#1f77b4")))
                     if A1 > 1e-30 and win_mask.any():
                         xf = np.linspace(0, float(omega2[win_mask].max()) * 1.1, 200)
                         fig.add_trace(go.Scattergl(
                             x=xf, y=A1 + B1 * xf, mode="lines",
-                            name=f"Fit  A={A1:.3e}  B={B1:.3e}",
+                            name=f"{tr('Fit', '擬合')}  A={A1:.3e}  B={B1:.3e}",
                             line=dict(color="#d62728", dash="dash", width=2)))
                     fig.update_layout(
                         title=dict(text="F1 vs ω²  [Eq. 19]", font=dict(size=12)),
@@ -1416,11 +1479,12 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     alpha   = 1.0 / A1 if A1 > 1e-30 else 0.0
                     Tbe_fit = float(np.sqrt(max(B1 / A1, 0.0))) if A1 > 1e-30 else 0.0
                     mc1, mc2, mc3, mc4 = st.columns(4)
-                    mc1.metric("A", f"{A1:.4e}", help="Intercept of F1 vs ω²")
-                    mc2.metric("B", f"{B1:.4e}", help="Slope of F1 vs ω²")
+                    mc1.metric("A", f"{A1:.4e}", help=tr("Intercept of F1 vs ω²", "F1 對 ω² 的截距"))
+                    mc2.metric("B", f"{B1:.4e}", help=tr("Slope of F1 vs ω²", "F1 對 ω² 的斜率"))
                     mc3.metric("α = 1/A", f"{alpha:.4e}", help="α = R(T − Tbe)")
                     mc4.metric("Tbe = √(B/A)", f"{Tbe_fit*1e12:.4f} ps",
-                               help="Emitter time constant from fit")
+                               help=tr("Emitter time constant from fit",
+                                       "由擬合求得的射極時間常數"))
 
                 # Tbe number_input (user-overridable)
                 _upstream_vals = tuple(
@@ -1496,13 +1560,14 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                 key=f"pfp_groupbox_{model_short}_{g_idx}_{fname}")
             box.markdown(f"**{g_label}**")
             if g_deps:
-                box.caption(f"Depends on: {', '.join(g_deps)}")
+                box.caption(f"{tr('Depends on', '依存於')}: {', '.join(g_deps)}")
 
             slider_key = f"pfp_sl_{model_short}_{g_idx}_{fname}"
 
             # "Use previous range" button for dependent groups
             if g_deps:
-                if box.button(f"↩ Same range as previous group",
+                if box.button(tr("↩ Same range as previous group",
+                                 "↩ 與上一組相同範圍"),
                              key=f"pfp_useprev_{model_short}_{g_idx}_{fname}"):
                     st.session_state[slider_key] = prev_range
                     st.rerun()
@@ -1535,7 +1600,7 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                     st.session_state[slider_key] = (f_min_v, f_max_v)
 
             f_lo, f_hi = box.slider(
-                "Frequency range (GHz)",
+                tr("Frequency range (GHz)", "頻率範圍 (GHz)"),
                 min_value=f_min_v, max_value=f_max_v,
                 step=step_v, format="%.2f",
                 key=slider_key)
@@ -1628,12 +1693,12 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                         fig.add_hline(
                             y=_cold_disp,
                             line=dict(color="#2ca02c", width=1.5, dash="dot"),
-                            annotation_text=f"Cold: {_cold_disp:.4g} {unit}",
+                            annotation_text=f"{tr('Cold', '冷測')}: {_cold_disp:.4g} {unit}",
                             annotation_position="left",
                             annotation_font=dict(size=9, color="#2ca02c"))
                     fig.update_layout(
                         title=dict(text=label, font=dict(size=12)),
-                        xaxis_title="Frequency (GHz)", yaxis_title=ylabel,
+                        xaxis_title=tr("Frequency (GHz)", "頻率 (GHz)"), yaxis_title=ylabel,
                         plot_bgcolor="white", paper_bgcolor="white", height=240,
                         margin=dict(l=50, r=60, t=35, b=40),
                         showlegend=False, hovermode="x unified")
@@ -1697,7 +1762,8 @@ def render_interactive_param_groups(params, arrays, freq, fname, model_short, pa
                             if _bc.button(_btn_text,
                                           key=f"{inp_key}_qs_extra_{_lbl}",
                                           width="stretch",
-                                          help=f"Set {label} to the {_lbl} reference value"):
+                                          help=tr(f"Set {label} to the {_lbl} reference value",
+                                                  f"將 {label} 設為 {_lbl} 參考值")):
                                 st.session_state[inp_key + "_pending"] = float(_val)
                                 st.rerun()
 
@@ -1830,12 +1896,12 @@ def _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
 
     Two flavors selectable via the mode selector:
 
-      🎯 Live tweak          — drag any number of sliders; every drag-tick
+      🎯 All sweep           — drag any number of sliders; every drag-tick
                                 triggers a Streamlit rerun + a full sim.
                                 Slow with many params or many freq points,
                                 but supports multi-param sliding.
 
-      ⚡ Wide sweep          — click ``🧮 Build animation`` once, then the
+      ⚡ Smooth sweep        — click ``🧮 Build animation`` once, then the
                                 embedded Plotly figure scrubs through
                                 pre-computed frames entirely client-side
                                 (no Streamlit rerun per drag-tick).
@@ -1849,14 +1915,18 @@ def _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
     """
     mode_key = f"slpreview_mode_{topo_key}_{fname}"
     mode = segmented_radio(
-        "Preview mode",
-        ["🎯 Live tweak", "⚡ Wide sweep"],
+        tr("Preview mode", "預覽模式"),
+        [tr("🎯 All sweep", "🎯 全參數掃描"),
+         tr("⚡ Smooth sweep", "⚡ 平滑掃描")],
         index=0,
         key=mode_key,
-        help="🎯 Live tweak — best for a few small changes: the plots "
-             "re-compute on every drag.  ⚡ Wide sweep — best for exploring a "
-             "large range: pre-computes the whole range once so dragging is "
-             "instant afterwards.")
+        help=tr(
+            "🎯 All sweep — best for a few small changes: the plots "
+            "re-compute on every drag.  ⚡ Smooth sweep — best for exploring a "
+            "large range: pre-computes the whole range once so dragging is "
+            "instant afterwards.",
+            "🎯 全參數掃描 — 適合少量微調：每次拖曳都會重新計算圖表。"
+            "⚡ 平滑掃描 — 適合探索大範圍：一次預先計算整個範圍，之後拖曳即時反應。"))
     if mode.startswith("⚡"):
         _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
                                        tuning_specs, fname, topo_key)
@@ -2127,15 +2197,20 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
         ms_col, _ms_pad = st.columns([3, 1])
         with ms_col:
             selected = st.multiselect(
-                "Parameters to slide",
+                tr("Parameters to slide", "可拖曳參數"),
                 options=[s[0] for s in tuning_specs],
                 default=st.session_state.get(sel_key, []),
                 format_func=lambda k: label_for.get(k, k),
                 key=sel_key,
-                help="Pick parameter(s) to drag.  Plots on the right "
-                     "show the slider-substituted model in real time.  "
-                     "The main Smith / fT-fmax plots above stay frozen "
-                     "until you click ✅ Use these values.")
+                placeholder=tr("Choose options", "請選擇項目"),
+                help=tr(
+                    "Pick parameter(s) to drag.  Plots on the right "
+                    "show the slider-substituted model in real time.  "
+                    "The main Smith / fT-fmax plots above stay frozen "
+                    "until you click ✅ Use these values.",
+                    "選擇要拖曳的參數。右側圖表即時顯示套用滑桿值後的模型。"
+                    "上方主要的 Smith / fT-fmax 圖會維持不變，"
+                    "直到你點擊「✅ 使用這些數值」為止。"))
 
         selected_specs = [s for s in tuning_specs if s[0] in selected]
         preview_overrides: dict[str, float] = {}
@@ -2157,7 +2232,8 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
         # Variable cards — ONE per row.  The fixed-height scroll box
         # handles overflow internally.
         if not selected_specs:
-            st.caption("Select one or more parameters above to begin.")
+            st.caption(tr("Select one or more parameters above to begin.",
+                          "請先在上方選擇一個或多個參數以開始。"))
         else:
             for spec in selected_specs:
                 key, label, scale = spec[0], spec[1], spec[2]
@@ -2189,18 +2265,18 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
                         f"<div style='padding-top:1.6em;font-weight:600'>"
                         f"{label_unit}</div>",
                         unsafe_allow_html=True)
-                    head[1].number_input("Min", format=fmt,
+                    head[1].number_input(tr("Min", "最小值"), format=fmt,
                                          key=f"{kp}_min")
-                    head[2].number_input("Step", format=fmt,
+                    head[2].number_input(tr("Step", "步進"), format=fmt,
                                          key=f"{kp}_step",
                                          min_value=0.0)
-                    head[3].number_input("Max", format=fmt,
+                    head[3].number_input(tr("Max", "最大值"), format=fmt,
                                          key=f"{kp}_max")
                     v = st.slider(label_unit, min_value=mn, max_value=mx,
                                   step=sp_safe, format=fmt,
                                   key=kp, label_visibility="collapsed")
-                    st.caption(f"main: **{current_disp:.4g}**  →  "
-                               f"preview: **{v:.4g}** {unit}".rstrip())
+                    st.caption(f"{tr('main', '目前')}: **{current_disp:.4g}**  →  "
+                               f"{tr('preview', '預覽')}: **{v:.4g}** {unit}".rstrip())
                 preview_overrides[key] = float(v) / scale
 
     # ── Preview simulation (same logic as before, narrowed plot heights
@@ -2245,11 +2321,13 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
             try:
                 S_prev = model_cls.simulate_vec(all_p_prev, freq, z0)
             except Exception as e:
-                st.error(f"Preview simulation failed: {e}")
+                st.error(tr(f"Preview simulation failed: {e}",
+                            f"預覽模擬失敗：{e}"))
                 S_prev = None
         if S_prev is not None and not np.all(np.isfinite(S_prev)):
-            st.warning("Preview S-parameters contain non-finite values — "
-                       "adjust slider ranges to avoid singular combinations.")
+            st.warning(tr("Preview S-parameters contain non-finite values — "
+                          "adjust slider ranges to avoid singular combinations.",
+                          "預覽 S 參數包含非有限值 — 請調整滑桿範圍以避免奇異組合。"))
             S_prev = None
         if S_prev is not None:
             # Render INTO the right scroll box.  Smith + Bode go in two
@@ -2258,8 +2336,8 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
             with plots_box:
                 st.markdown(
                     f"<div style='font-size:0.85em;color:#555;"
-                    f"margin-bottom:4px'>Preview — {model_cls.NAME} "
-                    f"(residual {ssm_residual(S_raw, S_prev):.2f}%)"
+                    f"margin-bottom:4px'>{tr('Preview', '預覽')} — {model_cls.NAME} "
+                    f"({tr('residual', '殘差')} {ssm_residual(S_raw, S_prev):.2f}%)"
                     f"</div>",
                     unsafe_allow_html=True)
                 smith_col, bode_col = st.columns(2)
@@ -2291,17 +2369,21 @@ def _render_live_slider_preview(model_cls, all_p, S_raw, freq, z0,
     with controls_col:
         bc1, bc2 = st.columns(2)
         commit_clicked = bc1.container(key=f"hbt_amber_slcommit_{topo_key}").button(
-            "✅ Use these values",
+            tr("✅ Use these values", "✅ 使用這些數值"),
             key=f"slpreview_commit_{topo_key}_{fname}",
             disabled=(len(preview_overrides) == 0),
-            help="Copy slider values into the fine-tune Smith-chart override "
-                 "fields above.  Does NOT auto-save to the persistent fit "
-                 "cache — only direct edits in the fine-tune number_inputs do.",
+            help=tr(
+                "Copy slider values into the fine-tune Smith-chart override "
+                "fields above.  Does NOT auto-save to the persistent fit "
+                "cache — only direct edits in the fine-tune number_inputs do.",
+                "將滑桿數值複製到上方的微調 Smith 圖覆寫欄位。"
+                "不會自動儲存到永久擬合快取 — 只有直接編輯微調數字輸入框才會。"),
             width="stretch")
         reset_clicked = bc2.button(
-            "↩️ Reset preview",
+            tr("↩️ Reset preview", "↩️ 重設預覽"),
             key=f"slpreview_reset_{topo_key}_{fname}",
-            help="Discard slider drags and clear remembered min/step/max.",
+            help=tr("Discard slider drags and clear remembered min/step/max.",
+                    "捨棄滑桿拖曳並清除記住的最小值/步進/最大值。"),
             width="stretch")
 
     if commit_clicked:
@@ -2402,21 +2484,29 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
 
     sel_key = f"slprev_pl_sel_{topo_key}_{fname}"
     selected = st.multiselect(
-        "Sweep parameters",
+        tr("Sweep parameters", "掃描參數"),
         options=options,
         default=st.session_state.get(sel_key, [options[0]] if options else []),
         format_func=lambda k: label_for.get(k, k),
         key=sel_key,
-        help="Each selected param gets its own Plotly slider in the figure. "
-             "Frames are the FULL cartesian product, so dragging slider B "
-             "reflects the model at the current position of every other "
-             "slider (true joint scan).  Watch the total frame count below "
-             "— it grows multiplicatively.")
+        placeholder=tr("Choose options", "請選擇項目"),
+        help=tr(
+            "Each selected param gets its own Plotly slider in the figure. "
+            "Frames are the FULL cartesian product, so dragging slider B "
+            "reflects the model at the current position of every other "
+            "slider (true joint scan).  Watch the total frame count below "
+            "— it grows multiplicatively.",
+            "每個選取的參數在圖表中都有各自的 Plotly 滑桿。"
+            "各幀是所有滑桿值的完整笛卡兒積，因此拖曳滑桿 B 時，"
+            "會反映其他每個滑桿目前位置下的模型（真正的聯合掃描）。"
+            "請留意下方的總幀數 — 它會以乘法方式增長。"))
 
     selected_specs = [s for s in tuning_specs if s[0] in selected]
     if not selected_specs:
-        st.caption("Select one or more parameters above and click "
-                   "**🧮 Build animation**.")
+        st.caption(tr("Select one or more parameters above and click "
+                      "**🧮 Build animation**.",
+                      "請先在上方選擇一個或多個參數，再點擊"
+                      "**🧮 建立動畫**。"))
         return
 
     # ── Initialize per-param ranges ────────────────────────────────────
@@ -2451,12 +2541,14 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
                 f"<div style='padding-top:1.6em;font-weight:600'>"
                 f"{label_unit}</div>",
                 unsafe_allow_html=True)
-            head[1].number_input("Min", format=fmt, key=f"{kp}_min")
-            head[2].number_input("Max", format=fmt, key=f"{kp}_max")
-            head[3].number_input("Frames", min_value=2, max_value=100, step=1,
+            head[1].number_input(tr("Min", "最小值"), format=fmt, key=f"{kp}_min")
+            head[2].number_input(tr("Max", "最大值"), format=fmt, key=f"{kp}_max")
+            head[3].number_input(tr("Frames", "幀數"), min_value=2, max_value=100, step=1,
                                  key=f"{kp}_frames",
-                                 help="Frames per axis (2–100). "
-                                      "Total = product across params.")
+                                 help=tr("Frames per axis (2–100). "
+                                         "Total = product across params.",
+                                         "每軸幀數（2–100）。"
+                                         "總數 = 各參數幀數的乘積。"))
 
     for row_start in range(0, len(selected_specs), 2):
         row_specs = selected_specs[row_start:row_start + 2]
@@ -2491,61 +2583,81 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
     fd_col1, fd_col2 = st.columns([1, 2])
     with fd_col1:
         st.number_input(
-            f"Freq points (max: {n_freq_full})",
+            f"{tr('Freq points', '頻率點數')} (max: {n_freq_full})",
             min_value=20, max_value=n_freq_full, step=10,
             key=decim_key,
-            help=f"Frequency points kept per trace (max = {n_freq_full} = "
-                 "full fidelity).  Lower this (~120 still looks smooth on "
-                 "Smith / Bode) when the payload estimate grows large.")
+            help=tr(
+                f"Frequency points kept per trace (max = {n_freq_full} = "
+                "full fidelity).  Lower this (~120 still looks smooth on "
+                "Smith / Bode) when the payload estimate grows large.",
+                f"每條曲線保留的頻率點數（最大 = {n_freq_full} = 完整精度）。"
+                "當估計負載變大時可調低此值（約 120 在 Smith / Bode 圖上"
+                "仍相當平滑）。"))
     with fd_col2:
         st.caption(
-            "Cartesian sweep: "
+            f"{tr('Cartesian sweep', '笛卡兒掃描')}: "
             + " × ".join(str(d) for d in dims_preview)
-            + f" = **{total_frames}** frames · {decim_n} freq pts · "
-            f"estimated payload ≈ **{est_mb:.0f} MB**")
+            + f" = **{total_frames}** {tr('frames', '幀')} · {decim_n} "
+            f"{tr('freq pts', '頻率點')} · "
+            f"{tr('estimated payload', '估計負載')} ≈ **{est_mb:.0f} MB**")
 
     if est_mb > 180:
-        st.error(
+        st.error(tr(
             f"❌ Estimated payload ≈ {est_mb:.0f} MB will exceed "
             "Streamlit's 200 MB browser-message limit.  Lower the "
             "**Freq points** value, reduce per-axis frame counts, or "
             "raise the limit via `.streamlit/config.toml` → "
-            "`[server] maxMessageSize = 500`.")
+            "`[server] maxMessageSize = 500`.",
+            f"❌ 估計負載 ≈ {est_mb:.0f} MB 將超過 Streamlit 的 200 MB "
+            "瀏覽器訊息上限。請降低 **頻率點數**、減少每軸幀數，"
+            "或透過 `.streamlit/config.toml` → `[server] maxMessageSize = 500` "
+            "提高上限。"))
     elif est_mb > 120:
-        st.warning(f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
-                   "to Streamlit's 200 MB limit.")
+        st.warning(tr(f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
+                      "to Streamlit's 200 MB limit.",
+                      f"⚠️ 估計負載 ≈ {est_mb:.0f} MB 已接近 Streamlit 的 "
+                      "200 MB 上限。"))
     elif total_frames > 2000:
-        st.warning(f"⚠️ {total_frames} frames may stutter on "
-                   "slider drag.")
+        st.warning(tr(f"⚠️ {total_frames} frames may stutter on "
+                      "slider drag.",
+                      f"⚠️ {total_frames} 幀可能會導致拖曳滑桿時卡頓。"))
 
     # ── CUDA checkbox + Build button (button next to checkbox when CUDA available)
     cuda_toggle_key = f"slprev_pl_cuda_{topo_key}_{fname}"
     if _HAS_CUDA:
         cuda_col, btn_col = st.columns([1.6, 1])
         with cuda_col:
-            use_cuda = st.checkbox(f"⚡ Use CUDA (cupy {_CUDA_VER}) for "
-                                    "batched simulation",
+            use_cuda = st.checkbox(tr(f"⚡ Use CUDA (cupy {_CUDA_VER}) for "
+                                      "batched simulation",
+                                      f"⚡ 使用 CUDA（cupy {_CUDA_VER}）"
+                                      "進行批次模擬"),
                                     value=st.session_state.get(cuda_toggle_key, True),
                                     key=cuda_toggle_key,
-                                    help="Off-load the joint cartesian "
-                                         "batched simulation to the GPU.  "
-                                         "Result is brought back to host as "
-                                         "fp64 for Plotly embedding.")
+                                    help=tr("Off-load the joint cartesian "
+                                            "batched simulation to the GPU.  "
+                                            "Result is brought back to host as "
+                                            "fp64 for Plotly embedding.",
+                                            "將聯合笛卡兒批次模擬卸載至 GPU 運算。"
+                                            "結果會以 fp64 帶回主機供 Plotly 嵌入。"))
         with btn_col:
-            build_clicked = st.button("🧮 Build animation",
+            build_clicked = st.button(tr("🧮 Build animation", "🧮 建立動畫"),
                                       key=f"slprev_pl_build_{topo_key}_{fname}",
                                       width="stretch",
-                                      help="Pre-compute the cartesian joint "
-                                           "sweep and embed with JS-"
-                                           "coordinated multi-sliders.")
+                                      help=tr("Pre-compute the cartesian joint "
+                                              "sweep and embed with JS-"
+                                              "coordinated multi-sliders.",
+                                              "預先計算笛卡兒聯合掃描，"
+                                              "並以 JS 協調的多重滑桿嵌入。"))
     else:
         use_cuda = False
-        build_clicked = st.button("🧮 Build animation",
+        build_clicked = st.button(tr("🧮 Build animation", "🧮 建立動畫"),
                                   key=f"slprev_pl_build_{topo_key}_{fname}",
                                   width="stretch",
-                                  help="Pre-compute the cartesian joint "
-                                       "sweep and embed with JS-coordinated "
-                                       "multi-sliders.")
+                                  help=tr("Pre-compute the cartesian joint "
+                                          "sweep and embed with JS-coordinated "
+                                          "multi-sliders.",
+                                          "預先計算笛卡兒聯合掃描，"
+                                          "並以 JS 協調的多重滑桿嵌入。"))
 
     state_key = f"slprev_pl_state_{topo_key}_{fname}"
 
@@ -2553,7 +2665,7 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
         import time as _time
         xp = _cp if (use_cuda and _HAS_CUDA) else np
         device_label = (f"GPU (cupy {_CUDA_VER})"
-                        if xp is not np else "CPU (numpy)")
+                        if xp is not np else tr("CPU (numpy)", "CPU（numpy）"))
         # Build per-axis sweeps then meshgrid → cartesian product
         sweep_disps  : list[np.ndarray] = []
         sweep_sis    : list[np.ndarray] = []
@@ -2583,7 +2695,8 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
         # batch finishes and we replace it).  For very large sweeps the
         # chunked path avoids GPU OOM by simulating in slabs of 5 000.
         t0 = _time.perf_counter()
-        with st.spinner(f"Computing {n_total} frames on {device_label}…"):
+        with st.spinner(tr(f"Computing {n_total} frames on {device_label}…",
+                           f"正在 {device_label} 上計算 {n_total} 幀…")):
             p_batch = dict(all_p)
             for spec, flat in zip(selected_specs, flats):
                 p_batch[spec[0]] = xp.asarray(flat, dtype=float)
@@ -2591,13 +2704,15 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
                 S_b = _chunked_simulate_batch_to_host(
                     model_cls, p_batch, freq, z0, xp=xp)
             except Exception as e:
-                st.error(f"Batched preview simulation failed: {e}")
+                st.error(tr(f"Batched preview simulation failed: {e}",
+                            f"批次預覽模擬失敗：{e}"))
                 return
         elapsed = _time.perf_counter() - t0
 
         if not np.all(np.isfinite(S_b)):
-            st.warning("Some frames contain non-finite S-parameters — "
-                       "narrow the ranges to avoid singular combinations.")
+            st.warning(tr("Some frames contain non-finite S-parameters — "
+                          "narrow the ranges to avoid singular combinations.",
+                          "部分幀包含非有限的 S 參數 — 請縮小範圍以避免奇異組合。"))
 
         st.session_state[state_key] = {
             "slider_specs":  slider_specs_out,
@@ -2610,22 +2725,27 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
 
     state = st.session_state.get(state_key)
     if state is None:
-        st.info("Click **🧮 Build animation** to compute frames for the "
-                "Plotly slider(s).")
+        st.info(tr("Click **🧮 Build animation** to compute frames for the "
+                   "Plotly slider(s).",
+                   "點擊 **🧮 建立動畫** 以計算 Plotly 滑桿的幀。"))
         return
 
     cached_keys  = state.get("selected_keys", [])
     current_keys = [s[0] for s in selected_specs]
     if cached_keys != current_keys:
-        st.warning("Selection changed since last build "
-                   f"(cached: {cached_keys}, current: {current_keys}).  "
-                   "Click **🧮 Build animation** to refresh.")
+        st.warning(tr("Selection changed since last build "
+                      f"(cached: {cached_keys}, current: {current_keys}).  "
+                      "Click **🧮 Build animation** to refresh.",
+                      f"自上次建立以來選擇已變更"
+                      f"（快取：{cached_keys}，目前：{current_keys}）。"
+                      "請點擊 **🧮 建立動畫** 以更新。"))
         return
 
     if state.get("S_batch") is None:
         # e.g. a stale build from the removed server-cached/int16 path.
-        st.warning("Cached build is unusable — click **🧮 Build animation** "
-                   "to refresh.")
+        st.warning(tr("Cached build is unusable — click **🧮 Build animation** "
+                      "to refresh.",
+                      "快取的建構結果無法使用 — 請點擊 **🧮 建立動畫** 以更新。"))
         return
 
     # Device + elapsed banner so the user can confirm GPU vs CPU.
@@ -2633,9 +2753,13 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
     n_total = int(state.get("n_total", 0)) or len(state["S_batch"])
     device  = str(state.get("device", "?"))
     ms_each = (elapsed / max(1, n_total)) * 1000.0
-    st.caption(f"✅ Built **{n_total}** frames on **{device}** in "
-               f"**{elapsed:.2f} s** ({ms_each:.1f} ms/frame).  "
-               "Drag any slider below to scrub.")
+    st.caption(tr(
+        f"✅ Built **{n_total}** frames on **{device}** in "
+        f"**{elapsed:.2f} s** ({ms_each:.1f} ms/frame).  "
+        "Drag any slider below to scrub.",
+        f"✅ 已在 **{device}** 上建立 **{n_total}** 幀，耗時 "
+        f"**{elapsed:.2f} 秒**（{ms_each:.1f} 毫秒/幀）。"
+        "拖曳下方任一滑桿即可瀏覽。"))
 
     html = make_smith_bode_joint_slider_html(
         S_batch_joint=state["S_batch"],
@@ -2673,7 +2797,7 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
     commits (see ``render_override_and_smith``).
     """
     with st.container(key="hbt_exp_tune_vis_" + topo_key), \
-         st.expander("🎚️ Visual Tuning", expanded=False):
+         st.expander(tr("🎚️ Visual Tuning", "🎚️ 視覺化調諧"), expanded=False):
         # ── Backend status badges — show ALL active accelerators.
         #    When both CUDA and Rust are available, the Visual Tuning
         #    Live mode picks CUDA via `xp=cupy`, but the Plotly slider
@@ -2700,11 +2824,13 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 "<span style='background:#eceff1;color:#37474f;"
                 "padding:2px 8px;border-radius:4px;font-size:0.8em;"
                 "font-weight:600'"
-                " title='Build the Rust crate for ~10x speedup."
-                " See tools/SSM/rust_kernels/README.md.'"
-                ">🐢 NumPy fallback</span>")
+                f" title='{tr('Build the Rust crate for ~10x speedup.'
+                             ' See tools/SSM/rust_kernels/README.md.',
+                             '建置 Rust crate 可加速約 10 倍。'
+                             '詳見 tools/SSM/rust_kernels/README.md。')}'"
+                f">🐢 {tr('NumPy fallback', 'NumPy 備援')}</span>")
         st.markdown(
-            "Backends: " + "  ".join(_chips),
+            tr("Backends", "運算後端") + ": " + "  ".join(_chips),
             unsafe_allow_html=True)
 
         # ── Diagnostic: when the binary exists on disk but Rust didn't
@@ -2713,7 +2839,8 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         if not _HAS_RUST_BACKEND:
             _d = _rust_diag()
             if _d["binary_files"] and not _d["force_numpy"]:
-                with st.expander("🛠️ Why is Rust not active?", expanded=False):
+                with st.expander(tr("🛠️ Why is Rust not active?",
+                                    "🛠️ 為什麼 Rust 未啟用？"), expanded=False):
                     st.code(
                         f"arch_tag       : {_d['arch_tag']}\n"
                         f"bin_dir        : {_d['bin_dir']}\n"
@@ -2722,14 +2849,21 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         f"import_error   : {_d['import_error']}\n"
                         f"force_numpy    : {_d['force_numpy']}\n",
                         language="text")
-                    st.caption(
+                    st.caption(tr(
                         "A binary exists on disk but couldn't be imported. "
                         "Most common cause: the Streamlit process was started "
                         "*before* the binary was placed in this folder — "
                         "restart the launcher (`python LAUNCH_Tool.py`) to "
                         "pick it up.  If the import error persists after a "
                         "fresh restart, the .pyd may be from a different ABI; "
-                        "delete it and run `python rust_things/build_rust_kernels.py`.")
+                        "delete it and run `python rust_things/build_rust_kernels.py`.",
+                        "磁碟上存在二進位檔，但無法匯入。"
+                        "最常見的原因：Streamlit 程序是在二進位檔放入此資料夾"
+                        "*之前*啟動的 — 請重新啟動啟動器"
+                        "（`python LAUNCH_Tool.py`）以載入。"
+                        "若重新啟動後匯入錯誤仍持續發生，"
+                        "該 .pyd 可能來自不同的 ABI；"
+                        "請刪除後執行 `python rust_things/build_rust_kernels.py`。"))
         _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
                                tuning_specs, fname, topo_key)
 
@@ -2773,7 +2907,8 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
     _low_perf = bool(st.session_state[_lp_key])
 
     with st.container(key="hbt_exp_tune_auto_" + topo_key), \
-         st.expander("🔧 Auto Tuning for Minimum Residuals", expanded=False):
+         st.expander(tr("🔧 Auto Tuning for Minimum Residuals",
+                        "🔧 自動調諧至最小殘差"), expanded=False):
 
         # ── Compute backend badge — cached in session_state so the
         #    label stays stable across reruns.  Without the cache the
@@ -2820,38 +2955,46 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             _bk = ("<span style='background:#e3f2fd;color:#0d47a1;"
                    "padding:2px 8px;border-radius:4px;font-size:0.8em;"
                    "font-weight:600'"
-                   " title='CUDA buttons use cupy; CPU buttons use the Rust kernel.'"
-                   ">⚡ CUDA available + 🦀 Rust active</span>")
+                   f" title='{tr('CUDA buttons use cupy; CPU buttons use the Rust kernel.',
+                                 'CUDA 按鈕使用 cupy；CPU 按鈕使用 Rust 核心。')}'"
+                   f">⚡ {tr('CUDA available', 'CUDA 可用')} + 🦀 {tr('Rust active', 'Rust 已啟用')}</span>")
         elif _HAS_CUDA:
             _bk = ("<span style='background:#e3f2fd;color:#0d47a1;"
                    "padding:2px 8px;border-radius:4px;font-size:0.8em;"
                    "font-weight:600'"
-                   " title='CUDA buttons use cupy; CPU buttons use NumPy."
-                   " Set HBT_USE_RUST_SIM_BATCH=1 to enable Rust on the"
-                   " CPU path for ~25x faster sweeps.'"
-                   ">⚡ CUDA available</span>")
+                   f" title='{tr('CUDA buttons use cupy; CPU buttons use NumPy.'
+                                 ' Set HBT_USE_RUST_SIM_BATCH=1 to enable Rust on the'
+                                 ' CPU path for ~25x faster sweeps.',
+                                 'CUDA 按鈕使用 cupy；CPU 按鈕使用 NumPy。'
+                                 '設定 HBT_USE_RUST_SIM_BATCH=1 可在 CPU 路徑'
+                                 '啟用 Rust，掃描速度提升約 25 倍。')}'"
+                   f">⚡ {tr('CUDA available', 'CUDA 可用')}</span>")
         elif _rust_active_here:
             _bk = ("<span style='background:#fff3e0;color:#e65100;"
                    "padding:2px 8px;border-radius:4px;font-size:0.8em;"
                    "font-weight:600'"
-                   " title='CPU buttons use the Rust kernel.'"
-                   ">🦀 Rust active</span>")
+                   f" title='{tr('CPU buttons use the Rust kernel.',
+                                 'CPU 按鈕使用 Rust 核心。')}'"
+                   f">🦀 {tr('Rust active', 'Rust 已啟用')}</span>")
         else:
             _bk = ("<span style='background:#eceff1;color:#37474f;"
                    "padding:2px 8px;border-radius:4px;font-size:0.8em;"
                    "font-weight:600'"
-                   " title='CPU buttons use NumPy. Build the Rust crate"
-                   " (python rust_things/build_rust_kernels.py) and set"
-                   " HBT_USE_RUST_SIM_BATCH=1 for ~25x speedup.'"
+                   f" title='{tr('CPU buttons use NumPy. Build the Rust crate'
+                                 ' (python rust_things/build_rust_kernels.py) and set'
+                                 ' HBT_USE_RUST_SIM_BATCH=1 for ~25x speedup.',
+                                 'CPU 按鈕使用 NumPy。建置 Rust crate'
+                                 '（python rust_things/build_rust_kernels.py）'
+                                 '並設定 HBT_USE_RUST_SIM_BATCH=1 可提升約 25 倍速度。')}'"
                    ">🐢 NumPy</span>")
-        st.markdown(f"Compute backend: {_bk}", unsafe_allow_html=True)
+        st.markdown(f"{tr('Compute backend', '運算後端')}: {_bk}", unsafe_allow_html=True)
 
         # ── Mode-card shared bits — used by the Full Auto Tune card here
         #    AND the Semi-Auto cards further below, so they live above both.
         _cpu_tag = "🦀 Rust" if _rust_active_here else "🐢 NumPy"
         # The backend (Rust vs NumPy) is no longer shown on the CPU button
         # face — it's surfaced in the hover tooltip instead.
-        _cpu_help_suffix = f"\n\nCPU backend: {_cpu_tag}."
+        _cpu_help_suffix = f"\n\n{tr('CPU backend', 'CPU 後端')}: {_cpu_tag}."
 
         # Modes share a 2-column inner grid (CPU left, CUDA right).
         # When no CUDA is available the right column is dropped.
@@ -2882,13 +3025,18 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
 
         with st.container(border=True):
             st.markdown(
-                "**🪜 Full Auto Tune** "
-                "<span style='color:#666;font-size:0.85em'>(recommended)</span>"
-                " <span class='hbt-help' title='Coarse-to-fine: global scan"
-                " from physics-informed ranges, then pair-wise refinement with"
-                " shrinking steps. Best result is kept when you press Stop."
-                " Deselect a parameter to pin it at its current value"
-                " (including 0).'>?</span>",
+                f"**🪜 {tr('Full Auto Tune', '全自動調諧')}** "
+                f"<span style='color:#666;font-size:0.85em'>({tr('recommended', '建議')})</span>"
+                f" <span class='hbt-help' title='{tr(
+                    'Coarse-to-fine: global scan'
+                    ' from physics-informed ranges, then pair-wise refinement with'
+                    ' shrinking steps. Best result is kept when you press Stop.'
+                    ' Deselect a parameter to pin it at its current value'
+                    ' (including 0).',
+                    '由粗到細：先依物理範圍進行全域掃描，'
+                    '再以逐漸縮小的步進進行成對細化。'
+                    '按下停止時會保留最佳結果。'
+                    '取消勾選某參數會將其固定在目前值（含 0）。')}'>?</span>",
                 unsafe_allow_html=True)
             _prog_scope_key = f"tune_prog_scope_{topo_key}_{fname}"
             # Once the widget owns its state, use that as the default (matches
@@ -2897,27 +3045,31 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             _prog_seed = st.session_state.get(_prog_scope_key, _prog_default)
             _prog_seed = [k for k in _prog_seed if k in _prog_opt_keys]
             prog_fit_keys = st.multiselect(
-                "Parameters to fit",
+                tr("Parameters to fit", "要擬合的參數"),
                 options=_prog_opt_keys,
                 default=_prog_seed,
                 format_func=lambda k: _prog_label_map.get(k, k),
-                key=_prog_scope_key)
-            _prog_help = (
+                key=_prog_scope_key,
+                placeholder=tr("Choose options", "請選擇項目"))
+            _prog_help = tr(
                 "Coarse global scan from the physics-informed ranges, then "
                 "pair-wise refinement with shrinking steps. Memoises every "
                 "combo so no work is repeated; keeps the best result on "
                 "Stop. Fitted parameters are floored above 0 — deselect one "
-                "to pin it at its current value instead.")
+                "to pin it at its current value instead.",
+                "先依物理範圍進行粗略全域掃描，再以逐漸縮小的步進進行成對細化。"
+                "每個組合都會被記錄，不會重複計算；按下停止時保留最佳結果。"
+                "擬合參數下限為 0 — 取消勾選可改為固定在目前值。")
             _c_cpu, _c_cuda = _action_cols()
             prog_cpu_clicked = _c_cpu.button(
-                "Evaluate with CPU",
+                tr("Evaluate with CPU", "以 CPU 評估"),
                 key=f"tune_calc_prog_{topo_key}_{fname}",
                 help=_prog_help + _cpu_help_suffix,
                 width="stretch")
             prog_cuda_clicked = (
                 _HAS_CUDA
                 and _c_cuda.button(
-                    "⚡ Evaluate with CUDA",
+                    tr("⚡ Evaluate with CUDA", "⚡ 以 CUDA 評估"),
                     key=f"tune_calc_prog_cuda_{topo_key}_{fname}",
                     help=_prog_help,
                     width="stretch"))
@@ -2998,10 +3150,12 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         # collapsed).
         param_rows = []
         semi_open = st.toggle(
-            "🔬 Semi-Auto Tune",
+            tr("🔬 Semi-Auto Tune", "🔬 半自動調諧"),
             key=f"tune_semi_open_{topo_key}_{fname}",
-            help="Manual sweep grid: pick parameters, set Min/Step/Max, "
-                 "then run Brute force / Optimized / Prioritized passes.")
+            help=tr("Manual sweep grid: pick parameters, set Min/Step/Max, "
+                    "then run Brute force / Optimized / Prioritized passes.",
+                    "手動掃描表格：選擇參數、設定最小值/步進/最大值，"
+                    "再執行暴力法／最佳化／優先化計算。"))
         if semi_open:
             with st.container(border=True):
                 # ── Toolbar: Use default values + Select all + De-select ──
@@ -3010,7 +3164,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 # session_state and reruns so the table picks up the new
                 # values on the next render pass.
                 _tb1, _tb2, _tb3, _ = st.columns([1.0, 1.0, 1.0, 3.0])
-                if _tb1.button("↩️ Use default values",
+                if _tb1.button(tr("↩️ Use default values", "↩️ 使用預設值"),
                                 key=f"tune_defaults_{topo_key}_{fname}"):
                     for spec in tuning_specs:
                         key, label, scale = spec[0], spec[1], spec[2]
@@ -3024,14 +3178,14 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         st.session_state[f"{kp}_step"] = d_step
                         st.session_state[f"{kp}_max"] = d_max
                     st.rerun()
-                if _tb2.button("✅ Select all",
+                if _tb2.button(tr("✅ Select all", "✅ 全選"),
                                 key=f"tune_select_all_{topo_key}_{fname}"):
                     for spec in tuning_specs:
                         key = spec[0]
                         st.session_state[
                             f"tune_{topo_key}_{key}_{fname}_chk"] = True
                     st.rerun()
-                if _tb3.button("❌ De-select all",
+                if _tb3.button(tr("❌ De-select all", "❌ 全部取消"),
                                 key=f"tune_deselect_all_{topo_key}_{fname}"):
                     for spec in tuning_specs:
                         key = spec[0]
@@ -3041,12 +3195,12 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
 
                 # Column headers
                 hdr = st.columns([0.5, 1.5, 1.2, 1.2, 1.2, 1.0])
-                hdr[0].markdown("**Sweep**")
-                hdr[1].markdown("**Parameter**")
-                hdr[2].markdown("**Min**")
-                hdr[3].markdown("**Step**")
-                hdr[4].markdown("**Max**")
-                hdr[5].markdown("**# Calc**")
+                hdr[0].markdown(f"**{tr('Sweep', '掃描')}**")
+                hdr[1].markdown(f"**{tr('Parameter', '參數')}**")
+                hdr[2].markdown(f"**{tr('Min', '最小值')}**")
+                hdr[3].markdown(f"**{tr('Step', '步進')}**")
+                hdr[4].markdown(f"**{tr('Max', '最大值')}**")
+                hdr[5].markdown(f"**{tr('# Calc', '計算數')}**")
 
                 # Per-parameter rows — widget path
                 for spec in tuning_specs:
@@ -3077,13 +3231,13 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             _min_kwargs["max_value"] = float(h_hi)
                             _max_kwargs["max_value"] = float(h_hi)
                         min_val = cols[2].number_input(
-                            "Min", format="%.5g", key=f"{kp}_min",
+                            tr("Min", "最小值"), format="%.5g", key=f"{kp}_min",
                             label_visibility="collapsed", **_min_kwargs)
                         step_val = cols[3].number_input(
-                            "Step", format="%.5g", key=f"{kp}_step",
+                            tr("Step", "步進"), format="%.5g", key=f"{kp}_step",
                             min_value=0.0, label_visibility="collapsed")
                         max_val = cols[4].number_input(
-                            "Max", format="%.5g", key=f"{kp}_max",
+                            tr("Max", "最大值"), format="%.5g", key=f"{kp}_max",
                             label_visibility="collapsed", **_max_kwargs)
                     else:
                         min_val = current_disp
@@ -3105,108 +3259,126 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         total_calcs *= row["n_calc"]
                     # unchecked params contribute 1 (single current value)
 
-                st.markdown(f"**Total calculations: {total_calcs:,}**")
+                st.markdown(f"**{tr('Total calculations', '總計算數')}: {total_calcs:,}**")
 
                 if total_calcs > 500_000:
-                    st.warning("More than 500,000 combinations — this may "
-                               "take a long time.")
+                    st.warning(tr("More than 500,000 combinations — this may "
+                                  "take a long time.",
+                                  "超過 500,000 種組合 — 可能需要很長時間。"))
 
                 # ── CUDA availability note ──────────────────────────────
                 if _HAS_CUDA:
-                    st.caption(f"CUDA {_CUDA_VER} detected — GPU "
-                               "acceleration available")
+                    st.caption(tr(f"CUDA {_CUDA_VER} detected — GPU "
+                                  "acceleration available",
+                                  f"偵測到 CUDA {_CUDA_VER} — GPU 加速可用"))
 
                 # ── Grid-mode cards ── Brute force / Optimized / Prioritized
                 #    (min-dev stays hidden behind _SHOW_MIN_DEV).  Flags were
                 #    pre-neutralised above, so no else-branches are needed here.
                 # ── 🧮 Brute-force all combos ───────────────────────────────────
-                _calc_all_help = (
+                _calc_all_help = tr(
                     "Evaluates EVERY combination in the sweep grid above and ranks "
-                    "the top-100 results by lowest TOTAL residual.")
+                    "the top-100 results by lowest TOTAL residual.",
+                    "評估上方掃描表格中的每一種組合，並依最低總殘差排出前 100 名。")
                 with st.container(border=True):
                     st.markdown(
-                        "**🧮 Brute force — all combos**"
-                        " <span class='hbt-help' title='Evaluate every"
-                        " combination in the grid, rank by total residual.'"
+                        f"**🧮 {tr('Brute force — all combos', '暴力法 — 所有組合')}**"
+                        f" <span class='hbt-help' title='{tr(
+                            'Evaluate every'
+                            ' combination in the grid, rank by total residual.',
+                            '評估表格中每一種組合，並依總殘差排序。')}'"
                         ">?</span>",
                         unsafe_allow_html=True)
                     _c_cpu, _c_cuda = _action_cols()
                     cpu_clicked = _c_cpu.button(
-                        "Brute force with CPU",
+                        tr("Brute force with CPU", "以 CPU 執行暴力法"),
                         key=f"tune_calc_{topo_key}_{fname}",
                         help=_calc_all_help + _cpu_help_suffix,
                         width="stretch")
                     cuda_clicked = (
                         _HAS_CUDA
                         and _c_cuda.button(
-                            "⚡ Brute force with CUDA",
+                            tr("⚡ Brute force with CUDA", "⚡ 以 CUDA 執行暴力法"),
                             key=f"tune_calc_cuda_{topo_key}_{fname}",
                             help=_calc_all_help,
                             width="stretch"))
 
                 # ── 🎯 Optimized recursive bisection ────────────────────────────
-                _opt_help = (
+                _opt_help = tr(
                     "Repeatedly subsamples 5 evenly-spaced values per swept parameter "
                     "(e.g. min=1, step=1, max=100 → 1, 25, 50, 75, 100), picks the 2 "
                     "combos with the lowest total residual, then narrows the search "
                     "box to those two values and recurses.  Iteration stops once a "
                     "brute-force sweep at the user's chosen step would fit ≤ 5,000,000 "
-                    "combos, and that final refinement is run as the closing pass.")
+                    "combos, and that final refinement is run as the closing pass.",
+                    "對每個掃描參數重複取 5 個等間距值進行子取樣"
+                    "（例如 min=1, step=1, max=100 → 1, 25, 50, 75, 100），"
+                    "挑出總殘差最低的 2 個組合，將搜尋範圍縮小至該兩值後遞迴。"
+                    "當以使用者所選步進進行暴力掃描的組合數 ≤ 5,000,000 時停止疊代，"
+                    "並以該次細化作為最終回合。")
                 with st.container(border=True):
                     st.markdown(
-                        "**🎯 Optimized — recursive bisection**"
-                        " <span class='hbt-help' title='Iteratively narrows the"
-                        " search box: 5-point subsample, keep top-2, recurse"
-                        " until the final pass fits at most 5 million combos.'"
+                        f"**🎯 {tr('Optimized — recursive bisection', '最佳化 — 遞迴二分法')}**"
+                        f" <span class='hbt-help' title='{tr(
+                            'Iteratively narrows the'
+                            ' search box: 5-point subsample, keep top-2, recurse'
+                            ' until the final pass fits at most 5 million combos.',
+                            '逐步縮小搜尋範圍：5 點子取樣，保留前 2 名，'
+                            '遞迴直到最終回合組合數不超過 500 萬。')}'"
                         ">?</span>",
                         unsafe_allow_html=True)
                     _c_cpu, _c_cuda = _action_cols()
                     opt_cpu_clicked = _c_cpu.button(
-                        "Optimized with CPU",
+                        tr("Optimized with CPU", "以 CPU 執行最佳化"),
                         key=f"tune_calc_opt_{topo_key}_{fname}",
                         help=_opt_help + _cpu_help_suffix,
                         width="stretch")
                     opt_cuda_clicked = (
                         _HAS_CUDA
                         and _c_cuda.button(
-                            "⚡ Optimized with CUDA",
+                            tr("⚡ Optimized with CUDA", "⚡ 以 CUDA 執行最佳化"),
                             key=f"tune_calc_opt_cuda_{topo_key}_{fname}",
                             help=_opt_help,
                             width="stretch"))
 
                 # ── 🥇 Prioritized by single S-parameter ────────────────────────
-                _prio_help = (
+                _prio_help = tr(
                     "Runs the same full-grid sweep but ranks results by the residual "
-                    "of a single chosen S-parameter instead of the total.")
+                    "of a single chosen S-parameter instead of the total.",
+                    "執行相同的全網格掃描，但改依單一選定 S 參數的殘差排序，"
+                    "而非總殘差。")
                 with st.container(border=True):
                     st.markdown(
-                        "**🥇 Prioritized — rank by one S-parameter**"
-                        " <span class='hbt-help' title='Same full-grid sweep,"
-                        " but the top-100 selection is sorted by a single"
-                        " S-parameter residual rather than the total.'"
+                        f"**🥇 {tr('Prioritized — rank by one S-parameter', '優先排序 — 依單一 S 參數排序')}**"
+                        f" <span class='hbt-help' title='{tr(
+                            'Same full-grid sweep,'
+                            ' but the top-100 selection is sorted by a single'
+                            ' S-parameter residual rather than the total.',
+                            '相同的全網格掃描，但前 100 名的排序改依'
+                            '單一 S 參數殘差，而非總殘差。')}'"
                         ">?</span>",
                         unsafe_allow_html=True)
                     _prio_row = st.columns([0.6, 2])
                     _prio_row[0].markdown(
-                        "<div style='padding-top:0.4em'>"
-                        "<small><b>Sort by</b></small></div>",
+                        f"<div style='padding-top:0.4em'>"
+                        f"<small><b>{tr('Sort by', '排序依據')}</b></small></div>",
                         unsafe_allow_html=True)
                     prio_metric = _prio_row[1].radio(
-                        "Prioritize sort metric",
+                        tr("Prioritize sort metric", "優先排序指標"),
                         ["S11", "S12", "S21", "S22"],
                         horizontal=True,
                         label_visibility="collapsed",
                         key=f"tune_prio_metric_{topo_key}_{fname}")
                     _c_cpu, _c_cuda = _action_cols()
                     prio_cpu_clicked = _c_cpu.button(
-                        "Prioritized with CPU",
+                        tr("Prioritized with CPU", "以 CPU 執行優先排序"),
                         key=f"tune_calc_prio_{topo_key}_{fname}",
                         help=_prio_help + _cpu_help_suffix,
                         width="stretch")
                     prio_cuda_clicked = (
                         _HAS_CUDA
                         and _c_cuda.button(
-                            "⚡ Prioritized with CUDA",
+                            tr("⚡ Prioritized with CUDA", "⚡ 以 CUDA 執行優先排序"),
                             key=f"tune_calc_prio_cuda_{topo_key}_{fname}",
                             help=_prio_help,
                             width="stretch"))
@@ -3218,43 +3390,50 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 #    UI section.).
                 _SHOW_MIN_DEV = False
                 if _SHOW_MIN_DEV:
-                    _bal_help = (
+                    _bal_help = tr(
                         "Runs the full-grid sweep but discards combos whose per-port "
                         "residuals are unbalanced (peak-to-peak spread > threshold).  "
                         "Surviving balanced combos are then ranked by lowest total "
                         "residual.  Optionally also drop combos where any single port "
-                        "residual exceeds a quality floor.")
+                        "residual exceeds a quality floor.",
+                        "執行全網格掃描，但捨棄各埠殘差不平衡的組合"
+                        "（峰對峰差 > 閾值）。倖存的平衡組合再依最低總殘差排序。"
+                        "亦可選擇捨棄任一埠殘差超過品質下限的組合。")
                     with st.container(border=True):
                         st.markdown(
-                            "**🎚️ Minimize deviation — peak-to-peak filter**  "
-                            "<span style='color:#666;font-size:0.85em'>"
-                            "Discard unbalanced combos, then rank survivors by "
-                            "total residual.</span>",
+                            f"**🎚️ {tr('Minimize deviation — peak-to-peak filter', '最小化偏差 — 峰對峰篩選')}**  "
+                            f"<span style='color:#666;font-size:0.85em'>"
+                            f"{tr('Discard unbalanced combos, then rank survivors by '
+                                 'total residual.',
+                                 '捨棄不平衡的組合，再依總殘差排序倖存者。')}</span>",
                             unsafe_allow_html=True)
                         _bal_inputs = st.columns([1, 1, 2])
                         bal_dev_threshold = _bal_inputs[0].number_input(
-                            "Max per-port deviation (%)",
+                            tr("Max per-port deviation (%)", "每埠最大偏差 (%)"),
                             min_value=0.0, max_value=100.0,
                             value=float(st.session_state.get(
                                 f"tune_bal_dev_{topo_key}_{fname}", 3.0)),
                             step=0.5, format="%.2f",
                             key=f"tune_bal_dev_{topo_key}_{fname}",
-                            help="Max allowed |max(S11,S12,S21,S22) − min(...)| residual "
-                                 "spread (in %).  Smaller = more balanced.")
+                            help=tr("Max allowed |max(S11,S12,S21,S22) − min(...)| residual "
+                                    "spread (in %).  Smaller = more balanced.",
+                                    "允許的最大 |max(S11,S12,S21,S22) − min(...)| 殘差"
+                                    "分佈（%）。數值越小越平衡。"))
                         _bal_use_res = _bal_inputs[1].checkbox(
-                            "Use residual cap",
+                            tr("Use residual cap", "使用殘差上限"),
                             value=False,
                             key=f"tune_bal_use_res_{topo_key}_{fname}")
                         bal_res_threshold = _bal_inputs[2].number_input(
-                            "Max per-port residual (%)",
+                            tr("Max per-port residual (%)", "每埠最大殘差 (%)"),
                             min_value=0.0, max_value=100.0,
                             value=float(st.session_state.get(
                                 f"tune_bal_res_{topo_key}_{fname}", 5.0)),
                             step=0.5, format="%.2f",
                             key=f"tune_bal_res_{topo_key}_{fname}",
                             disabled=(not _bal_use_res),
-                            help="Quality floor — drop combos where any port's residual "
-                                 "exceeds this.")
+                            help=tr("Quality floor — drop combos where any port's residual "
+                                    "exceeds this.",
+                                    "品質下限 — 捨棄任一埠殘差超過此值的組合。"))
                         _c_cpu, _c_cuda = _action_cols()
                         bal_cpu_clicked = _c_cpu.button(
                             f"CPU — {_cpu_tag}",
@@ -3334,8 +3513,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         # • Hide all-zero pad caps (Cpbe/Cpce/Cpbc) and lead inductances
         #   (Lb/Lc/Le) since they're often left at 0 and just add noise.
         _HIDE_IF_ZERO = {"Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le"}
-        def _best_summary_md(best_row, label="Best so far"):
-            head = (f"**{label} — Total: {best_row['Total Residual (%)']:.2f}%  |  "
+        def _best_summary_md(best_row, label=None):
+            if label is None:
+                label = tr("Best so far", "目前最佳")
+            head = (f"**{label} — {tr('Total', '總計')}: {best_row['Total Residual (%)']:.2f}%  |  "
                     f"S11: {best_row['S11 (%)']:.2f}%  S12: {best_row['S12 (%)']:.2f}%  "
                     f"S21: {best_row['S21 (%)']:.2f}%  S22: {best_row['S22 (%)']:.2f}%**")
             parts = []
@@ -3850,8 +4031,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # ── UI placeholders ────────────────────────────────────────────
             ui_cols = st.columns([5, 1])
             with ui_cols[0]:
-                _prog_lbl = f"Tuning {phase_label} ({_mode_label})…" if phase_label \
-                            else f"Tuning ({_mode_label})…"
+                _tuning_word = tr("Tuning", "調諧")
+                _prog_lbl = f"{_tuning_word} {phase_label} ({_mode_label})…" \
+                            if phase_label \
+                            else f"{_tuning_word} ({_mode_label})…"
                 progress = st.progress(0, text=_prog_lbl)
             with ui_cols[1]:
                 stop_box = st.empty()
@@ -3862,9 +4045,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # we catch and turn into a clean cancellation.  No on_click needed.
             stop_key = f"tune_stop_{topo_key}_{fname}{phase_suffix}"
             stop_box.button(
-                "⏹ Stop",
+                tr("⏹ Stop", "⏹ 停止"),
                 key=stop_key,
-                help="Stop the calculation. The best results found so far are kept.",
+                help=tr("Stop the calculation. The best results found so far "
+                        "are kept.",
+                        "停止計算。目前找到的最佳結果將被保留。"),
                 type="secondary",
             )
 
@@ -4312,12 +4497,17 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             print(f"\n[tune] OOM at block=(1,1,...) — single combo "
                                   f"won't fit in VRAM, giving up",
                                   flush=True)
-                            st.error(
+                            st.error(tr(
                                 f"GPU ran out of memory even at block=(1,1,...): "
                                 f"a single combination's working set "
                                 f"(~{per_combo_bytes/1024**2:.1f} MiB for {N_freq} freq pts) "
                                 f"won't fit in available VRAM. Reduce the number "
-                                f"of frequency points or free GPU memory.")
+                                f"of frequency points or free GPU memory.",
+                                f"即使在 block=(1,1,...) 下 GPU 仍記憶體不足："
+                                f"單一組合的工作集"
+                                f"（約 {per_combo_bytes/1024**2:.1f} MiB，"
+                                f"{N_freq} 個頻率點）無法容納於可用 VRAM 中。"
+                                f"請減少頻率點數或釋放 GPU 記憶體。"))
                             cancelled = True
                             break
                         off_str = ",".join(str(o) for o in axis_offsets)
@@ -4372,17 +4562,19 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         rate = processed / elapsed if elapsed > 0 else 0.0
                         eta = (n_total - processed) / rate if rate > 0 else 0.0
                         _phase_str = f" {phase_label}" if phase_label else ""
+                        _tuning_word = tr("Tuning", "調諧")
+                        _combos_word = tr("combos", "組合")
                         progress.progress(
                             min(1.0, processed / max(n_total, 1)),
-                            text=(f"Tuning{_phase_str} ({_mode_label})… "
-                                  f"{processed:,}/{n_total:,} combos  "
+                            text=(f"{_tuning_word}{_phase_str} ({_mode_label})… "
+                                  f"{processed:,}/{n_total:,} {_combos_word}  "
                                   f"({rate:,.0f}/s, ETA {_fmt_eta(eta)})  "
                                   f"slab={B_inner:,}  ({last_chunk_ms:.1f} ms/iter)"))
                         top_arr_host = _sync_topk_host()
                         if top_arr_host is not None:
                             best_series = pd.Series(top_arr_host[0], index=col_names)
                             best_box.markdown(
-                                _best_summary_md(best_series, label="Best so far"),
+                                _best_summary_md(best_series, label=tr("Best so far", "目前最佳")),
                                 unsafe_allow_html=True,
                             )
                             # Persist every tick so a later crash leaves a result
@@ -4391,10 +4583,12 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             # All combos so far failed the deviation/residual
                             # filters — surface this so the user can widen
                             # thresholds instead of staring at a blank panel.
-                            best_box.markdown(
+                            best_box.markdown(tr(
                                 "*No combos have passed the deviation/residual "
                                 "filters yet — consider widening the thresholds "
-                                "if this persists.*")
+                                "if this persists.*",
+                                "*尚無組合通過偏差/殘差篩選 — "
+                                "若持續發生，請考慮放寬閾值。*"))
                         last_ui = now
 
                     _sys.stdout.write(
@@ -4405,10 +4599,14 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     _sys.stdout.flush()
             except (KeyboardInterrupt, SystemExit):
                 cancelled = True
-                st.warning("Computation cancelled — keeping the best results found so far.")
+                st.warning(tr(
+                    "Computation cancelled — keeping the best results found so far.",
+                    "計算已取消 — 已保留目前找到的最佳結果。"))
                 print("\n[tune] cancelled by user (KeyboardInterrupt)", flush=True)
             except MemoryError as me:
-                st.error(f"Out of memory: {me}. Keeping the best results found so far.")
+                st.error(tr(
+                    f"Out of memory: {me}. Keeping the best results found so far.",
+                    f"記憶體不足：{me}。已保留目前找到的最佳結果。"))
                 print(f"\n[tune] MemoryError: {me}", flush=True)
             except BaseException as exc:
                 # Streamlit raises RerunException OR StopException when the
@@ -4476,9 +4674,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # the persistent results table will render the final ranking.
             if (n_kept == 0
                     and (dev_threshold is not None or res_threshold is not None)):
-                best_box.warning(
+                best_box.warning(tr(
                     "No combos passed the deviation/residual filters. "
-                    "Widen the thresholds and re-run.")
+                    "Widen the thresholds and re-run.",
+                    "沒有組合通過偏差/殘差篩選。請放寬閾值後重新執行。"))
                 # Clear any stale prior-sweep results so the table below
                 # doesn't misleadingly show data from a different setting.
                 st.session_state.pop(sess_key, None)
@@ -4618,9 +4817,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             try:
                 from scipy.optimize import minimize as _nm_minimize
             except ImportError:
-                st.error(
+                st.error(tr(
                     "scipy is required for Nelder-Mead Auto tuning. "
-                    "Install with `pip install scipy`.")
+                    "Install with `pip install scipy`.",
+                    "Nelder-Mead 自動調諧需要 scipy。"
+                    "請以 `pip install scipy` 安裝。"))
                 return
 
             import pandas as pd
@@ -4628,9 +4829,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # Only enabled rows participate in optimisation; constants stay put.
             swept_rows = [r for r in param_rows if r["enabled"]]
             if not swept_rows:
-                st.warning(
+                st.warning(tr(
                     "Auto needs at least one parameter with the **Sweep** "
-                    "checkbox enabled.")
+                    "checkbox enabled.",
+                    "自動調諧至少需要一個已啟用**掃描**核取方塊的參數。"))
                 return
 
             sweep_keys_nm   = [r["key"]   for r in swept_rows]
@@ -4691,11 +4893,14 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # the scalar total back to host for scipy.
             xp_dev = _cp if (use_cuda and _HAS_CUDA and use_vec) else np
             if use_cuda and not _HAS_CUDA:
-                st.warning("CUDA not available — falling back to CPU.")
+                st.warning(tr("CUDA not available — falling back to CPU.",
+                              "CUDA 不可用 — 已回退至 CPU。"))
             elif use_cuda and not use_vec:
-                st.warning(
+                st.warning(tr(
                     f"{model_cls.__name__} has no simulate_vec — "
-                    "CUDA path needs it; falling back to CPU.")
+                    "CUDA path needs it; falling back to CPU.",
+                    f"{model_cls.__name__} 沒有 simulate_vec — "
+                    "CUDA 路徑需要它；已回退至 CPU。"))
             S_mea_dev = xp_dev.asarray(S_raw)
             _den_dev  = xp_dev.sum(xp_dev.abs(S_mea_dev) ** 2, axis=0)  # (2,2)
 
@@ -4763,14 +4968,16 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             # ── UI placeholders (mirror the sweep UI) ─────────────────
             ui_cols = st.columns([5, 1])
             with ui_cols[0]:
-                progress = st.progress(0, text="Auto (Nelder-Mead)…")
+                progress = st.progress(
+                    0, text=tr("Auto (Nelder-Mead)…", "自動（Nelder-Mead）…"))
             with ui_cols[1]:
                 stop_box = st.empty()
             best_box = st.empty()
             stop_key = f"tune_stop_{topo_key}_{fname}_nm"
             stop_box.button(
-                "⏹ Stop", key=stop_key, type="secondary",
-                help="Stop the calculation. Best results so far are kept.")
+                tr("⏹ Stop", "⏹ 停止"), key=stop_key, type="secondary",
+                help=tr("Stop the calculation. Best results so far are kept.",
+                        "停止計算。目前的最佳結果將被保留。"))
 
             # NM does roughly maxiter * (n+1) evals worst case.
             ev_budget = max(1, max_iter * (len(x0) + 1))
@@ -4792,14 +4999,17 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 if top_rows:
                     best_series = pd.Series(top_rows[0], index=col_names)
                     best_box.markdown(
-                        _best_summary_md(best_series, label="Best so far"),
+                        _best_summary_md(best_series, label=tr("Best so far", "目前最佳")),
                         unsafe_allow_html=True,
                     )
+                _auto_nm_word = tr("Auto (Nelder-Mead)", "自動（Nelder-Mead）")
+                _evals_word = tr("evals", "次評估")
                 if top_rows:
-                    _txt = (f"Auto (Nelder-Mead)… {n_eval[0]} evals  "
-                            f"(best Total: {top_rows[0][0]:.3f}%)")
+                    _txt = (f"{_auto_nm_word}… {n_eval[0]} {_evals_word}  "
+                            f"({tr('best Total', '最佳總計')}: "
+                            f"{top_rows[0][0]:.3f}%)")
                 else:
-                    _txt = f"Auto (Nelder-Mead)… {n_eval[0]} evals"
+                    _txt = f"{_auto_nm_word}… {n_eval[0]} {_evals_word}"
                 progress.progress(min(1.0, n_eval[0] / ev_budget), text=_txt)
                 _persist_now()
 
@@ -4864,7 +5074,8 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         except Exception:
                             pass
                     raise
-                st.error(f"Nelder-Mead failed: {exc!r}")
+                st.error(tr(f"Nelder-Mead failed: {exc!r}",
+                            f"Nelder-Mead 執行失敗：{exc!r}"))
             finally:
                 _persist_now()
                 if xp_dev is not np:
@@ -4880,9 +5091,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             stop_box.empty()
             if not cancelled and top_rows:
                 _mode = "CUDA" if xp_dev is not np else "CPU"
-                st.success(
+                st.success(tr(
                     f"Auto tuning done ({_mode}) — {n_eval[0]} evals, "
-                    f"best Total = {top_rows[0][0]:.3f}%")
+                    f"best Total = {top_rows[0][0]:.3f}%",
+                    f"自動調諧完成（{_mode}）— {n_eval[0]} 次評估，"
+                    f"最佳總計 = {top_rows[0][0]:.3f}%"))
 
         # ── 🪜 Full Auto Tune driver (progressive coarse → fine) ────────
         def _run_progressive(*, use_cuda: bool, fit_keys: list,
@@ -4911,17 +5124,22 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
 
             xp = _cp if (use_cuda and _HAS_CUDA) else np
             if use_cuda and not _HAS_CUDA:
-                st.warning("CUDA not available — falling back to CPU.")
+                st.warning(tr("CUDA not available — falling back to CPU.",
+                              "CUDA 不可用 — 已回退至 CPU。"))
             if not hasattr(model_cls, "simulate_batch"):
-                st.error(
+                st.error(tr(
                     f"{model_cls.__name__} has no simulate_batch — "
-                    "Full Auto Tune needs it.")
+                    "Full Auto Tune needs it.",
+                    f"{model_cls.__name__} 沒有 simulate_batch — "
+                    "全自動調諧需要它。"))
                 return
             fit_keys = [k for k in fit_keys if k in
                         {s[0] for s in tuning_specs}]
             if not fit_keys:
-                st.warning("Full Auto Tune needs at least one parameter "
-                           "selected under **Parameters to fit**.")
+                st.warning(tr(
+                    "Full Auto Tune needs at least one parameter "
+                    "selected under **Parameters to fit**.",
+                    "全自動調諧至少需要在**要擬合的參數**下選取一個參數。"))
                 return
 
             _global_budget = (_PROG_GLOBAL_BUDGET_GPU if xp is not np
@@ -5047,14 +5265,16 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
 
             ui_cols = st.columns([5, 1])
             with ui_cols[0]:
-                progress = st.progress(0, text="Full Auto Tune…")
+                progress = st.progress(
+                    0, text=tr("Full Auto Tune…", "全自動調諧…"))
             with ui_cols[1]:
                 stop_box = st.empty()
             best_box = st.empty()
             stop_key = f"tune_stop_{topo_key}_{fname}_prog"
             stop_box.button(
-                "⏹ Stop", key=stop_key, type="secondary",
-                help="Stop the calculation. Best result so far is kept.")
+                tr("⏹ Stop", "⏹ 停止"), key=stop_key, type="secondary",
+                help=tr("Stop the calculation. Best result so far is kept.",
+                        "停止計算。目前的最佳結果將被保留。"))
 
             last_ui = [0.0]
             _t_start = time.time()
@@ -5100,7 +5320,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 if top_rows:
                     best_box.markdown(
                         _best_summary_md(pd.Series(top_rows[0], index=col_names),
-                                         label="Best so far"),
+                                         label=tr("Best so far", "目前最佳")),
                         unsafe_allow_html=True)
                 _persist_now()
 
@@ -5178,8 +5398,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             _release()
                             continue
                         if _is_oom:
-                            st.error("Out of memory — a single candidate row "
-                                     "won't fit. Aborting Full Auto Tune.")
+                            st.error(tr(
+                                "Out of memory — a single candidate row "
+                                "won't fit. Aborting Full Auto Tune.",
+                                "記憶體不足 — 單一候選列都無法容納。"
+                                "正在中止全自動調諧。"))
                             return n_new
                         raise
                     for _a in (tot, s11, s12, s21, s22):
@@ -5413,17 +5636,24 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     time.time() - _t_start)
                 _wname, _wval = _worst_port()
                 if _wval <= _PROG_PORT_GOAL:
-                    st.success(
+                    st.success(tr(
                         f"Full Auto Tune done — {n_eval[0]:,} evals, "
                         f"best Total = {best_tot[0]:.2f}% "
-                        f"(all ports ≤ {_PROG_PORT_GOAL:.0f}%)")
+                        f"(all ports ≤ {_PROG_PORT_GOAL:.0f}%)",
+                        f"全自動調諧完成 — {n_eval[0]:,} 次評估，"
+                        f"最佳總計 = {best_tot[0]:.2f}%"
+                        f"（所有埠 ≤ {_PROG_PORT_GOAL:.0f}%）"))
                 else:
-                    st.info(
+                    st.info(tr(
                         f"Full Auto Tune stopped above the per-port goal — "
                         f"best kept (worst {_wname} {_wval:.2f}%, Total "
                         f"{best_tot[0]:.2f}%, {n_eval[0]:,} evals). "
                         f"Re-running Evaluate continues from the best values "
-                        f"after 🏆 Use best values.")
+                        f"after 🏆 Use best values.",
+                        f"全自動調諧已停止於高於各埠目標之處 — "
+                        f"已保留最佳結果（最差 {_wname} {_wval:.2f}%，總計 "
+                        f"{best_tot[0]:.2f}%，{n_eval[0]:,} 次評估）。"
+                        f"按下🏆使用最佳值後，重新執行評估將由最佳值繼續。"))
             except BaseException as exc:
                 _is_rerun = (_RerunException is not None
                              and isinstance(exc, _RerunException))
@@ -5440,7 +5670,8 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         pass
                     _release()
                     raise
-                st.error(f"Full Auto Tune failed: {exc!r}")
+                st.error(tr(f"Full Auto Tune failed: {exc!r}",
+                            f"全自動調諧失敗：{exc!r}"))
             finally:
                 _persist_now()
                 try:
@@ -5496,8 +5727,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 rows_by_key[row["key"]] = row
 
             if not current_ranges:
-                st.warning("Optimized mode needs at least one parameter with "
-                           "the **Sweep** checkbox enabled.")
+                st.warning(tr(
+                    "Optimized mode needs at least one parameter with "
+                    "the **Sweep** checkbox enabled.",
+                    "最佳化模式至少需要一個已啟用**掃描**核取方塊的參數。"))
             else:
                 # Adaptive N_SUB — largest in {3,4,5} that fits MAX_PER_ITER.
                 # If even 3^N exceeds the budget we still use 3 and warn.
@@ -5509,17 +5742,24 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         break
                 _per_iter = N_SUB ** _n_swept
                 if N_SUB == 3 and _per_iter > MAX_PER_ITER:
-                    st.warning(
+                    st.warning(tr(
                         f"3-point subsample of {_n_swept} swept params is "
                         f"{_per_iter:,} combos — over the {MAX_PER_ITER:,} "
                         "per-iter target. The run will still proceed but "
                         "each iteration will be slow. Consider sweeping "
-                        "fewer parameters at once.")
+                        "fewer parameters at once.",
+                        f"對 {_n_swept} 個掃描參數進行 3 點子取樣即為 "
+                        f"{_per_iter:,} 種組合 — 超過每次疊代 "
+                        f"{MAX_PER_ITER:,} 的目標。仍會繼續執行，但每次疊代"
+                        "會較慢。建議一次掃描較少的參數。"))
                 else:
-                    st.caption(
+                    st.caption(tr(
                         f"🎯 N_SUB = **{N_SUB}** points/param "
                         f"({_per_iter:,} combos per iter for {_n_swept} "
-                        "swept params)")
+                        "swept params)",
+                        f"🎯 N_SUB = **{N_SUB}** 點/參數"
+                        f"（{_n_swept} 個掃描參數，每次疊代 "
+                        f"{_per_iter:,} 種組合）"))
                 def _estimate_final_combos(ranges, steps):
                     """How many combos would a brute-force sweep of these
                     ranges at the user's steps generate?"""
@@ -5542,10 +5782,13 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 _final_iter_idx = None
                 _skip_recursion = (_initial_full <= MAX_FINAL)
                 if _skip_recursion:
-                    st.caption(
+                    st.caption(tr(
                         f"🎯 Full sweep is already **{_initial_full:,}** "
                         f"combos ≤ {MAX_FINAL:,} — skipping subsample, "
-                        "running brute force at the user step directly.")
+                        "running brute force at the user step directly.",
+                        f"🎯 全掃描已為 **{_initial_full:,}** 組合 "
+                        f"≤ {MAX_FINAL:,} — 略過子取樣，"
+                        "直接以使用者步進執行暴力法。"))
                     _final_iter_idx = 0
                     iter_idx = 0
                 # The recursion loop only runs when we actually need it.
@@ -5564,15 +5807,20 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                             sub[k] = np.linspace(lo, hi, N_SUB)
 
                     est_final = _estimate_final_combos(current_ranges, user_steps)
-                    st.caption(
+                    st.caption(tr(
                         f"🎯 Optimized iter {iter_idx} — current final-refine "
                         f"estimate: **{est_final:,}** combos "
-                        f"(target ≤ {MAX_FINAL:,})")
+                        f"(target ≤ {MAX_FINAL:,})",
+                        f"🎯 最佳化疊代 {iter_idx} — 目前最終細化"
+                        f"預估：**{est_final:,}** 組合"
+                        f"（目標 ≤ {MAX_FINAL:,}）"))
 
                     _run_one_sweep(
                         use_cuda=_use_cuda, sweep_lists_override=sub,
                         sort_metric="Total",
-                        phase_label=f"Iter {iter_idx} (subsample {N_SUB})",
+                        phase_label=tr(
+                            f"Iter {iter_idx} (subsample {N_SUB})",
+                            f"疊代 {iter_idx}（子取樣 {N_SUB}）"),
                         phase_suffix=f"_optP{iter_idx}")
 
                     _df = st.session_state.get(f"tune_df_{topo_key}_{fname}")
@@ -5580,10 +5828,12 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         # No finite residuals — abandon bisection but
                         # still run the closing pass on current_ranges so
                         # the user gets a brute-force result.
-                        st.warning(
+                        st.warning(tr(
                             f"Iteration {iter_idx} produced no finite "
                             "residuals — running the final refinement on "
-                            "the current range without further narrowing.")
+                            "the current range without further narrowing.",
+                            f"第 {iter_idx} 次疊代未產生有限殘差 — "
+                            "將在目前範圍上執行最終細化，不再進一步縮小。"))
                         _final_iter_idx = iter_idx
                         _loop_converged = True
                         break
@@ -5627,10 +5877,13 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 # for-else replaced by explicit flag so the warning only
                 # fires when the loop actually ran *and* didn't converge.
                 if _do_loop and not _loop_converged:
-                    st.warning(
+                    st.warning(tr(
                         f"Reached MAX_ITERS={MAX_ITERS} without converging "
                         f"under {MAX_FINAL:,} combos — running the final "
-                        "refinement on the last narrowed range anyway.")
+                        "refinement on the last narrowed range anyway.",
+                        f"已達 MAX_ITERS={MAX_ITERS} 仍未收斂至 "
+                        f"{MAX_FINAL:,} 組合以下 — 仍會在最後縮小的範圍上"
+                        "執行最終細化。"))
 
                 # ── Closing pass: brute-force at the user's step ─────────
                 if not _stop_recursion:
@@ -5644,25 +5897,31 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     final_total = 1
                     for arr in final_lists.values():
                         final_total *= len(arr)
-                    st.caption(
+                    st.caption(tr(
                         f"🎯 Final refine — running **{final_total:,}** "
-                        "combos at user-defined step.")
+                        "combos at user-defined step.",
+                        f"🎯 最終細化 — 正在以使用者定義步進執行 "
+                        f"**{final_total:,}** 種組合。"))
                     _run_one_sweep(
                         use_cuda=_use_cuda, sweep_lists_override=final_lists,
                         sort_metric="Total",
-                        phase_label=f"Final refine ({final_total:,} combos)",
+                        phase_label=tr(
+                            f"Final refine ({final_total:,} combos)",
+                            f"最終細化（{final_total:,} 組合）"),
                         phase_suffix="_optFinal")
         elif prio_cpu_clicked or prio_cuda_clicked:
             _run_one_sweep(use_cuda=bool(prio_cuda_clicked),
                             sort_metric=str(prio_metric),
-                            phase_label=f"Prioritize {prio_metric}",
+                            phase_label=tr(f"Prioritize {prio_metric}",
+                                           f"優先排序 {prio_metric}"),
                             phase_suffix=f"_prio{prio_metric}")
         elif bal_cpu_clicked or bal_cuda_clicked:
             _res_thr = float(bal_res_threshold) if _bal_use_res else None
             _run_one_sweep(
                 use_cuda=bool(bal_cuda_clicked),
                 sort_metric="Total",
-                phase_label=f"Balance ≤{bal_dev_threshold:.2f}%",
+                phase_label=tr(f"Balance ≤{bal_dev_threshold:.2f}%",
+                               f"平衡 ≤{bal_dev_threshold:.2f}%"),
                 phase_suffix="_bal",
                 dev_threshold=float(bal_dev_threshold),
                 res_threshold=_res_thr,
@@ -5684,12 +5943,16 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
         # forbids nested expanders).  Reads the persisted results df, so a
         # fresh run's charts appear on the rerun after it finishes.
         sens_open = st.toggle(
-            "📈 Parameter sensitivity",
+            tr("📈 Parameter sensitivity", "📈 參數敏感度"),
             key=f"tune_sens_open_{topo_key}_{fname}",
-            help="Per-parameter residual curves swept around the best "
-                 "result, other parameters held at their best values.  "
-                 "Curves are plotted for parameters with a ticked Sweep "
-                 "checkbox in Semi-Auto Tune.")
+            help=tr(
+                "Per-parameter residual curves swept around the best "
+                "result, other parameters held at their best values.  "
+                "Curves are plotted for parameters with a ticked Sweep "
+                "checkbox in Semi-Auto Tune.",
+                "在最佳結果附近，逐一掃描每個參數繪出殘差曲線，"
+                "其餘參數固定在其最佳值。僅繪製半自動調諧中"
+                "已勾選「掃描」的參數。"))
         if sens_open:
             with st.container(border=True):
                 df_sens = st.session_state.get(f"tune_df_{topo_key}_{fname}")
@@ -5699,15 +5962,23 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         f"tune_{topo_key}_{spec[0]}_{fname}_chk", False)
                 ]
                 if df_sens is None:
-                    st.caption("Run a tune first — the sensitivity plots "
-                               "sweep each parameter around the best result.")
+                    st.caption(tr(
+                        "Run a tune first — the sensitivity plots "
+                        "sweep each parameter around the best result.",
+                        "請先執行一次調諧 — 敏感度圖會在最佳結果附近"
+                        "掃描每個參數。"))
                 elif not ticked_specs:
-                    st.caption("Tick at least one **Sweep** checkbox in "
-                               "Semi-Auto Tune to choose which parameters "
-                               "to plot.")
+                    st.caption(tr(
+                        "Tick at least one **Sweep** checkbox in "
+                        "Semi-Auto Tune to choose which parameters "
+                        "to plot.",
+                        "請在半自動調諧中至少勾選一個**掃描**核取方塊，"
+                        "以選擇要繪製的參數。"))
                 else:
                     best = df_sens.iloc[0]
-                    st.markdown("**Parameter sensitivity** *(other params held at best values)*")
+                    st.markdown(tr(
+                        "**Parameter sensitivity** *(other params held at best values)*",
+                        "**參數敏感度** *（其餘參數固定於最佳值）*"))
                     # Build baseline param dict from best row (in SI).
                     # Missing column (stale parameter-less table) → keep
                     # the all_p value.
@@ -5811,9 +6082,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                                 marker=dict(size=4),
                             ))
                         fig.update_layout(
-                            title=f"Sensitivity -- {x_label}",
+                            title=tr(f"Sensitivity -- {x_label}",
+                                     f"敏感度 -- {x_label}"),
                             xaxis_title=x_label,
-                            yaxis_title="Residual (%)",
+                            yaxis_title=tr("Residual (%)", "殘差 (%)"),
                             height=350,
                             margin=dict(l=50, r=30, t=40, b=50),
                             legend=dict(orientation="h", y=1.12),
@@ -5836,9 +6108,11 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             best = df.iloc[0]
             _elapsed = st.session_state.get(f"tune_elapsed_{topo_key}_{fname}")
             if _elapsed is not None:
-                st.markdown(f"**Evaluated in {_fmt_eval_time(_elapsed)}**")
+                st.markdown(
+                    f"**{tr('Evaluated in', '評估耗時')} "
+                    f"{_fmt_eval_time(_elapsed)}**")
             st.markdown(
-                _best_summary_md(best, label="Best residual"),
+                _best_summary_md(best, label=tr("Best residual", "最佳殘差")),
                 unsafe_allow_html=True,
             )
 
@@ -5868,7 +6142,8 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                     st.session_state[f"{kp}_max"] = d_max
 
             st.container(key=f"hbt_amber_best_{topo_key}").button(
-                "🏆 Use best values", key=f"tune_best_{topo_key}_{fname}",
+                tr("🏆 Use best values", "🏆 使用最佳值"),
+                key=f"tune_best_{topo_key}_{fname}",
                 on_click=_apply_best,
                 args=(best, tuning_specs, topo_key, fname, _low_perf))
 
@@ -5879,7 +6154,7 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
             df.to_excel(buf, index=False, engine="openpyxl")
             buf.seek(0)
             st.download_button(
-                "📥 Download as Excel",
+                tr("📥 Download as Excel", "📥 下載為 Excel"),
                 data=buf,
                 file_name=f"tuning_{topo_key}_{fname}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -6097,11 +6372,13 @@ class SSMModelTemplate:
                                   {**all_p, "__nf": len(freq)}.items()})
 
         def _run():
-            with st.spinner(f"Simulating {cls.NAME}…"):
+            with st.spinner(tr(f"Simulating {cls.NAME}…",
+                               f"正在模擬 {cls.NAME}…")):
                 try:
                     return cls.simulate_vec(all_p, freq, z0)
                 except Exception as e:
-                    st.error(f"Simulation error ({cls.NAME}): {e}")
+                    st.error(tr(f"Simulation error ({cls.NAME}): {e}",
+                                f"模擬錯誤（{cls.NAME}）：{e}"))
                     return np.full((len(freq), 2, 2), np.nan + 0j)
 
         if st.session_state.get(hash_key) != cur_hash:
@@ -6425,7 +6702,8 @@ class SSMModelTemplate:
             except Exception:                            # noqa: BLE001
                 _smith_png = None
         with st.container(key=f"hbt_exp_view_topo_{cls.SHORT}"), \
-             st.expander("🖼️ Topology illustration", expanded=False):
+             st.expander(tr("🖼️ Topology illustration", "🖼️ 拓樸示意圖"),
+                         expanded=False):
             # Models registered with a built-in custom-model preset (Cheng
             # T/π, Xu T, Kun-Yang HEMT — see svg_topology._PRESET_LABEL) can
             # switch to a live SVG schematic that omits every zero-valued
@@ -6434,12 +6712,16 @@ class SSMModelTemplate:
             svg_mode = False
             if getattr(cls, "_SVG_TOPOLOGY", False):
                 svg_mode = st.toggle(
-                    "Simplified schematic (non-zero components only)",
+                    tr("Simplified schematic (non-zero components only)",
+                       "簡化示意圖（僅顯示非零元件）"),
                     key=f"topo_svg_{cls.SHORT}_{fname}",
-                    help="ON: a live SVG schematic built from the model "
-                         "topology, showing only components with a "
-                         "non-zero current value. OFF: the standard "
-                         "labeled template illustration.")
+                    help=tr("ON: a live SVG schematic built from the model "
+                            "topology, showing only components with a "
+                            "non-zero current value. OFF: the standard "
+                            "labeled template illustration.",
+                            "開啟：由模型拓樸即時產生的 SVG 示意圖，"
+                            "僅顯示目前為非零值的元件。"
+                            "關閉：標準的標籤範本示意圖。"))
             if svg_mode:
                 from .svg_topology import render_svg_topology
                 render_svg_topology(cls.SHORT, all_p, fname)
@@ -6455,13 +6737,14 @@ class SSMModelTemplate:
         _pad_topo_keys = ("Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le")
         if any(k in all_p for k in _pad_topo_keys):
             with st.container(key=f"hbt_exp_view_padtopo_{cls.SHORT}"), \
-                 st.expander("🖼️ Open/short topology", expanded=False):
+                 st.expander(tr("🖼️ Open/short topology", "🖼️ Open/Short 拓樸"),
+                             expanded=False):
                 from .svg_topology import render_pad_topology
                 c_open, c_short = st.columns(2)
-                c_open.caption("Open pad")
+                c_open.caption(tr("Open pad", "Open 焊墊"))
                 render_pad_topology("open", all_p, f"{cls.SHORT}_{fname}",
                                     container=c_open)
-                c_short.caption("Short pad")
+                c_short.caption(tr("Short pad", "Short 焊墊"))
                 render_pad_topology("short", all_p, f"{cls.SHORT}_{fname}",
                                     container=c_short)
 
@@ -6473,7 +6756,8 @@ class SSMModelTemplate:
         # widgets render BEFORE the chart so session_state is fresh when
         # the chart half reads it.
         with st.container(key=f"hbt_exp_view_mplsmith_{cls.SHORT}"), \
-             st.expander("🍩 Smith Chart (Matplotlib)", expanded=False):
+             st.expander(tr("🍩 Smith Chart (Matplotlib)",
+                            "🍩 Smith 圖 (Matplotlib)"), expanded=False):
             col_mpl_left, col_mpl_right = st.columns([1.2, 1])
             with col_mpl_right:
                 render_matplotlib_smith(S_raw, S_sim, fname, cls.SHORT,

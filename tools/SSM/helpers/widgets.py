@@ -24,6 +24,8 @@ import html as _html
 import numpy as np
 import streamlit as st
 
+from ...i18n import tr
+
 
 def info_icon_html(text: str, label: str = "ⓘ") -> str:
     """HTML markup for a hover-help icon.
@@ -165,22 +167,37 @@ def quickset_buttons(*, container, key_prefix: str, target_key: str,
     suffix = f" {unit}" if unit else ""
 
     _HELP = {
-        "mean":    "Set input to the mean of the per-frequency array",
-        "median":  "Set input to the median of the per-frequency array",
-        "low f":   "Set input to the lowest-frequency point",
-        "high f":  "Set input to the highest-frequency point",
-        "default": "Restore the auto-extracted (median over the slider range) value",
-        "cold":    "Set input to the value extracted in the Cold-HBT section",
+        "mean":    tr("Set input to the mean of the per-frequency array",
+                      "將輸入值設為逐頻率陣列的平均值"),
+        "median":  tr("Set input to the median of the per-frequency array",
+                      "將輸入值設為逐頻率陣列的中位數"),
+        "low f":   tr("Set input to the lowest-frequency point",
+                      "將輸入值設為最低頻率點"),
+        "high f":  tr("Set input to the highest-frequency point",
+                      "將輸入值設為最高頻率點"),
+        "default": tr("Restore the auto-extracted (median over the slider range) value",
+                      "還原自動萃取值（滑桿範圍內的中位數）"),
+        "cold":    tr("Set input to the value extracted in the Cold-HBT section",
+                      "將輸入值設為冷 HBT 區段所萃取的值"),
+    }
+    # Button-label word for each internal candidate id — translated for
+    # display only; `lbl` itself (the dict key / session-state suffix /
+    # _HELP lookup) stays the English id so nothing downstream breaks.
+    _LABEL_ZH = {
+        "mean": "平均", "median": "中位數", "low f": "低頻",
+        "high f": "高頻", "default": "預設", "cold": "冷量測",
     }
 
     def _render(row_container, items):
         cols = row_container.columns(len(items))
         for col, (lbl, val) in zip(cols, items):
-            text = f"{lbl} = {format(val, spec)}{suffix}"
+            disp_lbl = tr(lbl, _LABEL_ZH.get(lbl, lbl))
+            text = f"{disp_lbl} = {format(val, spec)}{suffix}"
             if col.button(text,
                           key=f"{key_prefix}_qs_{lbl}",
                           width="stretch",
-                          help=_HELP.get(lbl, f"Set input to {lbl} of the per-frequency array")):
+                          help=_HELP.get(lbl, tr(f"Set input to {lbl} of the per-frequency array",
+                                                  f"將輸入值設為逐頻率陣列的 {lbl}"))):
                 st.session_state[target_key + "_pending"] = val
                 st.rerun()
 

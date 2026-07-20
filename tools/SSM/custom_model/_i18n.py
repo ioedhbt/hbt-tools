@@ -11,13 +11,6 @@ side-by-side via :func:`tr`.  The active language is owned by the portal's
 """
 from __future__ import annotations
 
-from ...i18n import is_zh
+from ...i18n import is_zh, tr  # noqa: F401  (re-exported for call sites)
 
-
-def tr(en: str, zh: str) -> str:
-    """Return ``zh`` when the UI language is 中文, else ``en``.
-
-    Pass already-formatted strings (f-strings are fine for both args) so dynamic
-    parts — e.g. terminal letters B/C/E vs G/D/S — appear in both languages.
-    """
-    return zh if is_zh() else en
+__all__ = ["is_zh", "tr"]

@@ -102,9 +102,14 @@ def apply_axes(fig, xlim, ylim, grid, minor_grid, show_right_ticks):
 # =================================================
 # SMU assignment
 # =================================================
-st.subheader("① SMU Assignment (persistent)")
+st.subheader(i18n.tr("① SMU Assignment (persistent)", "① SMU 指定（永久保存）"))
 
+# Values stay English — lower-cased into hp_smu_map's dict keys
+# ("collector"/"base"/…) which downstream parse_smu_table() looks up
+# by literal name; only the on-screen label localizes.
 roles = ["Collector", "Base", "Emitter", "PD", "None"]
+_role_labels_zh = {"Collector": "集極 (Collector)", "Base": "基極 (Base)",
+                   "Emitter": "射極 (Emitter)", "PD": "PD", "None": "無"}
 smu_cols = [("V1", "I1"), ("V2", "I2"), ("V3", "I3"), ("V4", "I4")]
 
 for v, i in smu_cols:
@@ -116,7 +121,8 @@ for v, i in smu_cols:
         default_index = roles.index(default.capitalize())
     except ValueError:
         default_index = 0
-    choice = st.selectbox(f"{v}/{i}", roles, index=default_index, key=f"hp_smu_{v}_{i}")
+    choice = st.selectbox(f"{v}/{i}", roles, index=default_index, key=f"hp_smu_{v}_{i}",
+                          format_func=lambda r: i18n.tr(r, _role_labels_zh[r]))
 
     if choice != "None":
         st.session_state.hp_smu_map[choice.lower()] = (v, i)
@@ -126,8 +132,8 @@ st.markdown("---")
 # =================================================
 # File input
 # =================================================
-st.subheader("② Data File")
-uploaded = st.file_uploader("Upload SMU data file", key="hp_file_uploader")
+st.subheader(i18n.tr("② Data File", "② 資料檔案"))
+uploaded = st.file_uploader(i18n.tr("Upload SMU data file", "上傳 SMU 資料檔"), key="hp_file_uploader")
 if uploaded:
     raw = uploaded.getvalue().decode("utf-8", errors="ignore")
     st.session_state.hp_df = read_table(raw)
@@ -139,35 +145,44 @@ if st.session_state.hp_df is None:
 df = st.session_state.hp_df
 parsed = parse_smu_table(df, st.session_state.hp_smu_map)
 
-st.success(f"Loaded: {st.session_state.hp_file_name}")
+st.success(i18n.tr(f"Loaded: {st.session_state.hp_file_name}",
+                   f"已載入：{st.session_state.hp_file_name}"))
 
 st.markdown("---")
 
 # =================================================
 # Plot controls
 # =================================================
-st.subheader("③ Plot Settings")
-dtype = st.selectbox("Data type", ["Family L-Ic-Vc", "Diode", "Gummel", "Family"], key="hp_dtype")
+st.subheader(i18n.tr("③ Plot Settings", "③ 繪圖設定"))
+# Values stay English — dtype is compared against these literals throughout
+# the plotting block below; only the on-screen label localizes.
+_dtype_opts = ["Family L-Ic-Vc", "Diode", "Gummel", "Family"]
+_dtype_labels_zh = {"Family L-Ic-Vc": "族群 L-Ic-Vc", "Diode": "二極體",
+                    "Gummel": "Gummel", "Family": "族群 Ic-Vc"}
+dtype = st.selectbox(i18n.tr("Data type", "資料類型"), _dtype_opts, key="hp_dtype",
+                     format_func=lambda d: i18n.tr(d, _dtype_labels_zh[d]))
 
-manual = st.checkbox("Manual axis limits", key="hp_manual_axis")
+manual = st.checkbox(i18n.tr("Manual axis limits", "手動座標軸範圍"), key="hp_manual_axis")
 xlim = ylim = None
 if manual:
     c1, c2 = st.columns(2)
     with c1:
-        xlim = [st.number_input("X min", value=0.0, key="hp_xmin"), st.number_input("X max", value=1.0, key="hp_xmax")]
+        xlim = [st.number_input(i18n.tr("X min", "X 最小值"), value=0.0, key="hp_xmin"),
+                st.number_input(i18n.tr("X max", "X 最大值"), value=1.0, key="hp_xmax")]
     with c2:
-        ylim = [st.number_input("Y min", value=0.0, key="hp_ymin"), st.number_input("Y max", value=1.0, key="hp_ymax")]
+        ylim = [st.number_input(i18n.tr("Y min", "Y 最小值"), value=0.0, key="hp_ymin"),
+                st.number_input(i18n.tr("Y max", "Y 最大值"), value=1.0, key="hp_ymax")]
 
-grid = st.checkbox("Show grid", value=True, key="hp_grid")
-minor_grid = st.checkbox("Show minor grid", value=False, key="hp_minor_grid")
+grid = st.checkbox(i18n.tr("Show grid", "顯示格線"), value=True, key="hp_grid")
+minor_grid = st.checkbox(i18n.tr("Show minor grid", "顯示次要格線"), value=False, key="hp_minor_grid")
 responsivity = None
 if dtype == "Family L-Ic-Vc":
-    responsivity = st.number_input("Responsivity (A/W)", value=0.35, key="hp_responsivity")
+    responsivity = st.number_input(i18n.tr("Responsivity (A/W)", "響應率 (A/W)"), value=0.35, key="hp_responsivity")
 
 # =================================================
 # Plot
 # =================================================
-if st.button("📊 Show", key="hp_show_btn"):
+if st.button(i18n.tr("📊 Show", "📊 顯示"), key="hp_show_btn"):
 
     buf = io.BytesIO()
     writer = pd.ExcelWriter(buf, engine="openpyxl")
@@ -175,7 +190,7 @@ if st.button("📊 Show", key="hp_show_btn"):
     try:
         if dtype == "Diode":
             if "base" not in parsed:
-                st.error("Base SMU missing")
+                st.error(i18n.tr("Base SMU missing", "缺少基極 (Base) SMU"))
                 st.stop()
             vb, _ = parsed["base"]
 
@@ -184,7 +199,7 @@ if st.button("📊 Show", key="hp_show_btn"):
             elif "collector" in parsed:
                 _, i = parsed["collector"]
             else:
-                st.error("No current SMU found for diode")
+                st.error(i18n.tr("No current SMU found for diode", "找不到二極體用的電流 SMU"))
                 st.stop()
 
             y, unit = scale_current(abs(i))
@@ -199,7 +214,8 @@ if st.button("📊 Show", key="hp_show_btn"):
         elif dtype == "Gummel":
             for role in ["base", "collector", "emitter"]:
                 if role not in parsed:
-                    st.error(f"{role.capitalize()} SMU missing")
+                    st.error(i18n.tr(f"{role.capitalize()} SMU missing",
+                                     f"缺少{_role_labels_zh[role.capitalize()]} SMU"))
                     st.stop()
             vb, ib = parsed["base"]
             _, ic = parsed["collector"]
@@ -226,7 +242,7 @@ if st.button("📊 Show", key="hp_show_btn"):
 
         else:
             if "collector" not in parsed or "base" not in parsed:
-                st.error("Collector or Base SMU missing")
+                st.error(i18n.tr("Collector or Base SMU missing", "缺少集極 (Collector) 或基極 (Base) SMU"))
                 st.stop()
             vc, ic = parsed["collector"]
             _, ib = parsed["base"]
@@ -247,7 +263,7 @@ if st.button("📊 Show", key="hp_show_btn"):
                 out_ic.to_excel(writer, sheet_name="Electrical", index=False)
             else:
                 if "pd" not in parsed:
-                    st.error("PD SMU required for Family L-Ic-Vc")
+                    st.error(i18n.tr("PD SMU required for Family L-Ic-Vc", "族群 L-Ic-Vc 需要 PD SMU"))
                     st.stop()
                 _, ipd = parsed["pd"]
                 L = -ipd / responsivity
@@ -298,7 +314,7 @@ if st.button("📊 Show", key="hp_show_btn"):
                 out_L.to_excel(writer, sheet_name="Optical", index=False)
 
     except Exception as e:
-        st.error(f"Error while plotting: {e}")
+        st.error(i18n.tr(f"Error while plotting: {e}", f"繪圖時發生錯誤：{e}"))
         st.stop()
 
     writer.close()
@@ -306,7 +322,7 @@ if st.button("📊 Show", key="hp_show_btn"):
     _tsv = xlsx_bytes_to_tsv(_xl_bytes)
     _c_dl, _c_copy = st.columns(2)
     _c_dl.download_button(
-        "📥 Download Excel",
+        i18n.tr("📥 Download Excel", "📥 下載 Excel"),
         data=_xl_bytes,
         file_name=f"{st.session_state.hp_file_name}_processed.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

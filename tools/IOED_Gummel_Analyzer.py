@@ -215,7 +215,8 @@ with st.sidebar:
     ib_noise = st.number_input(i18n.t("gm_ib_noise"), value=2.34e-10, format="%.2e")
 
     st.markdown(f"#### {i18n.t('gm_scale_head')}")
-    y_scale = segmented_radio(i18n.t("gm_y_scale"), ["Log", "Linear"], index=0,
+    _SCALE_OPTS = [i18n.tr("Log", "對數"), i18n.tr("Linear", "線性")]
+    y_scale = segmented_radio(i18n.t("gm_y_scale"), _SCALE_OPTS, index=0,
                               key="gm_y_scale_sel")
 
     col_x1, col_x2 = st.columns(2)
@@ -347,7 +348,8 @@ with tab1:
             i18n.t("gm_multiselect"),
             options=file_options,
             key="gummel_ms_files",
-            format_func=lambda x: Path(x).stem
+            format_func=lambda x: Path(x).stem,
+            placeholder=i18n.tr("Choose options", "請選擇項目"),
         )
     else:
         selected_files = []
@@ -372,8 +374,8 @@ with tab1:
             f_cur.add_trace(go.Scatter(x=d["Vbase"][m_sim], y=d["Ib_abs"][m_sim], name=f"Ib - {Path(k).stem}",
                                        line=dict(color=c, width=2, dash=LINE_IB)))
 
-    update_axes(f_cur, "Current (A)", y_scale == "Log")
-    f_cur.update_layout(title="Current (Ic & Ib) Overlay")
+    update_axes(f_cur, i18n.tr("Current (A)", "電流 (A)"), y_scale == _SCALE_OPTS[0])
+    f_cur.update_layout(title=i18n.tr("Current (Ic & Ib) Overlay", "電流 (Ic & Ib) 疊圖"))
     st.plotly_chart(f_cur, width="stretch")
 
     st.divider()
@@ -391,8 +393,8 @@ with tab1:
             f_beta.add_trace(go.Scatter(x=d["Vbase"][m_sim], y=d["Beta"][m_sim], name=f"Beta - {Path(k).stem}",
                                         line=dict(color=c, width=2, dash=LINE_IC)))
 
-    update_axes(f_beta, "Beta (Linear)", False)
-    f_beta.update_layout(title="Current Gain (Beta) Overlay")
+    update_axes(f_beta, i18n.tr("Beta (Linear)", "Beta（線性）"), False)
+    f_beta.update_layout(title=i18n.tr("Current Gain (Beta) Overlay", "電流增益 (Beta) 疊圖"))
     st.plotly_chart(f_beta, width="stretch")
 
 with tab2:
@@ -424,20 +426,22 @@ with tab2:
 
                 sim_c = SIM_COLORS[list(all_data.keys()).index(sel_sim) % len(SIM_COLORS)]
                 m_sim = (d["Vbase"] >= x_min) & (d["Vbase"] <= x_max)
-                f_dual.add_trace(go.Scatter(x=d["Vbase"][m_sim], y=d["Ic_abs"][m_sim], name=f"Sim Ic",
+                _sim_lbl = i18n.tr("Sim", "模擬")
+                f_dual.add_trace(go.Scatter(x=d["Vbase"][m_sim], y=d["Ic_abs"][m_sim], name=f"{_sim_lbl} Ic",
                                             line=dict(color=sim_c, width=2.5, dash=LINE_IC)), secondary_y=False)
-                f_dual.add_trace(go.Scatter(x=d["Vbase"][m_sim], y=d["Ib_abs"][m_sim], name=f"Sim Ib",
+                f_dual.add_trace(go.Scatter(x=d["Vbase"][m_sim], y=d["Ib_abs"][m_sim], name=f"{_sim_lbl} Ib",
                                             line=dict(color=sim_c, width=2.5, dash=LINE_IB)), secondary_y=False)
-                f_dual.add_trace(go.Scatter(x=d["Vbase"][m_sim], y=d["Beta"][m_sim], name=f"Sim Beta",
+                f_dual.add_trace(go.Scatter(x=d["Vbase"][m_sim], y=d["Beta"][m_sim], name=f"{_sim_lbl} Beta",
                                             line=dict(color=sim_c, width=2.5, dash=LINE_BETA)), secondary_y=True)
 
-                y1_dict = dict(title="Current (A)", type="log" if y_scale == "Log" else "linear",
-                               tickformat=".1e" if y_scale == "Log" else None,
-                               exponentformat="e" if y_scale == "Log" else "none", showgrid=True, gridcolor="#ebebeb")
-                y2_dict = dict(title="Beta (Linear)", type="linear", showgrid=False)
+                y1_dict = dict(title=i18n.tr("Current (A)", "電流 (A)"),
+                               type="log" if y_scale == _SCALE_OPTS[0] else "linear",
+                               tickformat=".1e" if y_scale == _SCALE_OPTS[0] else None,
+                               exponentformat="e" if y_scale == _SCALE_OPTS[0] else "none", showgrid=True, gridcolor="#ebebeb")
+                y2_dict = dict(title=i18n.tr("Beta (Linear)", "Beta（線性）"), type="linear", showgrid=False)
 
                 if not auto_y:
-                    if y_scale == "Log":
+                    if y_scale == _SCALE_OPTS[0]:
                         y1_dict["range"] = [np.log10(cur_ymin), np.log10(cur_ymax)]
                     else:
                         y1_dict["range"] = [cur_ymin, cur_ymax]
@@ -455,8 +459,13 @@ with tab2:
                 sim_metrics = extract_metrics(d, n_min, n_max, Vt)
                 uiuc_metrics = (
                 uiuc_n_ic, uiuc_n_ib, uiuc_max_ic, uiuc_max_ib, uiuc_max_beta, uiuc_v_peak_beta, uiuc_v_turn_on)
-                labels = ["n (Ic Ideality)", "n (Ib Ideality)", "Max Ic (A)", "Max Ib (A)", "Max Beta",
-                          "V_peak_beta (V)", "V_turn_on @1nA (V)"]
+                labels = [i18n.tr("n (Ic Ideality)", "n（Ic 理想因子）"),
+                          i18n.tr("n (Ib Ideality)", "n（Ib 理想因子）"),
+                          i18n.tr("Max Ic (A)", "Ic 最大值 (A)"),
+                          i18n.tr("Max Ib (A)", "Ib 最大值 (A)"),
+                          i18n.tr("Max Beta", "Beta 最大值"),
+                          i18n.tr("V_peak_beta (V)", "V_peak_beta (V)"),
+                          i18n.tr("V_turn_on @1nA (V)", "V_turn_on @1nA (V)")]
 
 
                 def calc_err(sim, ref):

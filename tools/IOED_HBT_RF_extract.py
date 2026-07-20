@@ -51,17 +51,25 @@ st.title(i18n.title("rf_extract"))
 st.caption(i18n.tool_desc("rf_extract"))
 
 with st.expander(f"{i18n.t('whats_new')} · v{__version__}", expanded=False):
-    st.markdown(
+    st.markdown(i18n.tr(
         "- 🪧 **SSM extraction moved to its own page** — find **HBT SSM "
         "Extraction** in the sidebar (RF group).\n"
         "- This tool keeps the RF metrics workflow: overlay / individual "
         "Bode · Plateau · Smith, summary table, bulk upload, and the "
         "3-step + batch de-embedding tabs.\n\n"
-        "See [`CHANGELOG.md`](CHANGELOG.md) for full history."
-    )
+        "See [`CHANGELOG.md`](CHANGELOG.md) for full history.",
+        "- 🪧 **SSM 萃取已移至獨立頁面** — 請至側邊欄（RF 群組）尋找"
+        "**HBT SSM 萃取**。\n"
+        "- 本工具保留 RF 指標工作流程：疊圖 / 單一檔案 Bode · Plateau · "
+        "Smith、彙總表、批次上傳，以及三步驟 + 批次去嵌入分頁。\n\n"
+        "完整歷史請見 [`CHANGELOG.md`](CHANGELOG.md)。"
+    ))
 
 with st.expander(i18n.t("how_it_works"), expanded=False):
     from tools.diagrams import pipeline_png
+    # Labels stay English: pipeline_png() rasterizes them with matplotlib
+    # (tools/diagrams.py, not this file) using a Latin-only default font, so
+    # CJK text would render as missing-glyph boxes.
     st.image(pipeline_png((
         ("Upload",      "S2P / CSV"),
         ("De-embed",    "Open · Short · Thru"),
@@ -189,41 +197,47 @@ def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t,
 #  SIDEBAR
 # ═════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown("## Settings")
-    st.markdown("#### 3-Step De-embedding")
-    sw1=st.toggle("① Probe (Open-Short)",value=False)
-    f1o=st.file_uploader("Probe Open",  type=["s2p"],key="p1o") if sw1 else None
-    f1s=st.file_uploader("Probe Short", type=["s2p"],key="p1s") if sw1 else None
+    st.markdown(f"## {i18n.tr('Settings', '設定')}")
+    st.markdown(f"#### {i18n.tr('3-Step De-embedding', '三步驟去嵌入')}")
+    sw1=st.toggle(i18n.tr("① Probe (Open-Short)", "① 探針（Open-Short）"),value=False)
+    f1o=st.file_uploader(i18n.tr("Probe Open","探針 Open"),  type=["s2p"],key="p1o") if sw1 else None
+    f1s=st.file_uploader(i18n.tr("Probe Short","探針 Short"), type=["s2p"],key="p1s") if sw1 else None
     st.divider()
-    sw2=st.toggle("② Device Dummy (Open-Short)",value=False,help="Open-short de-embedding of the device pad parasitics")
-    f2o=st.file_uploader("Dev Open",  type=["s2p"],key="d2o") if sw2 else None
-    f2s=st.file_uploader("Dev Short", type=["s2p"],key="d2s") if sw2 else None
-    if sw2: st.caption("✅ Device-dummy de-embedding enabled.")
+    sw2=st.toggle(i18n.tr("② Device Dummy (Open-Short)", "② 元件 Dummy（Open-Short）"),value=False,
+                  help=i18n.tr("Open-short de-embedding of the device pad parasitics",
+                               "以 open-short 去嵌入元件 pad 寄生參數"))
+    f2o=st.file_uploader(i18n.tr("Dev Open","元件 Open"),  type=["s2p"],key="d2o") if sw2 else None
+    f2s=st.file_uploader(i18n.tr("Dev Short","元件 Short"), type=["s2p"],key="d2s") if sw2 else None
+    if sw2: st.caption(i18n.tr("✅ Device-dummy de-embedding enabled.", "✅ 元件 dummy 去嵌入已啟用。"))
     st.divider()
-    sw3=st.toggle("③ Device Thru (Half-Z)",value=False)
-    f3t=st.file_uploader("Dev Thru",  type=["s2p"],key="d3t") if sw3 else None
+    sw3=st.toggle(i18n.tr("③ Device Thru (Half-Z)", "③ 元件 Thru（Half-Z）"),value=False)
+    f3t=st.file_uploader(i18n.tr("Dev Thru","元件 Thru"),  type=["s2p"],key="d3t") if sw3 else None
     st.divider()
-    st.markdown("#### Chart Control")
-    freq_min=st.number_input("Freq Min (GHz)",value=0.01,min_value=0.01,format="%.4f")
-    freq_max=st.number_input("Freq Max (GHz)",value=50.0,min_value=1.0)
-    db_min=st.number_input("Bode Y Min (dB)",value=0.0)
-    db_max=st.number_input("Bode Y Max (dB)",value=50.0)
-    n_pts=st.slider("Interpolation pts",2,20,2)
-    show_raw=st.checkbox("Overlay Raw",value=True,disabled=not(sw1 or sw2 or sw3))
-    st.markdown("##### Trace Selection")
+    st.markdown(f"#### {i18n.tr('Chart Control', '圖表控制')}")
+    freq_min=st.number_input(i18n.tr("Freq Min (GHz)","頻率下限 (GHz)"),value=0.01,min_value=0.01,format="%.4f")
+    freq_max=st.number_input(i18n.tr("Freq Max (GHz)","頻率上限 (GHz)"),value=50.0,min_value=1.0)
+    db_min=st.number_input(i18n.tr("Bode Y Min (dB)","Bode Y 軸下限 (dB)"),value=0.0)
+    db_max=st.number_input(i18n.tr("Bode Y Max (dB)","Bode Y 軸上限 (dB)"),value=50.0)
+    n_pts=st.slider(i18n.tr("Interpolation pts","內插點數"),2,20,2)
+    show_raw=st.checkbox(i18n.tr("Overlay Raw","疊加原始值"),value=True,disabled=not(sw1 or sw2 or sw3))
+    st.markdown(f"##### {i18n.tr('Trace Selection', '曲線選擇')}")
     sh21=st.checkbox("|h21|² → fT",value=True,key="sh21")
     su=st.checkbox("Mason U → fmax(U)",value=True,key="su")
     smag=st.checkbox("MAG/MSG → fmax",value=True,key="smag")
-    skk=st.checkbox("K factor (stability)",value=False,key="sk_factor",
-                     help="Rollett's stability factor K = (1−|S11|²−|S22|²+|Δ|²)/(2|S12·S21|).  "
-                          "Network is unconditionally stable when K > 1 *and* |Δ| < 1.  "
-                          "Rendered on a separate axis below the bode plot.")
+    skk=st.checkbox(i18n.tr("K factor (stability)", "K 因子（穩定性）"),value=False,key="sk_factor",
+                     help=i18n.tr(
+                         "Rollett's stability factor K = (1−|S11|²−|S22|²+|Δ|²)/(2|S12·S21|).  "
+                         "Network is unconditionally stable when K > 1 *and* |Δ| < 1.  "
+                         "Rendered on a separate axis below the bode plot.",
+                         "Rollett 穩定性因子 K = (1−|S11|²−|S22|²+|Δ|²)/(2|S12·S21|)。"
+                         "當 K > 1 *且* |Δ| < 1 時，網路為絕對穩定。"
+                         "繪製於 Bode 圖下方的獨立座標軸。"))
     st.divider()
-    st.markdown("#### Smith Chart")
-    smith_f_min=st.number_input("Smith Freq Min (GHz)",value=freq_min,min_value=0.01,format="%.4f")
-    smith_f_max=st.number_input("Smith Freq Max (GHz)",value=freq_max,min_value=1.0)
-    smith_max_r=st.slider("|Γ| Max Radius",1.0,5.0,1.0,0.5)
-    st.markdown("##### Display & Scale")
+    st.markdown(f"#### {i18n.tr('Smith Chart', 'Smith 圖')}")
+    smith_f_min=st.number_input(i18n.tr("Smith Freq Min (GHz)","Smith 頻率下限 (GHz)"),value=freq_min,min_value=0.01,format="%.4f")
+    smith_f_max=st.number_input(i18n.tr("Smith Freq Max (GHz)","Smith 頻率上限 (GHz)"),value=freq_max,min_value=1.0)
+    smith_max_r=st.slider(i18n.tr("|Γ| Max Radius","|Γ| 最大半徑"),1.0,5.0,1.0,0.5)
+    st.markdown(f"##### {i18n.tr('Display & Scale', '顯示與縮放')}")
     ca,cb=st.columns(2); show_s11=ca.checkbox("S11",value=True,key="ss11"); scale_s11=cb.number_input("S11 ×",value=1.0,step=0.1,key="sc11")
     ca,cb=st.columns(2); show_s22=ca.checkbox("S22",value=True,key="ss22"); scale_s22=cb.number_input("S22 ×",value=1.0,step=0.1,key="sc22")
     ca,cb=st.columns(2); show_s21=ca.checkbox("S21",value=True,key="ss21"); scale_s21=cb.number_input("S21 ×",value=1.0,step=0.1,key="sc21")
@@ -234,12 +248,12 @@ with st.sidebar:
 # ═════════════════════════════════════════════════════════════════════════════
 col_up1,col_up2=st.columns([4,1])
 with col_up1:
-    dut_files=st.file_uploader("Upload DUT .s2p / .csv files",type=["s2p","csv"],
+    dut_files=st.file_uploader(i18n.tr("Upload DUT .s2p / .csv files","上傳 DUT .s2p / .csv 檔案"),type=["s2p","csv"],
                                accept_multiple_files=True,
                                key=st.session_state["rf_uploader_key"])
 with col_up2:
     st.write(""); st.write("")
-    if st.button("🗑️ Clear uploads",width="stretch"):
+    if st.button(i18n.t("clear_uploads"),width="stretch"):
         st.session_state["rf_uploader_key"]+=1
         st.session_state.pop("rf_ms_files",None)
         st.session_state.pop("rf_prev_uploaded",None)
@@ -430,23 +444,30 @@ if all_data:
     st.session_state["rf_prev_uploaded"]=cur
 
     c1,c2,_=st.columns([1.5,1.5,7])
-    if c1.button("✅ Select All"):  st.session_state["rf_ms_files"]=file_options
-    if c2.button("❌ Clear"):       st.session_state["rf_ms_files"]=[]
-    selected_files=st.multiselect("📂 Files to analyse:",options=file_options,
-                                  key="rf_ms_files",format_func=lambda x:Path(x).stem)
+    if c1.button(i18n.tr("✅ Select All","✅ 全選")):  st.session_state["rf_ms_files"]=file_options
+    if c2.button(i18n.tr("❌ Clear","❌ 清除")):       st.session_state["rf_ms_files"]=[]
+    selected_files=st.multiselect(i18n.tr("📂 Files to analyse:","📂 待分析檔案:"),options=file_options,
+                                  key="rf_ms_files",format_func=lambda x:Path(x).stem,
+                                  placeholder=i18n.tr("Choose options",
+                                                      "請選擇項目"))
 else:
     selected_files=[]
-    st.info("Upload DUT .s2p files above to begin.")
+    st.info(i18n.tr("Upload DUT .s2p files above to begin.","請於上方上傳 DUT .s2p 檔案以開始。"))
 
 xr,yr=(freq_min,freq_max),(db_min,db_max)
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  TABS
 # ═════════════════════════════════════════════════════════════════════════════
-tab_ov,tab_ind,tab_sum,tab_bd=st.tabs(["📊 Overlay","📁 Individual","📋 Summary","🧰 Batch De-embed"])
+tab_ov,tab_ind,tab_sum,tab_bd=st.tabs([
+    i18n.tr("📊 Overlay","📊 疊圖"),
+    i18n.tr("📁 Individual","📁 單一檔案"),
+    i18n.tr("📋 Summary","📋 摘要"),
+    i18n.tr("🧰 Batch De-embed","🧰 批次去嵌入"),
+])
 
 with tab_ov:
-    st.markdown("### Bode Plot Overlay")
+    st.markdown(f"### {i18n.tr('Bode Plot Overlay', 'Bode 圖疊圖')}")
 
     def _build_overlay_bode():
         # Standardised colours: fT trace (|h21|²) = blue, fmax traces
@@ -483,7 +504,8 @@ with tab_ov:
                         line_width=2, marker_size=5, opacity=0.7,
                         hovertemplate=hov)
         fig.add_hline(y=0, line_dash="dash", line_color="black")
-        fig.update_layout(**bode_layout("Overlay — Bode Plot", "Gain (dB)", yr, xr))
+        fig.update_layout(**bode_layout(i18n.tr("Overlay — Bode Plot", "疊圖 — Bode 圖"),
+                                         i18n.tr("Gain (dB)", "增益 (dB)"), yr, xr))
         fig.update_layout(height=550)
         return fig
 
@@ -493,7 +515,7 @@ with tab_ov:
     st.plotly_chart(f_bode, width="stretch")
 
     if skk:
-        st.markdown("### K-Factor Overlay (Rollett stability)")
+        st.markdown(f"### {i18n.tr('K-Factor Overlay (Rollett stability)', 'K 因子疊圖（Rollett 穩定性）')}")
 
         def _build_overlay_kfactor():
             fig = go.Figure()
@@ -511,8 +533,8 @@ with tab_ov:
             fig.add_hline(y=1.0, line_dash="dash", line_color="#888",
                           annotation_text="K = 1", annotation_position="right",
                           annotation_font=dict(size=9, color="#888"))
-            fig.update_layout(**bode_layout("Overlay — K Factor",
-                                              "K (dimensionless)",
+            fig.update_layout(**bode_layout(i18n.tr("Overlay — K Factor", "疊圖 — K 因子"),
+                                              i18n.tr("K (dimensionless)", "K（無因次）"),
                                               [0, 6], xr))
             fig.update_layout(height=350)
             return fig
@@ -521,7 +543,7 @@ with tab_ov:
                           _build_overlay_kfactor)
         st.plotly_chart(f_k, width="stretch")
 
-    st.markdown("### Plateau Plot Overlay")
+    st.markdown(f"### {i18n.tr('Plateau Plot Overlay', 'Plateau 圖疊圖')}")
 
     def _build_overlay_plateau():
         # Standardised colours — same convention as the Bode overlay above.
@@ -548,7 +570,8 @@ with tab_ov:
                     all_v += df_p["fmax U Plateau (GHz)"].dropna().tolist()
         arr = np.array([v for v in all_v if np.isfinite(v) and v > 0])
         ym = float(np.quantile(arr, 0.97)) * 1.3 if len(arr) else 100
-        fig.update_layout(**bode_layout("Overlay — Plateau", "GBP (GHz)", [0, ym], xr))
+        fig.update_layout(**bode_layout(i18n.tr("Overlay — Plateau", "疊圖 — Plateau"),
+                                         "GBP (GHz)", [0, ym], xr))
         fig.update_layout(height=550)
         return fig
 
@@ -558,7 +581,8 @@ with tab_ov:
 
 with tab_ind:
     if not all_data or not selected_files:
-        st.info("Upload and select files to view individual analysis.")
+        st.info(i18n.tr("Upload and select files to view individual analysis.",
+                        "請上傳並選取檔案以檢視單一檔案分析。"))
     else:
         # Single-active-file selector — replaces st.tabs(...) over selected_files.
         # Streamlit executes the body of every st.tabs branch on every rerun (only
@@ -566,19 +590,27 @@ with tab_ind:
         # re-run all N pipelines. A selectbox conditionally renders only the
         # selected file's body, so cost no longer scales with N.
         n=st.selectbox(
-            "📁 Active file",
+            i18n.tr("📁 Active file", "📁 目前檔案"),
             options=selected_files,
             format_func=lambda fn: Path(fn).stem,
             key="active_file_n",
-            help="Only the selected file is rendered. Use the dropdown or arrow keys to switch.",
+            help=i18n.tr("Only the selected file is rendered. Use the dropdown or arrow keys to switch.",
+                         "僅渲染目前選取的檔案。可用下拉選單或方向鍵切換。"),
         )
         file_names=list(all_data.keys())
         c=PALETTE[file_names.index(n)%len(PALETTE)]
         d=all_data[n]
         df_p=d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
 
+        # extract_limit()'s method tags — comparisons stay against the raw
+        # English tag; only the displayed text localizes.
+        _METHOD_ZH = {"No Gain": "無增益", "No Data": "無資料",
+                     "0dB Cross": "0dB 交越", "Extrap & Plat.": "外插與平台"}
+        def _method_disp(m):
+            return i18n.tr(m, _METHOD_ZH.get(m, m))
+
         def _fc(v_cr,v_pl,method):
-            if method in ["No Gain","No Data"]: return method
+            if method in ["No Gain","No Data"]: return _method_disp(method)
             if method=="0dB Cross":      return f"{v_cr:.3f} GHz" if np.isfinite(v_cr) else "N/A"
             if method=="Extrap & Plat.": return f"{v_pl:.3f} GHz" if np.isfinite(v_pl) else "N/A"
             return "N/A"
@@ -616,7 +648,7 @@ with tab_ind:
         _fmU_20, _fmU_sp   = _extrap_f0("Mason U (dB)")
 
         def _sub(method, f20, fsp):
-            parts = [method]
+            parts = [_method_disp(method)]
             if f20 is not None and np.isfinite(f20):
                 parts.append(f"−20dB: {f20:.2f} GHz")
             if fsp is not None and np.isfinite(fsp):
@@ -643,34 +675,36 @@ with tab_ind:
             # criterion also requires |Δ| < 1; for the card we report
             # the K side and let users dig into Δ in the plot below).
             if (k_arr >= 1.0).all():
-                tag = "🟢 K≥1 across band"
+                tag = i18n.tr("🟢 K≥1 across band", "🟢 全頻段 K≥1")
             elif k_min < 1.0 < float(k_arr.max()):
-                tag = "🟡 K crosses 1"
+                tag = i18n.tr("🟡 K crosses 1", "🟡 K 值跨越 1")
             else:
-                tag = "🔴 K<1 across band"
+                tag = i18n.tr("🔴 K<1 across band", "🔴 全頻段 K<1")
             return k_min, f_at_min, tag
 
         _k_min, _k_fmin, _k_tag = _k_summary(df_p)
 
         c1,c2,c3,c4,c5,c6=st.columns(6)
-        metric_card(c1,"De-embedding",d["De-embedding"],"mode","#888")
+        metric_card(c1,i18n.tr("De-embedding","去嵌入"),d["De-embedding"],i18n.tr("mode","模式"),"#888")
         metric_card(c2,"fT (GHz)",_fc(d["fT Cross/Extrap (GHz)"],d["fT Plateau (GHz)"],d["fT Method"]),_sub(d["fT Method"],_fT_20,_fT_sp))
         metric_card(c3,"fmax U",_fc(d["fmax U Cross/Extrap (GHz)"],d["fmax U Plateau (GHz)"],d["fmax U Method"]),_sub(d["fmax U Method"],_fmU_20,_fmU_sp),"#d62728")
-        metric_card(c4,"fmax MAG",_fc(d["fmax MAG Cross/Extrap (GHz)"],d["fmax MAG Plateau (GHz)"],d["fmax MAG Method"]),d["fmax MAG Method"],"#2ca02c")
+        metric_card(c4,"fmax MAG",_fc(d["fmax MAG Cross/Extrap (GHz)"],d["fmax MAG Plateau (GHz)"],d["fmax MAG Method"]),_method_disp(d["fmax MAG Method"]),"#2ca02c")
         if _k_min is not None:
             metric_card(c5,"K min",
                          f"{_k_min:.3f}",
                          f"{_k_tag} @ {_k_fmin:.2f} GHz",
                          "#0d7377")
         else:
-            metric_card(c5,"K min","—","not available","#888")
-        if d["Vce (V)"] is not None:  metric_card(c6,"Vce",f"{d['Vce (V)']} V","bias","#9467bd")
-        elif d["Ib (A)"] is not None: metric_card(c6,"Ib",f"{d['Ib (A)']*1e6:.1f} µA","bias","#9467bd")
+            metric_card(c5,"K min","—",i18n.tr("not available","無法計算"),"#888")
+        if d["Vce (V)"] is not None:  metric_card(c6,"Vce",f"{d['Vce (V)']} V",i18n.tr("bias","偏壓"),"#9467bd")
+        elif d["Ib (A)"] is not None: metric_card(c6,"Ib",f"{d['Ib (A)']*1e6:.1f} µA",i18n.tr("bias","偏壓"),"#9467bd")
 
         toggles={"S11":show_s11,"S22":show_s22,"S21":show_s21,"S12":show_s12}
         scales ={"S11":scale_s11,"S22":scale_s22,"S21":scale_s21,"S12":scale_s12}
 
-        ta,tb,tc=st.tabs(["Bode Plot","Plateau Plot","Smith Chart"])
+        ta,tb,tc=st.tabs([i18n.tr("Bode Plot","Bode 圖"),
+                          i18n.tr("Plateau Plot","Plateau 圖"),
+                          i18n.tr("Smith Chart","Smith 圖")])
         with ta:
             f_arr = df_p["Freq (GHz)"].values
             n_freq = len(f_arr)
@@ -678,15 +712,19 @@ with tab_ind:
             # ── Extrapolation controls ───────────────────────────────────────
             bc1, bc2 = st.columns([1, 1])
             show_20db = bc1.checkbox(
-                "Show −20 dB/dec extrapolation",
+                i18n.tr("Show −20 dB/dec extrapolation", "顯示 −20 dB/dec 外插線"),
                 value=True, key=f"bode_show20_{n}",
-                help="Anchors a line of slope −20 dB/dec at the last "
-                     "measured point (textbook fT/fmax extraction).")
+                help=i18n.tr("Anchors a line of slope −20 dB/dec at the last "
+                             "measured point (textbook fT/fmax extraction).",
+                             "於最後一個量測點錨定斜率 −20 dB/dec 的直線"
+                             "（教科書式 fT/fmax 萃取法）。"))
             show_sp = bc2.checkbox(
-                "Show single-pole fit",
+                i18n.tr("Show single-pole fit", "顯示單極點擬合"),
                 value=False, key=f"bode_showsp_{n}",
-                help="Log-linear (single-pole) least-squares fit on a "
-                     "user-chosen window — slope is determined by the data.")
+                help=i18n.tr("Log-linear (single-pole) least-squares fit on a "
+                             "user-chosen window — slope is determined by the data.",
+                             "於使用者選定的區間內進行對數線性（單極點）最小平方擬合"
+                             "— 斜率由資料本身決定。"))
 
             sp_window_idx = None
             if show_sp and n_freq >= 4:
@@ -694,7 +732,7 @@ with tab_ind:
                 _spkey = f"bode_spwin_{n}"
                 _dflt  = (max(f_lo, f_hi * 0.5), f_hi)
                 sp_win = st.slider(
-                    "Single-pole fit window (GHz)",
+                    i18n.tr("Single-pole fit window (GHz)", "單極點擬合區間 (GHz)"),
                     min_value=f_lo, max_value=f_hi,
                     value=st.session_state.get(_spkey, _dflt),
                     step=max((f_hi - f_lo) / 400.0, 1e-3),
@@ -746,9 +784,9 @@ with tab_ind:
                     _y_top = max(float(_k_finite.max()) * 1.1, 2.0) if len(_k_finite) else 5.0
                     _y_bot = min(float(_k_finite.min()) * 1.1, 0.0) if len(_k_finite) else 0.0
                     fig.update_layout(
-                        title=dict(text=f"K Factor (stability) — {Path(n).stem}",
+                        title=dict(text=f"{i18n.tr('K Factor (stability)', 'K 因子（穩定性）')} — {Path(n).stem}",
                                     font=dict(size=12)),
-                        xaxis=dict(title="Frequency (GHz)", type="log",
+                        xaxis=dict(title=i18n.tr("Frequency (GHz)", "頻率 (GHz)"), type="log",
                                     range=[np.log10(max(xr[0], 1e-2)),
                                            np.log10(xr[1])],
                                     showgrid=True, gridcolor="#ebebeb"),
@@ -770,7 +808,7 @@ with tab_ind:
                 _bode_tsv = xlsx_bytes_to_tsv(bode_xl)
                 _cx, _cc = st.columns(2)
                 _cx.download_button(
-                    "⬇ xlsx",
+                    i18n.tr("⬇ xlsx", "⬇ xlsx 檔"),
                     data=bode_xl,
                     file_name=f"{Path(n).stem}_bode.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -829,33 +867,39 @@ with tab_ind:
                     )
         # ── Send this device to the SSM pages (no re-upload) ─────────────────
         with st.container(border=True):
-            st.markdown("**🔁 Send this device to an SSM page**")
+            st.markdown(f"**🔁 {i18n.tr('Send this device to an SSM page', '將此元件傳送至 SSM 頁面')}**")
             _has_deemb = d.get("S_fin") is not None and bool(d.get("De-embedding"))
             hs1, hs2, hs3 = st.columns([1.4, 1, 1])
+            # Values stay English ("De-embedded"/"Raw") — stage_lbl is
+            # compared against them below; only the label localizes.
             _stage_opts = (["De-embedded", "Raw"] if _has_deemb else ["Raw"])
+            _stage_labels_zh = {"De-embedded": "去嵌入後", "Raw": "原始"}
             stage_lbl = hs1.selectbox(
-                "S-parameters to send", _stage_opts, key=f"hand_stage_{n}",
-                help="De-embedded = pads/leads removed (fit intrinsic only). "
-                     "Raw = probe-level (fit Cpxx / Lx parasitics too).")
+                i18n.tr("S-parameters to send", "傳送的 S 參數"), _stage_opts, key=f"hand_stage_{n}",
+                format_func=lambda s: i18n.tr(s, _stage_labels_zh[s]),
+                help=i18n.tr("De-embedded = pads/leads removed (fit intrinsic only). "
+                             "Raw = probe-level (fit Cpxx / Lx parasitics too).",
+                             "去嵌入後 = 已移除 pad/引線（僅擬合本質元件）。"
+                             "原始 = 探針層級（同時擬合 Cpxx / Lx 寄生參數）。"))
             _use_deemb = (stage_lbl == "De-embedded")
             _S_send = d["S_fin"] if _use_deemb else d["S_raw"]
             _stage = "deembedded" if _use_deemb else "raw"
-            if hs2.button("→ SSM Extraction", key=f"hand_ext_{n}",
+            if hs2.button(i18n.tr("→ SSM Extraction", "→ 小訊號模型萃取"), key=f"hand_ext_{n}",
                           width="stretch", type="primary"):
                 handoff.send(handoff.TARGET_EXTRACTION,
                              S=_S_send, freq=d["freq"], z0=d["z0"],
                              label=Path(n).stem, stage=_stage)
                 st.switch_page(handoff.PAGE_EXTRACTION)
-            if hs3.button("→ Simulation & Fitting", key=f"hand_sim_{n}",
+            if hs3.button(i18n.tr("→ Simulation & Fitting", "→ 模擬與擬合"), key=f"hand_sim_{n}",
                           width="stretch"):
                 handoff.send(handoff.TARGET_SIMFIT,
                              S=_S_send, freq=d["freq"], z0=d["z0"],
                              label=Path(n).stem, stage=_stage)
                 st.switch_page(handoff.PAGE_SIMFIT)
 
-        with st.expander("📋 Data Table"):
+        with st.expander(i18n.tr("📋 Data Table", "📋 資料表")):
             if d["df_fin"] is not None:
-                ta2,tb2=st.tabs(["De-embedded","Raw"])
+                ta2,tb2=st.tabs([i18n.tr("De-embedded","去嵌入後"), i18n.tr("Raw","原始")])
                 with ta2:
                     st.dataframe(df_p.round(4),width="stretch",hide_index=True)
                     copy_button(frames_to_tsv([("De-embedded",df_p.round(4))]),key=f"dtab_de_{n}")
@@ -868,7 +912,7 @@ with tab_ind:
 
 with tab_sum:
     if not all_data:
-        st.info("Upload files to generate summary.")
+        st.info(i18n.tr("Upload files to generate summary.", "請上傳檔案以產生摘要。"))
     else:
         rows=[{"File":k,"De-embedding":d["De-embedding"],"Vce (V)":d["Vce (V)"],
                "Ib (µA)":round(d["Ib (A)"]*1e6,1) if d["Ib (A)"] else None,
@@ -882,7 +926,7 @@ with tab_sum:
         date=datetime.now().strftime("%Y-%m-%d")
         d1,d2,d3=st.columns(3)
         with d1:
-            st.download_button("📥 Excel",data=build_excel(sum_df,all_data),
+            st.download_button(i18n.tr("📥 Excel","📥 下載 Excel"),data=build_excel(sum_df,all_data),
                                file_name=f"RF_Extraction_{date}.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                width="stretch")
@@ -893,7 +937,7 @@ with tab_sum:
                 for k,d in all_data.items():
                     dp=d["df_fin"] if d["df_fin"] is not None else d["df_raw"]
                     zf.writestr(f"{Path(k).stem}.csv",dp.to_csv(index=False).encode())
-            st.download_button("📦 ZIP (CSV)",data=zbuf.getvalue(),
+            st.download_button(i18n.tr("📦 ZIP (CSV)","📦 下載 ZIP (CSV)"),data=zbuf.getvalue(),
                                file_name=f"RF_Extraction_{date}.zip",
                                mime="application/zip",width="stretch")
         with d3:

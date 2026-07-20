@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch
 
+from ..i18n import tr
 from .models.base_ui import PAD_SPECS
 
 
@@ -58,7 +59,20 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
     if ocm_Re is not None: src_Re["Open-collector"] = float(ocm_Re)
 
 
-    def _src_lbl(k, v): return f"{k}: {v:.4f} Ω"
+    # Internal identifiers (dict keys / session_state sentinel) stay in
+    # English so lookups (`sources[chosen_src]`, `chosen_src != "Custom"`)
+    # never break when the UI language changes — only the *displayed*
+    # label is localized, via this map.
+    _SRC_LBL_ZH = {
+        "Cold-HBT": "冷 HBT",
+        "Z-parameter method": "Z 參數法",
+        "Open-collector": "開路集極",
+        "Custom": "自訂",
+    }
+
+    def _src_disp(k): return tr(k, _SRC_LBL_ZH.get(k, k))
+
+    def _src_lbl(k, v): return f"{_src_disp(k)}: {v:.4f} Ω"
 
     _cap_keys = ["Cpbe","Cpce","Cpbc"]
     _ind_keys = ["Lb","Lc","Le"]
@@ -84,8 +98,9 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
         if sk_val not in st.session_state:
             st.session_state[sk_val] = 0.0
 
-    with st.expander("✏️ Choose series resistance", expanded=False):
-        if st.button("↩️ Reset all to defaults (Custom = 0 Ω)",
+    with st.expander(tr("✏️ Choose series resistance", "✏️ 選擇串聯電阻來源"), expanded=False):
+        if st.button(tr("↩️ Reset all to defaults (Custom = 0 Ω)",
+                        "↩️ 全部重設為預設值（自訂 0 Ω）"),
                      key=f"preov_reset_{fname}"):
             for k in _cap_keys:
                 st.session_state[f"preov_{k}_{fname}"] = para_step1.get(k,0.0) * 1e15
@@ -110,11 +125,12 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
         #                              ("Le","Le (pH)")]):
         #     col_w.number_input(lbl, key=f"preov_{k}_{fname}", format="%.3f", step=0.1)
 
-        st.markdown("**Series resistances** *(choose source — default = Custom 0 Ω)*")
+        st.markdown(tr("**Series resistances** *(choose source — default = Custom 0 Ω)*",
+                       "**串聯電阻** *（選擇來源 — 預設為自訂 0 Ω）*"))
         for var, sources, label in [
-            ("Rb", src_Rb, "**Rb = Rpb** — base"),
-            ("Rc", src_Rc, "**Rc = Rpc** — collector"),
-            ("Re", src_Re, "**Re = Rpe** — emitter"),
+            ("Rb", src_Rb, tr("**Rb = Rpb** — base", "**Rb = Rpb** — 基極")),
+            ("Rc", src_Rc, tr("**Rc = Rpc** — collector", "**Rc = Rpc** — 集極")),
+            ("Re", src_Re, tr("**Re = Rpe** — emitter", "**Re = Rpe** — 射極")),
         ]:
             src_opts  = list(sources.keys()) + ["Custom"]
             sk_src    = f"preov_src_{var}_{fname}"
@@ -123,11 +139,14 @@ def render_unified_pre_override(fname, para_step1, cold_res, rz12_Re):
             # Fall back to Custom (not the first source) for stale/invalid
             # selections — e.g. a previously-stored "Short (Step 1b)".
             if cur_src not in src_opts: cur_src = "Custom"
-            radio_lbls = [_src_lbl(k, v) for k, v in sources.items()] + ["Custom"]
+            # Display labels are localized (via _src_lbl/_src_disp); `src_opts`
+            # stays the English sentinel list so the index lookup below is
+            # unambiguous regardless of UI language.
+            radio_lbls = [_src_lbl(k, v) for k, v in sources.items()] + [_src_disp("Custom")]
             cur_idx    = src_opts.index(cur_src)
             st.markdown(label)
             sc1, sc2 = st.columns([3, 1])
-            chosen_lbl = sc1.radio(f"Source for {var}", radio_lbls,
+            chosen_lbl = sc1.radio(tr(f"Source for {var}", f"{var} 來源"), radio_lbls,
                                     index=cur_idx,
                                     key=f"preov_radio_{var}_{fname}",
                                     horizontal=True,

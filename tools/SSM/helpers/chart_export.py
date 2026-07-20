@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from ...i18n import tr
 
 EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -360,7 +361,7 @@ def copy_button(
     key: str,
     *,
     container=None,
-    label: str = "📋 copy",
+    label: str | None = None,
     height: int = 46,
 ):
     """Render a "copy to clipboard" button styled like the xlsx download button.
@@ -379,9 +380,16 @@ def copy_button(
     target = container if container is not None else st
     if not text:
         return
+    # NOTE: `label` is resolved here (not as a `def` default) so `tr()` reads
+    # the *current* UI language on every Streamlit rerun — a literal default
+    # value would freeze to whichever language was active the first time this
+    # module was imported.
+    if label is None:
+        label = tr("📋 copy", "📋 複製")
 
     payload = json.dumps(text)          # safely JS-escapes quotes/newlines/tabs
     safe_label = html.escape(label)
+    safe_toast = html.escape(tr("Copied to clipboard", "已複製到剪貼簿"))
     doc = f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
   html,body{{margin:0;padding:0;background:transparent;overflow:hidden;}}
   .wrap{{position:relative;}}
@@ -411,7 +419,7 @@ def copy_button(
 </style></head><body>
 <div class="wrap">
   <button id="cb">{safe_label}</button>
-  <div id="toast">✓ Copied to clipboard</div>
+  <div id="toast">✓ {safe_toast}</div>
 </div>
 <script>
   const data = {payload};
@@ -506,7 +514,7 @@ def plotly_with_dl(
     if extra_download is None:
         _spL, _c1, _c2, _spR = ctx.columns([2, 2, 2, 2])
         _c1.download_button(
-            label="⬇ xlsx",
+            label=tr("⬇ xlsx", "⬇ xlsx 檔"),
             data=xl,
             file_name=f"{filename or key}.xlsx",
             mime=EXCEL_MIME,
@@ -520,7 +528,7 @@ def plotly_with_dl(
         _spL, _c1, _c2, _c3, _spR = ctx.columns([1, 2, 2, 2, 1])
         if xl is not None:
             _c1.download_button(
-                label="⬇ xlsx",
+                label=tr("⬇ xlsx", "⬇ xlsx 檔"),
                 data=xl,
                 file_name=f"{filename or key}.xlsx",
                 mime=EXCEL_MIME,

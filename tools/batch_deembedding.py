@@ -19,6 +19,7 @@ import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
 
+from tools import i18n
 from tools.SSM.helpers import (step_open, step_short, peel_parasitics, write_s2p,
                                 deembed_open_short, s_to_y, plotly_with_dl)
 
@@ -38,13 +39,15 @@ def _cap_vs_f_fig(arrays_open, freq):
                 line=dict(color=color, width=2),
                 hovertemplate=f"{key}=%{{y:.4f}} fF<br>f=%{{x:.3f}} GHz<extra></extra>"))
     else:
-        fig.add_annotation(text="No Open file uploaded — capacitances default to 0",
+        fig.add_annotation(text=i18n.tr("No Open file uploaded — capacitances default to 0",
+                                        "未上傳 Open 檔案 — 電容預設為 0"),
                             xref="paper", yref="paper", x=0.5, y=0.5,
                             showarrow=False, font=dict(color="#888"))
     fig.update_layout(
-        title=dict(text="Pad Capacitance vs Frequency (Open dummy)", font=dict(size=13)),
-        xaxis=dict(title="Frequency (GHz)", showgrid=True, gridcolor="#ebebeb"),
-        yaxis=dict(title="Capacitance (fF)", range=[0, 30],
+        title=dict(text=i18n.tr("Pad Capacitance vs Frequency (Open dummy)",
+                                "Pad 電容 vs 頻率（Open dummy）"), font=dict(size=13)),
+        xaxis=dict(title=i18n.tr("Frequency (GHz)", "頻率 (GHz)"), showgrid=True, gridcolor="#ebebeb"),
+        yaxis=dict(title=i18n.tr("Capacitance (fF)", "電容 (fF)"), range=[0, 30],
                    showgrid=True, gridcolor="#ebebeb"),
         plot_bgcolor="white", paper_bgcolor="white", height=380,
         legend=dict(x=0.99, y=0.99, xanchor="right", yanchor="top",
@@ -66,13 +69,15 @@ def _ind_vs_f_fig(arrays_short, freq):
                 line=dict(color=color, width=2),
                 hovertemplate=f"{key}=%{{y:.4f}} pH<br>f=%{{x:.3f}} GHz<extra></extra>"))
     else:
-        fig.add_annotation(text="No Short file uploaded — inductances default to 0",
+        fig.add_annotation(text=i18n.tr("No Short file uploaded — inductances default to 0",
+                                        "未上傳 Short 檔案 — 電感預設為 0"),
                             xref="paper", yref="paper", x=0.5, y=0.5,
                             showarrow=False, font=dict(color="#888"))
     fig.update_layout(
-        title=dict(text="Lead Inductance vs Frequency (Short dummy)", font=dict(size=13)),
-        xaxis=dict(title="Frequency (GHz)", showgrid=True, gridcolor="#ebebeb"),
-        yaxis=dict(title="Inductance (pH)", range=[0, 100],
+        title=dict(text=i18n.tr("Lead Inductance vs Frequency (Short dummy)",
+                                "引線電感 vs 頻率（Short dummy）"), font=dict(size=13)),
+        xaxis=dict(title=i18n.tr("Frequency (GHz)", "頻率 (GHz)"), showgrid=True, gridcolor="#ebebeb"),
+        yaxis=dict(title=i18n.tr("Inductance (pH)", "電感 (pH)"), range=[0, 100],
                    showgrid=True, gridcolor="#ebebeb"),
         plot_bgcolor="white", paper_bgcolor="white", height=380,
         legend=dict(x=0.99, y=0.99, xanchor="right", yanchor="top",
@@ -111,15 +116,19 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
                     y_to_s, compute_metrics, extract_limit,
                     make_bode, make_smith, card, PALETTE
     """
-    st.markdown("### 🧰 Batch De-embedding")
-    st.caption(
+    st.markdown(f"### 🧰 {i18n.tr('Batch De-embedding', '批次去嵌入')}")
+    st.caption(i18n.tr(
         "SSM-style modeled de-embedding (Gao 2015 §4.2): pad capacitances are "
         "extracted from the Open dummy and series-lead inductances from the "
         "Short dummy. Override any element below to retune; if no Open/Short "
-        "is uploaded the corresponding parameters default to 0.")
+        "is uploaded the corresponding parameters default to 0.",
+        "SSM 風格模型去嵌入（Gao 2015 §4.2）：pad 電容取自 Open dummy，"
+        "串聯引線電感取自 Short dummy。可於下方覆寫任一元件重新調校；"
+        "若未上傳 Open/Short，對應參數預設為 0。"))
 
     if not all_data:
-        st.info("Upload DUT files to begin batch de-embedding.")
+        st.info(i18n.tr("Upload DUT files to begin batch de-embedding.",
+                        "請上傳 DUT 檔案以開始批次去嵌入。"))
         return
 
     y_to_s         = helpers["y_to_s"]
@@ -141,7 +150,7 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
         try:
             params_open, arrays_open = step_open(open_data)
         except Exception as e:
-            st.error(f"Open processing failed: {e}")
+            st.error(f"{i18n.tr('Open processing failed', 'Open 處理失敗')}: {e}")
 
     if short_data is not None:
         try:
@@ -152,7 +161,7 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
                 open_data=open_data,
                 measured_open=(open_data is not None))
         except Exception as e:
-            st.error(f"Short processing failed: {e}")
+            st.error(f"{i18n.tr('Short processing failed', 'Short 處理失敗')}: {e}")
 
     # ── 2. Side-by-side C-vs-f and L-vs-f plots ───────────────────────────────
     f_open  = open_data[0]  if open_data  is not None else next(iter(all_data.values()))["freq"]
@@ -165,15 +174,17 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
 
     # ── 3. Override section ───────────────────────────────────────────────────
     head_l, head_r = st.columns([4, 1])
-    head_l.markdown("#### Overrides")
-    if head_r.button("↺ Reset to defaults", key="bd_reset",
-                      help="Restore values computed from Open/Short."):
+    head_l.markdown(f"#### {i18n.tr('Overrides', '覆寫')}")
+    if head_r.button(i18n.tr("↺ Reset to defaults", "↺ 重設為預設值"), key="bd_reset",
+                      help=i18n.tr("Restore values computed from Open/Short.",
+                                   "還原為 Open/Short 計算所得的數值。")):
         for k in ("bd_Cpbe","bd_Cpce","bd_Cpbc",
                   "bd_Lb","bd_Lc","bd_Le",
                   "bd_Rb","bd_Re","bd_Rc"):
             st.session_state.pop(k, None)
         st.rerun()
-    st.caption("Defaults are populated from the modeled Open/Short calculation.")
+    st.caption(i18n.tr("Defaults are populated from the modeled Open/Short calculation.",
+                       "預設值取自模型 Open/Short 計算結果。"))
 
     c1, c2, c3 = st.columns(3)
     Cpbe = _ovr_input(c1, "Cpbe (fF)", params_open["Cpbe"], 1e15, "%.4f", "bd_Cpbe")
@@ -197,22 +208,34 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
     )
 
     # ── 4. Open / Short source selector ───────────────────────────────────────
-    st.markdown("#### De-embedding source")
-    st.caption(
+    st.markdown(f"#### {i18n.tr('De-embedding source', '去嵌入來源')}")
+    st.caption(i18n.tr(
         "**Modeled** uses the override values above to build analytical pad/lead "
         "matrices and subtract them. **Measured** subtracts the raw Open/Short "
         "S-parameters directly (Gao §4.2 open-short). Measured falls back to "
-        "Modeled automatically when the corresponding dummy file is missing.")
+        "Modeled automatically when the corresponding dummy file is missing.",
+        "**模型計算** 使用上方覆寫值建立解析 pad/引線矩陣並扣除。**量測值** "
+        "直接扣除原始 Open/Short S 參數（Gao §4.2 open-short）。當對應的 "
+        "dummy 檔案缺失時，量測值會自動退回模型計算。"))
+    # Values stay English ("Modeled"/"Measured") — open_mode/short_mode are
+    # compared against these literals below and embedded in mode_lbl further
+    # down; only the on-screen label localizes via format_func.
+    _src_opts = ["Modeled", "Measured"]
+    _src_labels_zh = {"Modeled": "模型計算", "Measured": "量測值"}
     src_o, src_s = st.columns(2)
-    open_mode  = src_o.radio("Open source",  ["Modeled", "Measured"],
+    open_mode  = src_o.radio(i18n.tr("Open source", "Open 來源"), _src_opts,
                               horizontal=True, key="bd_open_src",
                               disabled=(open_data is None),
-                              help=("Upload an Open dummy to enable Measured."
+                              format_func=lambda v: i18n.tr(v, _src_labels_zh[v]),
+                              help=(i18n.tr("Upload an Open dummy to enable Measured.",
+                                            "請上傳 Open dummy 以啟用量測值。")
                                     if open_data is None else None))
-    short_mode = src_s.radio("Short source", ["Modeled", "Measured"],
+    short_mode = src_s.radio(i18n.tr("Short source", "Short 來源"), _src_opts,
                               horizontal=True, key="bd_short_src",
                               disabled=(short_data is None),
-                              help=("Upload a Short dummy to enable Measured."
+                              format_func=lambda v: i18n.tr(v, _src_labels_zh[v]),
+                              help=(i18n.tr("Upload a Short dummy to enable Measured.",
+                                            "請上傳 Short dummy 以啟用量測值。")
                                     if short_data is None else None))
     use_meas_open  = (open_mode  == "Measured") and (open_data  is not None)
     use_meas_short = (short_mode == "Measured") and (short_data is not None)
@@ -296,35 +319,46 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
         return
 
     # ── 5. Per-file tabs ──────────────────────────────────────────────────────
-    st.markdown("#### Per-file Results")
+    st.markdown(f"#### {i18n.tr('Per-file Results', '各檔案結果')}")
     file_names = list(bd_results.keys())
     stabs = st.tabs([Path(n).stem for n in file_names])
     xr = (ui["freq_min"], ui["freq_max"])
     yr = (ui["db_min"],   ui["db_max"])
 
+    # extract_limit()'s method tags — comparisons below stay against the raw
+    # English tag; only the displayed text localizes.
+    _METHOD_ZH = {"No Gain": "無增益", "No Data": "無資料",
+                  "0dB Cross": "0dB 交越", "Extrap & Plat.": "外插與平台"}
+    def _method_disp(m):
+        return i18n.tr(m, _METHOD_ZH.get(m, m))
+
     def _fc(v_cr, v_pl, method):
         if method in ("No Gain", "No Data"):
-            return method
+            return _method_disp(method)
         if method == "0dB Cross":
             return f"{v_cr:.3f} GHz" if np.isfinite(v_cr) else "N/A"
         if method == "Extrap & Plat.":
             return f"{v_pl:.3f} GHz" if np.isfinite(v_pl) else "N/A"
         return "N/A"
 
+    def _mode_disp(mode, data_present):
+        val = mode if data_present else "Modeled"
+        return i18n.tr(val, _src_labels_zh[val])
+
     for stab, name in zip(stabs, file_names):
         r = bd_results[name]
         c = PALETTE[file_names.index(name) % len(PALETTE)]
         with stab:
             k1, k2, k3, k4 = st.columns(4)
-            mode_lbl = (f"Open: {open_mode if open_data is not None else 'Modeled'} · "
-                        f"Short: {short_mode if short_data is not None else 'Modeled'}")
-            card(k1, "De-embedding", mode_lbl, "mode", "#888")
+            mode_lbl = (f"Open: {_mode_disp(open_mode, open_data is not None)} · "
+                        f"Short: {_mode_disp(short_mode, short_data is not None)}")
+            card(k1, i18n.tr("De-embedding", "去嵌入"), mode_lbl, i18n.tr("mode", "模式"), "#888")
             card(k2, "fT (GHz)",
-                 _fc(r["fT_cr"],  r["fT_pl"],  r["fT_m"]),  r["fT_m"])
+                 _fc(r["fT_cr"],  r["fT_pl"],  r["fT_m"]),  _method_disp(r["fT_m"]))
             card(k3, "fmax U",
-                 _fc(r["fmU_cr"], r["fmU_pl"], r["fmU_m"]), r["fmU_m"], "#d62728")
+                 _fc(r["fmU_cr"], r["fmU_pl"], r["fmU_m"]), _method_disp(r["fmU_m"]), "#d62728")
             card(k4, "fmax MAG",
-                 _fc(r["fmM_cr"], r["fmM_pl"], r["fmM_m"]), r["fmM_m"], "#2ca02c")
+                 _fc(r["fmM_cr"], r["fmM_pl"], r["fmM_m"]), _method_disp(r["fmM_m"]), "#2ca02c")
 
             cb, cs = st.columns(2)
             with cb:
@@ -357,7 +391,7 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
             zf.writestr(f"{stem}_deemb.s2p", data)
     date = datetime.now().strftime("%Y-%m-%d")
     st.download_button(
-        "📥 Download de-embedded measurement files",
+        i18n.tr("📥 Download de-embedded measurement files", "📥 下載去嵌入後的量測檔案"),
         data=zbuf.getvalue(),
         file_name=f"Batch_Deembedded_{date}.zip",
         mime="application/zip",
@@ -366,23 +400,27 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
     # ── 7. Hand the de-embedded device(s) to the SSM pages ────────────────────
     from tools.SSM import handoff
     with st.container(border=True):
-        st.markdown("**🔁 Send de-embedded device(s) to an SSM page**")
+        st.markdown(f"**🔁 {i18n.tr('Send de-embedded device(s) to an SSM page', '將去嵌入元件傳送至 SSM 頁面')}**")
         names = list(bd_results.keys())
         # Guard the persisted selection: a stale value (file set changed) would
         # make st.selectbox raise.
         if st.session_state.get("bd_handoff_sel") not in names:
             st.session_state["bd_handoff_sel"] = names[0]
         hs1, hs2, hs3 = st.columns([1.6, 1, 1])
-        sel = hs1.selectbox("Primary device", names,
+        sel = hs1.selectbox(i18n.tr("Primary device", "主要元件"), names,
                             format_func=lambda s: Path(s).stem,
                             key="bd_handoff_sel",
-                            help="Extraction also receives every other "
-                                 "de-embedded file here (the Z-parameter, "
-                                 "Cold-HBT and τ_total methods need them); "
-                                 "Simulation & Fitting receives just this one.")
+                            help=i18n.tr(
+                                "Extraction also receives every other "
+                                "de-embedded file here (the Z-parameter, "
+                                "Cold-HBT and τ_total methods need them); "
+                                "Simulation & Fitting receives just this one.",
+                                "萃取頁面會同時接收此處其餘去嵌入檔案（Z 參數、"
+                                "Cold-HBT 與 τ_total 方法需要用到）；"
+                                "模擬與擬合頁面則只接收此選取檔案。"))
         r_sel = bd_results[sel]
         # Extraction: send all de-embedded files (primary + the rest as extras).
-        if hs2.button("→ SSM Extraction", key="bd_handoff_ext",
+        if hs2.button(i18n.tr("→ SSM Extraction", "→ 小訊號模型萃取"), key="bd_handoff_ext",
                       width="stretch", type="primary"):
             extras = {n: {"S": r["S_de"], "freq": r["freq"], "z0": r["z0"]}
                       for n, r in bd_results.items() if n != sel}
@@ -392,7 +430,7 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
                          extras=extras)
             st.switch_page(handoff.PAGE_EXTRACTION)
         # Fitting: only the selected device.
-        if hs3.button("→ Simulation & Fitting", key="bd_handoff_sim",
+        if hs3.button(i18n.tr("→ Simulation & Fitting", "→ 模擬與擬合"), key="bd_handoff_sim",
                       width="stretch"):
             handoff.send(handoff.TARGET_SIMFIT,
                          S=r_sel["S_de"], freq=r_sel["freq"], z0=r_sel["z0"],

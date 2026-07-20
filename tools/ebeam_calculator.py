@@ -39,6 +39,24 @@ _EBL_CORNER_NOTE = (
 )
 
 
+def _is_zh() -> bool:
+    """Whether the shared portal UI language is 中文 (Traditional Chinese)."""
+    return st.session_state.get("ui_lang") == "中文"
+
+
+def tr(en: str, zh: str) -> str:
+    """Return ``zh`` when the portal UI language is 中文, else ``en``.
+
+    Inline mirror of ``tools.i18n.tr()`` — kept local (no repo import) so
+    this file stays fully self-contained per the module docstring above and
+    keeps working when copied out on its own via ``launch_ebl_calculator.py``.
+    Reads the same ``st.session_state["ui_lang"]`` key the portal's language
+    toggle writes, so this page follows it automatically when embedded, and
+    defaults to English when run standalone (no toggle present).
+    """
+    return zh if _is_zh() else en
+
+
 def segmented_radio(label, options, *, index: int = 0, key=None,
                     horizontal: bool = True, format_func=None, help=None,
                     label_visibility: str = "visible",
@@ -128,8 +146,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title(_EBL_TITLE)
-st.caption(_EBL_DESC)
+st.title(tr(_EBL_TITLE, "電子束微影計算機"))
+st.caption(tr(_EBL_DESC, "計算 JEOL ELS-7000 晶片位置與曝光流程。"))
 
 # ─── Session-state defaults ──────────────────────────────────────────────────
 # Corner defaults:
@@ -152,12 +170,16 @@ for _k, _v in _DEFAULTS.items():
 
 
 @st.cache_data(show_spinner=False)
-def _chip_corner_guide_png() -> bytes:
+def _chip_corner_guide_png(zh: bool = False) -> bytes:
     """Static reference sketch explaining the chip-corner labelling + the two
     diagonals that the "Editable diagonal" radio chooses between.  Drawn with
-    matplotlib (Agg, no pyplot global state) and cached — it never changes."""
+    matplotlib (Agg, no pyplot global state) and cached per language — the
+    geometry never changes, only the legend text (``zh`` is part of the
+    cache key so switching the portal language redraws it)."""
     import io
     from matplotlib.figure import Figure
+
+    _diag_word = "對角線" if zh else "diagonal"
 
     BLUE, ORANGE = "#1f77b4", "#ff7f0e"
     x0, x1, y0, y1 = 0.30, 0.82, 0.30, 0.82
@@ -170,9 +192,9 @@ def _chip_corner_guide_png() -> bytes:
             color=BLUE, lw=2.0, zorder=3)
     # The two diagonals the radio toggles between.
     ax.plot([x0, x1], [y0, y1], ls="--", color=BLUE,   lw=1.6, zorder=2,
-            label="BL–TR diagonal")
+            label=f"BL–TR {_diag_word}")
     ax.plot([x1, x0], [y0, y1], ls="--", color=ORANGE, lw=1.6, zorder=2,
-            label="BR–TL diagonal")
+            label=f"BR–TL {_diag_word}")
 
     corners = {
         "BL": (x0, y0, -0.02, -0.02, "right", "top"),
@@ -208,32 +230,38 @@ def _chip_corner_guide_png() -> bytes:
 
 # ─── Section 1: Chip Position in the E-beam Holder ───────────────────────────
 with st.container(border=True):
-    st.header("Chip Position in the E-beam Holder",
-              help="Check the positions of the chip corners - especially the "
-                   "bottom-left and top-right.",
+    st.header(tr("Chip Position in the E-beam Holder", "夾具中的晶片位置"),
+              help=tr("Check the positions of the chip corners - especially "
+                      "the bottom-left and top-right.",
+                      "請確認晶片角落位置 — 特別是左下角與右上角。"),
               anchor=False)
 
     col_left, col_right = st.columns([1, 1])
 
     with col_left:
-        st.subheader("Corner Positions")
+        st.subheader(tr("Corner Positions", "角落位置"))
 
-        with st.expander(_EBL_CORNER_GUIDE, expanded=False):
-            st.image(_chip_corner_guide_png(), width="stretch")
-            st.caption(_EBL_CORNER_NOTE)
+        with st.expander(tr(_EBL_CORNER_GUIDE, "ℹ️ 角落標示說明"), expanded=False):
+            st.image(_chip_corner_guide_png(zh=_is_zh()), width="stretch")
+            st.caption(tr(_EBL_CORNER_NOTE,
+                          "夾具座標：x 向右增加，y 向上增加。矩形模式下只需編輯一組"
+                          "對角（BL–TR 或 BR–TL），另一組會自動計算。"))
 
+        _shape_opts = [tr("Rectangular", "矩形"), tr("Custom", "自訂")]
         shape_mode = segmented_radio(
-            "Shape", ["Rectangular", "Custom"],
+            tr("Shape", "形狀"), _shape_opts,
             key="ebc_shape_mode",
         )
-        is_rect = (shape_mode == "Rectangular")
+        is_rect = (shape_mode == _shape_opts[0])
 
         # In rectangular mode the user picks which diagonal pair drives the
         # rectangle; the other pair is computed from it and shown disabled.
         bltr_active = True  # default: BL/TR is the editable pair
         if is_rect:
+            # Corner codes (BL/TR/BR/TL) stay verbatim in both languages, so
+            # this option list needs no format_func / index indirection.
             diag = segmented_radio(
-                "Editable diagonal", ["BL / TR", "BR / TL"],
+                tr("Editable diagonal", "可編輯對角"), ["BL / TR", "BR / TL"],
                 key="ebc_diag_mode",
             )
             bltr_active = (diag == "BL / TR")
@@ -296,30 +324,34 @@ with st.container(border=True):
         row_top = st.columns(2)
         with row_top[0]:
             with st.container(border=True):
-                _corner_inputs("Top Left (TL)",  "ebc_tl_x", "ebc_tl_y", disabled=disabled_tl)
+                _corner_inputs(f"{tr('Top Left', '左上')} (TL)",
+                               "ebc_tl_x", "ebc_tl_y", disabled=disabled_tl)
         with row_top[1]:
             with st.container(border=True):
-                _corner_inputs("Top Right (TR)", "ebc_tr_x", "ebc_tr_y", disabled=disabled_tr)
+                _corner_inputs(f"{tr('Top Right', '右上')} (TR)",
+                               "ebc_tr_x", "ebc_tr_y", disabled=disabled_tr)
 
         row_bot = st.columns(2)
         with row_bot[0]:
             with st.container(border=True):
-                _corner_inputs("Bottom Left (BL)",  "ebc_bl_x", "ebc_bl_y", disabled=disabled_bl)
+                _corner_inputs(f"{tr('Bottom Left', '左下')} (BL)",
+                               "ebc_bl_x", "ebc_bl_y", disabled=disabled_bl)
         with row_bot[1]:
             with st.container(border=True):
-                _corner_inputs("Bottom Right (BR)", "ebc_br_x", "ebc_br_y", disabled=disabled_br)
+                _corner_inputs(f"{tr('Bottom Right', '右下')} (BR)",
+                               "ebc_br_x", "ebc_br_y", disabled=disabled_br)
 
     with col_right:
-        st.subheader("Chip Position")
+        st.subheader(tr("Chip Position", "晶片位置"))
 
         bl = (st.session_state["ebc_bl_x"], st.session_state["ebc_bl_y"])
         br = (st.session_state["ebc_br_x"], st.session_state["ebc_br_y"])
-        tr = (st.session_state["ebc_tr_x"], st.session_state["ebc_tr_y"])
+        c_tr = (st.session_state["ebc_tr_x"], st.session_state["ebc_tr_y"])
         tl = (st.session_state["ebc_tl_x"], st.session_state["ebc_tl_y"])
 
         # Loop back to bl to close the polygon for fill='toself'.
-        poly_x = [bl[0], br[0], tr[0], tl[0], bl[0]]
-        poly_y = [bl[1], br[1], tr[1], tl[1], bl[1]]
+        poly_x = [bl[0], br[0], c_tr[0], tl[0], bl[0]]
+        poly_y = [bl[1], br[1], c_tr[1], tl[1], bl[1]]
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -332,8 +364,8 @@ with st.container(border=True):
             showlegend=False,
         ))
         fig.add_trace(go.Scatter(
-            x=[bl[0], br[0], tr[0], tl[0]],
-            y=[bl[1], br[1], tr[1], tl[1]],
+            x=[bl[0], br[0], c_tr[0], tl[0]],
+            y=[bl[1], br[1], c_tr[1], tl[1]],
             mode="markers+text",
             marker=dict(size=10, color="#1f77b4"),
             text=["BL", "BR", "TR", "TL"],
@@ -343,8 +375,8 @@ with st.container(border=True):
             showlegend=False,
         ))
 
-        xs = [bl[0], br[0], tr[0], tl[0]]
-        ys = [bl[1], br[1], tr[1], tl[1]]
+        xs = [bl[0], br[0], c_tr[0], tl[0]]
+        ys = [bl[1], br[1], c_tr[1], tl[1]]
         pad_x = max(1.0, (max(xs) - min(xs)) * 0.15)
         pad_y = max(1.0, (max(ys) - min(ys)) * 0.15)
 
@@ -362,60 +394,94 @@ with st.container(border=True):
 
 # ─── Section 2: Left Computer Setup ──────────────────────────────────────────
 with st.container(border=True):
-    st.header("Left Computer Setup")
-    with st.expander("Setup Instructions", expanded=False):
-        st.caption("Make sure you already have the `.cel` file. In `job1`: ")
-        st.caption("1. Type `pc`.")
-        st.caption("2. Select folder where the `.cel` file is, usually in `Desktop/IOED/hbt/your_folder`.")
-        st.caption("3. Type the chip name, the same name as the `.cel` file.")
-        st.caption("4. Set chip origin, usualy `10.0,10.0`. Using `0, 0` is difficult to see.")
-        st.caption("5. Click `Ax: chip dot` (white), it will be changed to `Ax: stage (mm)` (green).")
-        st.caption("6. Type `0.0001g` to set grid spacing to 100 nm.")
-        with st.expander("Dose Time Testing", expanded=False):
-            st.caption("7. Click File -> Load CEL. Enter cel name.")
-            st.caption("8. Origin: `9.7,9.7`.")
-        with st.expander("First Exposure", expanded=False):
-            st.caption("7. Type `mc` to create grid points.")
-            st.caption("8. Click the square grid (click `i` to zoom in, and `o` to zoom out, then click the screen with the mouse pointer if needed).")
-            st.caption("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.")
-            st.caption("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.")
-            st.caption("11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.")
-            st.caption("12. X direction? `Y` -> Auto reverse? `N`")
-            st.caption("13. Click File -> Load CEL. Enter cel name.")
-            st.caption("14. Origin: `9.7,9.7`.")
-        with st.expander("Second Alignment", expanded=False):
-            st.caption("7. Type `mc` to create grid points.")
-            st.caption("8. Click the square grid (click `i` to zoom in, and `o` to zoom out, then click the screen with the mouse pointer if needed).")
-            st.caption("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.")
-            st.caption("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.")
-            st.caption("11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.")
-            st.caption("12. X direction? `Y` -> Auto reverse? `N`")
-            st.caption("13. Click File -> Load CEL. Enter cel name.")
-            st.caption("14. Origin: `9.7,9.7`.")
-            st.caption("15. Click Menu -> Chip -> Reg-2 Mark (R2). Input the positions for the 2 marks.")
-        st.caption("Click File -> save -> press enter. Type the file `.con` name, the same as the `.cel` file.")
-        st.caption("If successful, the grids will be green, your folder should have `.ccc, .cbc, .con` files.")
+    st.header(tr("Left Computer Setup", "左側電腦設定"))
+    with st.expander(tr("Setup Instructions", "設定說明"), expanded=False):
+        st.caption(tr("Make sure you already have the `.cel` file. In `job1`: ",
+                      "請確認已備妥 `.cel` 檔案。在 `job1` 中："))
+        st.caption(tr("1. Type `pc`.", "1. 輸入 `pc`。"))
+        st.caption(tr(
+            "2. Select folder where the `.cel` file is, usually in `Desktop/IOED/hbt/your_folder`.",
+            "2. 選擇 `.cel` 檔案所在資料夾，通常位於 `Desktop/IOED/hbt/your_folder`。"))
+        st.caption(tr("3. Type the chip name, the same name as the `.cel` file.",
+                      "3. 輸入晶片名稱，須與 `.cel` 檔案名稱相同。"))
+        st.caption(tr("4. Set chip origin, usualy `10.0,10.0`. Using `0, 0` is difficult to see.",
+                      "4. 設定晶片原點，通常為 `10.0,10.0`。使用 `0, 0` 較難以辨識。"))
+        st.caption(tr("5. Click `Ax: chip dot` (white), it will be changed to `Ax: stage (mm)` (green).",
+                      "5. 點擊 `Ax: chip dot`（白色），會變為 `Ax: stage (mm)`（綠色）。"))
+        st.caption(tr("6. Type `0.0001g` to set grid spacing to 100 nm.",
+                      "6. 輸入 `0.0001g` 將網格間距設為 100 nm。"))
+        with st.expander(tr("Dose Time Testing", "劑量時間測試"), expanded=False):
+            st.caption(tr("7. Click File -> Load CEL. Enter cel name.",
+                          "7. 點擊 File -> Load CEL，輸入 cel 名稱。"))
+            st.caption(tr("8. Origin: `9.7,9.7`.", "8. 原點：`9.7,9.7`。"))
+        with st.expander(tr("First Exposure", "首次曝光"), expanded=False):
+            st.caption(tr("7. Type `mc` to create grid points.",
+                          "7. 輸入 `mc` 建立網格點。"))
+            st.caption(tr(
+                "8. Click the square grid (click `i` to zoom in, and `o` to zoom out, then click the screen with the mouse pointer if needed).",
+                "8. 點擊方形網格（可按 `i` 放大、`o` 縮小，需要時再用滑鼠點擊畫面）。"))
+            st.caption(tr("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.",
+                          "9. 確定嗎？-> `Y`，全部 `cel_name`？-> `N`。"))
+            st.caption(tr("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.",
+                          "10. dx, dy：`0.6,0.6`。這是網格之間的間距。"))
+            st.caption(tr(
+                "11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.",
+                "11. Nx, Ny -> `18,18` 或 `17,17`，依圖案大小而定。"))
+            st.caption(tr("12. X direction? `Y` -> Auto reverse? `N`",
+                          "12. X 方向？`Y` -> 自動反轉？`N`"))
+            st.caption(tr("13. Click File -> Load CEL. Enter cel name.",
+                          "13. 點擊 File -> Load CEL，輸入 cel 名稱。"))
+            st.caption(tr("14. Origin: `9.7,9.7`.", "14. 原點：`9.7,9.7`。"))
+        with st.expander(tr("Second Alignment", "二次對準"), expanded=False):
+            st.caption(tr("7. Type `mc` to create grid points.",
+                          "7. 輸入 `mc` 建立網格點。"))
+            st.caption(tr(
+                "8. Click the square grid (click `i` to zoom in, and `o` to zoom out, then click the screen with the mouse pointer if needed).",
+                "8. 點擊方形網格（可按 `i` 放大、`o` 縮小，需要時再用滑鼠點擊畫面）。"))
+            st.caption(tr("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.",
+                          "9. 確定嗎？-> `Y`，全部 `cel_name`？-> `N`。"))
+            st.caption(tr("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.",
+                          "10. dx, dy：`0.6,0.6`。這是網格之間的間距。"))
+            st.caption(tr(
+                "11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.",
+                "11. Nx, Ny -> `18,18` 或 `17,17`，依圖案大小而定。"))
+            st.caption(tr("12. X direction? `Y` -> Auto reverse? `N`",
+                          "12. X 方向？`Y` -> 自動反轉？`N`"))
+            st.caption(tr("13. Click File -> Load CEL. Enter cel name.",
+                          "13. 點擊 File -> Load CEL，輸入 cel 名稱。"))
+            st.caption(tr("14. Origin: `9.7,9.7`.", "14. 原點：`9.7,9.7`。"))
+            st.caption(tr(
+                "15. Click Menu -> Chip -> Reg-2 Mark (R2). Input the positions for the 2 marks.",
+                "15. 點擊 Menu -> Chip -> Reg-2 Mark (R2)，輸入 2 個標記的位置。"))
+        st.caption(tr(
+            "Click File -> save -> press enter. Type the file `.con` name, the same as the `.cel` file.",
+            "點擊 File -> save -> 按 Enter。輸入 `.con` 檔名，須與 `.cel` 檔案名稱相同。"))
+        st.caption(tr(
+            "If successful, the grids will be green, your folder should have `.ccc, .cbc, .con` files.",
+            "若成功，網格會變為綠色，資料夾中應會有 `.ccc, .cbc, .con` 檔案。"))
 
     c_oxy, c_csdm = st.columns(2)
     with c_oxy:
         with st.container(border=True):
-            st.markdown("**In Job 1**")
+            st.markdown(f"**{tr('In Job 1', 'Job 1 中')}**")
             c_ox, c_oy = st.columns(2)
-            c_ox.number_input("Chip Origin x (mm)", key="ebc_origin_x",
+            c_ox.number_input(tr("Chip Origin x (mm)", "晶片原點 x (mm)"),
+                        key="ebc_origin_x",
                         format="%.3f", step=0.0005, min_value=0.0)
-            c_oy.number_input("Chip Origin y (mm)", key="ebc_origin_y",
+            c_oy.number_input(tr("Chip Origin y (mm)", "晶片原點 y (mm)"),
+                        key="ebc_origin_y",
                         format="%.3f", step=0.0005, min_value=0.0)
     with c_csdm:
         with st.container(border=True):
-            st.markdown("**In Job 2**")
+            st.markdown(f"**{tr('In Job 2', 'Job 2 中')}**")
             c_cs, c_dm, c_res = st.columns(3)
             c_cs.selectbox(
-                "Chip Size (μm)",
+                tr("Chip Size (μm)", "晶片尺寸 (μm)"),
                 [75, 150, 300, 600, 1200],
                 key="ebc_chip_size",
             )
             c_dm.selectbox(
-                "Dotmap",
+                tr("Dotmap", "點陣圖"),
                 [20000, 60000, 240000],
                 key="ebc_dotmap",
             )
@@ -425,8 +491,10 @@ with st.container(border=True):
             _dotmap = int(st.session_state["ebc_dotmap"])
             st.session_state["ebc_resolution"] = _chip_um / _dotmap
             _res_um = st.session_state["ebc_resolution"]
-            c_res.markdown("**Resolution**")
-            c_res.markdown(f"{_chip_um} μm / {_dotmap} dots = {_res_um * 1000:g} nm")
+            c_res.markdown(f"**{tr('Resolution', '解析度')}**")
+            c_res.markdown(
+                f"{_chip_um} μm / {_dotmap} {tr('dots', '點')} "
+                f"= {_res_um * 1000:g} nm")
 
 
 
@@ -880,19 +948,24 @@ def _parse_gds(buf):
                                       el_bext, el_eext, pts))
                     total_verts += npts * 4   # rough polygon estimate
                 if total_verts > _MAX_SRC_VERTICES:
-                    raise ValueError(
+                    raise ValueError(tr(
                         f"GDS holds more than {_MAX_SRC_VERTICES:,} "
                         "polygon vertices — too much distinct geometry "
                         "for this app's memory budget. Expose a smaller "
-                        "layer, then re-upload."
-                    )
+                        "layer, then re-upload.",
+                        f"GDS 檔案含有超過 {_MAX_SRC_VERTICES:,} 個多邊形頂點 — "
+                        "幾何資料量超出本應用程式的記憶體預算。請匯出較小的圖層後"
+                        "重新上傳。"
+                    ))
                 if total_rows > _MAX_OFFSET_ROWS:
-                    raise ValueError(
+                    raise ValueError(tr(
                         f"GDS places cell references more than "
                         f"{_MAX_OFFSET_ROWS:,} times — too much for "
                         "this app's memory budget. Expose a smaller "
-                        "layer, then re-upload."
-                    )
+                        "layer, then re-upload.",
+                        f"GDS 檔案的元件參照放置次數超過 {_MAX_OFFSET_ROWS:,} 次 — "
+                        "超出本應用程式的記憶體預算。請匯出較小的圖層後重新上傳。"
+                    ))
             el = 0
             el_sname = None
             el_xy = None
@@ -1003,12 +1076,14 @@ def _flatten_instanced(cell_name, cells, cache, budget):
                 # Guard before building the (kc*kp, 2) combined lattice.
                 budget["rows"] += kc * kp
                 if budget["rows"] > _MAX_OFFSET_ROWS:
-                    raise ValueError(
+                    raise ValueError(tr(
                         f"GDS expands to more than {_MAX_OFFSET_ROWS:,} "
                         "cell placements — too much for this app's "
                         "memory budget. Expose a smaller layer, then "
-                        "re-upload."
-                    )
+                        "re-upload.",
+                        f"GDS 檔案展開後的元件放置數超過 {_MAX_OFFSET_ROWS:,} 個 — "
+                        "超出本應用程式的記憶體預算。請匯出較小的圖層後重新上傳。"
+                    ))
                 if kp == 1:
                     # Single placement (typical top cell): one allocation
                     # instead of stack + broadcast (3× the array size —
@@ -1112,12 +1187,15 @@ def _load_gds(digest: str, _upload):
                 exp_verts = sum(int(bcx.size) * int(off.shape[0])
                                 for bcx, _, _, off in groups)
                 if exp_verts > _MAX_VERTICES:
-                    raise ValueError(
+                    raise ValueError(tr(
                         f"Layer L{key[0]}/D{key[1]} expands to "
                         f"{exp_verts:,} vertices with no small repeated "
                         "unit pattern — too much for this app's memory "
-                        "budget. Expose a smaller layer, then re-upload."
-                    )
+                        "budget. Expose a smaller layer, then re-upload.",
+                        f"圖層 L{key[0]}/D{key[1]} 展開後有 {exp_verts:,} 個頂點，"
+                        "且無可辨識的小型重複單元 — 超出本應用程式的記憶體預算。"
+                        "請匯出較小的圖層後重新上傳。"
+                    ))
                 cx, cy, starts = _expand_groups_to_flat(groups)
                 by_layer[key] = ("flat", cx, cy, starts)
         out[name] = by_layer
@@ -1389,8 +1467,9 @@ def _unit_pattern_traces(layer: "_InstancedLayer", color: str,
                       width=1.2),
             fillcolor=_hex_to_rgba(
                 palette[gi % len(palette)] if multi else color, 0.5),
-            name=f"unit {gi + 1} ({int(bst.size - 1)} polys)"
-                 if multi else "unit pattern",
+            name=(f"{tr('unit', '單元')} {gi + 1} "
+                  f"({int(bst.size - 1)} {tr('polys', '個多邊形')})")
+                 if multi else tr("unit pattern", "單元圖案"),
             hoverinfo="skip", showlegend=multi,
         ))
         x_cursor += w * 1.4 if w > 0 else 1.0
@@ -1486,23 +1565,31 @@ def _mask_overlay_traces(layer, scale_to_mm: float, ox: float, oy: float,
     bb = _placed_bbox_mm(layer, scale_to_mm, ox, oy)
     if bb is None:
         return []
-    return [_bbox_rect_trace(bb, color, f"{name} (bbox, {len(layer):,} polys)")]
+    return [_bbox_rect_trace(
+        bb, color,
+        f"{name} (bbox, {len(layer):,} {tr('polys', '個多邊形')})")]
 
 
 def _dense_layer_note(layer) -> str:
     """One-line caption describing how a dense layer is being shown."""
     if isinstance(layer, _InstancedLayer):
-        return (
+        return tr(
             f":blue[Repetition detected: a {layer.base_poly_count():,}-polygon "
             f"unit pattern tiled {layer.instance_count():,}× "
             f"= {len(layer):,} polygons. Drawing the unit pattern + array "
-            "footprint; the time estimate uses unit area × tile count.]"
+            "footprint; the time estimate uses unit area × tile count.]",
+            f":blue[偵測到重複結構：{layer.base_poly_count():,} 個多邊形的單元圖案"
+            f"重複排列 {layer.instance_count():,} 次 = {len(layer):,} 個多邊形。"
+            "顯示單元圖案 + 陣列覆蓋範圍；時間估算採用單元面積 × 重複次數。]"
         )
-    return (
+    return tr(
         f":orange[Layer has {len(layer):,} polygons (> {_POLY_LIMIT:,}); "
         "showing the mask bounding box. The time estimate uses each "
         "polygon's full area, binned to the grid cell holding its first "
-        "vertex.]"
+        "vertex.]",
+        f":orange[圖層含有 {len(layer):,} 個多邊形（> {_POLY_LIMIT:,}）；"
+        "顯示遮罩外框方塊。時間估算採用各多邊形的完整面積，並依其第一個頂點所在"
+        "的網格分組計算。]"
     )
 
 
@@ -1644,7 +1731,7 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
         input with `initial dose` and `incremental dose` inputs. Each
         grid gets dose = init + grid_index × step, in iteration order.
     """
-    st.subheader("Time Calculator")
+    st.subheader(tr("Time Calculator", "曝光時間計算"))
 
     _TC_DEFAULTS = {
         f"{prefix}_dose_us": 2.0,
@@ -1659,30 +1746,34 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
         c_init, c_step, c_stage, c_btn = st.columns([2, 2, 2, 1])
         with c_init:
             st.number_input(
-                "Initial dose (μs / dot)", min_value=0.0, step=0.01,
+                tr("Initial dose (μs / dot)", "初始劑量 (μs / dot)"),
+                min_value=0.0, step=0.01,
                 format="%.3f", key=f"{prefix}_dose_init_us",
             )
         with c_step:
             st.number_input(
-                "Incremental dose (μs / grid)", min_value=0.0, step=0.01,
+                tr("Incremental dose (μs / grid)", "增量劑量 (μs / grid)"),
+                min_value=0.0, step=0.01,
                 format="%.3f", key=f"{prefix}_dose_step_us",
             )
     else:
         c_dose, c_stage, c_btn = st.columns([2, 2, 1])
         with c_dose:
             st.number_input(
-                "Dose time (μs / dot)", min_value=0.0, step=0.01,
+                tr("Dose time (μs / dot)", "劑量時間 (μs / dot)"),
+                min_value=0.0, step=0.01,
                 format="%.3f", key=f"{prefix}_dose_us",
             )
     with c_stage:
         st.number_input(
-            "Stage movement time (s / grid)", min_value=0.0, step=0.1,
+            tr("Stage movement time (s / grid)", "載台移動時間 (s / grid)"),
+            min_value=0.0, step=0.1,
             format="%.2f", key=f"{prefix}_stage_s",
         )
     with c_btn:
         st.markdown("&nbsp;")  # vertical spacing to line up with inputs
         clicked = st.button(
-            "Calculate time", key=f"{prefix}_calc",
+            tr("Calculate time", "計算時間"), key=f"{prefix}_calc",
             type="primary", width="stretch",
             disabled=disabled,
             help=disabled_reason if disabled else None,
@@ -1696,7 +1787,8 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
             cell_areas = list(precomputed_cell_areas)
             clipped_polys = []
         else:
-            with st.spinner("Computing polygon area inside each grid…"):
+            with st.spinner(tr("Computing polygon area inside each grid…",
+                               "正在計算各網格內的多邊形面積…")):
                 cell_areas, clipped_polys = _polygon_clip_per_cell_mm(
                     polys_mm, cells)
         res_mm = chip_size_mm / dotmap if dotmap > 0 else 0.0
@@ -1776,15 +1868,15 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
     col_vals, col_plot = st.columns(2)
 
     with col_vals:
-        st.markdown("**Breakdown**")
+        st.markdown(f"**{tr('Breakdown', '明細')}**")
         st.write(
-            f"Resolution: **{result['res_mm'] * 1e6:.3f} nm** "
+            f"{tr('Resolution', '解析度')}: **{result['res_mm'] * 1e6:.3f} nm** "
             f"({result['res_mm'] * 1000:g} μm) — "
-            f"chip size / dotmap = "
+            f"{tr('chip size / dotmap', '晶片尺寸 / dotmap')} = "
             f"{result['chip_size_mm'] * 1000:g} μm / {result['dotmap']}"
         )
         st.write(
-            f"Filled resolution boxes: "
+            f"{tr('Filled resolution boxes', '已填入解析度方格數')}: "
             f"**{result['filled_total']:,.0f}**"
         )
         _n_marks = result.get("n_mark_cells", 0)
@@ -1796,37 +1888,43 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
         #     )
         # else:
         st.write(
-            f"Active grids: **{result['active'] + _n_marks} / "
+            f"{tr('Active grids', '有效網格數')}: "
+            f"**{result['active'] + _n_marks} / "
             f"{result['n_cells'] + _n_marks}** "
-            "(empty grids are skipped)"
+            f"({tr('empty grids are skipped', '空白網格已略過')})"
         )
         if result.get("dose_ramp"):
             st.write(
-                f"Dose ramp: **{result['dose_init_us']:.3f} μs** "
+                f"{tr('Dose ramp', '劑量遞增')}: "
+                f"**{result['dose_init_us']:.3f} μs** "
                 f"+ {result['dose_step_us']:.3f} μs/grid "
-                f"→ active range "
+                f"→ {tr('active range', '有效範圍')} "
                 f"**{result['dose_min']:.3f} – "
                 f"{result['dose_max']:.3f} μs**"
             )
             st.write(
-                "Exposure: Σ(filled × per-grid dose) "
+                f"{tr('Exposure', '曝光')}: "
+                f"{tr('Σ(filled × per-grid dose)', 'Σ(填入量 × 各網格劑量)')} "
                 f"= **{result['exposure_us'] / 1e6:,.3f} s**"
             )
         else:
             st.write(
-                f"Exposure: {result['filled_total']:,.0f} × "
+                f"{tr('Exposure', '曝光')}: {result['filled_total']:,.0f} × "
                 f"{result['dose_us']:.3f} μs "
                 f"= **{result['exposure_us'] / 1e6:,.3f} s**"
             )
         st.write(
-            f"Stage movement: {result['active'] + _n_marks} × "
+            f"{tr('Stage movement', '載台移動')}: "
+            f"{result['active'] + _n_marks} × "
             f"{result['stage_s']:.2f} s "
             f"= **{result['stage_us'] / 1e6:,.3f} s**"
         )
         st.markdown(
-            f"### Estimated Time: `{_format_hms(result['total_us'] / 1e6)}`",
-            help=(f"{result['total_us'] / 1e6:,.3f} seconds "
-                  "(hh:mm:ss.sss = hours:minutes:seconds)")
+            f"### {tr('Estimated Time', '預估時間')}: "
+            f"`{_format_hms(result['total_us'] / 1e6)}`",
+            help=(f"{result['total_us'] / 1e6:,.3f} "
+                  + tr("seconds (hh:mm:ss.sss = hours:minutes:seconds)",
+                       "秒（hh:mm:ss.sss = 時:分:秒）"))
         )
         if result.get("extra_help_under_total"):
             st.caption(result["extra_help_under_total"])
@@ -1884,7 +1982,7 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
                     x=mxs, y=mys, mode="lines", fill="toself",
                     line=dict(color="#2ca02c", width=0.5),
                     fillcolor="rgba(44,160,44,0.4)",
-                    name="Mask",
+                    name=tr("Mask", "遮罩"),
                     hoverinfo="skip",
                 ))
 
@@ -1926,7 +2024,7 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
         st.plotly_chart(fig, width="stretch",
                         key=f"{prefix}_tc_chart")
 with st.container(border=True):
-    st.header("GDS Mask")
+    st.header(tr("GDS Mask", "GDS 遮罩"))
 
 
 
@@ -1938,8 +2036,10 @@ with st.container(border=True):
     _gds_selected_cell_name = None  # currently selected top-cell name
 
     if gdstk is None:
-        st.warning("`gdstk` is not installed. Run `pip install gdstk` to enable "
-                "GDS viewing.")
+        st.warning(tr(
+            "`gdstk` is not installed. Run `pip install gdstk` to enable "
+            "GDS viewing.",
+            "尚未安裝 `gdstk`。請執行 `pip install gdstk` 以啟用 GDS 檢視功能。"))
     else:
         cells_data: dict = {}
         parse_error: str | None = None
@@ -1948,7 +2048,8 @@ with st.container(border=True):
 
         with col_upload:
             gds_upload = st.file_uploader(
-                "Upload .gds file", type=["gds"], key="ebc_gds_upload",
+                tr("Upload .gds file", "上傳 .gds 檔案"),
+                type=["gds"], key="ebc_gds_upload",
             )
             if gds_upload is not None:
                 try:
@@ -1963,7 +2064,7 @@ with st.container(border=True):
             cell_names = list(cells_data.keys()) if has_data else []
 
             selected_cell = st.selectbox(
-                "Top Cell",
+                tr("Top Cell", "頂層元件 (Top Cell)"),
                 cell_names if has_data else ["—"],
                 key="ebc_gds_cell",
                 disabled=not has_data,
@@ -1974,6 +2075,13 @@ with st.container(border=True):
                 cells_data.get(selected_cell, {}) if has_data else {}
             )
             layer_keys = sorted(by_layer.keys())
+            # NOTE: this label doubles as the dict key used for the lookup
+            # below (``layer_options[selected_label]``) and is what
+            # Streamlit persists under ``key="ebc_gds_layer"`` across
+            # reruns, so it is intentionally kept English-only — swapping
+            # it on a language toggle would desync the stored selection
+            # from the freshly-rebuilt options dict. See `format_func`
+            # elsewhere in this file for the pattern that avoids this.
             layer_options = {
                 f"L{l}/D{d}  ({len(by_layer[(l, d)]):,} polys)": (l, d)
                 for (l, d) in layer_keys
@@ -1981,18 +2089,20 @@ with st.container(border=True):
             labels = list(layer_options.keys())
 
             selected_label = st.selectbox(
-                "Layer to expose",
+                tr("Layer to expose", "要曝光的圖層"),
                 labels if labels else ["—"],
                 key="ebc_gds_layer",
                 disabled=not labels,
             )
 
         if parse_error:
-            st.error(f"Failed to parse GDS: {parse_error}")
+            st.error(f"{tr('Failed to parse GDS', 'GDS 解析失敗')}: {parse_error}")
         elif gds_upload is not None and not cells_data:
-            st.info("No top-level cells found in this GDS.")
+            st.info(tr("No top-level cells found in this GDS.",
+                       "此 GDS 檔案中找不到頂層元件。"))
         elif has_data and not by_layer:
-            st.info("Selected cell has no polygons.")
+            st.info(tr("Selected cell has no polygons.",
+                       "所選元件不含任何多邊形。"))
         elif labels:
             layer_key = layer_options[selected_label]
             polys = by_layer[layer_key]
@@ -2012,7 +2122,7 @@ with st.container(border=True):
                 st.caption(_dense_layer_note(polys))
                 col_unit, col_full = st.columns([4, 6])
                 with col_unit:
-                    st.markdown("**Unit pattern (zoomed)**")
+                    st.markdown(f"**{tr('Unit pattern (zoomed)', '單元圖案（放大）')}**")
                     ufig = go.Figure()
                     for _t in _unit_pattern_traces(polys, _PALETTE[2],
                                                    scale=_gds_unit_to_um):
@@ -2026,9 +2136,12 @@ with st.container(border=True):
                     )
                     st.plotly_chart(ufig, width="stretch")
                 with col_full:
-                    st.markdown("**Array footprint** (low-res overview) — "
-                                "drag a box to inspect that region below at "
-                                "full detail")
+                    st.markdown(
+                        f"**{tr('Array footprint', '陣列覆蓋範圍')}** "
+                        + tr("(low-res overview) — drag a box to inspect "
+                             "that region below at full detail",
+                             "（低解析度總覽）— 拖曳方框可在下方檢視該區域的完整"
+                             "細節"))
                     fig = go.Figure()
                     _ras = _rasterize_coverage(
                         polys, _gds_unit_to_um, 0.0, 0.0, _PALETTE[0])
@@ -2062,7 +2175,8 @@ with st.container(border=True):
                         fig, width="stretch", key="ebc_gds_fp",
                         on_select="rerun", selection_mode="box",
                     )
-                    st.caption("Double-click the plot to clear the selection.")
+                    st.caption(tr("Double-click the plot to clear the selection.",
+                                  "在圖上點兩下可清除選取範圍。"))
 
                 # Box-select → redraw that region with every polygon. Read the
                 # box geometry from the latest selection event.
@@ -2079,19 +2193,25 @@ with st.container(border=True):
                         polys, _gds_unit_to_um, 0.0, 0.0,
                         _xr[0], _xr[1], _yr[0], _yr[1])
                     if _res is None:
-                        st.info("No patterns in the selected region.")
+                        st.info(tr("No patterns in the selected region.",
+                                   "所選區域中沒有圖案。"))
                     elif isinstance(_res[0], str):   # ("over", n_polys)
-                        st.warning(
+                        st.warning(tr(
                             f"Selected region holds {_res[1]:,} polygons "
                             f"(> {_MAX_REGION_POLYS:,}). Select a smaller "
-                            "region to inspect at full detail."
-                        )
+                            "region to inspect at full detail.",
+                            f"所選區域含有 {_res[1]:,} 個多邊形"
+                            f"（> {_MAX_REGION_POLYS:,}）。請選擇較小的區域以檢視"
+                            "完整細節。"
+                        ))
                     else:
                         _cx, _cy, _starts = _res
                         _n_sel = int(_starts.size - 1)
                         st.markdown(
-                            f"**Selected region (full detail — "
-                            f"{_n_sel:,} polygons)**")
+                            "**" + tr(
+                                f"Selected region (full detail — {_n_sel:,} polygons)",
+                                f"所選區域（完整細節 — {_n_sel:,} 個多邊形）")
+                            + "**")
                         _xs, _ys = _nan_xy_from_flat(
                             _cx, _cy, _starts, 1.0, 0.0, 0.0)
                         rfig = go.Figure(go.Scatter(
@@ -2116,13 +2236,17 @@ with st.container(border=True):
                 if n_polys > _POLY_LIMIT:
                     # Dense, non-repetitive layer: drawing every polygon
                     # would stall the browser, so default off behind a box.
-                    st.warning(
+                    st.warning(tr(
                         f"Selected layer contains {n_polys:,} polygons "
                         f"(limit {_POLY_LIMIT:,}) with no detected "
                         "repetition. Rendering every polygon may stall the "
-                        "browser."
-                    )
-                    render = st.checkbox("Render anyway", key="ebc_gds_force")
+                        "browser.",
+                        f"所選圖層含有 {n_polys:,} 個多邊形"
+                        f"（上限 {_POLY_LIMIT:,}），且未偵測到重複結構。"
+                        "繪製每一個多邊形可能會使瀏覽器停頓。"
+                    ))
+                    render = st.checkbox(tr("Render anyway", "仍然繪製"),
+                                          key="ebc_gds_force")
                     if render:
                         fig.add_trace(_layer_trace(
                             selected_label, polys, _PALETTE[0],
@@ -2146,11 +2270,20 @@ with st.container(border=True):
 
 # ─── Section 4: Mode selector ────────────────────────────────────────────────
 with st.container(border=True):
-    st.header("Workflow")
+    st.header(tr("Workflow", "曝光流程"))
 
+    # Option text is compared against below (mode == _MODE_OPTS[...]), so the
+    # comparisons use the same tr()-built list rather than re-translating the
+    # literal — keeps display and logic in sync when the language toggles.
+    _MODE_OPTS = [
+        tr("Choose mode:", "選擇模式："),
+        tr("Dose Time Testing", "劑量時間測試"),
+        tr("First Exposure", "首次曝光"),
+        tr("Second Alignment", "二次對準"),
+    ]
     mode = segmented_radio(
-        "Mode",
-        ["Choose mode:","Dose Time Testing", "First Exposure", "Second Alignment"],
+        tr("Mode", "模式"),
+        _MODE_OPTS,
         key="ebc_mode",
     )
 
@@ -2166,7 +2299,7 @@ with st.container(border=True):
             st.session_state.pop(_k, None)
         st.session_state["_ebc_prev_mode"] = mode
 
-    if mode == "Dose Time Testing":
+    if mode == _MODE_OPTS[1]:  # "Dose Time Testing"
 
         _DT_DEFAULTS = {
             "ebc_dt_cel_x": 9.7, "ebc_dt_cel_y": 9.7,
@@ -2235,7 +2368,7 @@ with st.container(border=True):
         p1, p2, p3, p4 = st.columns(4)
         with p1:
             with st.container(border=True):
-                st.markdown("**Cel Origin (mm) in job1**")
+                st.markdown(f"**{tr('Cel Origin (mm) in job1', 'job1 中的 Cel 原點 (mm)')}**")
                 p11, p12 = st.columns(2)
                 cel_x = p11.number_input("x", format="%.3f",
                                         step=0.1, min_value=0.0, key="ebc_dt_cel_x")
@@ -2243,7 +2376,7 @@ with st.container(border=True):
                                         step=0.1, min_value=0.0, key="ebc_dt_cel_y")
         with p2:
             with st.container(border=True):
-                st.markdown("**Increment (mm) in job3**")
+                st.markdown(f"**{tr('Increment (mm) in job3', 'job3 中的增量 (mm)')}**")
                 p11, p12 = st.columns(2)
                 dx = p11.number_input("dx", format="%.3f",
                                     min_value=chip_size,
@@ -2253,7 +2386,7 @@ with st.container(border=True):
                                     step=0.0005, key="ebc_dt_dy")
         with p3:
             with st.container(border=True):
-                st.markdown("**Grid Count in job3**")
+                st.markdown(f"**{tr('Grid Count in job3', 'job3 中的網格數量')}**")
                 p11, p12 = st.columns(2)
                 Nx = p11.number_input("Nx", min_value=1,
                                         step=1, key="ebc_dt_nx")
@@ -2261,7 +2394,7 @@ with st.container(border=True):
                                         step=1, key="ebc_dt_ny")
         with p4:
             with st.container(border=True):
-                st.markdown("**Initial Shift (mm) in job3**")
+                st.markdown(f"**{tr('Initial Shift (mm) in job3', 'job3 中的初始位移 (mm)')}**")
                 p11, p12 = st.columns(2)
                 shift_x = p11.number_input("x", format="%.3f",
                                         step=0.0005, key="ebc_dt_shift_x")
@@ -2327,7 +2460,7 @@ with st.container(border=True):
 
         bl = (st.session_state["ebc_bl_x"], st.session_state["ebc_bl_y"])
         br = (st.session_state["ebc_br_x"], st.session_state["ebc_br_y"])
-        tr = (st.session_state["ebc_tr_x"], st.session_state["ebc_tr_y"])
+        c_tr = (st.session_state["ebc_tr_x"], st.session_state["ebc_tr_y"])
         tl = (st.session_state["ebc_tl_x"], st.session_state["ebc_tl_y"])
 
         # If the mask bbox extends beyond the single-grid box, parts
@@ -2351,7 +2484,7 @@ with st.container(border=True):
 
         # ── Left plot: single grid at the setup origin (no shift) ─────────
         with plot_left:
-            st.markdown("**Single Grid (no shift)**")
+            st.markdown(f"**{tr('Single Grid (no shift)', '單一網格（無位移）')}**")
             gx0 = origin_x - half
             gy0 = origin_y - half
             single_grid_x = [
@@ -2388,7 +2521,7 @@ with st.container(border=True):
                     line=dict(color="#2ca02c", width=0.5),
                     fill="toself",
                     fillcolor="rgba(44,160,44,0.5)",
-                    name="Mask",
+                    name=tr("Mask", "遮罩"),
                     hoverinfo="skip",
                 ))
             elif _dt_huge:
@@ -2420,11 +2553,11 @@ with st.container(border=True):
 
         # ── Right plot: full Nx×Ny pattern overlaid on chip (with shift) ──
         with plot_right:
-            st.markdown("**Chip Position with Grids (after shift)**")
+            st.markdown(f"**{tr('Chip Position with Grids (after shift)', '晶片位置與網格（位移後）')}**")
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=[bl[0], br[0], tr[0], tl[0], bl[0]],
-                y=[bl[1], br[1], tr[1], tl[1], bl[1]],
+                x=[bl[0], br[0], c_tr[0], tl[0], bl[0]],
+                y=[bl[1], br[1], c_tr[1], tl[1], bl[1]],
                 mode="lines",
                 line=dict(color="#1f77b4", width=2),
                 fill="toself",
@@ -2449,7 +2582,7 @@ with st.container(border=True):
                     fill="toself",
                     line=dict(color="#2ca02c", width=0.5),
                     fillcolor="rgba(44,160,44,0.5)",
-                    name="Mask",
+                    name=tr("Mask", "遮罩"),
                     hoverinfo="skip",
                 ))
             elif _dt_huge:
@@ -2480,8 +2613,8 @@ with st.container(border=True):
 
             # Chip corner dots (hover to read coords)
             fig.add_trace(go.Scatter(
-                x=[bl[0], br[0], tr[0], tl[0]],
-                y=[bl[1], br[1], tr[1], tl[1]],
+                x=[bl[0], br[0], c_tr[0], tl[0]],
+                y=[bl[1], br[1], c_tr[1], tl[1]],
                 mode="markers",
                 marker=dict(size=8, color="#1f77b4", symbol="circle"),
                 hovertemplate=("Chip corner<br>"
@@ -2508,8 +2641,8 @@ with st.container(border=True):
                     showlegend=False,
                 ))
 
-            all_x = [bl[0], br[0], tr[0], tl[0]] + [v for v in grid_xs if v is not None]
-            all_y = [bl[1], br[1], tr[1], tl[1]] + [v for v in grid_ys if v is not None]
+            all_x = [bl[0], br[0], c_tr[0], tl[0]] + [v for v in grid_xs if v is not None]
+            all_y = [bl[1], br[1], c_tr[1], tl[1]] + [v for v in grid_ys if v is not None]
             pad_x = max(1.0, (max(all_x) - min(all_x)) * 0.10)
             pad_y = max(1.0, (max(all_y) - min(all_y)) * 0.10)
             fig.update_layout(
@@ -2526,21 +2659,30 @@ with st.container(border=True):
 
         if _dt_huge:
             if isinstance(_gds_selected_polys, _InstancedLayer):
-                st.caption(
-                    f":blue[Repetition detected: a "
+                st.caption(":blue[" + tr(
+                    f"Repetition detected: a "
                     f"{_gds_selected_polys.base_poly_count():,}-polygon unit "
                     f"pattern tiled {_gds_selected_polys.instance_count():,}× "
                     f"= {len(_gds_selected_polys):,} polygons. Showing the "
                     "mask bounding box per grid; the time estimate uses the "
-                    "single-grid mask area replicated per grid.]"
-                )
+                    "single-grid mask area replicated per grid.",
+                    f"偵測到重複圖案：由 "
+                    f"{_gds_selected_polys.base_poly_count():,} 個多邊形組成的"
+                    f"單元圖案重複貼附 {_gds_selected_polys.instance_count():,} "
+                    f"次 = {len(_gds_selected_polys):,} 個多邊形。此處顯示每個"
+                    "網格的遮罩邊界框；時間估計採用單一網格的遮罩面積並依網格"
+                    "複製。"
+                ) + "]")
             else:
-                st.caption(
-                    f":orange[Layer has {len(_gds_selected_polys):,} polygons "
+                st.caption(":orange[" + tr(
+                    f"Layer has {len(_gds_selected_polys):,} polygons "
                     f"(> {_POLY_LIMIT:,}); showing the mask bounding box. The "
                     "time estimate uses the single-grid mask area (sum of "
-                    "polygon areas inside the grid), replicated per grid.]"
-                )
+                    "polygon areas inside the grid), replicated per grid.",
+                    f"此圖層有 {len(_gds_selected_polys):,} 個多邊形"
+                    f"（超過 {_POLY_LIMIT:,}）；顯示遮罩邊界框。時間估計採用"
+                    "單一網格的遮罩面積（網格內多邊形面積總和）並依網格複製。"
+                ) + "]")
 
         _render_time_calculator(
             "ebc_dt", _dt_polys_mm, _dt_cells,
@@ -2550,7 +2692,7 @@ with st.container(border=True):
             precomputed_cell_areas=_dt_precomp,
         )
 
-    elif mode == "First Exposure":
+    elif mode == _MODE_OPTS[2]:  # "First Exposure"
         _FE_DEFAULTS = {
             "ebc_fe_cel_x": 9.7, "ebc_fe_cel_y": 9.7,
             "ebc_fe_nx": 20, "ebc_fe_ny": 20,
@@ -2597,10 +2739,13 @@ with st.container(border=True):
                 layer_h = max_y - min_y
 
                 st.caption(
-                    f"Mask layer size: {layer_w:.3f} × {layer_h:.3f} mm"
-                    f"  →  required grids: {Nx_req} × {Ny_req} "
-                    f"(chip-size tile = {chip_size_v:.3f} mm, "
-                    f"cel = {cel_x_v:.3f}, {cel_y_v:.3f})"
+                    f"{tr('Mask layer size', '遮罩圖層尺寸')}: "
+                    f"{layer_w:.3f} × {layer_h:.3f} mm"
+                    f"  →  {tr('required grids', '所需網格數')}: "
+                    f"{Nx_req} × {Ny_req} "
+                    f"({tr('chip-size tile', '晶片尺寸區塊')} = "
+                    f"{chip_size_v:.3f} mm, cel = "
+                    f"{cel_x_v:.3f}, {cel_y_v:.3f})"
                 )
 
                 nxny_token = (_gds_selected_token, chip_size_v,
@@ -2642,7 +2787,7 @@ with st.container(border=True):
         p1, p2, p3 = st.columns(3)
         with p1:
             with st.container(border=True):
-                st.markdown("**Cel Origin (mm) in job1**")
+                st.markdown(f"**{tr('Cel Origin (mm) in job1', 'job1 中的 Cel 原點 (mm)')}**")
                 p11, p12 = st.columns(2)
                 with p11:
                     cel_x = st.number_input("x", format="%.3f", step=0.1, min_value=0.0,
@@ -2652,7 +2797,7 @@ with st.container(border=True):
                                             key="ebc_fe_cel_y")
         with p2:
             with st.container(border=True):
-                st.markdown("**Grid Count in job1**")
+                st.markdown(f"**{tr('Grid Count in job1', 'job1 中的網格數量')}**")
                 p21, p22 = st.columns(2)
                 with p21:
                     Nx = st.number_input("Nx", min_value=1, step=1,
@@ -2662,7 +2807,7 @@ with st.container(border=True):
                                     key="ebc_fe_ny")
         with p3:
             with st.container(border=True):
-                st.markdown("**Shift (mm) in job3**")
+                st.markdown(f"**{tr('Shift (mm) in job3', 'job3 中的位移 (mm)')}**")
                 p31, p32 = st.columns(2)
                 with p31:
                     shift_x = st.number_input("x", format="%.3f", step=0.0005,
@@ -2718,7 +2863,7 @@ with st.container(border=True):
 
         bl = (st.session_state["ebc_bl_x"], st.session_state["ebc_bl_y"])
         br = (st.session_state["ebc_br_x"], st.session_state["ebc_br_y"])
-        tr = (st.session_state["ebc_tr_x"], st.session_state["ebc_tr_y"])
+        c_tr = (st.session_state["ebc_tr_x"], st.session_state["ebc_tr_y"])
         tl = (st.session_state["ebc_tl_x"], st.session_state["ebc_tl_y"])
 
         # Centered notice when the mask spills outside the Nx×Ny grid
@@ -2743,8 +2888,8 @@ with st.container(border=True):
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=[bl[0], br[0], tr[0], tl[0], bl[0]],
-            y=[bl[1], br[1], tr[1], tl[1], bl[1]],
+            x=[bl[0], br[0], c_tr[0], tl[0], bl[0]],
+            y=[bl[1], br[1], c_tr[1], tl[1], bl[1]],
             mode="lines",
             line=dict(color="#1f77b4", width=2),
             fill="toself",
@@ -2769,19 +2914,20 @@ with st.container(border=True):
                 fill="toself",
                 line=dict(color="#2ca02c", width=0.5),
                 fillcolor="rgba(44,160,44,0.5)",
-                name="Mask",
+                name=tr("Mask", "遮罩"),
                 hoverinfo="skip",
             ))
         elif _fe_huge:
             for _t in _mask_overlay_traces(
                     _gds_selected_polys, _gds_unit_to_mm,
-                    cel_x + shift_x, cel_y + shift_y, "#2ca02c", "Mask"):
+                    cel_x + shift_x, cel_y + shift_y, "#2ca02c",
+                    tr("Mask", "遮罩")):
                 fig.add_trace(_t)
 
         # Chip corner dots (hover to read coords)
         fig.add_trace(go.Scatter(
-            x=[bl[0], br[0], tr[0], tl[0]],
-            y=[bl[1], br[1], tr[1], tl[1]],
+            x=[bl[0], br[0], c_tr[0], tl[0]],
+            y=[bl[1], br[1], c_tr[1], tl[1]],
             mode="markers",
             marker=dict(size=8, color="#1f77b4", symbol="circle"),
             hovertemplate=("Chip corner<br>"
@@ -2807,9 +2953,9 @@ with st.container(border=True):
                 showlegend=False,
             ))
 
-        all_x = ([bl[0], br[0], tr[0], tl[0]]
+        all_x = ([bl[0], br[0], c_tr[0], tl[0]]
                 + [v for v in grid_xs if v is not None])
-        all_y = ([bl[1], br[1], tr[1], tl[1]]
+        all_y = ([bl[1], br[1], c_tr[1], tl[1]]
                 + [v for v in grid_ys if v is not None])
         pad_x = max(1.0, (max(all_x) - min(all_x)) * 0.10)
         pad_y = max(1.0, (max(all_y) - min(all_y)) * 0.10)
@@ -2839,7 +2985,7 @@ with st.container(border=True):
             coverage_ox=cel_x + shift_x, coverage_oy=cel_y + shift_y,
         )
 
-    elif mode == "Second Alignment":
+    elif mode == _MODE_OPTS[3]:  # "Second Alignment"
         # Cross-mark position presets. Coordinates are chip-relative (mm).
         # Add new presets here; the radio below lists all keys.
         # NOTE: the HBT_RF_v3 values below are a placeholder 4×6 grid —
@@ -2864,9 +3010,13 @@ with st.container(border=True):
         }
 
         preset_name = segmented_radio(
-            "Cross-position preset",
+            tr("Cross-position preset", "十字標記位置預設"),
             list(_CROSS_PRESETS.keys()),
             key="ebc_sa_preset",
+            # Preset keys (e.g. "HBT_RF_v3", "Custom") are compared against
+            # below (preset_name == "Custom") and used as dict keys, so they
+            # must stay English; only the displayed label is localized.
+            format_func=lambda k: tr("Custom", "自訂") if k == "Custom" else k,
         )
 
         if preset_name == "Custom":
@@ -2883,7 +3033,7 @@ with st.container(border=True):
                 st.session_state.setdefault(_k, _v)
 
             unit = segmented_radio(
-                "Input unit", ["mm", "μm"],
+                tr("Input unit", "輸入單位"), ["mm", "μm"],
                 key="ebc_sa_custom_unit",
             )
             to_disp = 1000.0 if unit == "μm" else 1.0   # mm → display unit
@@ -2914,7 +3064,7 @@ with st.container(border=True):
             cm1, cm2 = st.columns(2)
             with cm1:
                 with st.container(border=True):
-                    st.markdown(f"**Mark M1 ({unit})**")
+                    st.markdown(f"**{tr('Mark M1', '標記 M1')} ({unit})**")
                     m1cx, m1cy = st.columns(2)
                     with m1cx:
                         m1_x = _mark_input("x", "ebc_sa_custom_m1_x")
@@ -2922,7 +3072,7 @@ with st.container(border=True):
                         m1_y = _mark_input("y", "ebc_sa_custom_m1_y")
             with cm2:
                 with st.container(border=True):
-                    st.markdown(f"**Mark M2 ({unit})**")
+                    st.markdown(f"**{tr('Mark M2', '標記 M2')} ({unit})**")
                     m2cx, m2cy = st.columns(2)
                     with m2cx:
                         m2_x = _mark_input("x", "ebc_sa_custom_m2_x")
@@ -2940,13 +3090,15 @@ with st.container(border=True):
                 st.session_state.setdefault("ebc_sa_o_mark2", "C1")
 
         if not crosses:
-            st.info("No cross positions defined for this preset.")
+            st.info(tr("No cross positions defined for this preset.",
+                       "此預設未定義十字標記位置。"))
         else:
-            st.caption(f"{len(crosses)} cross positions loaded "
-                    "(chip-relative, mm).")
+            st.caption(tr(
+                f"{len(crosses)} cross positions loaded (chip-relative, mm).",
+                f"已載入 {len(crosses)} 個十字標記位置（相對晶片，mm）。"))
             rows = [{"Cross": k, "x (mm)": v[0], "y (mm)": v[1]}
                     for k, v in crosses.items()]
-            with st.expander("Show cross positions table"):
+            with st.expander(tr("Show cross positions table", "顯示十字標記位置表")):
                 st.table(rows)
 
             # Helper for the Existing Pattern subsection: render the
@@ -2962,7 +3114,7 @@ with st.container(border=True):
                 with controls_col:
                     with st.container(border=True):
                         anchor = st.selectbox(
-                            "Move:", cross_labels,
+                            tr("Move:", "移動："), cross_labels,
                             key=f"{key_prefix}_anchor",
                         )
                         anchor_x, anchor_y = crosses[anchor]
@@ -2971,16 +3123,17 @@ with st.container(border=True):
                         st.session_state.setdefault(
                             f"{key_prefix}_target_y", float(anchor_y))
                         
-                        st.caption("Mark position as seen on the SEM:")
+                        st.caption(tr("Mark position as seen on the SEM:",
+                                      "如 SEM 所見的標記位置："))
                         target_x_input, target_y_input = st.columns(2)
                         with target_x_input:
                             target_x = st.number_input(
-                                "Target x", format="%.4f", step=0.001,
+                                tr("Target x", "目標 x"), format="%.4f", step=0.001,
                                 key=f"{key_prefix}_target_x",
                             )
                         with target_y_input:
                             target_y = st.number_input(
-                                "Target y", format="%.4f", step=0.001,
+                                tr("Target y", "目標 y"), format="%.4f", step=0.001,
                                 key=f"{key_prefix}_target_y",
                             )
 
@@ -2991,7 +3144,7 @@ with st.container(border=True):
                 if polys and len(polys) > _POLY_LIMIT:
                     for _t in _mask_overlay_traces(
                             polys, scale_to_mm, shift_x, shift_y,
-                            "#1f77b4", "Pattern"):
+                            "#1f77b4", tr("Pattern", "圖案")):
                         fig.add_trace(_t)
                 elif polys:
                     xs_all, ys_all = [], []
@@ -3037,7 +3190,7 @@ with st.container(border=True):
                 return shift_x, shift_y
 
             # ── Existing Pattern ─────────────────────────────────────────
-            st.subheader("Existing Pattern on Chip")
+            st.subheader(tr("Existing Pattern on Chip", "晶片上的既有圖案"))
 
             ep_polys: list = []
             ep_shift_x = 0.0
@@ -3048,8 +3201,9 @@ with st.container(border=True):
 
             with ep_ctrl_col:
                 if not _gds_cells_data:
-                    st.caption("No GDS file uploaded — showing "
-                            "crosses only.")
+                    st.caption(tr(
+                        "No GDS file uploaded — showing crosses only.",
+                        "未上傳 GDS 檔案 — 僅顯示十字標記。"))
                 else:
                     cell_name = _gds_selected_cell_name
                     ep_by_layer = (_gds_cells_data.get(cell_name, {})
@@ -3061,7 +3215,7 @@ with st.container(border=True):
                     }
                     ep_labels = list(ep_layer_options.keys())
                     ep_layer_label = st.selectbox(
-                        "Existing pattern layer",
+                        tr("Existing pattern layer", "既有圖案圖層"),
                         ep_labels if ep_labels else ["—"],
                         disabled=not ep_labels,
                         key="ebc_sa_ep_layer",
@@ -3077,7 +3231,7 @@ with st.container(border=True):
             ep_ready = True
 
             # ── Second Alignment Pattern ─────────────────────────────────
-            st.subheader("Second Alignment Pattern")
+            st.subheader(tr("Second Alignment Pattern", "二次對準圖案"))
 
             sap_polys = _gds_selected_polys
             # Dense layers can't be drawn/clipped per-polygon — fall back
@@ -3136,8 +3290,10 @@ with st.container(border=True):
                         bb_w = bb_max_x - bb_min_x
                         bb_h = bb_max_y - bb_min_y
                         st.caption(
-                            f"Mask layer size: {bb_w:.3f} × {bb_h:.3f} mm"
-                            f"  →  required grids: {nx_req} × {ny_req}"
+                            f"{tr('Mask layer size', '遮罩圖層尺寸')}: "
+                            f"{bb_w:.3f} × {bb_h:.3f} mm"
+                            f"  →  {tr('required grids', '所需網格數')}: "
+                            f"{nx_req} × {ny_req}"
                         )
                         sap_token = (_gds_selected_token, chip_size_sap,
                                     cel_x_v, cel_y_v)
@@ -3147,13 +3303,14 @@ with st.container(border=True):
                             st.session_state["ebc_sa_sap_ny"] = int(ny_req)
                             st.session_state["ebc_sa_sap_nxny_token"] = sap_token
                 else:
-                    st.caption("No GDS layer selected — showing "
-                            "crosses only.")
+                    st.caption(tr(
+                        "No GDS layer selected — showing crosses only.",
+                        "未選擇 GDS 圖層 — 僅顯示十字標記。"))
 
                 sp1, sp2 = st.columns(2)
                 with sp1:
                     with st.container(border=True):
-                        st.markdown("**Cel Origin (mm) in job1**")
+                        st.markdown(f"**{tr('Cel Origin (mm) in job1', 'job1 中的 Cel 原點 (mm)')}**")
                         sap_cel_x = st.number_input(
                             "x", format="%.3f", step=0.1, min_value=0.0,
                             key="ebc_sa_sap_cel_x")
@@ -3162,7 +3319,7 @@ with st.container(border=True):
                             key="ebc_sa_sap_cel_y")
                 with sp2:
                     with st.container(border=True):
-                        st.markdown("**Grid Count in job1**")
+                        st.markdown(f"**{tr('Grid Count in job1', 'job1 中的網格數量')}**")
                         sap_nx = st.number_input(
                             "Nx", min_value=1, step=1,
                             key="ebc_sa_sap_nx")
@@ -3170,7 +3327,7 @@ with st.container(border=True):
                             "Ny", min_value=1, step=1,
                             key="ebc_sa_sap_ny")
                 with st.container(border=True):
-                    st.markdown("**Registration mark position in job1**")
+                    st.markdown(f"**{tr('Registration mark position in job1', 'job1 中的對位標記位置')}**")
                     celx = float(st.session_state["ebc_sa_sap_cel_x"])
                     cely = float(st.session_state["ebc_sa_sap_cel_y"])
 
@@ -3202,7 +3359,7 @@ with st.container(border=True):
                     with m1_col:
                         with st.container(border=True):
                             st.markdown(
-                                f"**Mark 1 ({m1_name})**",
+                                f"**{tr('Mark 1', '標記 1')} ({m1_name})**",
                                 help=f"x = {mk1x_mask} mm + {celx:.3f} mm, "
                                     f"y = {mk1y_mask} mm + {cely:.3f} mm",
                             )
@@ -3211,7 +3368,7 @@ with st.container(border=True):
                     with m2_col:
                         with st.container(border=True):
                             st.markdown(
-                                f"**Mark 2 ({m2_name})**",
+                                f"**{tr('Mark 2', '標記 2')} ({m2_name})**",
                                 help=f"x = {mk2x_mask} mm + {celx:.3f} mm, "
                                     f"y = {mk2y_mask} mm + {cely:.3f} mm",
                             )
@@ -3255,7 +3412,7 @@ with st.container(border=True):
                 if _sa_huge:
                     for _t in _mask_overlay_traces(
                             sap_polys, scale_sap, sap_cel_x, sap_cel_y,
-                            "#2ca02c", "Mask"):
+                            "#2ca02c", tr("Mask", "遮罩")):
                         fig_sap.add_trace(_t)
                 else:
                     sap_mask_xs: list = []
@@ -3272,7 +3429,7 @@ with st.container(border=True):
                         fill="toself",
                         line=dict(color="#2ca02c", width=0.5),
                         fillcolor="rgba(44,160,44,0.5)",
-                        name="Mask",
+                        name=tr("Mask", "遮罩"),
                         hoverinfo="skip",
                     ))
 
@@ -3351,7 +3508,7 @@ with st.container(border=True):
             sap_ready = True
 
             # ── Overlayed ────────────────────────────────────────────────
-            st.subheader("Overlayed")
+            st.subheader(tr("Overlayed", "疊圖"))
 
             ov_plot_col, ov_ctrl_col = st.columns([7, 3])
 
@@ -3361,10 +3518,10 @@ with st.container(border=True):
                     mark1_input, mark2_input = st.columns(2)
                     with mark1_input:
                         mark1 = st.selectbox(
-                            "Mark 1", cross_labels, key="ebc_sa_o_mark1")
+                            tr("Mark 1", "標記 1"), cross_labels, key="ebc_sa_o_mark1")
                         m1_pos = crosses[mark1]
                         st.caption(
-                            f"Original: ({m1_pos[0]:.4f}, "
+                            f"{tr('Original', '原始')}: ({m1_pos[0]:.4f}, "
                             f"{m1_pos[1]:.4f}) mm"
                         )
                         mark2_options = [
@@ -3375,10 +3532,10 @@ with st.container(border=True):
                             st.session_state["ebc_sa_o_mark2"] = mark2_options[0]
                     with mark2_input:
                         mark2 = st.selectbox(
-                            "Mark 2", mark2_options, key="ebc_sa_o_mark2")
+                            tr("Mark 2", "標記 2"), mark2_options, key="ebc_sa_o_mark2")
                         m2_pos = crosses[mark2]
                         st.caption(
-                            f"Original: ({m2_pos[0]:.4f}, "
+                            f"{tr('Original', '原始')}: ({m2_pos[0]:.4f}, "
                             f"{m2_pos[1]:.4f}) mm"
                         )
 
@@ -3399,16 +3556,17 @@ with st.container(border=True):
                     st.session_state["ebc_sa_o_shift_token"] = shift_token
                     
                 with st.container(border=True):
-                    st.caption("Use these numbers in job3:")
+                    st.caption(tr("Use these numbers in job3:",
+                                  "在 job3 中使用以下數值："))
                     overlay_shift_x_input, overlay_shift_y_input = st.columns(2)
                     with overlay_shift_x_input:
                         overlay_shift_x = st.number_input(
-                            "Shift x (mm)", format="%.4f", step=0.0005,
+                            tr("Shift x (mm)", "位移 x (mm)"), format="%.4f", step=0.0005,
                             key="ebc_sa_o_shift_x",
                         )
                     with overlay_shift_y_input:
                         overlay_shift_y = st.number_input(
-                            "Shift y (mm)", format="%.4f", step=0.0005,
+                            tr("Shift y (mm)", "位移 y (mm)"), format="%.4f", step=0.0005,
                             key="ebc_sa_o_shift_y",
                         )
 
@@ -3419,9 +3577,10 @@ with st.container(border=True):
                         st.session_state.pop("ebc_sa_o_shift_token", None)
 
                     st.button(
-                        "Re-center", on_click=_recenter_overlay_shift,
+                        tr("Re-center", "重新置中"), on_click=_recenter_overlay_shift,
                         key="ebc_sa_o_recenter",
-                        help="Reset Shift x/y to the auto-computed center.",
+                        help=tr("Reset Shift x/y to the auto-computed center.",
+                                "將位移 x/y 重設為自動計算的中心值。"),
                     )
 
             # Build cells + polys in the Overlay frame (apply
@@ -3512,7 +3671,7 @@ with st.container(border=True):
             if ep_polys and _ep_huge:
                 for _t in _mask_overlay_traces(
                         ep_polys, _gds_unit_to_mm, ep_shift_x, ep_shift_y,
-                        "#1f77b4", "Existing Pattern"):
+                        "#1f77b4", tr("Existing Pattern", "既有圖案")):
                     fig_ov.add_trace(_t)
             elif ep_polys:
                 ep_xs_all, ep_ys_all = [], []
@@ -3642,16 +3801,19 @@ with st.container(border=True):
                 mark_cells=_mark_only_cells_ov,
                 mark_labels=[mark1, mark2],
                 mark_positions=_mark_pos_ov,
-                extra_help_under_total=(
+                extra_help_under_total=tr(
                     "Note: an additional 1–2 hours is typically needed "
                     "to find the alignment marks (not included in "
-                    "this estimate)."
+                    "this estimate).",
+                    "備註：尋找對準標記通常需額外 1–2 小時（未計入此估計）。",
                 ),
                 disabled=_marks_outside_ov,
-                disabled_reason=(
+                disabled_reason=tr(
                     "One or more selected marks fall outside the "
                     "exposure grid. Increase Nx/Ny or adjust cel "
-                    "before calculating."
+                    "before calculating.",
+                    "一個或多個選定標記超出曝光網格範圍。請增加 Nx/Ny 或"
+                    "調整 cel 後再計算。",
                 ),
                 precomputed_cell_areas=_sa_precomp,
                 coverage_layer=sap_polys if _sa_huge else None,

@@ -50,6 +50,7 @@ from .base_ui           import (smith_scale_controls,
                                  sync_pad_from_preov, PAD_SPECS,
                                  render_tuning_expander, render_smith_with_ftfmax)
 from . import AbstractSSMModel
+from ...i18n import tr
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -847,15 +848,18 @@ class Degachi(AbstractSSMModel):
             if sk not in st.session_state:
                 st.session_state[sk] = float(calc_vals.get(key, 0.0)) * scale
 
-        with st.expander(f"✏️ Fine-tune {cls.NAME} intrinsic parameters", expanded=False):
-            if st.button(f"↩️ Reset {cls.NAME} to calculated",
+        with st.expander(tr(f"✏️ Fine-tune {cls.NAME} intrinsic parameters",
+                            f"✏️ 微調 {cls.NAME} 內部參數"), expanded=False):
+            if st.button(tr(f"↩️ Reset {cls.NAME} to calculated",
+                            f"↩️ 將 {cls.NAME} 重設為計算值"),
                          key=f"rst_sim_{cls.SHORT}_{fname}"):
                 for key, _, scale, *_ in all_specs:
                     st.session_state[f"sim_{cls.SHORT}_{key}_{fname}"] = \
                         float(calc_vals.get(key, 0.0)) * scale
                 st.rerun()
 
-            st.markdown("**Pad Parasitics** *(auto-synced)*")
+            st.markdown(tr("**Pad Parasitics** *(auto-synced)*",
+                           "**Pad 寄生參數** *(自動同步)*"))
             for row_start in range(0, len(PAD_SPECS), 3):
                 row = PAD_SPECS[row_start:row_start+3]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
@@ -863,7 +867,7 @@ class Degachi(AbstractSSMModel):
                                        key=f"sim_{cls.SHORT}_{key}_{fname}",
                                        format=fmt, step=step)
 
-            st.markdown("**Intrinsic (Degachi)**")
+            st.markdown(tr("**Intrinsic (Degachi)**", "**內部參數（Degachi）**"))
             for row_start in range(0, len(_INT_D_SPECS), 4):
                 row = _INT_D_SPECS[row_start:row_start+4]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
@@ -884,22 +888,24 @@ class Degachi(AbstractSSMModel):
         hash_key  = f"sim_phash_{cls.SHORT}_{fname}"
         cur_hash  = params_hash({k: str(v) for k, v in {**all_p, "__nf": len(freq)}.items()})
         if st.session_state.get(hash_key) != cur_hash:
-            with st.spinner(f"Simulating {cls.NAME}…"):
+            with st.spinner(tr(f"Simulating {cls.NAME}…", f"正在模擬 {cls.NAME}…")):
                 try:
                     S_sim = cls.simulate_vec(all_p, freq, z0)
                 except Exception as e:
-                    st.error(f"Simulation error ({cls.NAME}): {e}")
+                    st.error(tr(f"Simulation error ({cls.NAME}): {e}",
+                                f"模擬錯誤（{cls.NAME}）：{e}"))
                     S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
             st.session_state[cache_key] = S_sim
             st.session_state[hash_key]  = cur_hash
         else:
             S_sim = st.session_state.get(cache_key)
             if S_sim is None or S_sim.shape[0] != len(freq):
-                with st.spinner(f"Simulating {cls.NAME}…"):
+                with st.spinner(tr(f"Simulating {cls.NAME}…", f"正在模擬 {cls.NAME}…")):
                     try:
                         S_sim = cls.simulate_vec(all_p, freq, z0)
                     except Exception as e:
-                        st.error(f"Simulation error ({cls.NAME}): {e}")
+                        st.error(tr(f"Simulation error ({cls.NAME}): {e}",
+                                    f"模擬錯誤（{cls.NAME}）：{e}"))
                         S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
                 st.session_state[cache_key] = S_sim
                 st.session_state[hash_key]  = cur_hash

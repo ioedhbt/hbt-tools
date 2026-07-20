@@ -106,15 +106,20 @@ def _resolve_fit_target():
 
     meas = st.session_state.get("_simfit_meas")
     with st.container(key="hbt_exp_edit_fitdev"), \
-         st.expander("📂 Fit to a measured device (optional)",
+         st.expander(i18n.tr("📂 Fit to a measured device (optional)",
+                             "📂 擬合至量測元件（選用）"),
                      expanded=meas is not None):
         if meas is not None:
             cc, cdl, cclr = st.columns([3, 1, 1])
+            _pts_word = i18n.tr("pts", "點")
+            _tt = i18n.tr(
+                "The simulation frequency axis follows the measured grid "
+                "point-for-point.",
+                "模擬頻率軸會逐點對齊量測資料的網格。")
             cc.markdown(
                 f"<span class='hbt-chip-ok'>🎯 {meas['label']} · {meas['stage']} · "
-                f"{len(meas['freq'])} pts</span>"
-                "<span class='hbt-help' title='The simulation frequency axis"
-                " follows the measured grid point-for-point.'>?</span>",
+                f"{len(meas['freq'])} {_pts_word}</span>"
+                f"<span class='hbt-help' title='{_tt}'>?</span>",
                 unsafe_allow_html=True)
             # Download the exact measured device being fitted (de-embedded if it
             # was forwarded that way) as an .s2p.
@@ -127,20 +132,28 @@ def _resolve_fit_target():
                     "📥 .s2p", data=_s2p,
                     file_name=f"{meas['label']}_{meas['stage']}.s2p",
                     mime="text/plain", key="simfit_dl", width="stretch",
-                    help="Download the exact S-parameters loaded for fitting.")
+                    help=i18n.tr(
+                        "Download the exact S-parameters loaded for fitting.",
+                        "下載擬合所用的完整 S 參數。"))
             except Exception:                                  # noqa: BLE001
                 cdl.caption("—")
             if cclr.container(key="hbt_danger_simfit_clear").button(
-                    "✕ Clear", key="simfit_clear", width="stretch"):
+                    i18n.tr("✕ Clear", "✕ 清除"), key="simfit_clear",
+                    width="stretch"):
                 st.session_state.pop("_simfit_meas", None)
                 _drop_seeds()
                 st.rerun()
         up = st.file_uploader(
-            "Upload a measured .s2p / .csv to compare & fit", type=["s2p", "csv"],
+            i18n.tr("Upload a measured .s2p / .csv to compare & fit",
+                    "上傳量測 .s2p / .csv 以進行比較與擬合"),
+            type=["s2p", "csv"],
             key="simfit_up",
-            help="With a file loaded the page switches to fit mode: residual "
-                 "readout + visual / auto tuning against this device.  "
-                 "Send a de-embedded device (no Cpxx/Lx) to fit intrinsic-only.")
+            help=i18n.tr(
+                "With a file loaded the page switches to fit mode: residual "
+                "readout + visual / auto tuning against this device.  "
+                "Send a de-embedded device (no Cpxx/Lx) to fit intrinsic-only.",
+                "載入檔案後頁面會切換為擬合模式：顯示殘差，並提供視覺化 / 自動"
+                "調諧功能。傳入去嵌入元件（不含 Cpxx/Lx）可僅擬合本質參數。"))
         if up is not None:
             data = up.getvalue()
             sig = (up.name, len(data), hash(data))
@@ -157,7 +170,8 @@ def _resolve_fit_target():
                     _drop_seeds()       # uploaded device has no extracted seed
                     st.rerun()
                 except Exception as exc:                       # noqa: BLE001
-                    st.error(f"Could not read that file: {exc}")
+                    st.error(i18n.tr(f"Could not read that file: {exc}",
+                                     f"無法讀取該檔案：{exc}"))
     return st.session_state.get("_simfit_meas")
 
 
@@ -166,8 +180,16 @@ def _resolve_fit_target():
 #  page without showing the global frequency controls it doesn't use.)
 MODEL_OPTIONS = ["Cheng's T", "Cheng's π", "Xu T", "Kun-Yang HEMT",
                  "🧩 Custom model", "Open and Short Pad"]
-model_choice  = segmented_radio("Model", MODEL_OPTIONS, index=0,
-                                key="rfsim_model_choice")
+# Display-only translations — the underlying option VALUE stays the canonical
+# English string (matched by _MS_TO_OPTION above and every `model_choice ==`
+# branch below), so switching UI language can't desync the handoff mapping.
+_MODEL_LABELS = {
+    "🧩 Custom model":    i18n.tr("🧩 Custom model", "🧩 自訂模型"),
+    "Open and Short Pad": i18n.tr("Open and Short Pad", "開路與短路焊墊"),
+}
+model_choice  = segmented_radio(i18n.tr("Model", "模型"), MODEL_OPTIONS,
+                                index=0, key="rfsim_model_choice",
+                                format_func=lambda o: _MODEL_LABELS.get(o, o))
 
 measured = _resolve_fit_target()
 
@@ -186,17 +208,18 @@ if measured is not None:
     f_ghz = freq * 1e-9
 else:
     c_f1, c_f2, c_f3 = st.columns(3)
-    f_start = c_f1.number_input("Start Frequency (GHz)",
+    f_start = c_f1.number_input(i18n.tr("Start Frequency (GHz)", "起始頻率 (GHz)"),
                                 min_value=0.0, value=0.01,
                                 format="%.4f", step=0.01)
-    n_pts   = c_f2.number_input("Data Points",
+    n_pts   = c_f2.number_input(i18n.tr("Data Points", "資料點數"),
                                 min_value=2, value=1001, step=1)
-    f_end   = c_f3.number_input("Final Frequency (GHz)",
+    f_end   = c_f3.number_input(i18n.tr("Final Frequency (GHz)", "終止頻率 (GHz)"),
                                 min_value=0.001, value=50.0,
                                 format="%.4f", step=1.0)
 
     if f_end <= f_start:
-        st.error("Final frequency must be greater than start frequency.")
+        st.error(i18n.tr("Final frequency must be greater than start frequency.",
+                         "終止頻率必須大於起始頻率。"))
         st.stop()
 
     freq  = np.linspace(float(f_start) * 1e9, float(f_end) * 1e9, int(n_pts))
@@ -257,7 +280,8 @@ def _build_smith(S, freq_hz, mults: dict, title: str):
                                  line=dict(color=col, width=2.0),
                                  text=hov, hoverinfo="text"))
     fig.update_layout(
-        title=dict(text=f"Smith Chart — {title}", font=dict(size=12)),
+        title=dict(text=f"{i18n.tr('Smith Chart', 'Smith 圖')} — {title}",
+                  font=dict(size=12)),
         xaxis=dict(title="Re(Γ)", range=[-1.1, 1.1], scaleanchor="y",
                    scaleratio=1, showgrid=False, zeroline=False),
         yaxis=dict(title="Im(Γ)", range=[-1.1, 1.1],
@@ -279,7 +303,7 @@ def _smith_chart_with_dl(fig, key: str, filename: str,
     col_xl, col_copy, col_s2p = st.columns(3)
     if xl is not None:
         col_xl.download_button(
-            "⬇ xlsx",
+            i18n.tr("⬇ xlsx", "⬇ xlsx 檔"),
             data=xl,
             file_name=f"{filename}.xlsx",
             mime=_EXCEL_MIME,
@@ -298,14 +322,18 @@ def _smith_chart_with_dl(fig, key: str, filename: str,
     )
 
 
-def _smith_multiplier_inputs(prefix: str, label: str = "Smith multipliers") -> dict:
+def _smith_multiplier_inputs(prefix: str, label: str | None = None) -> dict:
     """Render 4 per-trace multipliers (S11/S12/S21/S22) and return a dict.
 
     The multipliers are stored under a **model-independent** key so the user's
     choice persists when switching models (previously the per-``prefix`` key
     reset the value on every model change).
     """
-    st.markdown(f"**{label}** — × when ≥ 1, ÷ when < 1, per trace")
+    if label is None:
+        label = i18n.tr("Smith multipliers", "Smith 倍率")
+    st.markdown(f"**{label}** — "
+               + i18n.tr("× when ≥ 1, ÷ when < 1, per trace",
+                         "× 表示 ≥ 1，÷ 表示 < 1，逐軌跡設定"))
     cols = st.columns(4)
     out = {}
     for col_w, sp in zip(cols, ("S11", "S12", "S21", "S22")):
@@ -323,19 +351,23 @@ def _render_slider_preview(model_cls, all_p, freq, mults, prefix: str,
                            pad_specs, ext_specs, int_specs):
     """RF simulator slider preview block — mode-toggled.
 
-    🎯 Live: drag any number of sliders, every tick reruns Streamlit + sim.
-    ⚡ Wide sweep: pre-compute the cartesian sweep once, scrub client-side.
+    🎯 All sweep: drag any number of sliders, every tick reruns Streamlit + sim.
+    ⚡ Smooth sweep: pre-compute the cartesian sweep once, scrub client-side.
     """
     mode_key = f"rfsim_slpreview_mode_{prefix}"
     mode = segmented_radio(
-        "Preview mode",
-        ["🎯 Live tweak", "⚡ Wide sweep"],
+        i18n.tr("Preview mode", "預覽模式"),
+        [i18n.tr("🎯 All sweep", "🎯 全參數掃描"),
+         i18n.tr("⚡ Smooth sweep", "⚡ 平滑掃描")],
         index=0,
         key=mode_key,
-        help="🎯 Live tweak — best for a few small changes: the plots "
-             "re-compute on every drag.  ⚡ Wide sweep — best for exploring a "
-             "large range: pre-computes the whole range once so dragging is "
-             "instant afterwards.")
+        help=i18n.tr(
+            "🎯 All sweep — best for a few small changes: the plots "
+            "re-compute on every drag.  ⚡ Smooth sweep — best for exploring a "
+            "large range: pre-computes the whole range once so dragging is "
+            "instant afterwards.",
+            "🎯 全參數掃描 — 適合少量微調：每次拖曳都會重新計算圖表。"
+            "⚡ 平滑掃描 — 適合探索大範圍：一次預先計算整個範圍，之後拖曳即時反應。"))
     if mode.startswith("⚡"):
         _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix,
                                              pad_specs, ext_specs, int_specs)
@@ -381,13 +413,19 @@ def _render_rfsim_live_slider_preview(model_cls, all_p, freq, mults, prefix: str
 
     sel_key  = f"rfsim_slpreview_sel_{prefix}"
     selected = st.multiselect(
-        "Parameters to slide", options=[s[0] for s in tuning_specs],
+        i18n.tr("Parameters to slide", "要拖曳的參數"),
+        options=[s[0] for s in tuning_specs],
         default=st.session_state.get(sel_key, []),
         format_func=lambda k: label_for.get(k, k),
         key=sel_key,
-        help="Pick parameter(s) to drag.  Plots below show the slider-"
-             "substituted model in real time; the main Smith / fT-fmax "
-             "plots above stay frozen until you click ✅ Use these values.")
+        placeholder=i18n.tr("Choose options", "請選擇項目"),
+        help=i18n.tr(
+            "Pick parameter(s) to drag.  Plots below show the slider-"
+            "substituted model in real time; the main Smith / fT-fmax "
+            "plots above stay frozen until you click ✅ Use these values.",
+            "選擇要拖曳的參數。下方圖表會即時顯示套用滑桿值後的模型；"
+            "上方主要的 Smith / fT-fmax 圖會保持不變，直到按下"
+            "「✅ 套用這些數值」為止。"))
 
     selected_specs = [s for s in tuning_specs if s[0] in selected]
     preview_overrides: dict[str, float] = {}
@@ -405,7 +443,12 @@ def _render_rfsim_live_slider_preview(model_cls, all_p, freq, mults, prefix: str
             st.session_state[kp] = float(current_disp)
 
     if selected_specs:
-        with st.expander("📏 Slider ranges (min / step / max)", expanded=False):
+        with st.expander(i18n.tr("📏 Slider ranges (min / step / max)",
+                                 "📏 滑桿範圍（最小 / 步進 / 最大）"),
+                         expanded=False):
+            _min_lbl  = i18n.tr("Min", "最小值")
+            _step_lbl = i18n.tr("Step", "步進")
+            _max_lbl  = i18n.tr("Max", "最大值")
             for row_start in range(0, len(selected_specs), 2):
                 row_specs = selected_specs[row_start:row_start + 2]
                 row_cols  = st.columns(len(row_specs))
@@ -418,15 +461,18 @@ def _render_rfsim_live_slider_preview(model_cls, all_p, freq, mults, prefix: str
                         st.markdown(f"**{label}** ({unit})" if unit
                                     else f"**{label}**")
                         mc = st.columns(3)
-                        mc[0].number_input(f"Min ({unit})" if unit else "Min",
+                        mc[0].number_input(f"{_min_lbl} ({unit})" if unit
+                                           else _min_lbl,
                                            format=fmt, key=f"{kp}_min")
-                        mc[1].number_input("Step", format=fmt,
+                        mc[1].number_input(_step_lbl, format=fmt,
                                            key=f"{kp}_step", min_value=0.0)
-                        mc[2].number_input(f"Max ({unit})" if unit else "Max",
+                        mc[2].number_input(f"{_max_lbl} ({unit})" if unit
+                                           else _max_lbl,
                                            format=fmt, key=f"{kp}_max")
 
     if not selected_specs:
-        st.caption("Select one or more parameters above to begin.")
+        st.caption(i18n.tr("Select one or more parameters above to begin.",
+                           "請先在上方選擇一或多個參數。"))
     else:
         slider_cols = st.columns(len(selected_specs))
         for col, spec in zip(slider_cols, selected_specs):
@@ -447,8 +493,9 @@ def _render_rfsim_live_slider_preview(model_cls, all_p, freq, mults, prefix: str
                 v = st.slider(f"{label} ({unit})" if unit else label,
                               min_value=mn, max_value=mx, step=sp_safe,
                               value=cur_v, format=fmt, key=kp)
-                st.caption(f"main: **{current_disp:.4g}**  →  "
-                           f"preview: **{v:.4g}** {unit}".rstrip())
+                st.caption(
+                    f"{i18n.tr('main', '主圖')}: **{current_disp:.4g}**  →  "
+                    f"{i18n.tr('preview', '預覽')}: **{v:.4g}** {unit}".rstrip())
             preview_overrides[key] = float(v) / scale
 
     # ── Preview plots: Smith | Bode side by side ──────────────────────
@@ -458,36 +505,41 @@ def _render_rfsim_live_slider_preview(model_cls, all_p, freq, mults, prefix: str
         with np.errstate(divide="ignore", invalid="ignore"):
             S_prev = model_cls.simulate(all_p_prev, freq)
     except Exception as e:
-        st.error(f"Preview simulation failed: {e}")
+        st.error(i18n.tr(f"Preview simulation failed: {e}",
+                         f"預覽模擬失敗：{e}"))
         S_prev = None
     if S_prev is not None and not np.all(np.isfinite(S_prev)):
-        st.warning("Preview S-parameters contain non-finite values — "
-                   "adjust slider ranges.")
+        st.warning(i18n.tr(
+            "Preview S-parameters contain non-finite values — "
+            "adjust slider ranges.",
+            "預覽 S 參數含有非有限值 — 請調整滑桿範圍。"))
         S_prev = None
     if S_prev is not None:
         col_s, col_b = st.columns([1.05, 1])
         with col_s:
-            st.markdown("**Preview Smith chart**")
+            st.markdown(f"**{i18n.tr('Preview Smith chart', '預覽 Smith 圖')}**")
             st.plotly_chart(_build_smith(S_prev, freq, mults, model_cls.NAME),
                             width="stretch",
                             key=f"rfsim_slpreview_smith_{prefix}")
         with col_b:
-            st.markdown("**Preview fT / fmax**")
+            st.markdown(f"**{i18n.tr('Preview fT / fmax', '預覽 fT / fmax')}**")
             st.plotly_chart(_build_bode(S_prev, freq, model_cls.NAME)[0],
                             width="stretch",
                             key=f"rfsim_slpreview_bode_{prefix}")
 
     bc1, bc2 = st.columns(2)
     commit_clicked = bc1.container(key=f"hbt_amber_slcommit_rfsim_{prefix}").button(
-        "✅ Use these values",
+        i18n.tr("✅ Use these values", "✅ 套用這些數值"),
         key=f"rfsim_slpreview_commit_{prefix}",
         disabled=(len(preview_overrides) == 0),
-        help="Copy slider values into the fine-tune number_inputs above.",
+        help=i18n.tr("Copy slider values into the fine-tune number_inputs above.",
+                     "將滑桿數值複製到上方的微調數字輸入欄。"),
         width="stretch")
     reset_clicked = bc2.button(
-        "↩️ Reset preview",
+        i18n.tr("↩️ Reset preview", "↩️ 重設預覽"),
         key=f"rfsim_slpreview_reset_{prefix}",
-        help="Discard slider drags and clear remembered min/step/max.",
+        help=i18n.tr("Discard slider drags and clear remembered min/step/max.",
+                     "捨棄滑桿拖曳並清除已記住的最小值/步進/最大值。"),
         width="stretch")
 
     if commit_clicked:
@@ -522,22 +574,31 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
     label_for = {s[0]: s[1] for s in tuning_specs}
     options   = [s[0] for s in tuning_specs]
 
+    # Shared label for the "🧮 Build animation" button — reused by every
+    # caption / info message below that references it, so the two always match.
+    _build_anim_lbl = i18n.tr("🧮 Build animation", "🧮 建立動畫")
+
     sel_key  = f"rfsim_slprev_pl_sel_{prefix}"
     selected = st.multiselect(
-        "Sweep parameters",
+        i18n.tr("Sweep parameters", "掃描參數"),
         options=options,
         default=st.session_state.get(sel_key, [options[0]] if options else []),
         format_func=lambda k: label_for.get(k, k),
         key=sel_key,
-        help="Each selected param gets its own Plotly slider in the figure. "
-             "Frames are the FULL cartesian product — dragging one slider "
-             "reflects the model at the current position of every other "
-             "slider.")
+        placeholder=i18n.tr("Choose options", "請選擇項目"),
+        help=i18n.tr(
+            "Each selected param gets its own Plotly slider in the figure. "
+            "Frames are the FULL cartesian product — dragging one slider "
+            "reflects the model at the current position of every other "
+            "slider.",
+            "每個選取的參數都會在圖中取得自己的 Plotly 滑桿。影格為所有參數的"
+            "完整笛卡兒乘積 — 拖曳任一滑桿都會反映其餘滑桿目前位置下的模型。"))
 
     selected_specs = [s for s in tuning_specs if s[0] in selected]
     if not selected_specs:
-        st.caption("Select one or more parameters above and click "
-                   "**🧮 Build animation**.")
+        st.caption(i18n.tr(
+            f"Select one or more parameters above and click **{_build_anim_lbl}**.",
+            f"請先在上方選擇一或多個參數，再點擊 **{_build_anim_lbl}**。"))
         return
 
     # Default frames-per-axis shrinks as more params are selected so the
@@ -555,7 +616,11 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
             st.session_state[f"{kp}_max"]    = float(d_max)
             st.session_state[f"{kp}_frames"] = default_frames
 
-    with st.expander("📏 Slider ranges (min / max / frames)", expanded=False):
+    with st.expander(i18n.tr("📏 Slider ranges (min / max / frames)",
+                             "📏 滑桿範圍（最小 / 最大 / 影格）"),
+                     expanded=False):
+        _min_lbl = i18n.tr("Min", "最小值")
+        _max_lbl = i18n.tr("Max", "最大值")
         for row_start in range(0, len(selected_specs), 2):
             row_specs = selected_specs[row_start:row_start + 2]
             row_cols  = st.columns(len(row_specs))
@@ -568,14 +633,20 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
                     st.markdown(f"**{label}** ({unit})" if unit
                                 else f"**{label}**")
                     mmf = st.columns(3)
-                    mmf[0].number_input(f"Min ({unit})" if unit else "Min",
+                    mmf[0].number_input(f"{_min_lbl} ({unit})" if unit
+                                        else _min_lbl,
                                         format=fmt, key=f"{kp}_min")
-                    mmf[1].number_input(f"Max ({unit})" if unit else "Max",
+                    mmf[1].number_input(f"{_max_lbl} ({unit})" if unit
+                                        else _max_lbl,
                                         format=fmt, key=f"{kp}_max")
-                    mmf[2].number_input("Frames", min_value=2, max_value=100,
+                    mmf[2].number_input(i18n.tr("Frames", "影格數"),
+                                        min_value=2, max_value=100,
                                         step=1, key=f"{kp}_frames",
-                                        help="Frames per axis (2–100). "
-                                             "Total = product across params.")
+                                        help=i18n.tr(
+                                            "Frames per axis (2–100). "
+                                            "Total = product across params.",
+                                            "每軸的影格數（2–100）。"
+                                            "總數 = 各參數影格數之乘積。"))
 
     n_freq_full = int(len(freq))
     decim_default = min(120, n_freq_full)
@@ -596,58 +667,76 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
 
     fd_col1, fd_col2 = st.columns([1, 2])
     with fd_col1:
-        st.number_input(f"Freq points (max: {n_freq_full})",
-                        min_value=20, max_value=n_freq_full, step=10,
-                        key=decim_key,
-                        help=f"Frequency points kept per trace "
-                             f"(max = {n_freq_full} = full fidelity).  "
-                             "Lower this (~120 still looks smooth) when "
-                             "the payload estimate grows large.")
+        st.number_input(
+            i18n.tr(f"Freq points (max: {n_freq_full})",
+                    f"頻率點數（上限：{n_freq_full}）"),
+            min_value=20, max_value=n_freq_full, step=10,
+            key=decim_key,
+            help=i18n.tr(
+                f"Frequency points kept per trace "
+                f"(max = {n_freq_full} = full fidelity).  "
+                "Lower this (~120 still looks smooth) when "
+                "the payload estimate grows large.",
+                f"每條軌跡保留的頻率點數（上限 = {n_freq_full} = 完整解析度）。"
+                "當預估負載偏大時可調低此值（約 120 點看起來仍平滑）。"))
     with fd_col2:
-        st.caption("Cartesian sweep: "
-                   + " × ".join(str(d) for d in dims_preview)
-                   + f" = **{total_frames}** frames · {decim_n} freq pts · "
-                   f"estimated payload ≈ **{est_mb:.0f} MB**")
+        st.caption(
+            i18n.tr("Cartesian sweep: ", "笛卡兒掃描：")
+            + " × ".join(str(d) for d in dims_preview)
+            + i18n.tr(
+                f" = **{total_frames}** frames · {decim_n} freq pts · "
+                f"estimated payload ≈ **{est_mb:.0f} MB**",
+                f" = **{total_frames}** 影格 · {decim_n} 個頻率點 · "
+                f"預估負載 ≈ **{est_mb:.0f} MB**"))
     if est_mb > 180:
-        st.error(
+        st.error(i18n.tr(
             f"❌ Estimated payload ≈ {est_mb:.0f} MB will exceed "
             "Streamlit's 200 MB browser-message limit.  Lower the "
             "**Freq points** value, reduce per-axis frame counts, or "
             "raise the limit via `.streamlit/config.toml` → "
-            "`[server] maxMessageSize = 500`.")
+            "`[server] maxMessageSize = 500`.",
+            f"❌ 預估負載 ≈ {est_mb:.0f} MB 將超過 Streamlit 的 200 MB "
+            "瀏覽器訊息上限。請降低 **頻率點數** 數值、減少每軸影格數，"
+            "或透過 `.streamlit/config.toml` → "
+            "`[server] maxMessageSize = 500` 調高上限。"))
     elif est_mb > 120:
-        st.warning(f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
-                   "to Streamlit's 200 MB limit.")
+        st.warning(i18n.tr(
+            f"⚠️ Estimated payload ≈ {est_mb:.0f} MB is close "
+            "to Streamlit's 200 MB limit.",
+            f"⚠️ 預估負載 ≈ {est_mb:.0f} MB 已接近 Streamlit 的 200 MB 上限。"))
     elif total_frames > 2000:
-        st.warning(f"⚠️ {total_frames} frames may stutter on "
-                   "slider drag.")
+        st.warning(i18n.tr(
+            f"⚠️ {total_frames} frames may stutter on slider drag.",
+            f"⚠️ {total_frames} 個影格在拖曳滑桿時可能會卡頓。"))
 
+    _build_anim_help = i18n.tr(
+        "Pre-compute the cartesian joint sweep and embed with "
+        "JS-coordinated multi-sliders.",
+        "預先計算笛卡兒聯合掃描，並嵌入以 JS 協調的多滑桿介面。")
     cuda_toggle_key = f"rfsim_slprev_pl_cuda_{prefix}"
     if _HAS_CUDA:
         cuda_col, btn_col = st.columns([1.6, 1])
         with cuda_col:
-            use_cuda = st.checkbox(f"⚡ Use CUDA (cupy {_CUDA_VER}) for "
-                                    "batched simulation",
-                                    value=st.session_state.get(cuda_toggle_key, True),
-                                    key=cuda_toggle_key,
-                                    help="Off-load joint cartesian batched "
-                                         "simulation to GPU.  Result is "
-                                         "brought back to host as fp64.")
+            use_cuda = st.checkbox(
+                i18n.tr(f"⚡ Use CUDA (cupy {_CUDA_VER}) for batched simulation",
+                        f"⚡ 使用 CUDA（cupy {_CUDA_VER}）進行批次模擬"),
+                value=st.session_state.get(cuda_toggle_key, True),
+                key=cuda_toggle_key,
+                help=i18n.tr(
+                    "Off-load joint cartesian batched simulation to GPU.  "
+                    "Result is brought back to host as fp64.",
+                    "將笛卡兒聯合批次模擬卸載至 GPU 執行，結果以 fp64 傳回主機。"))
         with btn_col:
-            build_clicked = st.button("🧮 Build animation",
+            build_clicked = st.button(_build_anim_lbl,
                                       key=f"rfsim_slprev_pl_build_{prefix}",
                                       width="stretch",
-                                      help="Pre-compute the cartesian joint "
-                                           "sweep and embed with JS-"
-                                           "coordinated multi-sliders.")
+                                      help=_build_anim_help)
     else:
         use_cuda = False
-        build_clicked = st.button("🧮 Build animation",
+        build_clicked = st.button(_build_anim_lbl,
                                   key=f"rfsim_slprev_pl_build_{prefix}",
                                   width="stretch",
-                                  help="Pre-compute the cartesian joint "
-                                       "sweep and embed with JS-coordinated "
-                                       "multi-sliders.")
+                                  help=_build_anim_help)
 
     state_key = f"rfsim_slprev_pl_state_{prefix}"
 
@@ -681,7 +770,8 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
 
         from tools.SSM.models.base_ui import _chunked_simulate_batch_to_host
         t0 = _time.perf_counter()
-        with st.spinner(f"Computing {n_total} frames on {device_label}…"):
+        with st.spinner(i18n.tr(f"Computing {n_total} frames on {device_label}…",
+                                f"正在 {device_label} 上計算 {n_total} 個影格…")):
             p_batch = dict(all_p)
             for spec, flat in zip(selected_specs, flats):
                 p_batch[spec[0]] = xp.asarray(flat, dtype=float)
@@ -689,13 +779,16 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
                 S_b = _chunked_simulate_batch_to_host(
                     model_cls, p_batch, freq, 50.0, xp=xp)
             except Exception as e:
-                st.error(f"Batched preview simulation failed: {e}")
+                st.error(i18n.tr(f"Batched preview simulation failed: {e}",
+                                 f"批次預覽模擬失敗：{e}"))
                 return
         elapsed = _time.perf_counter() - t0
 
         if not np.all(np.isfinite(S_b)):
-            st.warning("Some frames contain non-finite S-parameters — "
-                       "narrow the ranges to avoid singular combinations.")
+            st.warning(i18n.tr(
+                "Some frames contain non-finite S-parameters — "
+                "narrow the ranges to avoid singular combinations.",
+                "部分影格含有非有限值的 S 參數 — 請縮小範圍以避免奇異組合。"))
 
         st.session_state[state_key] = {
             "slider_specs":  slider_specs_out,
@@ -708,25 +801,34 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
 
     state = st.session_state.get(state_key)
     if state is None:
-        st.info("Click **🧮 Build animation** to compute frames for the "
-                "Plotly slider(s).")
+        st.info(i18n.tr("Click **🧮 Build animation** to compute frames for "
+                        "the Plotly slider(s).",
+                        "點選 **🧮 Build animation** 以計算 Plotly 滑桿的影格。"))
         return
 
     cached_keys  = state.get("selected_keys", [])
     current_keys = [s[0] for s in selected_specs]
     if cached_keys != current_keys:
-        st.warning("Selection changed since last build "
-                   f"(cached: {cached_keys}, current: {current_keys}).  "
-                   "Click **🧮 Build animation** to refresh.")
+        st.warning(i18n.tr(
+            "Selection changed since last build "
+            f"(cached: {cached_keys}, current: {current_keys}).  "
+            "Click **🧮 Build animation** to refresh.",
+            "選取的參數自上次建立後已變更"
+            f"（快取：{cached_keys}，目前：{current_keys}）。"
+            "請點選 **🧮 Build animation** 重新整理。"))
         return
 
     elapsed = float(state.get("elapsed_s", 0.0))
     n_total = int(state.get("n_total", 0)) or len(state["S_batch"])
     device  = str(state.get("device", "?"))
     ms_each = (elapsed / max(1, n_total)) * 1000.0
-    st.caption(f"✅ Built **{n_total}** frames on **{device}** in "
-               f"**{elapsed:.2f} s** ({ms_each:.1f} ms/frame).  "
-               "Drag any slider below to scrub the joint sweep.")
+    st.caption(i18n.tr(
+        f"✅ Built **{n_total}** frames on **{device}** in "
+        f"**{elapsed:.2f} s** ({ms_each:.1f} ms/frame).  "
+        "Drag any slider below to scrub the joint sweep.",
+        f"✅ 已在 **{device}** 上建立 **{n_total}** 個影格，耗時 "
+        f"**{elapsed:.2f} 秒**（每影格 {ms_each:.1f} 毫秒）。"
+        "拖曳下方任一滑桿即可瀏覽聯合掃描結果。"))
 
     html = make_smith_bode_joint_slider_html(
         S_batch_joint=state["S_batch"],
@@ -880,18 +982,26 @@ def _render_bode_block(S, freq_hz, title: str, key: str):
         if f"{key}_extrap_method" not in st.session_state:
             st.session_state[f"{key}_extrap_method"] = "−20 dB/dec"
         with ec1:
+            # Values stay canonical English — compared just below and stored
+            # in session_state; only the chip label localizes.
             segmented_radio(
-                "Extrap. method", ["−20 dB/dec", "Single-pole"],
+                i18n.tr("Extrap. method", "外插方法"),
+                ["−20 dB/dec", "Single-pole"],
                 key=f"{key}_extrap_method",
-                help="−20 dB/dec anchors a slope-locked line at the last data "
-                     "point.  Single-pole fits a log-linear line over the chosen "
-                     "window (default = final 5 GHz).")
+                format_func=lambda m: i18n.tr(m, {"−20 dB/dec": "−20 dB/dec",
+                                                  "Single-pole": "單極點"}[m]),
+                help=i18n.tr(
+                    "−20 dB/dec anchors a slope-locked line at the last data "
+                    "point.  Single-pole fits a log-linear line over the chosen "
+                    "window (default = final 5 GHz).",
+                    "−20 dB/dec 以最後一個資料點為錨點，畫出固定斜率的直線。"
+                    "單極點則在所選視窗內（預設為最後 5 GHz）擬合對數線性直線。"))
         if (st.session_state[f"{key}_extrap_method"] == "Single-pole"
                 and len(f_ghz_local) >= 4):
             f_lo, f_hi = float(f_ghz_local[0]), float(f_ghz_local[-1])
             sp_default = (max(f_lo, f_hi - 5.0), f_hi)
             ec2.slider(
-                "Single-pole fit window (GHz)",
+                i18n.tr("Single-pole fit window (GHz)", "單極點擬合視窗 (GHz)"),
                 min_value=f_lo, max_value=f_hi,
                 value=st.session_state.get(f"{key}_sp_window", sp_default),
                 step=max((f_hi - f_lo) / 400.0, 1e-3),
@@ -916,7 +1026,7 @@ _SHORT_SPECS = [
 
 
 if model_choice == "Open and Short Pad":
-    st.markdown("### Inputs")
+    st.markdown(i18n.tr("### Inputs", "### 輸入值"))
     col_in_o, col_in_s = st.columns(2)
     with col_in_o:
         _render_spec_inputs(_OPEN_SPECS, "open",  "Open Pad Capacitances",
@@ -933,20 +1043,23 @@ if model_choice == "Open and Short Pad":
     try:
         S_open = simulate_open(p_open, freq)
     except Exception as e:
-        st.error(f"Open simulation failed: {e}")
+        st.error(i18n.tr(f"Open simulation failed: {e}",
+                         f"開路模擬失敗：{e}"))
         S_open = np.full((len(freq), 2, 2), np.nan + 0j)
     try:
         S_short = simulate_short(p_short, freq)
     except Exception as e:
-        st.error(f"Short simulation failed: {e}")
+        st.error(i18n.tr(f"Short simulation failed: {e}",
+                         f"短路模擬失敗：{e}"))
         S_short = np.full((len(freq), 2, 2), np.nan + 0j)
 
     mults = _smith_multiplier_inputs(
-        "os", label="Smith multipliers (apply to both charts)")
+        "os", label=i18n.tr("Smith multipliers (apply to both charts)",
+                            "Smith 倍率（同時套用於兩張圖）"))
 
     col_chart_o, col_chart_s = st.columns(2)
     with col_chart_o:
-        st.markdown("**Open Pad**")
+        st.markdown(i18n.tr("**Open Pad**", "**開路焊墊**"))
         _smith_chart_with_dl(
             _build_smith(S_open, freq, mults, "Open Pad"),
             key="rfsim_smith_open",
@@ -958,7 +1071,7 @@ if model_choice == "Open and Short Pad":
             s2p_filename="rf_sim_open.s2p",
         )
     with col_chart_s:
-        st.markdown("**Short Pad**")
+        st.markdown(i18n.tr("**Short Pad**", "**短路焊墊**"))
         _smith_chart_with_dl(
             _build_smith(S_short, freq, mults, "Short Pad"),
             key="rfsim_smith_short",
@@ -975,7 +1088,9 @@ if model_choice == "Open and Short Pad":
     # "chart" phase (it writes the session state the chart reads), so the
     # right column is invoked first in code even though it sits on the right.
     with st.container(key="hbt_exp_view_mplsmith_open"), \
-         st.expander("📐 Smith chart (Matplotlib) — Open", expanded=False):
+         st.expander(i18n.tr("📐 Smith chart (Matplotlib) — Open",
+                             "📐 Smith 圖 (Matplotlib) — 開路"),
+                     expanded=False):
         col_o_left, col_o_right = st.columns([1.2, 1])
         with col_o_right:
             render_matplotlib_smith(
@@ -992,7 +1107,9 @@ if model_choice == "Open and Short Pad":
                 default_multiplier=mults, phase="chart", freq_hz=freq,
             )
     with st.container(key="hbt_exp_view_mplsmith_short"), \
-         st.expander("📐 Smith chart (Matplotlib) — Short", expanded=False):
+         st.expander(i18n.tr("📐 Smith chart (Matplotlib) — Short",
+                             "📐 Smith 圖 (Matplotlib) — 短路"),
+                     expanded=False):
         col_s_left, col_s_right = st.columns([1.2, 1])
         with col_s_right:
             render_matplotlib_smith(
@@ -1059,7 +1176,8 @@ else:
         _short = model_cls.SHORT
         _seed  = st.session_state.get(f"_simfit_seed_{_short}")
         _fit_fname = f"simfit_{_short}_{measured['label']}"
-        st.markdown(f"### 🎯 Fit — {model_cls.NAME}")
+        st.markdown(i18n.tr(f"### 🎯 Fit — {model_cls.NAME}",
+                            f"### 🎯 擬合 — {model_cls.NAME}"))
 
         from tools.SSM.helpers.fit_cache import get_fit_timestamp
         _cache_ts = get_fit_timestamp(_fit_fname, _short)
@@ -1134,14 +1252,22 @@ else:
             col_w.number_input(f"{lbl} ({unit})", key=sk,
                                format=fmt, step=step)
 
-    st.markdown("### Inputs")
+    st.markdown(i18n.tr("### Inputs", "### 輸入值"))
     with st.container(key="hbt_exp_edit_rfsim_" + prefix), \
-         st.expander(f"✏️ {model_cls.NAME} parameters", expanded=True):
+         st.expander(i18n.tr(f"✏️ {model_cls.NAME} parameters",
+                            f"✏️ {model_cls.NAME} 參數"), expanded=True):
+        # Values stay canonical English — `_mode == "Diagram"` below and the
+        # stored session_state value must not shift with the UI language.
         _mode = segmented_radio(
-            "Editor mode", ["List", "Diagram"],
+            i18n.tr("Editor mode", "編輯模式"), ["List", "Diagram"],
             key=f"rfsim_mode_{prefix}",
-            help="List: grouped number inputs.  Diagram: set values on the "
-                 "model schematic — the component you edit is highlighted.")
+            format_func=lambda m: i18n.tr(m, {"List": "清單",
+                                              "Diagram": "示意圖"}[m]),
+            help=i18n.tr(
+                "List: grouped number inputs.  Diagram: set values on the "
+                "model schematic — the component you edit is highlighted.",
+                "清單：分組數值輸入。示意圖：直接在模型電路圖上設定數值 — "
+                "正在編輯的元件會被標示出來。"))
 
         if _mode == "Diagram":
             # Each param maps to its own widget-key scheme: pad keys live under
@@ -1176,20 +1302,26 @@ else:
             # KY: substrate / custom pad FIRST (these caps ARE the pad layer),
             # then access resistance + lead inductances.  No Cpg / Cpd / Cpgd
             # row — those entries are not used by the Kun-Yang model.
-            _render_spec_inputs(ext_specs, prefix + "_ext",
-                                 "Kun-Yang Custom Pad / Substrate Network")
-            st.markdown("**Access Resistance & Lead Inductance**")
+            _render_spec_inputs(
+                ext_specs, prefix + "_ext",
+                i18n.tr("Kun-Yang Custom Pad / Substrate Network",
+                        "Kun-Yang 自訂焊墊 / 基板網路"))
+            st.markdown(i18n.tr("**Access Resistance & Lead Inductance**",
+                                "**存取電阻與引線電感**"))
             _render_pad_row(pad_short_specs)
             _render_pad_row(pad_r_specs)
-            _render_spec_inputs(int_specs, prefix + "_int", "Intrinsic π-Model")
+            _render_spec_inputs(int_specs, prefix + "_int",
+                                i18n.tr("Intrinsic π-Model", "本質 π 模型"))
         else:
-            st.markdown("**Pad Parasitics**")
+            st.markdown(i18n.tr("**Pad Parasitics**", "**焊墊寄生參數**"))
             _render_pad_row(pad_open_specs)
             _render_pad_row(pad_short_specs)
-            st.markdown("**Access Resistance**")
+            st.markdown(i18n.tr("**Access Resistance**", "**存取電阻**"))
             _render_pad_row(pad_r_specs)
-            _render_spec_inputs(ext_specs, prefix + "_ext", "Extrinsic Caps")
-            _render_spec_inputs(int_specs, prefix + "_int", "Intrinsic")
+            _render_spec_inputs(ext_specs, prefix + "_ext",
+                                i18n.tr("Extrinsic Caps", "外質電容"))
+            _render_spec_inputs(int_specs, prefix + "_int",
+                                i18n.tr("Intrinsic", "本質參數"))
 
     p = {**_collect_specs(PAD_SPECS, prefix + "_pad"),
          **_collect_specs(ext_specs, prefix + "_ext"),
@@ -1199,19 +1331,23 @@ else:
         with np.errstate(divide="ignore", invalid="ignore"):
             S_sim = model_cls.simulate(p, freq)
     except Exception as e:
-        st.error(f"Simulation failed: {e}")
+        st.error(i18n.tr(f"Simulation failed: {e}", f"模擬失敗：{e}"))
         S_sim = np.full((len(freq), 2, 2), np.nan + 0j)
 
     if not np.all(np.isfinite(S_sim)):
-        st.warning("Simulated S-parameters contain non-finite values "
-                   "(some intrinsic parameters are zero or singular). "
-                   "Adjust inputs above to see a meaningful trace.")
+        st.warning(i18n.tr(
+            "Simulated S-parameters contain non-finite values "
+            "(some intrinsic parameters are zero or singular). "
+            "Adjust inputs above to see a meaningful trace.",
+            "模擬出的 S 參數含有非有限值（部分本質參數為 0 或矩陣奇異）。"
+            "請調整上方輸入值以得到有意義的曲線。"))
 
     mults = _smith_multiplier_inputs(prefix)
 
     col_smith, col_bode = st.columns(2)
     with col_smith:
-        st.markdown(f"**Smith Chart — {model_cls.NAME}**")
+        st.markdown(i18n.tr(f"**Smith Chart — {model_cls.NAME}**",
+                            f"**Smith 圖 — {model_cls.NAME}**"))
         _smith_chart_with_dl(
             _build_smith(S_sim, freq, mults, model_cls.NAME),
             key=f"rfsim_smith_{prefix}",
@@ -1223,7 +1359,8 @@ else:
             s2p_filename=f"rf_sim_{prefix}.s2p",
         )
     with col_bode:
-        st.markdown(f"**fT / fmax — {model_cls.NAME}**")
+        st.markdown(i18n.tr(f"**fT / fmax — {model_cls.NAME}**",
+                            f"**fT / fmax — {model_cls.NAME}**"))
         _render_bode_block(S_sim, freq, model_cls.NAME,
                            key=f"rfsim_bode_{prefix}")
 
@@ -1265,7 +1402,8 @@ else:
         _smith_png = None
 
     with st.container(key="hbt_exp_view_topo_rfsim"), \
-         st.expander("🖼️ Topology Illustration", expanded=False):
+         st.expander(i18n.tr("🖼️ Topology Illustration", "🖼️ 拓樸示意圖"),
+                     expanded=False):
         try:
             if model_cls is XuModel:
                 _render_xu_illustration(p, f"rfsim_{prefix}", smith_png=_smith_png)
@@ -1275,10 +1413,12 @@ else:
                 _render_topology_illustration(p, topo_char,
                                                f"rfsim_{prefix}", smith_png=_smith_png)
         except Exception as e:
-            st.warning(f"Topology illustration unavailable: {e}")
+            st.warning(i18n.tr(f"Topology illustration unavailable: {e}",
+                               f"無法顯示拓樸示意圖：{e}"))
 
     with st.container(key="hbt_exp_view_mplsmith_rfsim"), \
-         st.expander("🍩 Smith Chart (Matplotlib)", expanded=False):
+         st.expander(i18n.tr("🍩 Smith Chart (Matplotlib)",
+                             "🍩 Smith 圖 (Matplotlib)"), expanded=False):
         # Controls on the right column, chart on the left — same
         # split-call pattern the SSM tab uses inside its expander.
         col_mpl_left, col_mpl_right = st.columns([1.2, 1])
@@ -1300,6 +1440,7 @@ else:
             )
 
     with st.container(key="hbt_exp_tune_rfsim_" + prefix), \
-         st.expander("🔧 Tuning — Interactive slider preview", expanded=False):
+         st.expander(i18n.tr("🔧 Tuning — Interactive slider preview",
+                             "🔧 調諧 — 互動式滑桿預覽"), expanded=False):
         _render_slider_preview(model_cls, p, freq, mults, prefix,
                                 _pad_specs_for_model, ext_specs, int_specs)

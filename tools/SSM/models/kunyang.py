@@ -45,6 +45,7 @@ from .base_ui        import (sync_pad_from_preov, PAD_SPECS, SSMModelTemplate,
                              render_finetune_diagram)
 from ._shared        import _b1, _detect_B, _stack22, has_inter, _load_font
 from . import AbstractSSMModel
+from ...i18n import tr
 
 
 _ILLUS_DIR = _Path(__file__).parent / "illus_template"
@@ -159,12 +160,14 @@ def _render_topology_illustration(all_p: dict, fname: str,
     try:
         from PIL import Image, ImageDraw
     except ImportError:
-        st.info("Install *pillow* to see the topology illustration.")
+        st.info(tr("Install *pillow* to see the topology illustration.",
+                   "請安裝 *pillow* 套件以顯示拓樸示意圖。"))
         return
 
     tpl_path = _ILLUS_DIR / "KYHEMT_full.png"
     if not tpl_path.exists():
-        st.warning(f"Template not found: {tpl_path}")
+        st.warning(tr(f"Template not found: {tpl_path}",
+                      f"找不到範本檔案：{tpl_path}"))
         return
 
     # Category colour sets (dark, readable on white)
@@ -616,9 +619,11 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_KY_SPECS
         st.session_state[_sync_hash_key] = _sync_hash
 
     with st.container(key=f"hbt_exp_edit_{tK}"), \
-         st.expander(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters", expanded=False):
+         st.expander(tr(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters",
+                        f"✏️ 微調 {label} 內部/外部參數"), expanded=False):
         rc1, rc2, rc3 = st.columns(3)
-        if rc1.button(f"↩️ Reset {label} to default values",
+        if rc1.button(tr(f"↩️ Reset {label} to default values",
+                         f"↩️ 將 {label} 重設為預設值"),
                      key=f"rst_sim_{tK}_{fname}", width="stretch"):
             for key, _, scale, *_ in all_specs:
                 st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
@@ -627,28 +632,37 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_KY_SPECS
         if (cache_ctx or {}).get("has_cache"):
             _ts = (cache_ctx or {}).get("ts")
             if rc2.container(key=f"hbt_amber_usecache_{tK}").button(
-                    "📌 Use cache", key=f"use_cache_{tK}_{fname}", width="stretch",
-                    help=f"Load the fit saved {_ts} for this device+model into "
-                         "these fields. Pad fields keep following the "
-                         "pre-extraction override."):
+                    tr("📌 Use cache", "📌 使用快取"),
+                    key=f"use_cache_{tK}_{fname}", width="stretch",
+                    help=tr(f"Load the fit saved {_ts} for this device+model into "
+                            "these fields. Pad fields keep following the "
+                            "pre-extraction override.",
+                            f"將此元件＋模型於 {_ts} 儲存的擬合結果載入這些欄位。"
+                            "Pad 欄位仍會依循萃取前的覆寫值。")):
                 st.session_state[cache_ctx["req_key"]] = True
                 st.rerun()
 
-        if rc3.button("0️⃣ Reset all to 0", key=f"zero_sim_{tK}_{fname}",
+        if rc3.button(tr("0️⃣ Reset all to 0", "0️⃣ 全部重設為 0"),
+                     key=f"zero_sim_{tK}_{fname}",
                      width="stretch",
-                     help="Set every field in this expander to 0. The saved "
-                          "cache is untouched — recover with Use cache."):
+                     help=tr("Set every field in this expander to 0. The saved "
+                             "cache is untouched — recover with Use cache.",
+                             "將此展開區內所有欄位重設為 0。已儲存的快取不受影響 — "
+                             "可用「使用快取」復原。")):
             for key, *_ in all_specs:
                 st.session_state[f"sim_{tK}_{key}_{fname}"] = 0.0
             st.rerun()
 
+        _mode_opts = [tr("List", "清單"), tr("Diagram", "示意圖")]
         _mode = segmented_radio(
-            "Editor mode", ["List", "Diagram"],
+            tr("Editor mode", "編輯模式"), _mode_opts,
             key=f"sim_mode_{tK}_{fname}",
-            help="List: grouped number inputs.  Diagram: set values on the "
-                 "model schematic — the component you edit is highlighted.")
+            help=tr("List: grouped number inputs.  Diagram: set values on the "
+                    "model schematic — the component you edit is highlighted.",
+                    "清單：以分組數字輸入框編輯。示意圖：直接在模型示意圖上設定"
+                    "數值 — 目前編輯的元件會以紅框標示。"))
 
-        if _mode == "Diagram":
+        if _mode == _mode_opts[1]:
             render_finetune_diagram(
                 all_specs=all_specs, calc_vals=calc_vals,
                 state_key_for=lambda k: f"sim_{tK}_{k}_{fname}",
@@ -658,7 +672,8 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_KY_SPECS
         else:
             # Substrate / custom-pad network FIRST — these caps ARE the pads
             # for the Kun-Yang HEMT (no separate Cpg / Cpd / Cpgd layer).
-            st.markdown("**Kun-Yang Custom Pad / Substrate Network**")
+            st.markdown(tr("**Kun-Yang Custom Pad / Substrate Network**",
+                           "**Kun-Yang 自訂 Pad / 基板網路**"))
             for row_start in range(0, len(ext_specs), 3):
                 row = ext_specs[row_start:row_start + 3]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
@@ -666,15 +681,16 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_KY_SPECS
                                        format=fmt, step=step)
 
             # Series-lead + access-resistance row — auto-synced from Step 1.
-            st.markdown("**Access Resistance & Lead Inductance** "
-                        "*(auto-synced from pre-extraction override)*")
+            st.markdown(tr("**Access Resistance & Lead Inductance** "
+                           "*(auto-synced from pre-extraction override)*",
+                           "**存取電阻與引線電感** *(自動同步萃取前覆寫值)*"))
             for row_start in range(0, len(_KY_PAD_SPECS), 3):
                 row = _KY_PAD_SPECS[row_start:row_start + 3]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
                     col_w.number_input(f"{lbl} ({unit})" if unit else lbl,
                                        key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
 
-            st.markdown("**Intrinsic π-Model**")
+            st.markdown(tr("**Intrinsic π-Model**", "**內部 π 模型**"))
             for row_start in range(0, len(int_specs), 4):
                 row = int_specs[row_start:row_start + 4]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
@@ -795,9 +811,10 @@ class KunYangHEMT(SSMModelTemplate, AbstractSSMModel):
 
     @classmethod
     def render_step_formulas(cls):
-        with st.expander("📐 Kun-Yang HEMT formulas — forward simulation (no extraction)",
+        with st.expander(tr("📐 Kun-Yang HEMT formulas — forward simulation (no extraction)",
+                            "📐 Kun-Yang HEMT 公式 — 正向模擬（不含萃取）"),
                          expanded=False):
-            st.markdown("**1) Intrinsic π-model**")
+            st.markdown(tr("**1) Intrinsic π-model**", "**1) 內部 π 模型**"))
             st.latex(r"Y_{gs}=\frac{j\omega C_{gs}}{1+j\omega R_i C_{gs}},\quad "
                      r"Y_{gd}=\frac{j\omega C_{gd}}{1+j\omega R_{gd} C_{gd}}")
             st.latex(r"Y_{ds}=\frac{1}{R_{ds}}+j\omega C_{ds},\quad "
@@ -805,25 +822,29 @@ class KunYangHEMT(SSMModelTemplate, AbstractSSMModel):
             st.latex(r"[Y_{in}]=\begin{bmatrix}Y_{gs}+Y_{gd} & -Y_{gd}\\"
                      r"g_m-Y_{gd} & Y_{ds}+Y_{gd}\end{bmatrix}")
 
-            st.markdown("**2) Source-side delay network** "
-                        "*(in series with Rs+jωLs)*")
+            st.markdown(tr("**2) Source-side delay network** "
+                           "*(in series with Rs+jωLs)*",
+                           "**2) 源極延遲網路** *(與 Rs+jωLs 串聯)*"))
             st.latex(r"Z_{delay}=R_{delay}\;\|\;\tfrac{1}{j\omega C_{delay}}"
                      r"=\frac{R_{delay}}{1+j\omega R_{delay} C_{delay}}")
             st.latex(r"Z_{src}=R_s+j\omega L_s+Z_{delay}")
 
-            st.markdown("**3) Series-lead Z (gate / drain / source)**")
+            st.markdown(tr("**3) Series-lead Z (gate / drain / source)**",
+                           "**3) 串聯引線阻抗 Z（閘極／汲極／源極）**"))
             st.latex(r"[Z_{ser}]=\begin{bmatrix}R_g+j\omega L_g+Z_{src} & Z_{src}\\"
                      r"Z_{src} & R_d+j\omega L_d+Z_{src}\end{bmatrix}")
             st.latex(r"[Y_{DUT}]=([Y_{in}]^{-1}+[Z_{ser}])^{-1}")
 
-            st.markdown("**4) Kun-Yang custom pad / substrate**")
+            st.markdown(tr("**4) Kun-Yang custom pad / substrate**",
+                           "**4) Kun-Yang 自訂 Pad / 基板**"))
             st.latex(r"Y_{gsp}=\frac{j\omega C_{gsp}}{1+j\omega R_{sub1} C_{gsp}},\quad "
                      r"Y_{dsp}=\frac{j\omega C_{dsp}}{1+j\omega R_{sub2} C_{dsp}},\quad "
                      r"Y_{gdp}=j\omega C_{gdp}")
             st.latex(r"[Y_{KYpad}]=\begin{bmatrix}Y_{gsp}+Y_{gdp} & -Y_{gdp}\\"
                      r"-Y_{gdp} & Y_{dsp}+Y_{gdp}\end{bmatrix}")
 
-            st.markdown("**5) Final Y → S** *(no standard open-dummy pad)*")
+            st.markdown(tr("**5) Final Y → S** *(no standard open-dummy pad)*",
+                           "**5) 最終 Y → S** *(不含標準開路 dummy pad)*"))
             st.latex(r"[Y_{tot}]=[Y_{DUT}]+[Y_{KYpad}]")
             st.latex(r"S=(I-Z_0[Y_{tot}])(I+Z_0[Y_{tot}])^{-1}")
 
@@ -853,29 +874,35 @@ class KunYangHEMT(SSMModelTemplate, AbstractSSMModel):
 
     @classmethod
     def _render_results_trace(cls):
-        with st.expander("📐 Full formula trace — Kun-Yang HEMT", expanded=False):
-            st.markdown("**Inside → out:** intrinsic π → source-delay → Z_ser → KY-pad → S")
-            st.markdown("**Intrinsic π-model**")
+        with st.expander(tr("📐 Full formula trace — Kun-Yang HEMT",
+                            "📐 完整公式推導 — Kun-Yang HEMT"), expanded=False):
+            st.markdown(tr("**Inside → out:** intrinsic π → source-delay → Z_ser → KY-pad → S",
+                           "**由內而外：** 內部 π → 源極延遲 → Z_ser → KY-pad → S"))
+            st.markdown(tr("**Intrinsic π-model**", "**內部 π 模型**"))
             st.latex(r"Y_{gs}=\frac{j\omega C_{gs}}{1+j\omega R_i C_{gs}}")
             st.latex(r"Y_{gd}=\frac{j\omega C_{gd}}{1+j\omega R_{gd} C_{gd}}")
             st.latex(r"Y_{ds}=\tfrac{1}{R_{ds}}+j\omega C_{ds}")
             st.latex(r"g_m=G_{m0}\,e^{-j\omega\tau}")
             st.latex(r"[Y_{in}]=\begin{bmatrix}Y_{gs}+Y_{gd}&-Y_{gd}\\"
                      r"g_m-Y_{gd}&Y_{ds}+Y_{gd}\end{bmatrix}")
-            st.markdown("**Source-side delay network** (parallel R∥C in series with Rs+jωLs)")
+            st.markdown(tr("**Source-side delay network** (parallel R∥C in series with Rs+jωLs)",
+                           "**源極延遲網路**（R∥C 並聯，與 Rs+jωLs 串聯）"))
             st.latex(r"Z_{delay}=\frac{R_{delay}}{1+j\omega R_{delay} C_{delay}},\;"
                      r"Z_{src}=R_s+j\omega L_s+Z_{delay}")
-            st.markdown("**Series-lead wrap** (gate ≡ Lb/Rpb, drain ≡ Lc/Rpc, source ≡ Le/Rpe)")
+            st.markdown(tr("**Series-lead wrap** (gate ≡ Lb/Rpb, drain ≡ Lc/Rpc, source ≡ Le/Rpe)",
+                           "**串聯引線包覆**（閘極 ≡ Lb/Rpb，汲極 ≡ Lc/Rpc，源極 ≡ Le/Rpe）"))
             st.latex(r"[Z_{ser}]=\begin{bmatrix}R_g+j\omega L_g+Z_{src}&Z_{src}\\"
                      r"Z_{src}&R_d+j\omega L_d+Z_{src}\end{bmatrix}")
             st.latex(r"[Y_{DUT}]=([Y_{in}]^{-1}+[Z_{ser}])^{-1}")
-            st.markdown("**Kun-Yang custom pad / substrate** (parallel)")
+            st.markdown(tr("**Kun-Yang custom pad / substrate** (parallel)",
+                           "**Kun-Yang 自訂 Pad / 基板**（並聯）"))
             st.latex(r"Y_{gsp}=\frac{j\omega C_{gsp}}{1+j\omega R_{sub1} C_{gsp}},\;"
                      r"Y_{dsp}=\frac{j\omega C_{dsp}}{1+j\omega R_{sub2} C_{dsp}},\;"
                      r"Y_{gdp}=j\omega C_{gdp}")
             st.latex(r"[Y_{KYpad}]=\begin{bmatrix}Y_{gsp}+Y_{gdp}&-Y_{gdp}\\"
                      r"-Y_{gdp}&Y_{dsp}+Y_{gdp}\end{bmatrix}")
-            st.markdown("**Final Y → S** *(no standard open-dummy pad layer)*")
+            st.markdown(tr("**Final Y → S** *(no standard open-dummy pad layer)*",
+                           "**最終 Y → S** *(不含標準開路 dummy pad 層)*"))
             st.latex(r"[Y_{tot}]=[Y_{DUT}]+[Y_{KYpad}]")
             st.latex(r"S=(I-Z_0[Y_{tot}])(I+Z_0[Y_{tot}])^{-1}")
 

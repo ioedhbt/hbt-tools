@@ -28,6 +28,7 @@ from ._shared          import (_b1, _detect_B, _stack22,
                                 _try_download_inter, has_inter, _load_font,
                                 _FONT_CACHE_DIR)
 from . import AbstractSSMModel
+from ...i18n import tr
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -753,7 +754,8 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str,
     try:
         from PIL import Image, ImageDraw
     except ImportError:
-        st.info("Install *pillow* to see the topology illustration.")
+        st.info(tr("Install *pillow* to see the topology illustration.",
+                   "請安裝 *pillow* 套件以顯示拓樸示意圖。"))
         return
 
     _PARASITIC_KEYS = ("Cpce", "Cpbe", "Cpbc", "Lb", "Le", "Lc")
@@ -771,7 +773,8 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str,
         tpl_name = "ChengT_template.png" if topology == "T" else "ChengPi_template.png"
     tpl_path = _ILLUS_DIR / tpl_name
     if not tpl_path.exists():
-        st.warning(f"Template not found: {tpl_path}")
+        st.warning(tr(f"Template not found: {tpl_path}",
+                      f"找不到範本檔案：{tpl_path}"))
         return
 
     overlay = _T_OVERLAY if topology == "T" else _PI_OVERLAY
@@ -843,7 +846,8 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str,
         c_topo, c_smith = st.columns(2)
         with c_topo:
             buf = io.BytesIO(); img.save(buf, format="PNG")
-            st.image(buf.getvalue(), width="stretch", caption="Topology")
+            st.image(buf.getvalue(), width="stretch",
+                     caption=tr("Topology", "拓樸圖"))
         with c_smith:
             try:
                 # Pi schematics lack empty space → pad white first, then overlay
@@ -857,9 +861,10 @@ def _render_topology_illustration(all_p: dict, topology: str, fname: str,
                     img2 = composite_smith_overlay(img, smith_png)
                 buf2 = io.BytesIO(); img2.save(buf2, format="PNG")
                 st.image(buf2.getvalue(), width="stretch",
-                         caption="Topology + Smith")
+                         caption=tr("Topology + Smith", "拓樸圖 + Smith 圖"))
             except Exception as e:                       # noqa: BLE001
-                st.warning(f"Smith overlay unavailable: {e}")
+                st.warning(tr(f"Smith overlay unavailable: {e}",
+                              f"無法疊加 Smith 圖：{e}"))
     else:
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -887,9 +892,11 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS,
         st.session_state[_sync_hash_key] = _sync_hash
 
     with st.container(key=f"hbt_exp_edit_{tK}"), \
-         st.expander(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters", expanded=False):
+         st.expander(tr(f"✏️ Fine-tune {label} intrinsic/extrinsic parameters",
+                        f"✏️ 微調 {label} 內部/外部參數"), expanded=False):
         rc1, rc2, rc3 = st.columns(3)
-        if rc1.button(f"↩️ Reset {label} to interactive section values",
+        if rc1.button(tr(f"↩️ Reset {label} to interactive section values",
+                         f"↩️ 將 {label} 重設為互動區段數值"),
                      key=f"rst_sim_{tK}_{fname}", width="stretch"):
             for key, _, scale, *_ in all_specs:
                 st.session_state[f"sim_{tK}_{key}_{fname}"] = float(calc_vals.get(key, 0.0)) * scale
@@ -898,28 +905,37 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS,
         if (cache_ctx or {}).get("has_cache"):
             _ts = (cache_ctx or {}).get("ts")
             if rc2.container(key=f"hbt_amber_usecache_{tK}").button(
-                    "📌 Use cache", key=f"use_cache_{tK}_{fname}", width="stretch",
-                    help=f"Load the fit saved {_ts} for this device+model into "
-                         "these fields. Pad fields keep following the "
-                         "pre-extraction override."):
+                    tr("📌 Use cache", "📌 使用快取"),
+                    key=f"use_cache_{tK}_{fname}", width="stretch",
+                    help=tr(f"Load the fit saved {_ts} for this device+model into "
+                            "these fields. Pad fields keep following the "
+                            "pre-extraction override.",
+                            f"將此元件＋模型於 {_ts} 儲存的擬合結果載入這些欄位。"
+                            "Pad 欄位仍會依循萃取前的覆寫值。")):
                 st.session_state[cache_ctx["req_key"]] = True
                 st.rerun()
 
-        if rc3.button("0️⃣ Reset all to 0", key=f"zero_sim_{tK}_{fname}",
+        if rc3.button(tr("0️⃣ Reset all to 0", "0️⃣ 全部重設為 0"),
+                     key=f"zero_sim_{tK}_{fname}",
                      width="stretch",
-                     help="Set every field in this expander to 0. The saved "
-                          "cache is untouched — recover with Use cache."):
+                     help=tr("Set every field in this expander to 0. The saved "
+                             "cache is untouched — recover with Use cache.",
+                             "將此展開區內所有欄位重設為 0。已儲存的快取不受影響 — "
+                             "可用「使用快取」復原。")):
             for key, *_ in all_specs:
                 st.session_state[f"sim_{tK}_{key}_{fname}"] = 0.0
             st.rerun()
 
+        _mode_opts = [tr("List", "清單"), tr("Diagram", "示意圖")]
         _mode = segmented_radio(
-            "Editor mode", ["List", "Diagram"],
+            tr("Editor mode", "編輯模式"), _mode_opts,
             key=f"sim_mode_{tK}_{fname}",
-            help="List: grouped number inputs.  Diagram: set values on the "
-                 "model schematic — the component you edit is highlighted.")
+            help=tr("List: grouped number inputs.  Diagram: set values on the "
+                    "model schematic — the component you edit is highlighted.",
+                    "清單：以分組數字輸入框編輯。示意圖：直接在模型示意圖上設定"
+                    "數值 — 目前編輯的元件會以紅框標示。"))
 
-        if _mode == "Diagram":
+        if _mode == _mode_opts[1]:
             render_finetune_diagram(
                 all_specs=all_specs, calc_vals=calc_vals,
                 state_key_for=lambda k: f"sim_{tK}_{k}_{fname}",
@@ -927,18 +943,19 @@ def _override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS,
                 render_illustration=lambda p, hl: _render_topology_illustration(
                     p, tK, fname, highlight_key=hl))
         else:
-            st.markdown("**Pad Parasitics** *(auto-synced from pre-extraction override)*")
+            st.markdown(tr("**Pad Parasitics** *(auto-synced from pre-extraction override)*",
+                           "**Pad 寄生參數** *(自動同步萃取前覆寫值)*"))
             for row_start in range(0, len(PAD_SPECS), 3):
                 row = PAD_SPECS[row_start:row_start+3]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
                     col_w.number_input(f"{lbl} ({unit})" if unit else lbl,
                                        key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
 
-            st.markdown("**Extrinsic Caps**")
+            st.markdown(tr("**Extrinsic Caps**", "**外部電容**"))
             for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(ext_specs)), ext_specs):
                 col_w.number_input(f"{lbl} ({unit})", key=f"sim_{tK}_{key}_{fname}", format=fmt, step=step)
 
-            st.markdown("**Intrinsic**")
+            st.markdown(tr("**Intrinsic**", "**內部參數**"))
             for row_start in range(0, len(int_specs), 4):
                 row = int_specs[row_start:row_start+4]
                 for col_w, (key, lbl, sc, unit, fmt, step) in zip(st.columns(len(row)), row):
@@ -1213,20 +1230,23 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
 
     @classmethod
     def _render_results_trace(cls):
-        with st.expander("📐 Full formula trace — T-topology (Cheng 2022)", expanded=False):
-            st.markdown("**Dependency chain:** Y_ex1 → peel Cbex → Y_ex2 → peel Cbcx → Z_in → intrinsic")
-            st.markdown("**Step 2** *(input: Y_ex1)*")
+        with st.expander(tr("📐 Full formula trace — T-topology (Cheng 2022)",
+                            "📐 完整公式推導 — T 拓樸（Cheng 2022）"), expanded=False):
+            st.markdown(tr("**Dependency chain:** Y_ex1 → peel Cbex → Y_ex2 → peel Cbcx → Z_in → intrinsic",
+                           "**相依鏈：** Y_ex1 → 剝離 Cbex → Y_ex2 → 剝離 Cbcx → Z_in → 內部參數"))
+            st.markdown(tr("**Step 2** *(input: Y_ex1)*", "**步驟 2** *(輸入：Y_ex1)*"))
             st.latex(r"[Eq.13]\;C_{bex}^T=\frac{\mathrm{Im}(Y_{11}+Y_{12})}{\omega}\big|_{\omega\to0}")
             st.latex(r"[Eq.22]\;C_{bcx}=-\frac{\mathrm{Im}(Y_{ms})\mathrm{Re}(Y_L)"
                      r"-\mathrm{Re}(Y_{ms})\mathrm{Im}(Y_L)}{\omega"
                      r"[\mathrm{Re}(Y_{ms})\mathrm{Re}(Y_{tot})+\mathrm{Im}(Y_{tot})\mathrm{Im}(Y_{ms})]}")
-            st.markdown("**Step 3** *(input: Y_ex2, Cbcx)*")
+            st.markdown(tr("**Step 3** *(input: Y_ex2, Cbcx)*", "**步驟 3** *(輸入：Y_ex2, Cbcx)*"))
             st.latex(r"[Eq.16]\;Z_{be}=Z_{12},\;Z_{bc}=Z_{22}-Z_{21},\;Z_{bi}=Z_{11}-Z_{12}")
             st.latex(r"[Eq.29]\;\alpha=\frac{Z_{12}-Z_{21}}{Z_{22}-Z_{21}},\;"
                      r"\alpha_0=|\alpha||_{\omega\to0}")
             st.latex(r"[Eq.30]\;\tau_B=\frac{\sqrt{U-1}}{\omega}")
             st.latex(r"[Eq.31]\;\tau_C=-\frac{\arctan[V(1-V^2)^{-1/2}]}{2\omega}")
-            st.markdown("**Forward simulation** *(inside → outside)*")
+            st.markdown(tr("**Forward simulation** *(inside → outside)*",
+                           "**正向模擬** *(由內而外)*"))
             st.latex(r"Z_{be}^{sim}=\frac{R_{be}}{1+j\omega R_{be}C_{be}},\;"
                      r"\alpha=\alpha_0 e^{-j\omega\tau_C}/(1+j\omega\tau_B)")
             st.latex(r"[Z_{in}^{sim}]=\begin{bmatrix}R_{bi}+Z_{be}&Z_{be}\\"

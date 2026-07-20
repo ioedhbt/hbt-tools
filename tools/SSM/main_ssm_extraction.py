@@ -21,6 +21,7 @@ import pandas as pd
 import streamlit as st
 
 # ── Internal modules ──────────────────────────────────────────────────────────
+from ..i18n             import tr
 from .helpers          import (strict_freq_check, s_to_y,
                                 step_open, step_short, peel_parasitics,
                                 parse_s2p_bytes, interpolate_s2f,
@@ -80,20 +81,28 @@ def render_builtin_forward_sim(short, S_raw, freq, z0, fname,
     from .models.base_ui import PAD_SPECS
     ModelClass = REGISTRY[short]
     if show_header:
+        _fwd_help = tr(
+            "Starting values are guessed from this device (no Open/Short "
+            "de-embedding). Edit any parameter, read the residual, and use "
+            "the Auto-tuning expander (same grid sweep as the built-in "
+            "models) to fit this DUT.",
+            "起始值由此元件猜測（無 Open/Short 去嵌入）。可編輯任一參數、"
+            "觀察殘差，並使用自動調諧展開區塊（與內建模型相同的網格掃描）"
+            "來擬合此 DUT。")
         st.markdown(
-            f"### 🧩 {ModelClass.NAME} — forward simulation"
-            " <span class='hbt-help' title='Starting values are guessed from this"
-            " device (no Open/Short de-embedding). Edit any parameter, read the"
-            " residual, and use the Auto-tuning expander (same grid sweep as the"
-            " built-in models) to fit this DUT.'>?</span>",
+            f"### 🧩 {ModelClass.NAME} — {tr('forward simulation', '正向模擬')}"
+            f" <span class='hbt-help' title=\"{_fwd_help}\">?</span>",
             unsafe_allow_html=True)
     para_eff = {k: 0.0 for k, *_ in PAD_SPECS}     # no pad parasitics
     try:
         Y_seed = peel_parasitics(S_raw, freq, z0, para_eff)
         params, arrays = ModelClass.extract(Y_seed, freq, 10)
     except Exception as exc:                                  # noqa: BLE001
-        st.warning(f"Could not auto-seed from the device ({exc}); "
-                   "starting from zeros — set the values manually below.")
+        st.warning(tr(
+            f"Could not auto-seed from the device ({exc}); "
+            "starting from zeros — set the values manually below.",
+            f"無法從元件自動取樣種子值（{exc}）；"
+            "改由零值開始 — 請於下方手動設定數值。"))
         params, arrays = {}, {}
     ModelClass.render_override_and_smith(
         fname, S_raw, freq, z0, para_eff, (params, arrays),
@@ -112,12 +121,15 @@ def _extract_ui(fname, key, freq, default_frac_lo=0.0, default_frac_hi=0.2):
     hi_idx = min(int(N * default_frac_hi), N - 1)
     c1, c2, c3 = st.columns([3, 1, 1])
     f_range = c1.slider(
-        "Freq range (GHz)", float(f_ghz[0]), float(f_ghz[-1]),
+        tr("Freq range (GHz)", "頻率範圍 (GHz)"), float(f_ghz[0]), float(f_ghz[-1]),
         (float(f_ghz[lo_idx]), float(f_ghz[hi_idx])),
         format="%.2f", key=f"frange_{key}_{fname}")
-    method = c2.radio("Method", ["Median", "Trimmed mean"],
-                      key=f"method_{key}_{fname}", horizontal=False)
-    trim_pct = int(c3.number_input("Trim %", 0, 49, 20,
+    _method_opts = ["Median", "Trimmed mean"]
+    method = c2.radio(tr("Method", "方法"), _method_opts,
+                      key=f"method_{key}_{fname}", horizontal=False,
+                      format_func=lambda m: tr(m, {"Median": "中位數",
+                                                    "Trimmed mean": "截尾平均"}[m]))
+    trim_pct = int(c3.number_input(tr("Trim %", "截尾百分比 %"), 0, 49, 20,
                                     key=f"trim_{key}_{fname}")) \
                if method == "Trimmed mean" else 20
     n0 = max(0, int(np.searchsorted(f_ghz, f_range[0])))
@@ -142,27 +154,30 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     has_open  = open_data  is not None
     has_short = short_data is not None
     if not has_open or not has_short:
-        st.info("ℹ️ No Open/Short dummy files — pad parasitics defaulted to zero.")
+        st.info(tr("ℹ️ No Open/Short dummy files — pad parasitics defaulted to zero.",
+                   "ℹ️ 無 Open/Short dummy 檔案 — 焊墊寄生參數預設為零。"))
     if has_open:
         try:
             strict_freq_check(freq, open_data[0], "Device Open")
         except ValueError as e:
-            st.error(f"Frequency grid mismatch: {e}"); return
+            st.error(tr(f"Frequency grid mismatch: {e}", f"頻率網格不一致：{e}")); return
     if has_short:
         try:
             strict_freq_check(freq, short_data[0], "Device Short")
         except ValueError as e:
-            st.error(f"Frequency grid mismatch: {e}"); return
+            st.error(tr(f"Frequency grid mismatch: {e}", f"頻率網格不一致：{e}")); return
 
 
     # ── Decimation ────────────────────────────────────────────────────────────
     original_points = len(freq)
     freq_original   = freq.copy()
     with st.container(border=True):
-        st.caption("⚙️ Data Decimation")
+        st.caption(tr("⚙️ Data Decimation", "⚙️ 資料降採樣"))
         col_info, col_dec = st.columns([2, 1])
-        col_info.markdown(f"**Total data points:** {original_points}")
-        decimate_factor = col_dec.selectbox("Decimate by:", [1,2,4,8,16,32],
+        col_info.markdown(tr(f"**Total data points:** {original_points}",
+                             f"**總資料點數：** {original_points}"))
+        decimate_factor = col_dec.selectbox(tr("Decimate by:", "降採樣倍率："),
+                                             [1,2,4,8,16,32],
                                              index=0, key=f"decimate_{fname}")
         if decimate_factor > 1:
             freq       = freq[::decimate_factor]
@@ -173,11 +188,14 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             if short_data is not None:
                 f_s, S_s, z0_s = short_data
                 short_data = (f_s[::decimate_factor], S_s[::decimate_factor], z0_s)
-            st.success(f"✓ Using {len(freq)} points (every {decimate_factor}th from {original_points})")
+            st.success(tr(
+                f"✓ Using {len(freq)} points (every {decimate_factor}th from {original_points})",
+                f"✓ 使用 {len(freq)} 點（每 {decimate_factor} 點取樣一次，共 {original_points} 點）"))
 
     st.divider()
-    st.markdown("## 🔬 Small-Signal Model (SSM) Parameter Extraction")
-    with st.expander("🖼️ Illustration", expanded=False):
+    st.markdown(tr("## 🔬 Small-Signal Model (SSM) Parameter Extraction",
+                   "## 🔬 小訊號模型（SSM）參數萃取"))
+    with st.expander(tr("🖼️ Illustration", "🖼️ 示意圖"), expanded=False):
         st.image(image="tools/SSM/de_embedding_illus.png")
 
     # Default low-freq fit width for Step 2/3 extractions.  Used to be a
@@ -194,16 +212,18 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         "<div style='background:linear-gradient(90deg,#3d52a022 0%,transparent 100%);"
         "border-left:5px solid #3d52a0;padding:10px 16px;border-radius:0 8px 8px 0;"
         "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
-        "1 — Pad Capacitance &amp; Series Inductance</span></div>",
+        f"{tr('1 — Pad Capacitance &amp; Series Inductance', '1 — 焊墊電容與串聯電感')}</span></div>",
         unsafe_allow_html=True)
 
-    with st.expander("📌 Open & Short Dummy De-embedding", expanded=False):
+    with st.expander(tr("📌 Open & Short Dummy De-embedding", "📌 Open/Short Dummy 去嵌入"),
+                     expanded=False):
         # ── Step 1a — Open dummy ──────────────────────────────────────────────
         st.markdown(
             "<div style='background:linear-gradient(90deg,#eef0f8 0%,transparent 100%);"
             "border-left:4px solid #3d52a0;padding:8px 14px;border-radius:0 6px 6px 0;"
-            "margin-bottom:2px'><strong>📌 Open Dummy: Pad Capacitances</strong>"
-            f"{info_icon_html('Gao [3] §4.2. Used to extract pad parasitic capacitances from open dummy. Bias-independent.')}"
+            "margin-bottom:2px'><strong>"
+            f"{tr('📌 Open Dummy: Pad Capacitances', '📌 Open Dummy：焊墊電容')}</strong>"
+            f"{info_icon_html(tr('Gao [3] §4.2. Used to extract pad parasitic capacitances from open dummy. Bias-independent.', 'Gao [3] §4.2。用於從 open dummy 萃取焊墊寄生電容，與偏壓無關。'))}"
             "</div>",
             unsafe_allow_html=True)
         # Formulas — shown here, implementation is in ssm_deembedding.step_open
@@ -222,17 +242,17 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                 open_data, open_n0, open_n1, open_method, open_trim)
             st.dataframe(pd.DataFrame([
                 {"Parameter": k, "Value": f"{para_open_calc[k]*1e15:.4f}", "Unit": "fF", "Description": d}
-                for k, d in [("Cpbe","Pad B-E shunt cap"),
-                             ("Cpce","Pad C-E shunt cap"),
-                             ("Cpbc","Pad B-C shunt cap")]
+                for k, d in [("Cpbe", tr("Pad B-E shunt cap", "焊墊 B-E 並聯電容")),
+                             ("Cpce", tr("Pad C-E shunt cap", "焊墊 C-E 並聯電容")),
+                             ("Cpbc", tr("Pad B-C shunt cap", "焊墊 B-C 並聯電容"))]
             ]), width="stretch", hide_index=True)
 
             _OPEN_OV = [("Cpbe",1e15),("Cpce",1e15),("Cpbc",1e15)]
             for dk, sc in _OPEN_OV:
                 sk = f"ov_{dk}_{fname}"
                 if sk not in st.session_state: st.session_state[sk] = para_open_calc[dk]*sc
-            with st.expander("✏️ Override Open Capacitances", expanded=False):
-                if st.button("↩️ Reset Caps", key=f"rst_caps_{fname}"):
+            with st.expander(tr("✏️ Override Open Capacitances", "✏️ 覆寫 Open 電容值"), expanded=False):
+                if st.button(tr("↩️ Reset Caps", "↩️ 重設電容"), key=f"rst_caps_{fname}"):
                     for dk, sc in _OPEN_OV: st.session_state[f"ov_{dk}_{fname}"] = para_open_calc[dk]*sc
                     st.rerun()
                 for col_w, (dk, sc) in zip(st.columns(3), _OPEN_OV):
@@ -273,9 +293,11 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                 file_name=f"model_open_{Path(fname).stem}.s2p",
                 mime="text/plain",
                 key=f"dl_open_s1_{fname}", width="stretch")
-            st.caption("Forward-simulated Open dummy from extracted/overridden Cpbe/Cpce/Cpbc.")
+            st.caption(tr("Forward-simulated Open dummy from extracted/overridden Cpbe/Cpce/Cpbc.",
+                         "由萃取／覆寫的 Cpbe/Cpce/Cpbc 正向模擬 Open dummy。"))
         else:
-            st.info("No Open dummy uploaded — enter pad capacitances manually (defaults to 0 fF).")
+            st.info(tr("No Open dummy uploaded — enter pad capacitances manually (defaults to 0 fF).",
+                       "未上傳 Open dummy — 請手動輸入焊墊電容（預設為 0 fF）。"))
             _OPEN_OV = [("Cpbe",1e15),("Cpce",1e15),("Cpbc",1e15)]
             for dk, _ in _OPEN_OV:
                 sk = f"ov_{dk}_{fname}"
@@ -298,17 +320,20 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         st.markdown(
             "<div style='background:linear-gradient(90deg,#eef0f8 0%,transparent 100%);"
             "border-left:4px solid #3d52a0;padding:8px 14px;border-radius:0 6px 6px 0;"
-            "margin-bottom:2px'><strong>📌 Short Dummy: Lead Inductances &amp; Series Resistances</strong>"
-            f"{info_icon_html('Gao [3] §4.2. Used to extract lead inductances and series resistance. However, series resistance is more accurately modeled by other methods (Cold, Z-parameter, open-collector).')}"
+            "margin-bottom:2px'><strong>"
+            f"{tr('📌 Short Dummy: Lead Inductances &amp; Series Resistances', '📌 Short Dummy：引線電感與串聯電阻')}</strong>"
+            f"{info_icon_html(tr('Gao [3] §4.2. Used to extract lead inductances and series resistance. However, series resistance is more accurately modeled by other methods (Cold, Z-parameter, open-collector).', 'Gao [3] §4.2。用於萃取引線電感與串聯電阻；但串聯電阻以其他方法（Cold、Z 參數、開路集極）建模更為準確。'))}"
             "</div>",
             unsafe_allow_html=True)
         col_m2, _ = st.columns([1, 1])
+        _open_sel_opts = [tr("measured", "量測值"), tr("modelled", "模型值")]
         if has_open:
-            open_sel    = col_m2.radio("Use open from:", ["measured","modelled"],
+            open_sel    = col_m2.radio(tr("Use open from:", "Open 來源："), _open_sel_opts,
                                         horizontal=True, key=f"osl_{fname}")
-            do_measured = (open_sel == "measured")
+            do_measured = (open_sel == _open_sel_opts[0])
         else:
-            col_m2.markdown("*Use open from:* ~~measured~~ / **modelled** *(no Open file)*")
+            col_m2.markdown(tr("*Use open from:* ~~measured~~ / **modelled** *(no Open file)*",
+                               "*Open 來源：* ~~量測值~~ / **模型值** *（無 Open 檔案）*"))
             do_measured = False
         # Formulas — implementation is in ssm_deembedding.step_short
         c1, c2, c3 = st.columns(3)
@@ -360,8 +385,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             for dk, sc in _SHORT_OV:
                 sk = f"ov_{dk}_{fname}"
                 if sk not in st.session_state: st.session_state[sk] = para_short_calc[dk]*sc
-            with st.expander("✏️ Override Short Lead Values", expanded=False):
-                if st.button("↩️ Reset Short", key=f"rst_short_{fname}"):
+            with st.expander(tr("✏️ Override Short Lead Values", "✏️ 覆寫 Short 引線數值"), expanded=False):
+                if st.button(tr("↩️ Reset Short", "↩️ 重設 Short"), key=f"rst_short_{fname}"):
                     for dk, sc in _SHORT_OV: st.session_state[f"ov_{dk}_{fname}"] = para_short_calc[dk]*sc
                     st.rerun()
                 for row_items in [_SHORT_OV[:3], _SHORT_OV[3:]]:
@@ -404,10 +429,14 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
                 file_name=f"model_short_{Path(fname).stem}.s2p",
                 mime="text/plain",
                 key=f"dl_short_s1_{fname}", width="stretch")
-            st.caption("Forward-simulated Short dummy: Y_pad + inv(Z_ser) — terminals shorted.")
+            st.caption(tr("Forward-simulated Short dummy: Y_pad + inv(Z_ser) — terminals shorted.",
+                         "正向模擬 Short dummy：Y_pad + inv(Z_ser) — 端點短路。"))
         else:
-            st.info("No Short dummy uploaded — enter lead inductances manually (defaults to 0 pH). "
-                    "Rb/Rc/Re default to 0; use Cold-HBT / Z-parameter / Open-collector / Custom in Section 3 to set them.")
+            st.info(tr(
+                "No Short dummy uploaded — enter lead inductances manually (defaults to 0 pH). "
+                "Rb/Rc/Re default to 0; use Cold-HBT / Z-parameter / Open-collector / Custom in Section 3 to set them.",
+                "未上傳 Short dummy — 請手動輸入引線電感（預設為 0 pH）。"
+                "Rb/Rc/Re 預設為 0；請於第 3 節使用 Cold-HBT／Z 參數／開路集極／自訂來設定。"))
             _LEAD_OV = [("Lb",1e12),("Lc",1e12),("Le",1e12)]
             for dk, _ in _LEAD_OV:
                 sk = f"ov_{dk}_{fname}"
@@ -433,7 +462,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         "<div style='background:linear-gradient(90deg,#2e7d3222 0%,transparent 100%);"
         "border-left:5px solid #2e7d32;padding:10px 16px;border-radius:0 8px 8px 0;"
         "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
-        "2 — De-embedded Preview</span></div>",
+        f"{tr('2 — De-embedded Preview', '2 — 去嵌入預覽')}</span></div>",
         unsafe_allow_html=True)
 
     S_step1 = render_os_deemb_preview(S_raw, freq, z0, para_step1, fname)
@@ -446,34 +475,37 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         "<div style='background:linear-gradient(90deg,#0d737722 0%,transparent 100%);"
         "border-left:5px solid #0d7377;padding:10px 16px;border-radius:0 8px 8px 0;"
         "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
-        "3 — Series / Access Resistance Extraction</span></div>",
+        f"{tr('3 — Series / Access Resistance Extraction', '3 — 串聯／存取電阻萃取')}</span></div>",
         unsafe_allow_html=True)
 
 
-    with st.expander("🍊 Access Resistance Extraction", expanded=False):
+    with st.expander(tr("🍊 Access Resistance Extraction", "🍊 存取電阻萃取"), expanded=False):
 
         # ── Z-parameter method ────────────────────────────────────────────────────
         st.markdown(
             "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
             "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-            "margin-bottom:2px'><strong>📈 Z-Parameter Method</strong> "
+            "margin-bottom:2px'><strong>"
+            f"{tr('📈 Z-Parameter Method', '📈 Z 參數法')}</strong> "
             "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.1)*</span>"
-            " for Re </div>",
+            f"{tr(' for Re ', ' 用於 Re ')}</div>",
             unsafe_allow_html=True)
-        with st.expander("Z-Parameter Method — Re(Z₁₂) vs 1/IE", expanded=False):
+        with st.expander(tr("Z-Parameter Method — Re(Z₁₂) vs 1/IE", "Z 參數法 — Re(Z₁₂) vs 1/IE"),
+                         expanded=False):
             render_rz12_section(all_data or {}, para_step1, fname)
         rz12_Re  = st.session_state.get(f"rz12_Re_{fname}")
         rz12_Rbe = st.session_state.get(f"rz12_Rbe_{fname}")
-        
+
         # ── Cold-HBT ──────────────────────────────────────────────────────────────
         st.markdown(
             "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
             "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-            "margin-bottom:2px'><strong>🧊 Cold-HBT Extraction</strong> "
+            "margin-bottom:2px'><strong>"
+            f"{tr('🧊 Cold-HBT Extraction', '🧊 Cold-HBT 萃取')}</strong> "
             "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.2)*</span>"
-            " for Rb and Rc </div>",
+            f"{tr(' for Rb and Rc ', ' 用於 Rb 與 Rc ')}</div>",
             unsafe_allow_html=True)
-        with st.expander("Cold-HBT Extraction", expanded=False):
+        with st.expander(tr("Cold-HBT Extraction", "Cold-HBT 萃取"), expanded=False):
             cold_res = _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
                                         re_zparam=rz12_Re,
                                         open_arr=(open_arr if has_open else None),
@@ -484,11 +516,13 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         st.markdown(
             "<div style='background:linear-gradient(90deg,#e0f2f1 0%,transparent 100%);"
             "border-left:4px solid #0d7377;padding:8px 14px;border-radius:0 6px 6px 0;"
-            "margin-bottom:2px'><strong>📈 Open-Collector Method</strong> "
+            "margin-bottom:2px'><strong>"
+            f"{tr('📈 Open-Collector Method', '📈 開路集極法')}</strong> "
             "<span style='font-weight:normal;font-size:0.9em'>*(Gao [3] Ch. 5.5.3)*</span>"
-            " for Rb, Re, Rc </div>",
+            f"{tr(' for Rb, Re, Rc ', ' 用於 Rb、Re、Rc ')}</div>",
             unsafe_allow_html=True)
-        with st.expander("Open-Collector Method — Re(Zij) vs 1/IB", expanded=False):
+        with st.expander(tr("Open-Collector Method — Re(Zij) vs 1/IB", "開路集極法 — Re(Zij) vs 1/IB"),
+                         expanded=False):
             render_open_collector_section(all_data or {}, para_step1, fname)
 
 
@@ -513,7 +547,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         "<div style='background:linear-gradient(90deg,#6a1b9a22 0%,transparent 100%);"
         "border-left:5px solid #6a1b9a;padding:10px 16px;border-radius:0 8px 8px 0;"
         "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
-        "4 — Intrinsic Model</span></div>",
+        f"{tr('4 — Intrinsic Model', '4 — 本質模型')}</span></div>",
         unsafe_allow_html=True)
 
     # ── Model selection ───────────────────────────────────────────────────────
@@ -521,7 +555,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     st.markdown(
         "<div style='background:linear-gradient(90deg,#f3e5f5 0%,transparent 100%);"
         "border-left:4px solid #6a1b9a;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>🔘 Model Selection</strong></div>",
+        f"margin-bottom:2px'><strong>{tr('🔘 Model Selection', '🔘 模型選擇')}</strong></div>",
         unsafe_allow_html=True)
     # One checkbox per built-in model, default from DEFAULT_SELECTION.  The
     # built-in analytic extraction now covers only Cheng's T and π — Xu and
@@ -536,7 +570,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             selected_models.append(short)
 
     if not selected_models:
-        st.info("Select at least one model above.")
+        st.info(tr("Select at least one model above.", "請至少選擇一個上方的模型。"))
         return
 
     # De-embed DUT once
@@ -549,7 +583,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     st.markdown(
         "<div style='background:linear-gradient(90deg,#f3e5f5 0%,transparent 100%);"
         "border-left:4px solid #6a1b9a;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📌 Steps 2 &amp; 3 — Model Extraction</strong></div>",
+        "margin-bottom:2px'><strong>"
+        f"{tr('📌 Steps 2 &amp; 3 — Model Extraction', '📌 步驟 2 與 3 — 模型萃取')}</strong></div>",
         unsafe_allow_html=True)
 
     extract_results: dict[str, tuple] = {}   # short → (params, arrays)
@@ -592,18 +627,25 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         if use_cache:
             snap_key = f"ssm_cache_params_snap_{short}_{fname}"
             col_msg, col_btn = st.columns([3, 1])
-            col_msg.success(f"📌 Using cached fit (saved {cached_ts}). "
-                            "Extraction + interactive section skipped — "
-                            "values come straight from the cache.  Edit "
-                            "them in the fine-tune section below to update "
-                            "the cache.")
-            if col_btn.button("🔄 Re-extract",
+            col_msg.success(tr(
+                f"📌 Using cached fit (saved {cached_ts}). "
+                "Extraction + interactive section skipped — "
+                "values come straight from the cache.  Edit "
+                "them in the fine-tune section below to update "
+                "the cache.",
+                f"📌 使用快取的擬合結果（儲存於 {cached_ts}）。"
+                "已略過萃取與互動區塊 — 數值直接來自快取。"
+                "可於下方微調區塊編輯以更新快取。"))
+            if col_btn.button(tr("🔄 Re-extract", "🔄 重新萃取"),
                               key=f"reextract_btn_{short}_{fname}",
                               width="stretch",
-                              help="Run extraction and interactive section "
-                                   "for this session.  The on-disk cache "
-                                   "stays put and will reload next time the "
-                                   "file is opened."):
+                              help=tr(
+                                  "Run extraction and interactive section "
+                                  "for this session.  The on-disk cache "
+                                  "stays put and will reload next time the "
+                                  "file is opened.",
+                                  "在此工作階段中執行萃取與互動區塊。"
+                                  "硬碟上的快取保持不變，下次開啟檔案時會重新載入。")):
                 st.session_state[reextract_key] = True
                 st.session_state.pop(snap_key, None)
                 st.rerun()
@@ -637,7 +679,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
             # Rbe override from Z-param method (if available)
             if rz12_Rbe is not None and "Rbe" in params:
                 params["Rbe"] = rz12_Rbe
-                st.info(f"Rbe overridden from Re(Z₁₂): **{rz12_Rbe:.4f} Ω**")
+                st.info(tr(f"Rbe overridden from Re(Z₁₂): **{rz12_Rbe:.4f} Ω**",
+                          f"Rbe 已由 Re(Z₁₂) 覆寫：**{rz12_Rbe:.4f} Ω**"))
 
             # Interactive parameter-vs-frequency plots — slider updates
             # medians, inputs allow override.  Runs BEFORE the table so
@@ -687,12 +730,12 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         if _has_trace:
             _col_tbl, _col_trace = st.columns(2, gap="medium")
             with _col_tbl:
-                with st.expander("📁 Extracted Parameters Table", expanded=False):
+                with st.expander(tr("📁 Extracted Parameters Table", "📁 萃取參數表"), expanded=False):
                     ModelClass.render_results_table(params)
             with _col_trace:
                 ModelClass.render_formula_trace()
         else:
-            with st.expander("📁 Extracted Parameters Table", expanded=False):
+            with st.expander(tr("📁 Extracted Parameters Table", "📁 萃取參數表"), expanded=False):
                 ModelClass.render_results_table(params)
             ModelClass.render_formula_trace()
 
@@ -705,10 +748,12 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     st.markdown(
         "<div style='background:linear-gradient(90deg,#f3e5f5 0%,transparent 100%);"
         "border-left:4px solid #6a1b9a;padding:8px 14px;border-radius:0 6px 6px 0;"
-        "margin-bottom:2px'><strong>📡 Measured vs Modeled S-Parameters</strong></div>",
+        "margin-bottom:2px'><strong>"
+        f"{tr('📡 Measured vs Modeled S-Parameters', '📡 量測與模型 S 參數比較')}</strong></div>",
         unsafe_allow_html=True)
-    st.caption("Pad params auto-synced from pre-extraction override. "
-               "Use expanders to fine-tune intrinsic/extrinsic values.")
+    st.caption(tr("Pad params auto-synced from pre-extraction override. "
+                 "Use expanders to fine-tune intrinsic/extrinsic values.",
+                 "焊墊參數會自動與前萃取覆寫同步。使用展開區塊微調本質／外質數值。"))
 
     sim_results: dict[str, np.ndarray | None] = {}
     for j, short in enumerate(selected_models):
@@ -729,7 +774,7 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         "<div style='background:linear-gradient(90deg,#bf360c22 0%,transparent 100%);"
         "border-left:5px solid #bf360c;padding:10px 16px;border-radius:0 8px 8px 0;"
         "margin:4px 0'><span style='font-size:1.1em;font-weight:700'>"
-        "5 — Review</span></div>",
+        f"{tr('5 — Review', '5 — 檢視')}</span></div>",
         unsafe_allow_html=True)
 
     # ── fT / fmax overlay (≥2 models) ─────────────────────────────────────────
@@ -739,7 +784,8 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
         st.markdown(
             "<div style='background:linear-gradient(90deg,#fbe9e7 0%,transparent 100%);"
             "border-left:4px solid #bf360c;padding:8px 14px;border-radius:0 6px 6px 0;"
-            "margin-bottom:2px'><strong>📊 fT and fmax — Measured vs Modeled</strong></div>",
+            "margin-bottom:2px'><strong>"
+            f"{tr('📊 fT and fmax — Measured vs Modeled', '📊 fT 與 fmax — 量測與模型比較')}</strong></div>",
             unsafe_allow_html=True)
         render_ft_fmax_overlay(S_raw, sim_results, freq, fname)
 
@@ -864,18 +910,20 @@ def _render_summary_table(fname, para_eff, cold_res, extract_results, registry):
                 elif av < 1e-9: sc_d, unit_d = 1e12, "pH"
                 else:           sc_d, unit_d = 1.0,  ""
             rows.append({"Layer":layer,"Symbol":k,"Value":f"{v*sc_d:.4f}","Unit":unit_d})
-    with st.expander("📋 Complete Parameter Summary", expanded=False):
-        st.caption("Values reflect the **current** state after any pre-extraction "
-                   "overrides, fine-tune Smith chart edits, and tuning sweeps.")
+    with st.expander(tr("📋 Complete Parameter Summary", "📋 完整參數彙總"), expanded=False):
+        st.caption(tr("Values reflect the **current** state after any pre-extraction "
+                     "overrides, fine-tune Smith chart edits, and tuning sweeps.",
+                     "數值反映經前萃取覆寫、微調 Smith 圖編輯與調諧掃描後的**目前**狀態。"))
         if rows:
             df_sum = pd.DataFrame(rows)
             st.dataframe(df_sum, width="stretch", hide_index=True)
             buf = io.BytesIO(); df_sum.to_csv(buf, index=False)
-            st.download_button("📥 Download SSM parameters (CSV)", data=buf.getvalue(),
+            st.download_button(tr("📥 Download SSM parameters (CSV)", "📥 下載 SSM 參數（CSV）"),
+                data=buf.getvalue(),
                 file_name=f"SSM_{Path(fname).stem}.csv", mime="text/csv",
                 key=f"dl_ssm_{fname}")
         else:
-            st.caption("No parameters to summarize yet.")
+            st.caption(tr("No parameters to summarize yet.", "尚無可彙總的參數。"))
 
 
 def _render_fit_cache_panel(fname):
@@ -891,42 +939,57 @@ def _render_fit_cache_panel(fname):
     if is_cache_disabled():
         return
 
-    with st.expander("💾 Fit cache (persists fine-tuned values across sessions)",
+    with st.expander(tr("💾 Fit cache (persists fine-tuned values across sessions)",
+                        "💾 擬合快取（跨工作階段保存微調數值）"),
                      expanded=False):
         _dut_stem = Path(fname).stem
-        st.caption(
-            f"Stored under: `{cache_path_str()}` → "
+        _cache_root = cache_path_str()
+        st.caption(tr(
+            f"Stored under: `{_cache_root}` → "
             f"`fits/{_dut_stem}/{_dut_stem}_<model>.json`. "
             "Set `HBT_FIT_CACHE_DIR` to override. "
             "Each (file, model) pair is one isolated JSON file — a corrupt or "
             "all-zero save for one model can no longer overwrite a sibling.  "
-            "Fine-tuned values auto-save here and auto-restore on next open.")
+            "Fine-tuned values auto-save here and auto-restore on next open.",
+            f"儲存於：`{_cache_root}` → "
+            f"`fits/{_dut_stem}/{_dut_stem}_<model>.json`。"
+            "可設定 `HBT_FIT_CACHE_DIR` 覆寫路徑。"
+            "每個（檔案、模型）組合各自一個獨立 JSON 檔 — 單一模型的損毀或全零"
+            "儲存不會再覆蓋其他模型的快取。"
+            "微調數值會自動儲存於此，並於下次開啟時自動還原。"))
 
         # ── Per-file inspector ──────────────────────────────────────────────
         fits = list_fits(fname)
         if fits:
-            st.markdown(f"**Cached fits for `{Path(fname).name}`:**")
+            st.markdown(tr(f"**Cached fits for `{Path(fname).name}`:**",
+                           f"**`{Path(fname).name}` 的已快取擬合結果：**"))
             for short, ts in sorted(fits.items()):
                 row1, row2 = st.columns([5, 1])
-                row1.text(f"• {short} — saved {ts}  "
-                          f"({_dut_stem}_{short}.json)")
+                row1.text(tr(f"• {short} — saved {ts}  "
+                             f"({_dut_stem}_{short}.json)",
+                             f"• {short} — 儲存於 {ts}　"
+                             f"({_dut_stem}_{short}.json)"))
                 if row2.container(
                         key=f"hbt_danger_del_{short}_"
                             + re.sub(r"[^0-9A-Za-z_-]", "-", fname)
-                ).button("🗑️ Delete", key=f"cache_del_{short}_{fname}"):
+                ).button(tr("🗑️ Delete", "🗑️ 刪除"), key=f"cache_del_{short}_{fname}"):
                     delete_fit(fname, short)
                     st.session_state.pop(f"cache_applied_{short}_{fname}",   None)
                     st.session_state.pop(f"cache_dismissed_{short}_{fname}", None)
                     st.rerun()
         else:
-            st.caption(f"No cached fits for `{Path(fname).name}` yet — "
-                       "fine-tune any model parameter and it'll be saved here.")
+            st.caption(tr(f"No cached fits for `{Path(fname).name}` yet — "
+                          "fine-tune any model parameter and it'll be saved here.",
+                          f"`{Path(fname).name}` 尚無已快取的擬合結果 — "
+                          "微調任一模型參數即會自動儲存於此。"))
 
         # ── Global export / import ──────────────────────────────────────────
         st.divider()
-        st.markdown("**Whole-cache export / import** "
-                    "*(useful for syncing local ↔ Streamlit Cloud, "
-                    "or backing up before a config change)*")
+        st.markdown(tr("**Whole-cache export / import** "
+                       "*(useful for syncing local ↔ Streamlit Cloud, "
+                       "or backing up before a config change)*",
+                       "**整個快取匯出／匯入** "
+                       "*（適用於本機 ↔ Streamlit Cloud 同步，或設定變更前備份）*"))
 
         try:
             n_files = len(load_cache())
@@ -934,15 +997,17 @@ def _render_fit_cache_panel(fname):
             n_files = 0
 
         col_x, col_i = st.columns(2)
+        _n_word = tr(f"{n_files} file{'s' if n_files != 1 else ''}",
+                    f"{n_files} 個檔案")
         col_x.download_button(
-            f"📤 Export cache ({n_files} file{'s' if n_files != 1 else ''})",
+            tr(f"📤 Export cache ({_n_word})", f"📤 匯出快取（{_n_word}）"),
             data=export_cache_bytes(),
             file_name="hbt_fit_cache.json", mime="application/json",
             key=f"cache_export_{fname}", width="stretch",
             disabled=(n_files == 0))
 
         uploaded = col_i.file_uploader(
-            "📥 Import cache (.json)", type=["json"],
+            tr("📥 Import cache (.json)", "📥 匯入快取（.json）"), type=["json"],
             key=f"cache_import_{fname}",
             label_visibility="collapsed")
         if uploaded is not None:
@@ -951,8 +1016,11 @@ def _render_fit_cache_panel(fname):
                 try:
                     n_f, n_fit = import_cache_bytes(uploaded.getvalue(),
                                                      merge=True)
-                    st.success(f"Imported {n_fit} fit(s) across {n_f} file(s) "
-                               "(merged into existing cache).")
+                    st.success(tr(
+                        f"Imported {n_fit} fit(s) across {n_f} file(s) "
+                        "(merged into existing cache).",
+                        f"已匯入 {n_fit} 筆擬合結果，橫跨 {n_f} 個檔案"
+                        "（已合併至現有快取）。"))
                     st.session_state[apply_key] = True
                 except ValueError as e:
                     st.error(str(e))

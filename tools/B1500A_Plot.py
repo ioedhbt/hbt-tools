@@ -187,20 +187,26 @@ def range_inputs(container, label, key, default, lo, hi):
 
     step = max((hi - lo) / 100, 1e-6)
     c1, c2 = container.columns(2)
+    if i18n.is_zh():
+        lo_label, hi_label = f"{label}起始 (V)", f"{label}結束 (V)"
+    else:
+        lo_label, hi_label = f"{label} start (V)", f"{label} end (V)"
     v_lo = c1.number_input(
-        f"{label} start (V)", min_value=lo, max_value=hi,
+        lo_label, min_value=lo, max_value=hi,
         step=step, format="%.3f", key=lo_key
     )
     v_hi = c2.number_input(
-        f"{label} end (V)", min_value=lo, max_value=hi,
+        hi_label, min_value=lo, max_value=hi,
         step=step, format="%.3f", key=hi_key
     )
 
     if v_lo >= v_hi:
-        container.warning(
+        container.warning(i18n.tr(
             f"Start must be below end — falling back to "
-            f"{default[0]:.3f}–{default[1]:.3f} V."
-        )
+            f"{default[0]:.3f}–{default[1]:.3f} V.",
+            f"起始值必須小於結束值 — 已還原為 "
+            f"{default[0]:.3f}–{default[1]:.3f} V。"
+        ))
         return default
     return v_lo, v_hi
 
@@ -208,10 +214,16 @@ def range_inputs(container, label, key, default, lo, hi):
 # =================================================
 # Sidebar
 # =================================================
-st.sidebar.title("Navigation")
+st.sidebar.title(i18n.tr("Navigation", "導覽"))
+# Values stay English — `page` is compared against these literals below;
+# only the on-screen label localizes (reusing the same titles as the
+# in-page st.title calls for consistency).
+_PAGE_OPTS = ["B1500A Viewer", "TLM Analysis"]
+_PAGE_LABELS = {"B1500A Viewer": i18n.t("b1500a_viewer"), "TLM Analysis": i18n.t("b1500a_tlm")}
 page = st.sidebar.selectbox(
-    "Select Page",
-    ["B1500A Viewer", "TLM Analysis"]
+    i18n.tr("Select Page", "選擇頁面"),
+    _PAGE_OPTS,
+    format_func=lambda p: _PAGE_LABELS[p]
 )
 
 # =================================================
@@ -232,13 +244,13 @@ if page == "B1500A Viewer":
         ), accent="#1f77b4"), width="stretch")
 
     st.subheader(i18n.t("b1500a_step1"))
-    uploaded = st.file_uploader("Upload Excel file (.xlsx)", type=["xlsx"])
+    uploaded = st.file_uploader(i18n.tr("Upload Excel file (.xlsx)", "上傳 Excel 檔 (.xlsx)"), type=["xlsx"])
     if not uploaded:
         st.stop()
 
     st.subheader(i18n.t("b1500a_step2"))
     xls = pd.ExcelFile(uploaded)
-    sheet = st.selectbox("Select sheet", xls.sheet_names)
+    sheet = st.selectbox(i18n.tr("Select sheet", "選擇工作表"), xls.sheet_names)
     df = xls.parse(sheet)
 
     name = f"{uploaded.name} — {sheet}".lower()
@@ -251,10 +263,15 @@ if page == "B1500A Viewer":
     else:
         default = "Diode"
 
+    # Values stay English — `dtype` is compared against these literals
+    # throughout the blocks below; only the on-screen label localizes.
+    _DTYPE_OPTS = ["Diode", "Gummel", "Family"]
+    _DTYPE_ZH = {"Diode": "二極體", "Gummel": "Gummel", "Family": "族群 Ic-Vc"}
     dtype = st.selectbox(
-        "Data type",
-        ["Diode", "Gummel", "Family"],
-        index=["Diode", "Gummel", "Family"].index(default)
+        i18n.tr("Data type", "資料類型"),
+        _DTYPE_OPTS,
+        index=_DTYPE_OPTS.index(default),
+        format_func=lambda d: i18n.tr(d, _DTYPE_ZH[d])
     )
 
     # =================================================
@@ -275,23 +292,24 @@ if page == "B1500A Viewer":
         diode_key = f"diode_sel_{uploaded.name}_{sheet}"
 
         with st.container(border=True):
-            st.subheader("Extracted parameters")
+            st.subheader(i18n.tr("Extracted parameters", "萃取參數"))
 
             vmin, vmax = range_inputs(
-                st, "η window", diode_key, (0.35, 0.4),
+                st, i18n.tr("η window", "η 窗口"), diode_key, (0.35, 0.4),
                 float(v.min()), float(v.max())
             )
-            st.caption("Dragging a band across the plot also sets this window.")
+            st.caption(i18n.tr("Dragging a band across the plot also sets this window.",
+                               "在圖上拖曳選取範圍也可以設定此窗口。"))
 
             cv1, cv2 = st.columns(2)
             v_fwd_default = 1.0 if float(v.max()) >= 1.0 else float(v.max())
             v_rev_default = -1.0 if float(v.min()) <= -1.0 else float(v.min())
             v_rev = cv1.number_input(
-                "Leakage-current readout voltage (V)",
+                i18n.tr("Leakage-current readout voltage (V)", "洩漏電流讀值電壓 (V)"),
                 float(v.min()), float(v.max()), v_rev_default
             )
             v_fwd = cv2.number_input(
-                "Forward-current readout voltage (V)",
+                i18n.tr("Forward-current readout voltage (V)", "順向電流讀值電壓 (V)"),
                 float(v.min()), float(v.max()), v_fwd_default
             )
 
@@ -310,38 +328,42 @@ if page == "B1500A Viewer":
                 rect = f_pt / r_pt if r_pt else np.nan
 
             if re.search(r"(?<![a-z])be(?![a-z])", name):
-                r_label = "BE resistance"
+                r_label = i18n.tr("BE resistance", "BE 電阻")
             elif re.search(r"(?<![a-z])bc(?![a-z])", name):
-                r_label = "BC resistance"
+                r_label = i18n.tr("BC resistance", "BC 電阻")
             else:
-                r_label = "Series resistance"
+                r_label = i18n.tr("Series resistance", "串聯電阻")
 
             c1, c2, c3 = st.columns(3)
-            c1.metric("Ideality factor, η", f"{n:.2f}")
-            c1.metric("Knee / turn-on voltage",
+            c1.metric(i18n.tr("Ideality factor, η", "理想因子 η"), f"{n:.2f}")
+            c1.metric(i18n.tr("Knee / turn-on voltage", "膝點 / 開啟電壓"),
                       f"{knee:.3f} V" if np.isfinite(knee) else "—")
             c1.metric(r_label,
                       f"{r_series:.3g} Ω" if np.isfinite(r_series) else "—")
-            c2.metric("Saturation current, Is", fmt_current(i_s))
-            c2.metric(f"Forward current @ {v_fwd:g} V", fmt_current(i_fwd))
-            c3.metric(f"Leakage current @ {v_rev:g} V", fmt_current(i_leak))
-            c3.metric("Rectification ratio",
+            c2.metric(i18n.tr("Saturation current, Is", "飽和電流 Is"), fmt_current(i_s))
+            c2.metric(i18n.tr(f"Forward current @ {v_fwd:g} V", f"順向電流 @ {v_fwd:g} V"), fmt_current(i_fwd))
+            c3.metric(i18n.tr(f"Leakage current @ {v_rev:g} V", f"洩漏電流 @ {v_rev:g} V"), fmt_current(i_leak))
+            c3.metric(i18n.tr("Rectification ratio", "整流比"),
                       f"{rect:.2e}" if np.isfinite(rect) else "—")
-            st.caption(
+            st.caption(i18n.tr(
                 "η ≈ 1 → diffusion-dominated · η → 2 → recombination-dominated. "
                 "Knee from linear extrapolation of the steep forward region; "
                 "Is from the semilog-fit intercept over the η window. "
-                "R is ΔV/ΔI between the endpoints of the η window."
-            )
+                "R is ΔV/ΔI between the endpoints of the η window.",
+                "η ≈ 1 → 擴散主導 · η → 2 → 復合主導。"
+                "膝點由順向陡峭區線性外插求得；"
+                "Is 取自 η 窗口內半對數擬合的截距。"
+                "R 為 η 窗口兩端點間的 ΔV/ΔI。"
+            ))
 
         # --- plot (rendered into the reserved area above) ---
         fig = go.Figure(go.Scatter(x=v, y=i, mode="lines+markers", name="|I|"))
         fig.add_vline(x=vmin, line_dash="dash", line_color="gray",
-                      annotation_text="η range", annotation_position="top")
+                      annotation_text=i18n.tr("η range", "η 範圍"), annotation_position="top")
         fig.add_vline(x=vmax, line_dash="dash", line_color="gray")
-        fig.update_yaxes(type="log", title="Current (A)")
-        fig.update_xaxes(title="Voltage (V)")
-        fig.update_layout(title="Diode I–V", dragmode="select",
+        fig.update_yaxes(type="log", title=i18n.tr("Current (A)", "電流 (A)"))
+        fig.update_xaxes(title=i18n.tr("Voltage (V)", "電壓 (V)"))
+        fig.update_layout(title=i18n.tr("Diode I–V", "二極體 I–V"), dragmode="select",
                           selectdirection="h")
         plot_area.plotly_chart(
             fig, width="stretch", key=diode_key,
@@ -357,7 +379,8 @@ if page == "B1500A Viewer":
         ib_col = find_col_like(df, ["ib"])
 
         if not all([vb_col, ic_col, ib_col]):
-            st.error("Could not identify Vb / Ic / Ib columns")
+            st.error(i18n.tr("Could not identify Vb / Ic / Ib columns",
+                             "無法辨識 Vb / Ic / Ib 欄位"))
             st.stop()
 
         vb = df[vb_col].astype(float)
@@ -376,23 +399,24 @@ if page == "B1500A Viewer":
         gummel_key = f"gummel_sel_{uploaded.name}_{sheet}"
 
         with st.container(border=True):
-            st.subheader("Ideality factors (η)")
+            st.subheader(i18n.tr("Ideality factors (η)", "理想因子 (η)"))
             vmin, vmax = range_inputs(
-                st, "η window", gummel_key, (0.35, 0.4), 0.0, float(vb.max())
+                st, i18n.tr("η window", "η 窗口"), gummel_key, (0.35, 0.4), 0.0, float(vb.max())
             )
             n_ic = ideality_factor(vb, abs(ic), vmin, vmax)
             n_ib = ideality_factor(vb, abs(ib), vmin, vmax)
             c1, c2 = st.columns(2)
-            c1.metric("Collector ideality, η(Ic)", f"{n_ic:.2f}")
-            c2.metric("Base ideality, η(Ib)", f"{n_ib:.2f}")
-            st.caption("Dragging a band across the plot also sets this window.")
+            c1.metric(i18n.tr("Collector ideality, η(Ic)", "集極理想因子 η(Ic)"), f"{n_ic:.2f}")
+            c2.metric(i18n.tr("Base ideality, η(Ib)", "基極理想因子 η(Ib)"), f"{n_ib:.2f}")
+            st.caption(i18n.tr("Dragging a band across the plot also sets this window.",
+                               "在圖上拖曳選取範圍也可以設定此窗口。"))
 
         with st.container(border=True):
-            st.subheader("Current gain (β)")
+            st.subheader(i18n.tr("Current gain (β)", "電流增益 (β)"))
             c1, c2, c3 = st.columns(3)
-            c1.metric("Maximum gain, β(max)", f"{beta_max:.1f}")
-            c2.metric("β(max) occurs at Vb", f"{beta_v:.3f} V")
-            c3.metric("β(max) occurs at Ic", fmt_current(ic_at_betamax))
+            c1.metric(i18n.tr("Maximum gain, β(max)", "最大增益 β(max)"), f"{beta_max:.1f}")
+            c2.metric(i18n.tr("β(max) occurs at Vb", "β(max) 發生於 Vb"), f"{beta_v:.3f} V")
+            c3.metric(i18n.tr("β(max) occurs at Ic", "β(max) 發生於 Ic"), fmt_current(ic_at_betamax))
 
         # --- plot (rendered into the reserved area above) ---
         fig = make_subplots(
@@ -408,10 +432,10 @@ if page == "B1500A Viewer":
                       row=1, col=1, secondary_y=True)
 
         fig.add_vline(x=vmin, line_dash="dash", line_color="gray",
-                      annotation_text="η range", annotation_position="top")
+                      annotation_text=i18n.tr("η range", "η 範圍"), annotation_position="top")
         fig.add_vline(x=vmax, line_dash="dash", line_color="gray")
 
-        fig.update_yaxes(type="log", secondary_y=False, title="Current (A)")
+        fig.update_yaxes(type="log", secondary_y=False, title=i18n.tr("Current (A)", "電流 (A)"))
         fig.update_yaxes(
             type="linear",
             range=[0.0, 1.5 * beta_max],
@@ -419,7 +443,7 @@ if page == "B1500A Viewer":
             title="β"
         )
         fig.update_xaxes(title="Vb (V)")
-        fig.update_layout(title="Gummel Plot", dragmode="select",
+        fig.update_layout(title=i18n.tr("Gummel Plot", "Gummel 圖"), dragmode="select",
                           selectdirection="h")
 
         plot_area.plotly_chart(
@@ -433,14 +457,15 @@ if page == "B1500A Viewer":
     else:
         vc_col = find_col_like(df, ["vc"])
         if not vc_col:
-            st.error("Vc column not found")
+            st.error(i18n.tr("Vc column not found", "找不到 Vc 欄位"))
             st.stop()
 
         vc = df[vc_col].astype(float)
         ic_cols = [c for c in df.columns if c.lower().startswith("ic")]
 
         if not ic_cols:
-            st.error("No Ic curves found (expected 'Ic at Ib=...')")
+            st.error(i18n.tr("No Ic curves found (expected 'Ic at Ib=...')",
+                             "找不到 Ic 曲線（預期格式為 'Ic at Ib=...'）"))
             st.stop()
 
         # default Rsat window = upper 40 % of the Vc sweep (flat region)
@@ -461,22 +486,24 @@ if page == "B1500A Viewer":
         family_key = f"family_sel_{uploaded.name}_{sheet}"
 
         with st.container(border=True):
-            st.subheader("Output-region parameters")
+            st.subheader(i18n.tr("Output-region parameters", "輸出區參數"))
             r_min, r_max = range_inputs(
-                st, "Rsat window", family_key,
+                st, i18n.tr("Rsat window", "Rsat 窗口"), family_key,
                 (default_lo, round(vc_hi, 3)), vc_lo, vc_hi
             )
-            st.caption(f"Fitted on the highest-Ib curve: **{top_col}**")
-            st.caption("Dragging a band across the plot also sets this window.")
+            st.caption(i18n.tr(f"Fitted on the highest-Ib curve: **{top_col}**",
+                               f"擬合曲線：Ib 最高的曲線 **{top_col}**"))
+            st.caption(i18n.tr("Dragging a band across the plot also sets this window.",
+                               "在圖上拖曳選取範圍也可以設定此窗口。"))
             ic_top = df[top_col].astype(float)
             r_out, v_early, _ = linear_fit_resistance(vc, ic_top, r_min, r_max)
             knee = knee_voltage(vc, ic_top)
             c1, c2, c3 = st.columns(3)
-            c1.metric("Saturation (output) resistance",
+            c1.metric(i18n.tr("Saturation (output) resistance", "飽和（輸出）電阻"),
                       f"{r_out:,.0f} Ω" if np.isfinite(r_out) else "—")
-            c2.metric("Early voltage, |VA|",
+            c2.metric(i18n.tr("Early voltage, |VA|", "厄利電壓 |VA|"),
                       f"{v_early:.2f} V" if np.isfinite(v_early) else "—")
-            c3.metric("Knee voltage",
+            c3.metric(i18n.tr("Knee voltage", "膝點電壓"),
                       f"{knee:.3f} V" if np.isfinite(knee) else "—")
 
         offsets = {}
@@ -505,7 +532,7 @@ if page == "B1500A Viewer":
         all_min = min(float(df[c].min()) for c in ic_cols)
         fig.add_vrect(
             x0=r_min, x1=r_max, fillcolor="LightGray", opacity=0.25,
-            line_width=0, annotation_text="Rsat fit",
+            line_width=0, annotation_text=i18n.tr("Rsat fit", "Rsat 擬合"),
             annotation_position="top left"
         )
         fig.update_xaxes(title="Vc (V)")
@@ -513,7 +540,7 @@ if page == "B1500A Viewer":
             title="Ic (A)",
             range=[min(0.0, all_min) * 1.2, all_max * 1.2]
         )
-        fig.update_layout(title="Family I–V", hovermode="closest",
+        fig.update_layout(title=i18n.tr("Family I–V", "族群 I–V"), hovermode="closest",
                           dragmode="select", selectdirection="h")
         plot_area.plotly_chart(
             fig, width="stretch", key=family_key,
@@ -524,16 +551,18 @@ if page == "B1500A Viewer":
         off_avg = float(np.mean(valid_off)) if valid_off else np.nan
 
         with st.container(border=True):
-            st.subheader("Offset voltage")
+            st.subheader(i18n.tr("Offset voltage", "偏移電壓"))
             st.metric(
-                "Average offset voltage",
+                i18n.tr("Average offset voltage", "平均偏移電壓"),
                 f"{off_avg * 1e3:.1f} mV" if np.isfinite(off_avg) else "—"
             )
-            st.caption(
+            st.caption(i18n.tr(
                 "Hover any curve to read its own offset (Ic zero-crossing) and "
                 "DC current gain β. The average above is over curves that "
-                "actually cross zero."
-            )
+                "actually cross zero.",
+                "將滑鼠移到任一曲線上，可讀取其偏移電壓（Ic 過零點）與"
+                "直流電流增益 β。上方平均值僅計入實際穿越零點的曲線。"
+            ))
 
 # =================================================
 # TLM ANALYSIS
@@ -541,7 +570,7 @@ if page == "B1500A Viewer":
 else:
     st.title(i18n.t("b1500a_tlm"))
 
-    Z = st.number_input("Pad width Z (µm)", value=80.0)
+    Z = st.number_input(i18n.tr("Pad width Z (µm)", "焊墊寬度 Z (µm)"), value=80.0)
 
     R = {
         4: st.number_input("R @ 4 µm (Ω)", value=np.nan),
@@ -562,26 +591,26 @@ else:
         r2 = np.corrcoef(x, y)[0, 1] ** 2
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Intercept (Ω)", f"{intercept:.2f}")
-        c1.metric("Slope (Ω/µm)", f"{slope:.3f}")
-        c2.metric("Contact Resistance, Rc (Ω)", f"{Rc:.2f}")
-        c2.metric("Sheet Resistance, Rsh (Ω/□)", f"{Rsh:.1f}")
-        c3.metric("Transfer Length, LT (µm)", f"{LT:.2f}")
-        c3.metric("Specific Contact Resistivity, ρc (Ω·cm²)", f"{rho_c:.2e}")
-        st.metric("Goodness, R²", f"{r2:.4f}")
+        c1.metric(i18n.tr("Intercept (Ω)", "截距 (Ω)"), f"{intercept:.2f}")
+        c1.metric(i18n.tr("Slope (Ω/µm)", "斜率 (Ω/µm)"), f"{slope:.3f}")
+        c2.metric(i18n.tr("Contact Resistance, Rc (Ω)", "接觸電阻 Rc (Ω)"), f"{Rc:.2f}")
+        c2.metric(i18n.tr("Sheet Resistance, Rsh (Ω/□)", "片電阻 Rsh (Ω/□)"), f"{Rsh:.1f}")
+        c3.metric(i18n.tr("Transfer Length, LT (µm)", "傳輸長度 LT (µm)"), f"{LT:.2f}")
+        c3.metric(i18n.tr("Specific Contact Resistivity, ρc (Ω·cm²)", "比接觸電阻率 ρc (Ω·cm²)"), f"{rho_c:.2e}")
+        st.metric(i18n.tr("Goodness, R²", "擬合優度 R²"), f"{r2:.4f}")
 
         xs = np.linspace(0, 40, 200)
         ys = slope * xs + intercept
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=x, y=y, mode="markers", name="Measured"))
+        fig.add_trace(go.Scatter(x=x, y=y, mode="markers", name=i18n.tr("Measured", "量測值")))
         fig.add_trace(go.Scatter(
             x=xs, y=ys,
             mode="lines",
             line=dict(dash="dash"),
-            name="Linear fit"
+            name=i18n.tr("Linear fit", "線性擬合")
         ))
 
-        fig.update_xaxes(title="Spacing (µm)", range=[0, 40])
-        fig.update_yaxes(title="Resistance (Ω)", range=[0, max(y) * 1.2])
+        fig.update_xaxes(title=i18n.tr("Spacing (µm)", "間距 (µm)"), range=[0, 40])
+        fig.update_yaxes(title=i18n.tr("Resistance (Ω)", "電阻 (Ω)"), range=[0, max(y) * 1.2])
         st.plotly_chart(fig, width="stretch")

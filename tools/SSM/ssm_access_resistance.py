@@ -18,6 +18,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 
+from ..i18n import tr
 from .helpers import (s_to_y, y_to_z, z_to_y,
                       open_elem_Y,
                       parse_s2p_bytes, interpolate_s2f,
@@ -42,17 +43,22 @@ def render_rz12_section(all_data, para_eff, fname):
     """
     Z-parameter method (Re(Z12) vs 1/IE).
     """
-    st.markdown("#### 📈 Z-Parameter Method  *(Gao [3] Ch. 5.5.1)*")
-    st.caption("NOTE: This method is only valid when devices are biased in the active or linear region.")
-    st.caption("Valid for emitter access/series resistance (Re) extraction.")
-    st.caption("NOT Valid for analysis of files with varying VCB.")
-    st.caption("Drawback: Not suitable for Rb and Rc (Gao Table 5.3, pg. 145).")
+    st.markdown(tr("#### 📈 Z-Parameter Method  *(Gao [3] Ch. 5.5.1)*",
+                   "#### 📈 Z 參數法  *(Gao [3] Ch. 5.5.1)*"))
+    st.caption(tr("NOTE: This method is only valid when devices are biased in the active or linear region.",
+                 "注意：此方法僅適用於元件偏壓於主動區或線性區時。"))
+    st.caption(tr("Valid for emitter access/series resistance (Re) extraction.",
+                 "適用於射極存取／串聯電阻（Re）萃取。"))
+    st.caption(tr("NOT Valid for analysis of files with varying VCB.",
+                 "不適用於 VCB 變動檔案的分析。"))
+    st.caption(tr("Drawback: Not suitable for Rb and Rc (Gao Table 5.3, pg. 145).",
+                 "缺點：不適用於 Rb 與 Rc（Gao Table 5.3，第 145 頁）。"))
     st.caption("Re(Z₁₂) = (ηkT/q)·(1/IE) + Re")
     st.latex(r"\mathrm{Re}(Z_{12})=\frac{\eta kT}{q}\cdot\frac{1}{I_E}+R_e")
 
 
     if not all_data:
-        st.info("No DUT files loaded."); return
+        st.info(tr("No DUT files loaded.", "尚未載入 DUT 檔案。")); return
 
     for fn in all_data:
         for suf, dv in [("use", True), ("Ie", 0.0)]:
@@ -68,7 +74,8 @@ def render_rz12_section(all_data, para_eff, fname):
     _lo_idx = max(1, int(np.searchsorted(f_ref, 0.01)))
     _freq_opts = f_ref[_lo_idx:_lo_idx + 100].astype(float).tolist()
     if not _freq_opts:
-        st.warning("No usable low-frequency points (>0.01 GHz) in the reference file.")
+        st.warning(tr("No usable low-frequency points (>0.01 GHz) in the reference file.",
+                      "參考檔案中沒有可用的低頻點（>0.01 GHz）。"))
         return
 
     # If a stale session value (e.g. from a different file with different
@@ -83,17 +90,19 @@ def render_rz12_section(all_data, para_eff, fname):
 
     col_fq, _ = st.columns([1, 2])
     f_extract = col_fq.selectbox(
-        "Z₁₂ freq (GHz)", options=_freq_opts,
+        tr("Z₁₂ freq (GHz)", "Z₁₂ 頻率 (GHz)"), options=_freq_opts,
         index=0,                               # default = lowest available point
         format_func=lambda v: f"{v:.4f} GHz",
         key=_sess_key,
-        help="Pick one of the 10 lowest measured frequencies — the "
-             "Z-parameter method assumes ω·R·C ≪ 1, so the lowest "
-             "available frequency is the safest default.")
+        help=tr("Pick one of the 10 lowest measured frequencies — the "
+                "Z-parameter method assumes ω·R·C ≪ 1, so the lowest "
+                "available frequency is the safest default.",
+                "請選擇 10 個最低量測頻率之一 — Z 參數法假設 ω·R·C ≪ 1，"
+                "因此最低可用頻率是最安全的預設值。"))
 
-    st.markdown("**Files:**")
+    st.markdown(tr("**Files:**", "**檔案：**"))
     for h, t in zip(st.columns([0.3,2.3,1.2,1.4,1.4]),
-                    ["","File","IE (mA)","Re(Z₁₂) (Ω)","Rbe*"]):
+                    ["", tr("File","檔案"), "IE (mA)","Re(Z₁₂) (Ω)","Rbe*"]):
         h.markdown(f"<small><b>{t}</b></small>", unsafe_allow_html=True)
 
     rez12_cache = {}
@@ -114,14 +123,15 @@ def render_rz12_section(all_data, para_eff, fname):
     for fn in sorted_fns:
         d = all_data[fn]
         c0,c1,c2,c3,c4 = st.columns([0.3,2.3,1.2,1.4,1.4])
-        use = c0.checkbox(f"Use {Path(fn).stem} in Z₁₂ fit",
+        use = c0.checkbox(tr(f"Use {Path(fn).stem} in Z₁₂ fit",
+                             f"於 Z₁₂ 擬合中使用 {Path(fn).stem}"),
                            key=f"rz12_use_{fn}__{fname}",
                            value=st.session_state[f"rz12_use_{fn}"],
                            label_visibility="collapsed")
         st.session_state[f"rz12_use_{fn}"] = use
         c1.markdown(f"<small>{Path(fn).stem}</small>", unsafe_allow_html=True)
         if not use: continue
-        Ie = c2.number_input(f"Ie for {Path(fn).stem}",
+        Ie = c2.number_input(tr(f"Ie for {Path(fn).stem}", f"{Path(fn).stem} 的 Ie"),
                               min_value=0.0, step=0.1, format="%.3f",
                               key=f"rz12_Ie_{fn}__{fname}",
                               value=float(st.session_state[f"rz12_Ie_{fn}"]),
@@ -134,10 +144,10 @@ def render_rz12_section(all_data, para_eff, fname):
             all_rez12.append((ReZ12, Path(fn).stem))
             if Ie > 0: points.append((1.0/(Ie*1e-3), ReZ12, Path(fn).stem))
         else:
-            c3.markdown(f"*err:{err}*")
+            c3.markdown(f"*{tr('err', '錯誤')}:{err}*")
 
     if not all_rez12:
-        st.caption("Enable files above to begin."); return
+        st.caption(tr("Enable files above to begin.", "請先勾選上方檔案以開始。")); return
 
     fig = go.Figure()
 
@@ -153,7 +163,7 @@ def render_rz12_section(all_data, para_eff, fname):
         y0 = np.array([p[0] for p in all_rez12])
         lbl0 = [p[1] for p in all_rez12]
         fig.add_trace(go.Scattergl(x=np.zeros(len(y0)), y=y0, mode="markers+text", text=lbl0,
-            textposition="top right", name="Re(Z₁₂) (no IE yet)",
+            textposition="top right", name=tr("Re(Z₁₂) (no IE yet)", "Re(Z₁₂)（尚無 IE）"),
             marker=dict(size=11, symbol="circle-open", color="#1f77b4",
                         line=dict(color="#0d4a7a", width=1.5))))
 
@@ -166,15 +176,15 @@ def render_rz12_section(all_data, para_eff, fname):
             x_fit = np.linspace(0, max(x)*1.08, 200)
             y_fit = slope*x_fit + Re_fit
             fig.add_trace(go.Scattergl(x=x_fit, y=y_fit, mode="lines",
-                name=f"Fit Re={Re_fit:.4f} Ω",
+                name=tr(f"Fit Re={Re_fit:.4f} Ω", f"擬合 Re={Re_fit:.4f} Ω"),
                 line=dict(color="#d62728", width=2, dash="dash")))
             fig.add_trace(go.Scattergl(x=[0], y=[Re_fit], mode="markers",
                 name=f"Re={Re_fit:.4f} Ω",
                 marker=dict(size=14, symbol="star", color="#d62728")))
         except Exception as ex:
-            st.error(f"Fit failed: {ex}")
+            st.error(tr(f"Fit failed: {ex}", f"擬合失敗：{ex}"))
     elif points:
-        st.caption("Need ≥ 2 files with IE for fit.")
+        st.caption(tr("Need ≥ 2 files with IE for fit.", "需要 ≥ 2 個含 IE 的檔案才能擬合。"))
 
     fig.update_layout(
         title=f"Re(Z₁₂) vs 1/IE @ {f_extract:.2f} GHz",
@@ -201,12 +211,13 @@ def render_rz12_section(all_data, para_eff, fname):
         st.session_state[f"rz12_Re_{fname}"] = Re_fit
 
         mc1, mc2 = st.columns(2)
-        mc1.metric("Re (intercept)", f"{Re_fit:.4f} Ω",
-                   delta=f"{Re_fit - para_eff.get('Rpe',0):+.4f} vs open-short")
+        mc1.metric(tr("Re (intercept)", "Re（截距）"), f"{Re_fit:.4f} Ω",
+                   delta=tr(f"{Re_fit - para_eff.get('Rpe',0):+.4f} vs open-short",
+                           f"{Re_fit - para_eff.get('Rpe',0):+.4f}（相對 open-short）"))
         if current_idx is not None:
             mc2.metric(f"Rbe ({current_stem})", f"{y[current_idx]-Re_fit:.4f} Ω")
         else:
-            mc2.info("Current file not in fit.")
+            mc2.info(tr("Current file not in fit.", "目前檔案未包含於擬合中。"))
     else:
         st.session_state.pop(f"rz12_Re_{fname}", None)
         st.session_state.pop(f"rz12_Rbe_{fname}", None)
@@ -217,39 +228,43 @@ def render_open_collector_section(all_data, para_eff, fname):
     Open-collector method: Re(Zij) vs 1/IB linear extrapolation → Rb, Rc, Re.
     Results written into session state as ocm_Rb/Rc/Re_{fname}.
     """
-    st.caption("NOTE: This method is only valid when devices are biased with high base current (Ib ≈ 10 ~ 100mA). With high Ib, Ic is assumed to be 0.")
-    st.caption("Valid for base/emitter/collector access/series resistance (Rb, Re, Rc) extraction.")
-    st.caption("Drawback: Assumption that Rbi tends to 0 (Gao, Table 5.3, pg. 145)")
+    st.caption(tr("NOTE: This method is only valid when devices are biased with high base current (Ib ≈ 10 ~ 100mA). With high Ib, Ic is assumed to be 0.",
+                 "注意：此方法僅適用於元件偏壓於高基極電流（Ib ≈ 10 ~ 100mA）時；高 Ib 時假設 Ic 為 0。"))
+    st.caption(tr("Valid for base/emitter/collector access/series resistance (Rb, Re, Rc) extraction.",
+                 "適用於基極／射極／集極存取／串聯電阻（Rb、Re、Rc）萃取。"))
+    st.caption(tr("Drawback: Assumption that Rbi tends to 0 (Gao, Table 5.3, pg. 145)",
+                 "缺點：假設 Rbi 趨近於 0（Gao, Table 5.3，第 145 頁）"))
     st.caption("Re(Z₁₁−Z₁₂) vs 1/IB → Rb,  Re(Z₂₂−Z₁₂) vs 1/IB → Rc,  Re(Z₁₂) vs 1/IB → Re")
     st.latex(r"\mathrm{Re}(Z_{11}-Z_{12})=R_b+f(I_B),\quad"
              r"\mathrm{Re}(Z_{22}-Z_{12})=R_c+f(I_B),\quad"
              r"\mathrm{Re}(Z_{12})=R_e+f(I_B)")
 
     if not all_data:
-        st.info("No DUT files loaded."); return
+        st.info(tr("No DUT files loaded.", "尚未載入 DUT 檔案。")); return
 
     for fn in all_data:
         for suf, dv in [("ocm_use", True), ("ocm_Ib", 0.0)]:
             gk = f"{suf}_{fn}"
             if gk not in st.session_state: st.session_state[gk] = dv
 
-    st.markdown("**Files:**")
+    st.markdown(tr("**Files:**", "**檔案：**"))
     hcols = st.columns([0.3, 2.0, 1.2, 1.4, 1.4, 1.4])
-    for h, t in zip(hcols, ["", "File", "IB (mA)",
+    for h, t in zip(hcols, ["", tr("File","檔案"), "IB (mA)",
                               "Re(Z11-Z12)", "Re(Z22-Z12)", "Re(Z12)"]):
         h.markdown(f"<small><b>{t}</b></small>", unsafe_allow_html=True)
 
     ocm_points = []  # (1/Ib, ReZ11Z12, ReZ22Z12, ReZ12, stem)
     for fn, d in all_data.items():
         c0, c1, c2, c3, c4, c5 = st.columns([0.3, 2.0, 1.2, 1.4, 1.4, 1.4])
-        use = c0.checkbox(f"Use {Path(fn).stem} in open-collector fit",
+        use = c0.checkbox(tr(f"Use {Path(fn).stem} in open-collector fit",
+                             f"於開路集極擬合中使用 {Path(fn).stem}"),
                           key=f"ocm_use_{fn}__{fname}",
                           value=st.session_state[f"ocm_use_{fn}"],
                           label_visibility="collapsed")
         st.session_state[f"ocm_use_{fn}"] = use
         c1.markdown(f"<small>{Path(fn).stem}</small>", unsafe_allow_html=True)
         if not use: continue
-        Ib = c2.number_input(f"Ib for {Path(fn).stem}",
+        Ib = c2.number_input(tr(f"Ib for {Path(fn).stem}", f"{Path(fn).stem} 的 Ib"),
                               min_value=0.0, step=0.1, format="%.3f",
                               key=f"ocm_Ib_{fn}__{fname}",
                               value=float(st.session_state[f"ocm_Ib_{fn}"]),
@@ -273,10 +288,10 @@ def render_open_collector_section(all_data, para_eff, fname):
                 ocm_points.append((1.0 / (Ib * 1e-3), v1, v2, v3,
                                    Path(fn).stem))
         except Exception as ex:
-            c3.markdown(f"*err:{ex}*")
+            c3.markdown(f"*{tr('err', '錯誤')}:{ex}*")
 
     if len(ocm_points) < 2:
-        st.caption("Need ≥ 2 files with IB for fit."); return
+        st.caption(tr("Need ≥ 2 files with IB for fit.", "需要 ≥ 2 個含 IB 的檔案才能擬合。")); return
 
     xo   = np.array([p[0] for p in ocm_points])
     y1o  = np.array([p[1] for p in ocm_points])
@@ -299,17 +314,17 @@ def render_open_collector_section(all_data, para_eff, fname):
                 marker=dict(size=10, color=color)))
             fig_o.add_trace(go.Scattergl(
                 x=x_fit_o, y=sl * x_fit_o + ic, mode="lines",
-                name=f"{name.split('→')[1].strip()} intercept={ic:.4f} Ω",
+                name=f"{name.split('→')[1].strip()} {tr('intercept', '截距')}={ic:.4f} Ω",
                 line=dict(color=color, width=1.5, dash="dash")))
             fig_o.add_trace(go.Scattergl(
                 x=[0], y=[ic], mode="markers",
                 marker=dict(size=12, symbol="star", color=color),
-                name=f"intercept {ic:.4f} Ω", showlegend=False))
+                name=f"{tr('intercept', '截距')} {ic:.4f} Ω", showlegend=False))
         except Exception:
             pass
 
     fig_o.update_layout(
-        title="Open-collector: Re(Zij) vs 1/IB",
+        title=tr("Open-collector: Re(Zij) vs 1/IB", "開路集極：Re(Zij) vs 1/IB"),
         xaxis=dict(title="1/IB (A⁻¹)", rangemode="tozero",
                    showgrid=True, gridcolor="#ebebeb"),
         yaxis=dict(title="Re(Zij) (Ω)", showgrid=True, gridcolor="#ebebeb"),
@@ -325,9 +340,9 @@ def render_open_collector_section(all_data, para_eff, fname):
         Rc_ocm = float(np.polyfit(xo, y2o, 1)[1])
         Re_ocm = float(np.polyfit(xo, y3o, 1)[1])
         oc1, oc2, oc3 = st.columns(3)
-        oc1.metric("Rb (intercept)", f"{Rb_ocm:.4f} Ω")
-        oc2.metric("Rc (intercept)", f"{Rc_ocm:.4f} Ω")
-        oc3.metric("Re (intercept)", f"{Re_ocm:.4f} Ω")
+        oc1.metric(tr("Rb (intercept)", "Rb（截距）"), f"{Rb_ocm:.4f} Ω")
+        oc2.metric(tr("Rc (intercept)", "Rc（截距）"), f"{Rc_ocm:.4f} Ω")
+        oc3.metric(tr("Re (intercept)", "Re（截距）"), f"{Re_ocm:.4f} Ω")
         st.session_state[f"ocm_Rb_{fname}"] = Rb_ocm
         st.session_state[f"ocm_Rc_{fname}"] = Rc_ocm
         st.session_state[f"ocm_Re_{fname}"] = Re_ocm
@@ -357,43 +372,50 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
     batch handover.  Defaults to a loaded file with "cold" in its name.
     """
 
-    st.caption("Used to extract series/access resistances Rb, Rc. Use a cut-off bias (Vce=0, Vbe≤0) 'cold' S2P.")
-    st.caption("Drawback: High-frequency measurement (Gao, Table 5.3, pg. 145)")
+    st.caption(tr("Used to extract series/access resistances Rb, Rc. Use a cut-off bias (Vce=0, Vbe≤0) 'cold' S2P.",
+                 "用於萃取串聯／存取電阻 Rb、Rc。請使用截止偏壓（Vce=0, Vbe≤0）的 'cold' S2P。"))
+    st.caption(tr("Drawback: High-frequency measurement (Gao, Table 5.3, pg. 145)",
+                 "缺點：需要高頻量測（Gao, Table 5.3，第 145 頁）"))
 
     # ── Cold source: a loaded bias file or a fresh upload ─────────────────────
     _candidates = [f for f in (all_data or {}) if f != fname]
     _default_cold = next((f for f in _candidates if "cold" in f.lower()), None)
     cold_src = None  # (freq, S, z0)
 
+    # Emoji prefixes are load-bearing (`src_mode.startswith("📂")` below), so
+    # they stay identical across languages — only the trailing text localizes.
     if _candidates:
-        _opts = ["📂 From loaded files", "⬆️ Upload"]
+        _opts = [tr("📂 From loaded files", "📂 從已載入檔案"), tr("⬆️ Upload", "⬆️ 上傳")]
         src_mode = segmented_radio(
-            "Cold-HBT source", _opts,
+            tr("Cold-HBT source", "Cold-HBT 來源"), _opts,
             index=0 if _default_cold is not None else 1,
             key=f"cold_src_mode_{fname}",
-            help="Pick one of the already-loaded bias files (e.g. a 'cold' "
-                 "cut-off measurement) or upload a separate S2P.")
+            help=tr("Pick one of the already-loaded bias files (e.g. a 'cold' "
+                    "cut-off measurement) or upload a separate S2P.",
+                    "選擇一個已載入的偏壓檔案（例如 'cold' 截止量測），"
+                    "或上傳另一份 S2P。"))
     else:
-        src_mode = "⬆️ Upload"
+        src_mode = tr("⬆️ Upload", "⬆️ 上傳")
 
     if src_mode.startswith("📂"):
         _sel_default = _default_cold or _candidates[0]
         _sel_key = f"cold_loaded_sel_{fname}"
         if st.session_state.get(_sel_key) not in _candidates:
             st.session_state[_sel_key] = _sel_default
-        sel = st.selectbox("Cold file (from loaded DUTs)", _candidates,
+        sel = st.selectbox(tr("Cold file (from loaded DUTs)", "Cold 檔案（來自已載入 DUT）"),
+                           _candidates,
                            format_func=lambda s: Path(s).stem, key=_sel_key)
         _d = (all_data or {}).get(sel)
         if _d is not None:
             cold_src = (_d["freq"], _d["S_raw"], _d["z0"])
     else:
-        cold_file = st.file_uploader("Cold HBT S2P", type=["s2p"],
+        cold_file = st.file_uploader(tr("Cold HBT S2P", "Cold HBT S2P 檔案"), type=["s2p"],
                                      key=f"cold_upload_{fname}")
         if cold_file is not None:
             try:
                 cold_src = parse_s2p_bytes(cold_file.getvalue())
             except Exception as e:                          # noqa: BLE001
-                st.error(f"Could not read cold S2P: {e}")
+                st.error(tr(f"Could not read cold S2P: {e}", f"無法讀取 cold S2P：{e}"))
 
     if cold_src is None:
         return None
@@ -411,7 +433,9 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
     has_short = (Lb != 0.0) or (Lc != 0.0) or (Le != 0.0)
     has_re    = re_zparam is not None
 
-    st.markdown("**Parasitics being subtracted from Z_cor** (editable — defaults to extracted values)")
+    st.markdown(tr(
+        "**Parasitics being subtracted from Z_cor** (editable — defaults to extracted values)",
+        "**從 Z_cor 中扣除的寄生參數**（可編輯 — 預設為萃取值）"))
 
     def _cold_input(container, label, key, init_disp, fmt, step,
                     arr_si=None, scale=1.0, unit=""):
@@ -433,9 +457,11 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown("<small><b>Pad caps (Open)</b></small>", unsafe_allow_html=True)
+        st.markdown(tr("<small><b>Pad caps (Open)</b></small>",
+                       "<small><b>焊墊電容（Open）</b></small>"), unsafe_allow_html=True)
         if not has_open:
-            st.caption("⚠️ no Open file — defaulting to 0 fF")
+            st.caption(tr("⚠️ no Open file — defaulting to 0 fF",
+                         "⚠️ 無 Open 檔案 — 預設為 0 fF"))
         Cpce_in = _cold_input(c1, "Cpce (fF)", f"cold_Cpce_in_{fname}",
                               Cpce*1e15, "%.3f", 0.1,
                               arr_si=(open_arr or {}).get("Cpce"),
@@ -452,9 +478,11 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
         Cpbe = Cpbe_in * 1e-15
         Cpbc = Cpbc_in * 1e-15
     with c2:
-        st.markdown("<small><b>Series L (Short)</b></small>", unsafe_allow_html=True)
+        st.markdown(tr("<small><b>Series L (Short)</b></small>",
+                       "<small><b>串聯電感（Short）</b></small>"), unsafe_allow_html=True)
         if not has_short:
-            st.caption("⚠️ no Short file — defaulting to 0 pH")
+            st.caption(tr("⚠️ no Short file — defaulting to 0 pH",
+                         "⚠️ 無 Short 檔案 — 預設為 0 pH"))
         Lb_in = _cold_input(c2, "Lb (pH)", f"cold_Lb_in_{fname}",
                             Lb*1e12, "%.3f", 0.1,
                             arr_si=(short_arr or {}).get("Lb"),
@@ -471,9 +499,11 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
         Le = Le_in * 1e-12
         Lc = Lc_in * 1e-12
     with c3:
-        st.markdown("<small><b>Re (Z-param)</b></small>", unsafe_allow_html=True)
+        st.markdown(tr("<small><b>Re (Z-param)</b></small>",
+                       "<small><b>Re（Z 參數）</b></small>"), unsafe_allow_html=True)
         if not has_re:
-            st.caption("⚠️ Z-param fit unavailable — defaulting to 0 Ω")
+            st.caption(tr("⚠️ Z-param fit unavailable — defaulting to 0 Ω",
+                         "⚠️ Z 參數擬合不可用 — 預設為 0 Ω"))
         # No per-frequency array for Re here → quickset is skipped (scalar fit).
         Re_v = st.number_input("Re (Ω)", value=float(Re_v),
                                format="%.4f", step=0.01,
@@ -491,7 +521,8 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
             f_grid = f_o
             if len(f_c_raw) != len(f_o) or not np.allclose(f_c_raw, f_o, rtol=1e-4):
                 S_c_use = interpolate_s2f(f_c_raw, S_c_raw, f_o)
-                st.info("Cold S2P interpolated to Open grid.")
+                st.info(tr("Cold S2P interpolated to Open grid.",
+                           "Cold S2P 已內插至 Open 頻率網格。"))
             else:
                 S_c_use = S_c_raw
         else:
@@ -517,9 +548,10 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
         Z_cor[:,0,1] -= 1j*omega_c*Le        + Re_v
         Z_cor[:,1,0] -= 1j*omega_c*Le        + Re_v
 
-        z12_choice = segmented_radio("Use for Z₁₂ in intermediate quantities:",
-                                     ["Z12", "Z21"],
-                                     key=f"cold_z12sel_{fname}")
+        z12_choice = segmented_radio(
+            tr("Use for Z₁₂ in intermediate quantities:", "中間量計算中 Z₁₂ 使用："),
+            ["Z12", "Z21"],
+            key=f"cold_z12sel_{fname}")
         Z12_sel = Z_cor[:,0,1] if z12_choice == "Z12" else Z_cor[:,1,0]
         A = np.imag(Z_cor[:,0,0] - Z12_sel)
         B = np.imag(Z_cor[:,1,1] - Z12_sel)
@@ -543,8 +575,9 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
             Rc_arr  = np.real((Z_cor[:,1,1]-Z12_sel) -
                               np.where(np.abs(den_rc)>1e-40, 1.0/den_rc, np.nan+0j))
 
-        with st.expander("📊 Intermediate quantities A, B, C, D vs frequency", expanded=False):
-            st.markdown("**Definitions**")
+        with st.expander(tr("📊 Intermediate quantities A, B, C, D vs frequency",
+                            "📊 中間量 A、B、C、D 對頻率"), expanded=False):
+            st.markdown(tr("**Definitions**", "**定義**"))
             st.latex(r"[Z_{cor}]=[Y_{cold}-Y_{open}]^{-1}")
             st.latex(r"A=\mathrm{Im}(Z_{11}-Z_{12}),\quad B=\mathrm{Im}(Z_{22}-Z_{12}),\quad C=\mathrm{Re}(Z_{12})")
             st.latex(r"D=\frac{AB+\sqrt{A^2B^2+4ABC^2}}{2C^2}")
@@ -567,7 +600,7 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
             st.pyplot(fig_abcd)
             plt.close(fig_abcd)
 
-        with st.expander("📊 Interactive Parameter Extraction", expanded=False):
+        with st.expander(tr("📊 Interactive Parameter Extraction", "📊 互動式參數萃取"), expanded=False):
             f_ghz_c = f_grid * 1e-9
             f_min_v = float(f_ghz_c[0])
             f_max_v = float(f_ghz_c[-1])
@@ -595,7 +628,7 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
                 if sl_key not in st.session_state:
                     st.session_state[sl_key] = (f_min_v, f_max_v)
                 f_lo, f_hi = col_w.slider(
-                    "Frequency range (GHz)",
+                    tr("Frequency range (GHz)", "頻率範圍 (GHz)"),
                     min_value=f_min_v, max_value=f_max_v,
                     value=st.session_state[sl_key],
                     step=step_v, format="%.2f",
@@ -632,7 +665,7 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
                         annotation_font=dict(size=9, color="#d62728"))
                 fig.update_layout(
                     title=dict(text=label, font=dict(size=12)),
-                    xaxis_title="Frequency (GHz)",
+                    xaxis_title=tr("Frequency (GHz)", "頻率 (GHz)"),
                     yaxis_title=f"{label} ({unit})" if unit else label,
                     plot_bgcolor="white", paper_bgcolor="white", height=240,
                     margin=dict(l=50, r=60, t=35, b=40),
@@ -672,8 +705,8 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
 
             # ── Step 2: Cex ─────────────────────────────────────────────────
             # Depends only on A, B, C, D (all from Z_cor — no user-set upstream)
-            st.markdown("**Step 2 — Cex**")
-            st.caption("Depends on: A, B, C, D only")
+            st.markdown(tr("**Step 2 — Cex**", "**步驟 2 — Cex**"))
+            st.caption(tr("Depends on: A, B, C, D only", "取決於：僅 A、B、C、D"))
             col_cex, _ = st.columns(2)
             Cex_scalar = _cold_plot(col_cex, Cex_arr, "Cex_cold", "Cex", 1e15, "fF", [
                 ("md",    "**Cex** [Gao §5.5.2]"),
@@ -686,8 +719,8 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
             # upstream_tag = Cex value → widget key changes when Cex changes
             #   → input resets to new median automatically.
             st.divider()
-            st.markdown("**Step 3 — Cbc, Rbi**")
-            st.caption("Depend on: Cex")
+            st.markdown(tr("**Step 3 — Cbc, Rbi**", "**步驟 3 — Cbc、Rbi**"))
+            st.caption(tr("Depend on: Cex", "取決於：Cex"))
             up_cex = f"{Cex_scalar:.6e}"
             with np.errstate(divide="ignore", invalid="ignore"):
                 Cbc_arr_live = CbcCex_arr - Cex_scalar
@@ -712,8 +745,8 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
             # ── Step 4: Cbe ─────────────────────────────────────────────────
             # Depends on Cex, Cbc, Rbi scalars. Array recomputed live.
             st.divider()
-            st.markdown("**Step 4 — Cbe**")
-            st.caption("Depends on: Cex, Cbc, Rbi")
+            st.markdown(tr("**Step 4 — Cbe**", "**步驟 4 — Cbe**"))
+            st.caption(tr("Depends on: Cex, Cbc, Rbi", "取決於：Cex、Cbc、Rbi"))
             up_s3 = f"{Cex_scalar:.6e}_{Cbc_scalar:.6e}_{Rbi_scalar:.6e}"
             with np.errstate(divide="ignore", invalid="ignore"):
                 num_cbe      = Rbi_scalar * Cex_scalar
@@ -736,8 +769,8 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
             # ── Step 5: Rb, Rc ──────────────────────────────────────────────
             # Depend on Cex, Cbc, Rbi scalars. Arrays recomputed live.
             st.divider()
-            st.markdown("**Step 5 — Rb, Rc**")
-            st.caption("Depend on: Cex, Cbc, Rbi")
+            st.markdown(tr("**Step 5 — Rb, Rc**", "**步驟 5 — Rb、Rc**"))
+            st.caption(tr("Depend on: Cex, Cbc, Rbi", "取決於：Cex、Cbc、Rbi"))
             with np.errstate(divide="ignore", invalid="ignore"):
                 den_rb_l = (Cex_scalar + Cbc_scalar
                             + 1j * omega_c * Rbi_scalar * Cbc_scalar * Cex_scalar)
@@ -769,10 +802,13 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
             cold_res["Rc_cold"] = Rc_scalar
 
         # ── Model fit verification plots ─────────────────────────────────────
-        with st.expander("📊 Cold-HBT Model Fit Verification", expanded=False):
-            st.caption(
+        with st.expander(tr("📊 Cold-HBT Model Fit Verification", "📊 冷 HBT 模型擬合驗證"),
+                         expanded=False):
+            st.caption(tr(
                 "Measured Z_cor vs model reconstructed from extracted parameters.  \n"
-                "A good fit confirms the extracted values are self-consistent.")
+                "A good fit confirms the extracted values are self-consistent.",
+                "量測 Z_cor 與由萃取參數重建之模型比較。  \n"
+                "擬合良好可確認萃取值彼此自洽。"))
             f_GHz    = f_grid / 1e9
             Zex_m    = 1.0 / (1j * omega_c * cold_res["Cex_cold"])
             Zbc_m    = 1.0 / (1j * omega_c * cold_res["Cbc_cold"])
@@ -818,5 +854,5 @@ def _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
 
         return cold_res
     except Exception as e:
-        st.error(f"Cold-HBT failed: {e}")
+        st.error(tr(f"Cold-HBT failed: {e}", f"冷 HBT 失敗：{e}"))
         return None
