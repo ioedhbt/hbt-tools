@@ -14,3 +14,4 @@ __pycache__/
 # The compiled .pyd / .so files under tools/SSM/rust_kernels/bin/<arch>/
 # ARE tracked — they're the whole point of the build script.
 tools/SSM/rust_kernels/target/
+s2p/

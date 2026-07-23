@@ -34,6 +34,73 @@ the SSM index) in the same change.
 
 ---
 
+## AI-agent fitting API (`tools/SSM/agent_api.py`)
+
+**Start here if you are an AI agent or script that needs to fit measured
+S-parameter data to an SSM model programmatically.** This module is a
+headless (no Streamlit UI) entry point into the same extraction/fitting
+engine the app uses — load a `.s2p`/`.csv`, pick a built-in model (or build a
+custom one), and fit it, all as plain function calls returning dicts / numpy
+arrays in SI units. Importing it transitively imports Streamlit (works fine
+without a `ScriptRunContext`), but the module itself never calls `st.*`.
+
+**Header-driven de-embedding awareness:** `.s2p` files this app writes carry
+leading `!` comment lines stating what was done to the data — e.g.
+[`s2p/deemb_preext_vce3.5_ib280u.s2p`](s2p/deemb_preext_vce3.5_ib280u.s2p)'s
+header lists `Cpbe/Cpce/Cpbc` (pad caps) and `Lb/Lc/Le` (lead inductances)
+with `Rb=Rc=Re=0.0`, meaning the pad caps + lead inductances have **already
+been removed** from that S-parameter data (only the access resistances were
+left in). `load_data()` parses that header into `meta` (`deembedded`,
+`removed_params`, `status`), and `fit()` reads it to **automatically freeze
+Cpbe/Cpce/Cpbc/Lb/Lc/Le at 0** during the fit — the key convenience this
+gives an agent: point it at a de-embedded file and it fits the right
+parameter subset without being told which ones to skip. A file with no such
+header is treated as raw/measured data — every parasitic should be fitted
+(or de-embedded first through the Streamlit app).
+
+**Compute backend — CUDA > Rust > NumPy:** `simulate()`/`fit()` take
+`backend="auto"` (default), which prefers a CUDA GPU (cupy), then the
+project's Rust kernels (`helpers/rust_kernels.py`), then falls back to
+NumPy; pass `"cuda"`/`"rust"`/`"numpy"` to force one (gracefully falling
+back with a note when unavailable). `fit()`'s result dict includes
+`backend` (and `backend_note` on fallback). `python tools/SSM/agent_api.py
+backend` reports what's available and what `auto` resolves to on this
+machine.
+
+| Function | Purpose |
+|---|---|
+| `load_data(path)` | Parse a `.s2p`/`.csv` → `{freq, S, z0, header_lines, meta}`; `meta` carries the de-embedding interpretation above. |
+| `list_models()` | Built-in model SHORT → full name (from `tools.SSM.models.REGISTRY`), plus a note on custom-model support. |
+| `param_specs(model)` | Every parameter `model` accepts, as `(key, label, si_scale, unit)` — builtin SHORT or a custom model. |
+| `simulate(model, params, freq, z0=50.0, backend="auto")` | Forward-simulate `S[N,2,2]` from an SI-unit `params` dict (missing keys fall back to physics-informed defaults). |
+| `residuals(S_meas, S_model)` | `{Total, S11, S12, S21, S22}` residual in % — the exact metric the Streamlit UI shows. |
+| `fit(data, model, initial=None, fit_keys=None, fixed=None, bounds=None, method="auto", maxiter=400, backend="auto")` | Fit `model` to `data` (from `load_data()`) → `{params, residuals, success, n_evals, message, backend}`. Auto-freezes de-embedded parasitics per the header (see above) unless `fit_keys`/`fixed` are given explicitly. |
+| `backend_status()` | Snapshot of CUDA/Rust availability + what `"auto"` resolves to — backs the `backend` CLI subcommand. |
+| `build_custom_model(base="Cheng T", modifications=None, name=None)` | Start a `CustomModel` from a built-in topology (`custom_model.core.builtin_custom_model`) and apply edits. |
+| `add_series_element` / `add_parallel_element` / `add_shunt_branch` / `add_parallel_to_shunt` | Thin wrappers to add R/L/C components to a `CustomModel`'s junction/section Networks or shunt branches — e.g. a Cce cap collector↔emitter, or Rbcx parallel to Cbcx. |
+| `save_custom_model(model, path)` | Serialise a `CustomModel` to an explicit JSON path. `fit()`/`simulate()` also accept the `CustomModel` object (or dict) directly — no save/reload round-trip required. |
+
+Python usage:
+
+```python
+from tools.SSM.agent_api import load_data, fit
+
+data = load_data("s2p/deemb_preext_vce3.5_ib280u.s2p")
+result = fit(data, model="T", maxiter=3000)   # Cheng T-topology
+print(result["residuals"]["Total"], result["params"])
+```
+
+CLI usage (run from the repo root, or pass absolute paths — the CLI
+bootstraps `sys.path` to the repo root itself either way):
+
+```bash
+python tools/SSM/agent_api.py inspect s2p/deemb_preext_vce3.5_ib280u.s2p
+python tools/SSM/agent_api.py backend
+python tools/SSM/agent_api.py fit s2p/deemb_preext_vce3.5_ib280u.s2p --model T --maxiter 3000 --out result.json
+```
+
+---
+
 ## Entry points & launchers
 
 ### `IOED_Tool_Web.py` — Streamlit portal entry point

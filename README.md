@@ -76,6 +76,24 @@ The UI is bilingual (English / 中文) — toggle at the top right.
 
 ---
 
+## AI-agent / scripting API
+
+Need to fit `.s2p`/`.csv` data to an SSM model (built-in or custom) from a
+script or AI agent, without the Streamlit UI? Use
+[`tools/SSM/agent_api.py`](tools/SSM/agent_api.py) — see
+[`INDEX.md`](INDEX.md#ai-agent-fitting-api-toolsssmagent_apipy) for the full
+function table and usage examples. It reads the same de-embedding-status
+`!` header the app writes, so pointing it at an already de-embedded file
+automatically freezes the removed pad/lead parasitics during the fit.
+Fitting uses CUDA (cupy) > the project's Rust kernels > NumPy automatically
+(`backend="auto"`, override with `backend=`/`--backend`).
+
+```bash
+python tools/SSM/agent_api.py fit s2p/deemb_preext_vce3.5_ib280u.s2p --model T --out result.json
+```
+
+---
+
 ## Documentation
 
 | Doc | What's inside |
