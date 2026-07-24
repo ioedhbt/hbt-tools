@@ -55,15 +55,15 @@ with st.expander(f"{i18n.t('whats_new')} · v{__version__}", expanded=False):
         "完整紀錄請見 [`CHANGELOG.md`](CHANGELOG.md)。"
     ))
 
-with st.expander(i18n.t("how_it_works"), expanded=False):
-    from tools.diagrams import pipeline_png
-    st.image(pipeline_png((
-        ("Upload",   "DUT s2p / csv"),
-        ("De-embed", "pads"),
-        ("Extract",  "Cheng T / π"),
-        ("Review",   "Smith · residual"),
-        ("Hand off", "→ Sim & Fitting"),
-    ), accent="#d62728"), width="stretch")
+# with st.expander(i18n.t("how_it_works"), expanded=False):
+#     from tools.diagrams import pipeline_png
+#     st.image(pipeline_png((
+#         ("Upload",   "DUT s2p / csv"),
+#         ("De-embed", "pads"),
+#         ("Extract",  "Cheng T / π"),
+#         ("Review",   "Smith · residual"),
+#         ("Hand off", "→ Sim & Fitting"),
+#     ), accent="#d62728"), width="stretch")
 
 
 # ═════════════════════════════════════════════════════════════════════════════

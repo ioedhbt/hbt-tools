@@ -22,6 +22,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from tools import i18n
+from tools import dc_handoff
+from tools.SSM.helpers import segmented_radio
 
 
 # =================================================
@@ -212,18 +214,18 @@ def range_inputs(container, label, key, default, lo, hi):
 
 
 # =================================================
-# Sidebar
+# Page selector (top of page)
 # =================================================
-st.sidebar.title(i18n.tr("Navigation", "導覽"))
 # Values stay English — `page` is compared against these literals below;
 # only the on-screen label localizes (reusing the same titles as the
 # in-page st.title calls for consistency).
 _PAGE_OPTS = ["B1500A Viewer", "TLM Analysis"]
 _PAGE_LABELS = {"B1500A Viewer": i18n.t("b1500a_viewer"), "TLM Analysis": i18n.t("b1500a_tlm")}
-page = st.sidebar.selectbox(
+page = segmented_radio(
     i18n.tr("Select Page", "選擇頁面"),
     _PAGE_OPTS,
-    format_func=lambda p: _PAGE_LABELS[p]
+    format_func=lambda p: _PAGE_LABELS[p],
+    key="b1500a_page_seg"
 )
 
 # =================================================
@@ -234,34 +236,107 @@ if page == "B1500A Viewer":
     st.title(i18n.t("b1500a_viewer"))
     st.caption(i18n.tool_desc("b1500a"))
 
-    with st.expander(i18n.t("how_it_works"), expanded=False):
-        from tools.diagrams import pipeline_png
-        st.image(pipeline_png((
-            ("Upload",  "xlsx"),
-            ("Select",  "sheet · type"),
-            ("Extract", "η · β · V_early"),
-            ("Plot",    "I–V"),
-        ), accent="#1f77b4"), width="stretch")
+    # with st.expander(i18n.t("how_it_works"), expanded=False):
+    #     from tools.diagrams import pipeline_png
+    #     st.image(pipeline_png((
+    #         ("Upload",  "xlsx"),
+    #         ("Select",  "sheet · type"),
+    #         ("Extract", "η · β · V_early"),
+    #         ("Plot",    "I–V"),
+    #     ), accent="#1f77b4"), width="stretch")
+
+    # --- one-shot consume any files handed off from the Multi-Process page ---
+    _h = dc_handoff.take()
+    if _h:
+        st.session_state.setdefault("dc_recv_files", [])
+        # de-dup by name; append received payload files
+        existing = {f["name"] for f in st.session_state["dc_recv_files"]}
+        for f in _h:
+            if f["name"] not in existing:
+                st.session_state["dc_recv_files"].append(f)
+    recv_files = st.session_state.get("dc_recv_files", [])
+
+    if recv_files:
+        st.info(i18n.tr(
+            f"Received {len(recv_files)} file(s) from Multi-Process",
+            f"已從批次處理接收 {len(recv_files)} 個檔案"
+        ))
+        if st.button(i18n.tr("🗑️ Clear received data", "🗑️ 清除接收的資料")):
+            st.session_state.pop("dc_recv_files", None)
+            st.rerun()
 
     st.subheader(i18n.t("b1500a_step1"))
-    uploaded = st.file_uploader(i18n.tr("Upload Excel file (.xlsx)", "上傳 Excel 檔 (.xlsx)"), type=["xlsx"])
-    if not uploaded:
+    uploaded_files = st.file_uploader(
+        i18n.tr("Upload Excel file(s) (.xlsx)", "上傳 Excel 檔 (.xlsx)"),
+        type=["xlsx"], accept_multiple_files=True
+    )
+
+    # --- build a unified list of sources: uploads + received handoff files ---
+    sources = []
+    for u in uploaded_files or []:
+        xls = pd.ExcelFile(u)
+        lname = u.name.lower()
+        if "gummel" in lname:
+            dtype_default = "Gummel"
+        elif "family" in lname:
+            dtype_default = "Family"
+        else:
+            dtype_default = "Diode"
+        sources.append({
+            "id": f"up::{u.name}",
+            "label": u.name,
+            "sheets": xls.sheet_names,
+            "get_df": (lambda s, xls=xls: xls.parse(s)),
+            "dtype_default": dtype_default,
+        })
+    for j, r in enumerate(recv_files):
+        # Each received file is a type-group workbook: {sheet_name: DataFrame}.
+        _sheets_map = r["sheets"]
+        sources.append({
+            "id": f"rx::{j}::{r['name']}",
+            "label": r["name"],
+            "sheets": list(_sheets_map.keys()),
+            "get_df": (lambda s, m=_sheets_map: m[s]),
+            "dtype_default": r["dtype"],
+        })
+
+    if not sources:
+        st.info(i18n.tr(
+            "Upload one or more Excel files, or send data here from the "
+            "Multi-Process page.",
+            "請上傳一個以上的 Excel 檔，或從量測資料批次處理頁面傳送資料。"
+        ))
         st.stop()
 
     st.subheader(i18n.t("b1500a_step2"))
-    xls = pd.ExcelFile(uploaded)
-    sheet = st.selectbox(i18n.tr("Select sheet", "選擇工作表"), xls.sheet_names)
-    df = xls.parse(sheet)
+    # Select over stable string ids (NOT the freshly-built source dicts): the
+    # dicts carry lambda closures / ExcelFile handles whose identity changes
+    # every rerun, so passing them as options with a key would break selection
+    # persistence.  Repair a stale selection (a file removed since last run)
+    # before the widget is created so Streamlit never sees an out-of-options
+    # value.
+    _src_by_id = {s["id"]: s for s in sources}
+    if st.session_state.get("b1500a_file_sel") not in _src_by_id:
+        st.session_state.pop("b1500a_file_sel", None)
+    _sel_id = st.selectbox(
+        i18n.tr("Select file", "選擇檔案"),
+        list(_src_by_id.keys()),
+        format_func=lambda i: _src_by_id[i]["label"], key="b1500a_file_sel"
+    )
+    sel = _src_by_id[_sel_id]
 
-    name = f"{uploaded.name} — {sheet}".lower()
-
-    # Auto data type
-    if "gummel" in name:
-        default = "Gummel"
-    elif "family" in name:
-        default = "Family"
+    if len(sel["sheets"]) > 1:
+        sheet = st.selectbox(i18n.tr("Select sheet", "選擇工作表"), sel["sheets"])
     else:
-        default = "Diode"
+        sheet = sel["sheets"][0]
+
+    df = sel["get_df"](sheet)
+
+    name = f"{sel['label']} — {sheet}".lower()
+    # Stable per-source/-sheet id used to namespace all box-selection state
+    # below (η window, Rsat window, …) so switching files in the dropdown
+    # doesn't reuse another file's selection.
+    src_id = f"{sel['id']}::{sheet}"
 
     # Values stay English — `dtype` is compared against these literals
     # throughout the blocks below; only the on-screen label localizes.
@@ -270,7 +345,7 @@ if page == "B1500A Viewer":
     dtype = st.selectbox(
         i18n.tr("Data type", "資料類型"),
         _DTYPE_OPTS,
-        index=_DTYPE_OPTS.index(default),
+        index=_DTYPE_OPTS.index(sel["dtype_default"]),
         format_func=lambda d: i18n.tr(d, _DTYPE_ZH[d])
     )
 
@@ -289,7 +364,7 @@ if page == "B1500A Viewer":
         # live in the results container below
         plot_area = st.container()
 
-        diode_key = f"diode_sel_{uploaded.name}_{sheet}"
+        diode_key = f"diode_sel_{src_id}"
 
         with st.container(border=True):
             st.subheader(i18n.tr("Extracted parameters", "萃取參數"))
@@ -396,7 +471,7 @@ if page == "B1500A Viewer":
         # ideality container below
         plot_area = st.container()
 
-        gummel_key = f"gummel_sel_{uploaded.name}_{sheet}"
+        gummel_key = f"gummel_sel_{src_id}"
 
         with st.container(border=True):
             st.subheader(i18n.tr("Ideality factors (η)", "理想因子 (η)"))
@@ -483,7 +558,7 @@ if page == "B1500A Viewer":
         # output-region container below
         plot_area = st.container()
 
-        family_key = f"family_sel_{uploaded.name}_{sheet}"
+        family_key = f"family_sel_{src_id}"
 
         with st.container(border=True):
             st.subheader(i18n.tr("Output-region parameters", "輸出區參數"))
@@ -562,6 +637,45 @@ if page == "B1500A Viewer":
                 "actually cross zero.",
                 "將滑鼠移到任一曲線上，可讀取其偏移電壓（Ic 過零點）與"
                 "直流電流增益 β。上方平均值僅計入實際穿越零點的曲線。"
+            ))
+
+        with st.container(border=True):
+            st.subheader(i18n.tr("Transconductance (gm ≈ Ic/Vt)", "轉導 (gm ≈ Ic/Vt)"))
+            T = st.number_input(
+                i18n.tr("Temperature T (K)", "溫度 T (K)"),
+                value=300.0, min_value=1.0, key=f"gm_T_{family_key}"
+            )
+            Vt = 1.380649e-23 * T / 1.602176634e-19  # kT/q
+
+            gm_rows = []
+            gm_vals = []
+            for c in ic_cols:
+                ic_line = df[c].astype(float)
+                sat_mask = vc >= 0.8 * vc.max()
+                sat_ic = ic_line[sat_mask].mean() if sat_mask.any() else np.nan
+                gm = abs(sat_ic) / Vt if np.isfinite(sat_ic) and Vt > 0 else np.nan
+                gm_rows.append({
+                    "Ib": fmt_current(ib_vals[c]),
+                    "Ic_sat": fmt_current(sat_ic),
+                    "gm": f"{gm * 1e3:.3g} mS" if np.isfinite(gm) else "—",
+                })
+                gm_vals.append(gm)
+
+            gm_finite = [g for g in gm_vals if np.isfinite(g)]
+            gm_max = max(gm_finite) if gm_finite else np.nan
+            st.metric(
+                i18n.tr("Peak transconductance gm(max)", "最大轉導 gm(max)"),
+                f"{gm_max * 1e3:.3g} mS" if np.isfinite(gm_max) else "—"
+            )
+
+            with st.expander(i18n.tr("Per-curve gm table", "各曲線 gm 表")):
+                st.dataframe(pd.DataFrame(gm_rows), width="stretch")
+
+            st.caption(i18n.tr(
+                "gm = Ic/Vt is a first-order estimate assuming ideal exponential "
+                "Ic(Vbe); Vt = kT/q. Evaluated at the saturation Ic of each Ib step.",
+                "gm = Ic/Vt 為一階估計，假設理想指數 Ic(Vbe)；Vt = kT/q。"
+                "取各 Ib 階梯飽和區 Ic 計算。"
             ))
 
 # =================================================

@@ -10,6 +10,7 @@ __version__ = "1.0"
 import streamlit as st
 
 from tools import i18n
+from tools import dc_handoff
 import pandas as pd
 import numpy as np
 import io
@@ -442,6 +443,43 @@ if page == "B1500A Smart Batch Tool":
             i18n.tr("📊 Download grouped files by measurement type", "📊 依量測類型下載分組檔案"),
             data=zip_buf2.getvalue(),
             file_name="B1500A_Grouped_By_Type.zip", mime="application/zip")
+
+        # --- Hand off to DC Analysis, GROUPED BY MEASUREMENT TYPE ---------------
+        # Send one workbook per type (mirrors the "grouped by measurement type"
+        # ZIP above): each payload entry is a multi-sheet file where every sheet
+        # is one measurement.  In DC Analysis the file dropdown then lists the
+        # types and the sheet picker lists the measurements within each type.
+        _VIEWER_DTYPE = {"Family": "Family", "Gummel": "Gummel", "BE": "Diode", "BC": "Diode"}
+        _GROUP_NAME = {"Family": "IcVc_Family.xlsx", "BE": "BE_Diode.xlsx",
+                       "BC": "BC_Diode.xlsx", "Gummel": "Gummel.xlsx"}
+        payload = []
+        for gtype, items in type_files.items():
+            if gtype not in _VIEWER_DTYPE or not items:
+                continue
+            sheets = {}
+            for fname, df in items:
+                base = sanitize_sheet_name(fname.rsplit(".", 1)[0]) or "Sheet"
+                sheet, _k = base, 2
+                while sheet in sheets:          # keep every measurement's sheet
+                    sheet = f"{base[:28]}_{_k}"  # (dict would silently drop dups)
+                    _k += 1
+                sheets[sheet] = df
+            payload.append({"name": _GROUP_NAME[gtype], "sheets": sheets,
+                            "dtype": _VIEWER_DTYPE[gtype]})
+        skipped = sum(len(v) for k, v in type_files.items()
+                      if k not in _VIEWER_DTYPE)
+        if st.button(i18n.tr("🔬 Analyze Data in DC Analysis", "🔬 在 DC 分析中檢視"), type="primary"):
+            if not payload:
+                st.warning(i18n.tr(
+                    "No Family/Gummel/BE/BC files to analyze (TLM/Other are skipped).",
+                    "沒有可分析的 Family/Gummel/BE/BC 檔案（TLM/Other 已略過）。"))
+            else:
+                dc_handoff.send(payload)
+                st.switch_page(dc_handoff.PAGE_DC_ANALYSIS)
+        if skipped:
+            st.caption(i18n.tr(
+                f"{skipped} TLM/Other file(s) skipped — not viewer-compatible.",
+                f"已略過 {skipped} 個 TLM/Other 檔案 — 檢視器不支援此類型。"))
 
 elif page == "B1500A Column Selection & Batch":
     st.header(i18n.tr("R307B B1500A CSV Batch Processing Tool", "R307B B1500A CSV 批次處理工具"))

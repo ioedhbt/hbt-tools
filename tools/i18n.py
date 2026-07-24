@@ -123,7 +123,7 @@ TOOLS: dict[str, dict] = {
     },
     "b1500a": {
         "icon": "📊", "group": "dc", "path": "tools/B1500A_Plot.py",
-        "en": "B1500A Plot & TLM", "zh": "B1500A 繪圖與 TLM",
+        "en": "DC Analysis", "zh": "DC 分析",
         "desc_en": "View B1500A Excel data, extract parameters, and run TLM analysis.",
         "desc_zh": "檢視 B1500A Excel 資料、萃取參數並進行 TLM 分析。",
     },

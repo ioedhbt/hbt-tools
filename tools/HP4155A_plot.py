@@ -18,13 +18,13 @@ from tools import i18n
 st.title(i18n.title("hp4155a"))
 st.caption(i18n.tool_desc("hp4155a"))
 
-with st.expander(i18n.t("how_it_works"), expanded=False):
-    from tools.diagrams import pipeline_png
-    st.image(pipeline_png((
-        ("① Assign SMU", "roles"),
-        ("② Data File",  "upload"),
-        ("③ Plot",       "I–V curves"),
-    ), accent="#1f77b4"), width="stretch")
+# with st.expander(i18n.t("how_it_works"), expanded=False):
+#     from tools.diagrams import pipeline_png
+#     st.image(pipeline_png((
+#         ("① Assign SMU", "roles"),
+#         ("② Data File",  "upload"),
+#         ("③ Plot",       "I–V curves"),
+#     ), accent="#1f77b4"), width="stretch")
 
 # =================================================
 # Session state

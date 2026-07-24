@@ -41,6 +41,7 @@ from tools.SSM.helpers        import (
     metric_card, build_excel, load_cal,
     xlsx_bytes_to_tsv, copy_button, frames_to_tsv,
     rust_parse_and_compute_batch,
+    segmented_radio,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -65,18 +66,18 @@ with st.expander(f"{i18n.t('whats_new')} · v{__version__}", expanded=False):
         "完整歷史請見 [`CHANGELOG.md`](CHANGELOG.md)。"
     ))
 
-with st.expander(i18n.t("how_it_works"), expanded=False):
-    from tools.diagrams import pipeline_png
-    # Labels stay English: pipeline_png() rasterizes them with matplotlib
-    # (tools/diagrams.py, not this file) using a Latin-only default font, so
-    # CJK text would render as missing-glyph boxes.
-    st.image(pipeline_png((
-        ("Upload",      "S2P / CSV"),
-        ("De-embed",    "Open · Short · Thru"),
-        ("Metrics",     "|h21|² · U · K"),
-        ("Extrapolate", "fT · fmax"),
-        ("Charts",      "Smith · Bode"),
-    ), accent="#d62728"), width="stretch")
+# with st.expander(i18n.t("how_it_works"), expanded=False):
+    # from tools.diagrams import pipeline_png
+    # # Labels stay English: pipeline_png() rasterizes them with matplotlib
+    # # (tools/diagrams.py, not this file) using a Latin-only default font, so
+    # # CJK text would render as missing-glyph boxes.
+    # st.image(pipeline_png((
+    #     ("Upload",      "S2P / CSV"),
+    #     ("De-embed",    "Open · Short · Thru"),
+    #     ("Metrics",     "|h21|² · U · K"),
+    #     ("Extrapolate", "fT · fmax"),
+    #     ("Charts",      "Smith · Bode"),
+    # ), accent="#d62728"), width="stretch")
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  CORE RF UTILITIES — moved to tools/SSM/helpers/ (rf_math, s2p_io,
@@ -246,13 +247,14 @@ with st.sidebar:
 # ═════════════════════════════════════════════════════════════════════════════
 #  FILE UPLOADER & PROCESSING
 # ═════════════════════════════════════════════════════════════════════════════
-col_up1,col_up2=st.columns([4,1])
+# Uploader + "Clear uploads" share one row; bottom-aligning the columns lines
+# the button up with the base of the dropzone (no manual st.write() spacers).
+col_up1,col_up2=st.columns([4,1],vertical_alignment="bottom")
 with col_up1:
     dut_files=st.file_uploader(i18n.tr("Upload DUT .s2p / .csv files","上傳 DUT .s2p / .csv 檔案"),type=["s2p","csv"],
                                accept_multiple_files=True,
                                key=st.session_state["rf_uploader_key"])
 with col_up2:
-    st.write(""); st.write("")
     if st.button(i18n.t("clear_uploads"),width="stretch"):
         st.session_state["rf_uploader_key"]+=1
         st.session_state.pop("rf_ms_files",None)
@@ -435,21 +437,8 @@ for fname,err in errors.items():
 
 if all_data:
     file_options=list(all_data.keys())
-    cur=set(file_options); prev=st.session_state.get("rf_prev_uploaded",set())
-    new_=cur-prev
-    sel=[f for f in st.session_state.get("rf_ms_files",[]) if f in cur]
-    for nf in new_:
-        if nf not in sel: sel.append(nf)
-    st.session_state["rf_ms_files"]=sel
-    st.session_state["rf_prev_uploaded"]=cur
-
-    c1,c2,_=st.columns([1.5,1.5,7])
-    if c1.button(i18n.tr("✅ Select All","✅ 全選")):  st.session_state["rf_ms_files"]=file_options
-    if c2.button(i18n.tr("❌ Clear","❌ 清除")):       st.session_state["rf_ms_files"]=[]
-    selected_files=st.multiselect(i18n.tr("📂 Files to analyse:","📂 待分析檔案:"),options=file_options,
-                                  key="rf_ms_files",format_func=lambda x:Path(x).stem,
-                                  placeholder=i18n.tr("Choose options",
-                                                      "請選擇項目"))
+    # Every uploaded file is analysed by default — no per-file selector.
+    selected_files=file_options
 else:
     selected_files=[]
     st.info(i18n.tr("Upload DUT .s2p files above to begin.","請於上方上傳 DUT .s2p 檔案以開始。"))
@@ -589,6 +578,14 @@ with tab_ind:
         # the visibility is toggled), so with N files a single slider drag would
         # re-run all N pipelines. A selectbox conditionally renders only the
         # selected file's body, so cost no longer scales with N.
+        # The Summary tab's nav button may have queued a file to open here.
+        # Apply it *before* the selectbox is instantiated — Streamlit only lets
+        # you seed a widget's session_state key pre-instantiation. tab_ind runs
+        # earlier in the script than tab_sum, so the queue is read on the rerun
+        # the button triggers.
+        _pending=st.session_state.pop("_pending_active_file",None)
+        if _pending in selected_files:
+            st.session_state["active_file_n"]=_pending
         n=st.selectbox(
             i18n.tr("📁 Active file", "📁 目前檔案"),
             options=selected_files,
@@ -615,15 +612,33 @@ with tab_ind:
             if method=="Extrap & Plat.": return f"{v_pl:.3f} GHz" if np.isfinite(v_pl) else "N/A"
             return "N/A"
 
+        _f_card = df_p["Freq (GHz)"].values
+        _nf_card = len(_f_card)
+
+        # Extrapolation only makes sense while the gain trace is still above
+        # 0 dB at the last measured point — that's exactly the case the
+        # −20 dB/dec and single-pole overlays project toward the 0-dB crossing.
+        # Once a trace has already dropped to/below 0 dB inside the band the
+        # overlays draw nothing, so default their checkboxes off.  Evaluated on
+        # the fT (|h21|²) and fmax (Mason U) traces the overlays actually apply
+        # to; ticked when either still sits above 0 dB at the final frequency.
+        def _last_gain_above_0db(col_name):
+            if col_name not in df_p.columns or _nf_card == 0:
+                return False
+            y = df_p[col_name].values
+            m = np.isfinite(y)
+            return bool(m.any() and float(y[m][-1]) > 0.0)
+
+        _extrap_default = (_last_gain_above_0db("|h21|² (dB)")
+                           or _last_gain_above_0db("Mason U (dB)"))
+
         # Mirror the Bode tab's extrapolation controls on the fT/fmax cards.
         # The Bode tab's widgets render later in this rerun, but their
         # session_state keys persist from the previous rerun, so reading
         # them here matches what the tab is about to display.
-        _show20_card = st.session_state.get(f"bode_show20_{n}", True)
-        _showsp_card = st.session_state.get(f"bode_showsp_{n}", False)
+        _show20_card = st.session_state.get(f"bode_show20_{n}", _extrap_default)
+        _showsp_card = st.session_state.get(f"bode_showsp_{n}", _extrap_default)
         _sp_win_card = st.session_state.get(f"bode_spwin_{n}", None)
-        _f_card = df_p["Freq (GHz)"].values
-        _nf_card = len(_f_card)
 
         def _extrap_f0(col_name):
             f0_20 = f0_sp = None
@@ -713,14 +728,14 @@ with tab_ind:
             bc1, bc2 = st.columns([1, 1])
             show_20db = bc1.checkbox(
                 i18n.tr("Show −20 dB/dec extrapolation", "顯示 −20 dB/dec 外插線"),
-                value=True, key=f"bode_show20_{n}",
+                value=_extrap_default, key=f"bode_show20_{n}",
                 help=i18n.tr("Anchors a line of slope −20 dB/dec at the last "
                              "measured point (textbook fT/fmax extraction).",
                              "於最後一個量測點錨定斜率 −20 dB/dec 的直線"
                              "（教科書式 fT/fmax 萃取法）。"))
             show_sp = bc2.checkbox(
                 i18n.tr("Show single-pole fit", "顯示單極點擬合"),
-                value=False, key=f"bode_showsp_{n}",
+                value=_extrap_default, key=f"bode_showsp_{n}",
                 help=i18n.tr("Log-linear (single-pole) least-squares fit on a "
                              "user-chosen window — slope is determined by the data.",
                              "於使用者選定的區間內進行對數線性（單極點）最小平方擬合"
@@ -868,20 +883,32 @@ with tab_ind:
         # ── Send this device to the SSM pages (no re-upload) ─────────────────
         with st.container(border=True):
             st.markdown(f"**🔁 {i18n.tr('Send this device to an SSM page', '將此元件傳送至 SSM 頁面')}**")
-            _has_deemb = d.get("S_fin") is not None and bool(d.get("De-embedding"))
-            hs1, hs2, hs3 = st.columns([1.4, 1, 1])
-            # Values stay English ("De-embedded"/"Raw") — stage_lbl is
-            # compared against them below; only the label localizes.
-            _stage_opts = (["De-embedded", "Raw"] if _has_deemb else ["Raw"])
-            _stage_labels_zh = {"De-embedded": "去嵌入後", "Raw": "原始"}
-            stage_lbl = hs1.selectbox(
-                i18n.tr("S-parameters to send", "傳送的 S 參數"), _stage_opts, key=f"hand_stage_{n}",
-                format_func=lambda s: i18n.tr(s, _stage_labels_zh[s]),
-                help=i18n.tr("De-embedded = pads/leads removed (fit intrinsic only). "
-                             "Raw = probe-level (fit Cpxx / Lx parasitics too).",
-                             "去嵌入後 = 已移除 pad/引線（僅擬合本質元件）。"
-                             "原始 = 探針層級（同時擬合 Cpxx / Lx 寄生參數）。"))
-            _use_deemb = (stage_lbl == "De-embedded")
+            # `De-embedding` is the note "" / "None" when no de-embed stage
+            # fired (and S_fin then just aliases S_raw), so test the note itself
+            # rather than S_fin (which is always non-None).
+            _has_deemb = str(d.get("De-embedding") or "None") not in ("", "None")
+            # Only offer the De-embedded / Raw choice when a de-embedding file
+            # was actually uploaded — otherwise only raw S-parameters exist, so
+            # the selector would be a pointless single "Raw" chip.  Hide it and
+            # just send raw.
+            if _has_deemb:
+                hs1, hs2, hs3 = st.columns([1.4, 1, 1])
+                # Values stay English ("De-embedded"/"Raw") — stage_lbl is
+                # compared against them below; only the label localizes.
+                _stage_labels_zh = {"De-embedded": "去嵌入後", "Raw": "原始"}
+                with hs1:
+                    stage_lbl = segmented_radio(
+                        i18n.tr("S-parameters to send", "傳送的 S 參數"),
+                        ["De-embedded", "Raw"], key=f"hand_stage_seg_{n}",
+                        format_func=lambda s: i18n.tr(s, _stage_labels_zh[s]),
+                        help=i18n.tr("De-embedded = pads/leads removed (fit intrinsic only). "
+                                     "Raw = probe-level (fit Cpxx / Lx parasitics too).",
+                                     "去嵌入後 = 已移除 pad/引線（僅擬合本質元件）。"
+                                     "原始 = 探針層級（同時擬合 Cpxx / Lx 寄生參數）。"))
+                _use_deemb = (stage_lbl == "De-embedded")
+            else:
+                hs2, hs3 = st.columns(2)
+                _use_deemb = False
             _S_send = d["S_fin"] if _use_deemb else d["S_raw"]
             _stage = "deembedded" if _use_deemb else "raw"
             if hs2.button(i18n.tr("→ SSM Extraction", "→ 小訊號模型萃取"), key=f"hand_ext_{n}",
@@ -920,9 +947,36 @@ with tab_sum:
                "fmax U Cross":d["fmax U Cross/Extrap (GHz)"],"fmax U Plat":d["fmax U Plateau (GHz)"]}
               for k,d in all_data.items()]
         sum_df=pd.DataFrame(rows)
+        # Drop columns that carry no information — every value null / None / blank
+        # (e.g. no de-embedding on any file, or no Ib recorded). "File" is always
+        # kept so the nav button below can resolve a selected row to its device.
+        _nullish=sum_df.replace({"None":pd.NA,"":pd.NA})
+        sum_df=sum_df[[c for c in sum_df.columns
+                       if c=="File" or _nullish[c].notna().any()]]
         fmt={c:"{:.4f}" for c in sum_df.columns if "Cross" in c or "Plat" in c}
-        fmt["Vce (V)"]="{:.3f}"; fmt["Ib (µA)"]="{:.1f}"
-        st.dataframe(sum_df.style.format(fmt,na_rep="—"),width="stretch",hide_index=True)
+        if "Vce (V)" in sum_df.columns: fmt["Vce (V)"]="{:.3f}"
+        if "Ib (µA)" in sum_df.columns: fmt["Ib (µA)"]="{:.1f}"
+        # Sortable table (click the fT / fmax headers to rank) with single-row
+        # select. Picking a row reveals a button that jumps to that device's
+        # Individual tab — so the user can rank by fT/fmax here, then dive
+        # straight into the highest/lowest one.
+        _sum_evt=st.dataframe(sum_df.style.format(fmt,na_rep="—"),
+                              width="stretch",hide_index=True,
+                              on_select="rerun",selection_mode="single-row",
+                              key="sum_sel_table")
+        _sel=_sum_evt.selection.rows if _sum_evt.selection else []
+        if _sel:
+            _sel_file=sum_df.iloc[_sel[0]]["File"]; _stem=Path(_sel_file).stem
+            if st.button(i18n.tr(f"📁 Open “{_stem}” in the Individual tab →",
+                                 f"📁 於單一檔案分頁開啟「{_stem}」→"),
+                         key="sum_goto_ind",type="primary",width="stretch"):
+                st.session_state["_pending_active_file"]=_sel_file
+                st.session_state["_goto_individual"]=True
+                st.rerun()
+        else:
+            st.caption(i18n.tr("Tip: sort by clicking a header, then select a row "
+                               "to open that file in the Individual tab.",
+                               "提示：點欄位標題排序，再選取一列即可於單一檔案分頁開啟該檔。"))
         date=datetime.now().strftime("%Y-%m-%d")
         d1,d2,d3=st.columns(3)
         with d1:
@@ -942,6 +996,43 @@ with tab_sum:
                                mime="application/zip",width="stretch")
         with d3:
             copy_button(frames_to_tsv([("Summary",sum_df)]),key="sum_copy")
+
+        # The nav button queued the file (read by tab_ind, which runs earlier)
+        # and reran. Streamlit has no API to switch st.tabs, so nudge the DOM
+        # from the component iframe: click the top-level Individual tab. It's the
+        # only tab whose label carries 📁 (inner Bode/Plateau/Smith tabs don't)
+        # so the match is language-agnostic; index-1 is a fallback. We POLL
+        # because the tab-list may not be mounted yet the instant the iframe
+        # loads, and stamp a nonce so Streamlit remounts the iframe (re-runs the
+        # script) on every navigation. st.iframe embeds a raw HTML string in a
+        # same-origin srcdoc iframe, so window.parent.document stays reachable.
+        if st.session_state.pop("_goto_individual",False):
+            st.iframe(
+                """<script>
+                (function(){
+                  var pdoc;
+                  try { pdoc = window.parent.document; } catch(e){ return; }
+                  var tries = 0;
+                  var timer = setInterval(function(){
+                    tries++;
+                    var tabs = pdoc.querySelectorAll('[role="tab"]');
+                    var target = Array.prototype.find.call(tabs, function(b){
+                      return b.innerText.indexOf('📁') !== -1;
+                    });
+                    if (!target) {
+                      var lists = pdoc.querySelectorAll('[role="tablist"]');
+                      if (lists.length) target = lists[0].querySelectorAll('[role="tab"]')[1];
+                    }
+                    if (target && target.getAttribute('aria-selected') !== 'true') {
+                      target.click();
+                    }
+                    if ((target && target.getAttribute('aria-selected') === 'true') || tries > 60) {
+                      clearInterval(timer);
+                    }
+                  }, 50);
+                })();
+                </script>
+                <!-- nonce %s -->""" % (datetime.now().timestamp(),), height=0)
 
 with tab_bd:
     render_batch_deembedding_tab(

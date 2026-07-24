@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <!-- Vendored Plotly.js (matches the installed `plotly` Python package) so
+       the component works fully offline — no CDN. Served from this folder by
+       Streamlit's component static server. -->
+  <script src="./plotly.min.js" charset="utf-8"></script>
+  <style>
+    html, body { margin: 0; padding: 0; font-family: sans-serif; }
+    #wrap { position: relative; width: 100%; }
+    #chart { width: 100%; }
+    /* Overlay covers the plot; only the label chips capture the mouse, so
+       each label is an independent draggable element — dragging one can never
+       move another (the whole point of not using Plotly editable annotations,
+       whose shared engine re-projects every annotation on an equal-aspect
+       drag). */
+    #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+               pointer-events: none; }
+    .lbl { position: absolute; transform: translate(-50%, -50%);
+           pointer-events: auto; cursor: grab; white-space: nowrap;
+           user-select: none; -webkit-user-select: none; padding: 1px 3px;
+           border-radius: 3px; line-height: 1.1; }
+    .lbl:hover { outline: 1px dashed rgba(0,0,0,0.35);
+                 background: rgba(255,255,255,0.35); }
+    .lbl.drag { cursor: grabbing; background: rgba(255,255,255,0.6); }
+    #err { color: #b00; font-size: 13px; padding: 8px; display: none; }
+  </style>
+</head>
+<body>
+  <div id="wrap"><div id="chart"></div><div id="overlay"></div></div>
+  <div id="err"></div>
+  <script>
+    // ── Minimal Streamlit component bridge (no streamlit-component-lib build) ──
+    const READY  = "streamlit:componentReady";
+    const RENDER = "streamlit:render";
+    const VALUE  = "streamlit:setComponentValue";
+    const HEIGHT = "streamlit:setFrameHeight";
+    function post(type, extra) {
+      window.parent.postMessage(
+        Object.assign({ isStreamlitMessage: true, type: type }, extra || {}), "*");
+    }
+    function setValue(v)  { post(VALUE,  { value: v, dataType: "json" }); }
+    function setHeight(h) { post(HEIGHT, { height: h }); }
+
+    const chart   = () => document.getElementById("chart");
+    const overlay = () => document.getElementById("overlay");
+
+    let _labels = [];        // [{x,y,text,color,size,idx,el}]
+    let _height = 560;
+    let _wired  = false;
+
+    // ── Plotly data <-> pixel mapping (relative to the chart div) ──────────────
+    function axes() {
+      const fl = chart() && chart()._fullLayout;
+      if (!fl || !fl.xaxis || !fl.yaxis) return null;
+      return { xa: fl.xaxis, ya: fl.yaxis };
+    }
+    function d2p(x, y) {
+      const a = axes(); if (!a) return null;
+      return { px: a.xa._offset + a.xa.d2p(x), py: a.ya._offset + a.ya.d2p(y) };
+    }
+    function p2d(px, py) {
+      const a = axes(); if (!a) return null;
+      return { x: a.xa.p2d(px - a.xa._offset), y: a.ya.p2d(py - a.ya._offset) };
+    }
+    function positionLabels() {
+      _labels.forEach(function (L) {
+        if (!L.el) return;
+        const p = d2p(L.x, L.y);
+        if (!p) return;
+        L.el.style.left = p.px + "px";
+        L.el.style.top  = p.py + "px";
+      });
+    }
+
+    // ── Single shared drag state → only the grabbed label ever moves ──────────
+    let _active = null, _sx = 0, _sy = 0, _ox = 0, _oy = 0;
+    window.addEventListener("mousemove", function (ev) {
+      if (!_active) return;
+      _active.el.style.left = (_ox + (ev.clientX - _sx)) + "px";
+      _active.el.style.top  = (_oy + (ev.clientY - _sy)) + "px";
+    });
+    window.addEventListener("mouseup", function () {
+      if (!_active) return;
+      const L = _active; _active = null;
+      L.el.classList.remove("drag");
+      const px = parseFloat(L.el.style.left), py = parseFloat(L.el.style.top);
+      const d = p2d(px, py);
+      if (!d) return;
+      L.x = d.x; L.y = d.y;                       // keep local truth in data coords
+      setValue({ index: L.idx, x: d.x, y: d.y, nonce: Date.now() });
+    });
+
+    function makeLabel(L, idx) {
+      const el = document.createElement("div");
+      el.className = "lbl";
+      el.textContent = L.text;
+      el.style.color = L.color || "#000";
+      el.style.fontSize = (L.size || 16) + "px";
+      el.addEventListener("mousedown", function (ev) {
+        _active = L; L.el = el; L.idx = idx;
+        el.classList.add("drag");
+        _sx = ev.clientX; _sy = ev.clientY;
+        _ox = parseFloat(el.style.left); _oy = parseFloat(el.style.top);
+        ev.preventDefault(); ev.stopPropagation();
+      });
+      L.el = el; L.idx = idx;
+      overlay().appendChild(el);
+    }
+
+    function draw(figure, labels, height) {
+      _height = height || 560;
+      // Copy so our local x/y edits never alias Streamlit's args.
+      _labels = (labels || []).map(function (L) { return Object.assign({}, L); });
+      const data   = (figure && figure.data)   || [];
+      const layout = (figure && figure.layout) || {};
+      layout.height = _height;
+      const config = { displayModeBar: false, responsive: true,
+                       scrollZoom: false, editable: false, staticPlot: false,
+                       doubleClick: false, dragmode: false };
+      Plotly.react(chart(), data, layout, config).then(function () {
+        overlay().innerHTML = "";
+        _labels.forEach(function (L, i) { makeLabel(L, i); });
+        positionLabels();
+        if (!_wired) {
+          chart().on("plotly_afterplot", positionLabels);
+          window.addEventListener("resize", positionLabels);
+          _wired = true;
+        }
+        setHeight(_height);
+      });
+    }
+
+    window.addEventListener("message", function (event) {
+      const data = event.data;
+      if (!data || data.type !== RENDER) return;
+      try {
+        const args = data.args || {};
+        draw(args.figure, args.labels, args.height);
+      } catch (e) {
+        const el = document.getElementById("err");
+        el.style.display = "block";
+        el.textContent = "draggable_smith error: " + (e && e.message ? e.message : e);
+      }
+    });
+
+    post(READY, { apiVersion: 1 });
+    setHeight(_height);
+  </script>
+</body>
+</html>

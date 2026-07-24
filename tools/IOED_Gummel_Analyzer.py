@@ -18,14 +18,14 @@ if "gummel_uploader_key" not in st.session_state:
 st.title(i18n.title("gummel"))
 st.caption(i18n.tool_desc("gummel"))
 
-with st.expander(i18n.t("how_it_works"), expanded=False):
-    from tools.diagrams import pipeline_png
-    st.image(pipeline_png((
-        ("Upload",     "sim Gummel CSV"),
-        ("Overlay",    "vs UIUC ref"),
-        ("Ideality n", "real-time"),
-        ("Summary",    "table"),
-    ), accent="#9467bd"), width="stretch")
+# with st.expander(i18n.t("how_it_works"), expanded=False):
+#     from tools.diagrams import pipeline_png
+#     st.image(pipeline_png((
+#         ("Upload",     "sim Gummel CSV"),
+#         ("Overlay",    "vs UIUC ref"),
+#         ("Ideality n", "real-time"),
+#         ("Summary",    "table"),
+#     ), accent="#9467bd"), width="stretch")
 
 UIUC_CSV_STRING = """gummel_Ib,,gummel_Ic,,gummel_beta,
 Vbase,Ib,Vbase,Ic,Vbase,Beta

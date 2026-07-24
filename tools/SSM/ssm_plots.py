@@ -1295,6 +1295,20 @@ def _sync_text_to_mult(skey: str, sp: str) -> None:
         sp, st.session_state.get(f"{skey}_mult_{sp}"))
 
 
+def _ctrl_section(text: str) -> None:
+    """Consistent uppercase section header for the Smith-chart control panel.
+
+    Every control group (appearance, trace styling, per-S-param, annotations)
+    opens with one of these so the panel reads as a set of labelled cards
+    instead of loose, ungrouped widgets.
+    """
+    st.markdown(
+        "<div style='margin:0 0 8px 0;font-size:0.72rem;font-weight:700;"
+        "color:#6b7280;letter-spacing:.06em;text-transform:uppercase'>"
+        + text + "</div>",
+        unsafe_allow_html=True)
+
+
 def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                             topo_key: str = "", *,
                             sets=None, default_multiplier=1.0,
@@ -1457,6 +1471,37 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         _resolve_color(f"{skey}_text_color_{sp}",
                        _hex_darken_init(_MPL_SMITH_COLORS[sp]))
 
+    # ── Commit hand-dragged label positions from the "Drag labels" component ──
+    # The drag component's value is already in session_state at the TOP of the
+    # run its drag triggers, so we read it HERE — before the x/y number_input
+    # widgets exist (writes allowed) and before the labels are rebuilt — so the
+    # dragged position lands in the SAME run.  (Reading it later, after the
+    # component call, committed one run late and the label visibly bounced back
+    # to its pre-drag spot.)  ``_drag_order`` (stored by the chart phase) maps
+    # the component's label index to its state key, matching the labels that
+    # were on screen when the drag happened.  A nonce gate applies each drag
+    # once, so it never clobbers a later manual x/y edit, and positions persist
+    # when the toggle is switched off.  The freq caption is not a draggable
+    # label, so it is never moved.
+    _dc = st.session_state.get(f"{skey}_drag_chart")
+    _dorder = st.session_state.get(f"{skey}_drag_order")
+    if (isinstance(_dc, dict) and "index" in _dc and _dorder
+            and _dc.get("nonce") != st.session_state.get(f"{skey}_drag_applied_nonce")):
+        try:
+            _di = int(_dc["index"])
+            if 0 <= _di < len(_dorder):
+                _dkind, _dk = _dorder[_di]
+                _dpx, _dpy = float(_dc["x"]), float(_dc["y"])
+                if _dkind == "sp":
+                    st.session_state[f"{skey}_x_{_dk}"] = _dpx
+                    st.session_state[f"{skey}_y_{_dk}"] = _dpy
+                elif _dkind == "extra":
+                    st.session_state[f"{skey}_ex_{_dk}"] = _dpx
+                    st.session_state[f"{skey}_ey_{_dk}"] = _dpy
+            st.session_state[f"{skey}_drag_applied_nonce"] = _dc.get("nonce")
+        except (TypeError, ValueError, KeyError):
+            pass
+
     # ── Follow the companion Plotly Smith multiplier ─────────────────────────
     # ``default_multiplier`` doubles as a live sync source: the RF / SSM tools
     # pass the same per-trace multiplier the user edits next to their Plotly
@@ -1522,13 +1567,82 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     _run_controls = phase in ("controls", "both")
     _run_chart    = phase in ("chart",    "both")
 
-    # ── Smith chart background thickness + grid density + text size ─────────
+    # Draggable Plotly preview toggle — read from session_state up front so
+    # both phases see the same value: the "controls" call below owns the
+    # widget (and re-reads it fresh after instantiating it); the "chart"
+    # call never creates the widget, so this session_state read is its only
+    # way to know whether the preview is on.
+    drag_on = bool(st.session_state.get(f"{skey}_drag_preview", False))
+
+    # ── Chart appearance panel: line/grid thickness, grid density, text size,
+    #    and the global coloring mode — grouped in one bordered card so these
+    #    canvas-wide settings read as a unit instead of loose top-of-page
+    #    number inputs. ────────────────────────────────────────────────────
+    _PER_SET_DEFAULT_COLORS = {"Measured": "#0201f0", "Modeled": "#b50000"}
+    has_measured = any(s.get("label") == "Measured" for s in sets)
+
+    _COLOR_MODE_PER_TRACE = "trace"
+    _COLOR_MODE_PER_SET   = "bicolor"
+    _COLOR_MODE_CUSTOM    = "custom"
+
+    color_mode = _COLOR_MODE_PER_TRACE
     if _run_controls:
-        c_smith, c_grid, c_density, c_textsize = st.columns(4)
-        smith_lw = c_smith.number_input(tr("Line thickness", "線寬"),
-                                        min_value=0.1, max_value=5.0, value=3.0,
-                                        step=0.1, format="%.2f",
-                                        key=f"{skey}_smith_lw")
+        with st.container(border=True):
+            _ctrl_section(tr("Chart appearance", "圖表外觀"))
+            c_smith, c_grid, c_density, c_textsize = st.columns(4)
+            smith_lw = c_smith.number_input(tr("Line thickness", "線寬"),
+                                            min_value=0.1, max_value=5.0, value=3.0,
+                                            step=0.1, format="%.2f",
+                                            key=f"{skey}_smith_lw")
+            grid_lw  = c_grid.number_input(tr("Grid thickness", "格線線寬"),
+                                           min_value=0.1, max_value=5.0, value=1.0,
+                                           step=0.1, format="%.2f",
+                                           key=f"{skey}_grid_lw")
+            grid_density = c_density.number_input(
+                tr("Grid circles", "格線圓數"),
+                min_value=_SMITH_GRID_MIN, max_value=_SMITH_GRID_MAX,
+                value=_SMITH_GRID_DEFAULT, step=1,
+                help=tr("Number of constant-R circles to draw.  Positions are "
+                        "recomputed (evenly-spaced radii) for each value.",
+                        "要繪製的等電阻圓數量。每次改值都會重新計算圓的位置"
+                        "（半徑等間距分布）。"),
+                key=f"{skey}_grid_count")
+            text_size = c_textsize.number_input(
+                tr("Text size", "文字大小"), min_value=4.0, max_value=48.0, value=18.0,
+                step=1.0, format="%.1f",
+                help=tr("Font size for all on-chart text annotations "
+                        "(S-param labels + free text).",
+                        "圖上所有文字標註的字級（S 參數標籤 + 自由文字）。"),
+                key=f"{skey}_text_size")
+
+            # Global coloring mode lives in the same panel — it decides which
+            # colour pickers appear in the trace-styling / per-S-param tables
+            # below.  Option VALUES stay the canonical "trace"/"bicolor"/
+            # "custom" codes (compared below and persisted in session_state);
+            # only the chip label localizes via format_func.
+            if has_measured:
+                _color_mode_labels = {
+                    _COLOR_MODE_PER_TRACE: tr("trace", "依 S 參數"),
+                    _COLOR_MODE_PER_SET:   tr("bicolor", "雙色"),
+                    _COLOR_MODE_CUSTOM:    tr("custom", "自訂"),
+                }
+                color_mode = segmented_radio(
+                    tr("Coloring mode", "配色模式"),
+                    [_COLOR_MODE_PER_TRACE, _COLOR_MODE_PER_SET,
+                     _COLOR_MODE_CUSTOM],
+                    key=f"{skey}_color_mode",
+                    format_func=lambda m: _color_mode_labels.get(m, m),
+                    help=tr("**trace** — each S-param has its own color, shared "
+                            "across all sets.  \n"
+                            "**bicolor** — each set (Measured / Modeled) has one "
+                            "color, shared across its four S-params.  \n"
+                            "**custom** — pick a color independently for every "
+                            "(set, S-param) combination; defaults give measured "
+                            "the legacy palette and modeled a darker version.",
+                            "**依 S 參數** — 每個 S 參數各有顏色，所有資料組共用。  \n"
+                            "**雙色** — 每組（量測 / 模型）各一色，四個 S 參數共用。  \n"
+                            "**自訂** — 每個（資料組, S 參數）組合各自挑色；預設量測用"
+                            "原色盤、模型用較深版本。"))
     else:
         # Chart-only phase — read previously-set widget values direct from
         # session_state and skip widget creation entirely.
@@ -1537,69 +1651,8 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         grid_density = int(st.session_state.get(f"{skey}_grid_count",
                                                   _SMITH_GRID_DEFAULT))
         text_size    = float(st.session_state.get(f"{skey}_text_size", 18.0))
-    if _run_controls:
-        grid_lw  = c_grid.number_input(tr("Grid thickness", "格線線寬"),
-                                       min_value=0.1, max_value=5.0, value=1.0,
-                                       step=0.1, format="%.2f",
-                                       key=f"{skey}_grid_lw")
-        grid_density = c_density.number_input(
-            tr("Grid circles", "格線圓數"),
-            min_value=_SMITH_GRID_MIN, max_value=_SMITH_GRID_MAX,
-            value=_SMITH_GRID_DEFAULT, step=1,
-            help=tr("Number of constant-R circles to draw.  Positions are "
-                    "recomputed (evenly-spaced radii) for each value.",
-                    "要繪製的等電阻圓數量。每次改值都會重新計算圓的位置"
-                    "（半徑等間距分布）。"),
-            key=f"{skey}_grid_count")
-        text_size = c_textsize.number_input(
-            tr("Text size", "文字大小"), min_value=4.0, max_value=48.0, value=18.0,
-            step=1.0, format="%.1f",
-            help=tr("Font size for all on-chart text annotations "
-                    "(S-param labels + free text).",
-                    "圖上所有文字標註的字級（S 參數標籤 + 自由文字）。"),
-            key=f"{skey}_text_size")
-
-    # ── Coloring mode (decided up-front so the per-set / per-trace UIs
-    #    can conditionally show or hide their color pickers) ─────────────
-    _PER_SET_DEFAULT_COLORS = {"Measured": "#0201f0", "Modeled": "#b50000"}
-    has_measured = any(s.get("label") == "Measured" for s in sets)
-
-    _COLOR_MODE_PER_TRACE = "trace"
-    _COLOR_MODE_PER_SET   = "bicolor"
-    _COLOR_MODE_CUSTOM    = "custom"
-
-    if has_measured and _run_controls:
-        # Option VALUES stay the canonical "trace"/"bicolor"/"custom" codes
-        # (compared just below and persisted in session_state); only the chip
-        # label localizes via format_func.
-        _color_mode_labels = {
-            _COLOR_MODE_PER_TRACE: tr("trace", "依 S 參數"),
-            _COLOR_MODE_PER_SET:   tr("bicolor", "雙色"),
-            _COLOR_MODE_CUSTOM:    tr("custom", "自訂"),
-        }
-        color_mode = segmented_radio(
-            tr("Coloring mode", "配色模式"),
-            [_COLOR_MODE_PER_TRACE, _COLOR_MODE_PER_SET, _COLOR_MODE_CUSTOM],
-            key=f"{skey}_color_mode",
-            format_func=lambda m: _color_mode_labels.get(m, m),
-            help=tr("**trace** — each S-param has its own color, shared "
-                    "across all sets.  \n"
-                    "**bicolor** — each set (Measured / Modeled) has one "
-                    "color, shared across its four S-params.  \n"
-                    "**custom** — pick a color independently for every "
-                    "(set, S-param) combination; defaults give measured "
-                    "the legacy palette and modeled a darker version.",
-                    "**依 S 參數** — 每個 S 參數各有顏色，所有資料組共用。  \n"
-                    "**雙色** — 每組（量測 / 模型）各一色，四個 S 參數共用。  \n"
-                    "**自訂** — 每個（資料組, S 參數）組合各自挑色；預設量測用"
-                    "原色盤、模型用較深版本。"))
-    else:
-        # Only one kind of trace — per-set / custom split is meaningless.
-        color_mode = _COLOR_MODE_PER_TRACE
-    if not _run_controls:
-        # Chart-only phase: read previously-set radio value from state
-        color_mode = str(st.session_state.get(f"{skey}_color_mode",
-                                                _COLOR_MODE_PER_TRACE))
+        color_mode   = str(st.session_state.get(f"{skey}_color_mode",
+                                                  _COLOR_MODE_PER_TRACE))
     is_per_set_color = (color_mode == _COLOR_MODE_PER_SET)
     is_custom_color  = (color_mode == _COLOR_MODE_CUSTOM)
 
@@ -1627,24 +1680,33 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                 _resolve_color(ck, default_fn(sp))
 
     if is_custom_color and _run_controls:
-        st.markdown(tr("**Custom per-(set, S-param) colors** — defaults: "
-                       "measured = legacy palette · modeled = darker version. "
-                       "Your edits persist when switching coloring modes.",
-                       "**每個（資料組, S 參數）自訂顏色** — 預設：量測 = 原色盤 · "
-                       "模型 = 較深版本。切換配色模式時你的設定會保留。"))
-        for set_name, default_fn in [("meas",  lambda sp: _MPL_SMITH_COLORS[sp]),
-                                      ("model", lambda sp: _hex_darken(_MPL_SMITH_COLORS[sp]))]:
-            row_lbl = (tr("Measured", "量測") if set_name == "meas"
-                       else tr("Modeled", "模型"))
-            cust_cols = st.columns([0.9, 1, 1, 1, 1])
-            cust_cols[0].markdown(f"**{row_lbl}**")
-            for ci, sp in enumerate(sparams):
-                ck = f"{skey}_color_{set_name}_{sp}"
-                if ck not in st.session_state:
-                    st.session_state[ck] = default_fn(sp)
-                cust_cols[ci + 1].color_picker(f"{row_lbl} {sp}",
-                                                key=ck,
-                                                label_visibility="collapsed")
+        with st.container(border=True):
+            _ctrl_section(tr("Custom trace colors", "自訂曲線顏色"))
+            st.caption(tr("Defaults: measured = legacy palette · modeled = "
+                          "darker version. Your edits persist when switching "
+                          "coloring modes.",
+                          "預設：量測 = 原色盤 · 模型 = 較深版本。"
+                          "切換配色模式時你的設定會保留。"))
+            # Column header row (blank label cell + the four S-param names) so
+            # each picker's S-param is unambiguous.
+            _cust_head = st.columns([0.9, 1, 1, 1, 1])
+            for _ci, _sp in enumerate(sparams):
+                _cust_head[_ci + 1].markdown(
+                    f"<span style='font-size:0.8em;color:#666;"
+                    f"font-weight:600'>{_sp}</span>", unsafe_allow_html=True)
+            for set_name, default_fn in [("meas",  lambda sp: _MPL_SMITH_COLORS[sp]),
+                                          ("model", lambda sp: _hex_darken(_MPL_SMITH_COLORS[sp]))]:
+                row_lbl = (tr("Measured", "量測") if set_name == "meas"
+                           else tr("Modeled", "模型"))
+                cust_cols = st.columns([0.9, 1, 1, 1, 1])
+                cust_cols[0].markdown(f"**{row_lbl}**")
+                for ci, sp in enumerate(sparams):
+                    ck = f"{skey}_color_{set_name}_{sp}"
+                    if ck not in st.session_state:
+                        st.session_state[ck] = default_fn(sp)
+                    cust_cols[ci + 1].color_picker(f"{row_lbl} {sp}",
+                                                    key=ck,
+                                                    label_visibility="collapsed")
 
     # ── Per-set table: trace / kind / style / size / [color] / decimate ──
     # Skip the whole widget table in chart-only phase — values are already
@@ -1665,12 +1727,7 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
         # English names because ``lbl == "Decimate"`` gates a column below.
         _set_header_zh = {"Trace": "曲線", "Kind": "類型", "Style": "樣式",
                           "Size": "大小", "Color": "顏色", "Decimate": "抽樣間隔"}
-        st.markdown(
-            "<div style='margin:0 0 2px 0;font-size:0.78em;"
-            "color:#555;letter-spacing:.02em;text-transform:uppercase'>"
-            + tr("Measured / Modeled trace styling", "量測 / 模型曲線樣式")
-            + "</div>",
-            unsafe_allow_html=True)
+        _ctrl_section(tr("Measured / Modeled trace styling", "量測 / 模型曲線樣式"))
         with st.container(border=True):
             header_cols = st.columns(_col_weights)
             for i, lbl in enumerate(_set_headers):
@@ -1810,15 +1867,10 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     if _run_controls:
         # Visual separation between this table and the Measured/Modeled
         # trace-styling table above it.
-        st.markdown("<div style='height:14px'></div>",
+        st.markdown("<div style='height:10px'></div>",
                     unsafe_allow_html=True)
-        st.markdown(
-            "<div style='margin:0 0 2px 0;font-size:0.78em;"
-            "color:#555;letter-spacing:.02em;text-transform:uppercase'>"
-            + tr("Per-S-parameter trace + label settings",
-                 "各 S 參數曲線與標籤設定")
-            + "</div>",
-            unsafe_allow_html=True)
+        _ctrl_section(tr("Per-S-parameter trace + label settings",
+                         "各 S 參數曲線與標籤設定"))
 
         # Column widths — first column is a narrow label cell, "Text" input
         # is narrower than before, the rest balance out.  The per-trace "Trace"
@@ -1931,9 +1983,9 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                         np.clip(_pos.imag, -1.1, 1.1))
                 except Exception:                        # noqa: BLE001
                     continue
-            # Also (re)add the freq-range annotation and reset it to its default
-            # spot (0.0, -1.1) — so one click restores both the per-trace labels
-            # and the "{lo} ~ {hi} GHz" caption to their default layout.
+            # The frequency-range caption stays pinned at the bottom (0.0, -1.1)
+            # and is NOT rearranged with the S-param labels — reset it to that
+            # default spot so one click restores the standard layout.
             if freq_hz is not None:
                 try:
                     _f = np.asarray(freq_hz, dtype=float)
@@ -1954,40 +2006,73 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
                 except (TypeError, ValueError):
                     pass
 
-        st.button(
+        # Label-placement actions grouped in one row — one-click auto-arrange
+        # on the left, the interactive-drag switch on the right — instead of
+        # two full-width controls stacked loosely under the table.
+        act_place, act_drag = st.columns(2)
+        act_place.button(
             tr("🎯 Auto-place labels", "🎯 自動排列標籤"),
             key=f"{skey}_autoplace_btn",
             on_click=_auto_place_labels,
+            width="stretch",
             help=tr("Move each S-parameter label next to its trace — just outside "
                     "the curve so the text does not overlap it.",
                     "將每個 S 參數標籤移到對應曲線旁 — 落在曲線外側，"
                     "文字不會蓋住曲線。"))
+        drag_on = act_drag.toggle(
+            tr("🖱️ Drag labels (interactive)", "🖱️ 拖曳標籤（互動）"),
+            key=f"{skey}_drag_preview",
+            help=tr("Drag the S-parameter labels on an interactive Smith chart, "
+                    "then click “Render matplotlib” to draw the publication "
+                    "figure at the dragged positions. The frequency caption "
+                    "stays pinned at the bottom.",
+                    "在互動式 Smith 圖上拖曳 S 參數標籤，再按「產生 matplotlib 圖」"
+                    "以拖曳後的位置繪製出版用圖。頻率標註固定於底部。"))
 
-        # ── Free text annotations + ➕ button ─────────────────────────────
-        # (The default freq-range annotation is seeded phase-independently
-        #  near the top of this function.)
+        # ── Text annotations panel ────────────────────────────────────────
+        # Free text labels (the default freq-range caption is seeded phase-
+        # independently near the top of this function).
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        _ctrl_section(tr("Text annotations", "文字標註"))
         n_extra = int(st.session_state.get(extra_key, 0))
-        if n_extra > 0:
-            st.markdown(tr("**Extra text annotations**", "**額外文字標註**"))
-        for i in range(n_extra):
-            st.session_state.setdefault(f"{skey}_etext_{i}",  "")
-            st.session_state.setdefault(f"{skey}_ex_{i}",     0.0)
-            st.session_state.setdefault(f"{skey}_ey_{i}",     0.0)
-            st.session_state.setdefault(f"{skey}_ecolor_{i}", "#000000")
-            ec1, ec2, ec3, ec4 = st.columns([2, 1, 1, 1])
-            ec1.text_input(tr(f"Text {i+1}", f"文字 {i+1}"),
-                           key=f"{skey}_etext_{i}")
-            ec2.number_input(f"x {i+1}", step=0.05, format="%.3f",
-                             key=f"{skey}_ex_{i}")
-            ec3.number_input(f"y {i+1}", step=0.05, format="%.3f",
-                             key=f"{skey}_ey_{i}")
-            ec4.color_picker(tr(f"Color {i+1}", f"顏色 {i+1}"),
-                             key=f"{skey}_ecolor_{i}")
+        with st.container(border=True):
+            if n_extra > 0:
+                # One header row instead of a repeated visible label on every
+                # input — the rows below use collapsed labels and line up under
+                # these headers.
+                _ah = st.columns([2, 1, 1, 1])
+                for _ai, _al in enumerate([tr("Text", "文字"), "x", "y",
+                                           tr("Color", "顏色")]):
+                    _ah[_ai].markdown(
+                        f"<span style='font-size:0.8em;color:#666;"
+                        f"font-weight:600'>{_al}</span>",
+                        unsafe_allow_html=True)
+            else:
+                st.caption(tr("No text annotations yet — add one below.",
+                              "尚無文字標註 — 於下方新增。"))
+            for i in range(n_extra):
+                st.session_state.setdefault(f"{skey}_etext_{i}",  "")
+                st.session_state.setdefault(f"{skey}_ex_{i}",     0.0)
+                st.session_state.setdefault(f"{skey}_ey_{i}",     0.0)
+                st.session_state.setdefault(f"{skey}_ecolor_{i}", "#000000")
+                ec1, ec2, ec3, ec4 = st.columns([2, 1, 1, 1])
+                ec1.text_input(tr(f"Text {i+1}", f"文字 {i+1}"),
+                               key=f"{skey}_etext_{i}",
+                               label_visibility="collapsed")
+                ec2.number_input(f"x {i+1}", step=0.05, format="%.3f",
+                                 key=f"{skey}_ex_{i}",
+                                 label_visibility="collapsed")
+                ec3.number_input(f"y {i+1}", step=0.05, format="%.3f",
+                                 key=f"{skey}_ey_{i}",
+                                 label_visibility="collapsed")
+                ec4.color_picker(tr(f"Color {i+1}", f"顏色 {i+1}"),
+                                 key=f"{skey}_ecolor_{i}",
+                                 label_visibility="collapsed")
 
-        def _add_text_slot():
-            st.session_state[extra_key] = int(st.session_state[extra_key]) + 1
-        st.button(tr("➕ Add text", "➕ 新增文字"), key=f"{skey}_add_btn",
-                  on_click=_add_text_slot)
+            def _add_text_slot():
+                st.session_state[extra_key] = int(st.session_state[extra_key]) + 1
+            st.button(tr("➕ Add text", "➕ 新增文字"), key=f"{skey}_add_btn",
+                      on_click=_add_text_slot, width="stretch")
     else:
         # Chart-only phase: just read how many free text slots exist
         n_extra = int(st.session_state.get(extra_key, 0))
@@ -2008,6 +2093,148 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     # layout will render the figure + legend from the same session state.
     if not _run_chart:
         return
+
+    # ── Drag-labels mode: interactive custom component + "Render matplotlib" ──
+    # When the "Drag labels" toggle is on, render a draggable-annotation Smith
+    # chart (a custom no-build component that streams dragged positions back to
+    # Python) and hold off drawing the matplotlib figure until the user clicks
+    # "Render matplotlib".  Dragged positions are stashed as a "pending" update
+    # and committed into the real x/y state at the TOP of the next run (see the
+    # commit block after the seeding loop), so they survive the toggle being
+    # switched off.  The frequency caption is drawn as a FIXED text trace (not a
+    # draggable annotation) so it stays pinned at the bottom.  `return_png` (the
+    # silent topology-overlay PNG path) skips all of this.
+    if drag_on and not return_png:
+        _freq_slot = st.session_state.get(f"{skey}_freq_slot")
+        try:
+            import json as _json
+            from .helpers import extended_smith_grid
+            from .components import draggable_smith
+
+            dfig = go.Figure()
+            # Smith-chart grid (outer unit circle + constant-R circles +
+            # constant-X arcs).  extended_smith_grid returns Scattergl (WebGL)
+            # traces, which render blank inside the sandboxed component iframe —
+            # rebuild them as plain SVG go.Scatter so the circles actually show.
+            for _bg in extended_smith_grid(1.0):
+                dfig.add_trace(go.Scatter(
+                    x=_bg.x, y=_bg.y, mode="lines",
+                    line=dict(color=_bg.line.color, width=_bg.line.width),
+                    hoverinfo="skip", showlegend=False))
+
+            # Traces — mirror the matplotlib draw loop's colour resolution.
+            for si, s in enumerate(sets):
+                S = s["S"]
+                kind = st.session_state.get(
+                    f"{skey}_set{si}_kind",
+                    "Line" if s.get("kind") == "line" else "Markers")
+                set_color = str(st.session_state.get(
+                    f"{skey}_set{si}_color",
+                    _PER_SET_DEFAULT_COLORS.get(s.get("label"), "#000000")))
+                is_measured = (s.get("label") == "Measured")
+                decimate = int(st.session_state.get(f"{skey}_set{si}_decimate", 1))
+                p_mode = "lines" if kind == "Line" else "markers"
+                for sp, (r, c) in [("S11", (0, 0)), ("S12", (0, 1)),
+                                   ("S21", (1, 0)), ("S22", (1, 1))]:
+                    cfg = sparam_cfg[sp]
+                    sv = S[:, r, c] * cfg["mult"]
+                    if (is_measured or s.get("_extra")) and decimate > 1:
+                        sv = sv[::decimate]
+                    if _has_extra:
+                        color = set_color
+                    elif is_custom_color:
+                        _set_name = "meas" if is_measured else "model"
+                        color = str(st.session_state.get(
+                            f"{skey}_color_{_set_name}_{sp}", cfg["color"]))
+                    elif is_per_set_color:
+                        color = set_color
+                    else:
+                        color = cfg["color"]
+                    p_kwargs = dict(x=list(sv.real), y=list(sv.imag), mode=p_mode,
+                                    showlegend=False, hoverinfo="skip")
+                    if p_mode == "lines":
+                        p_kwargs["line"] = dict(color=color, width=2)
+                    else:
+                        p_kwargs["marker"] = dict(color=color, size=6)
+                    dfig.add_trace(go.Scatter(**p_kwargs))
+
+            # Draggable labels, in a KNOWN order (`_anno_order`) so the index the
+            # component streams back maps to the right state key.  These are NOT
+            # Plotly annotations — they become independent HTML overlay <div>s in
+            # the component, so dragging one can never move another.  The freq
+            # caption is EXCLUDED (fixed trace below), so it is never dragged.
+            _anno_order = []
+            _labels = []
+            for sp in sparams:
+                cfg = sparam_cfg[sp]
+                if cfg["text"]:
+                    _labels.append({"x": cfg["x"], "y": cfg["y"],
+                                    "text": cfg["text"], "color": cfg["text_color"],
+                                    "size": text_size})
+                    _anno_order.append(("sp", sp))
+            for i in range(n_extra):
+                if i == _freq_slot:
+                    continue
+                _txt = str(st.session_state.get(f"{skey}_etext_{i}", "") or "")
+                if not _txt:
+                    continue
+                _labels.append({
+                    "x": float(st.session_state.get(f"{skey}_ex_{i}", 0.0)),
+                    "y": float(st.session_state.get(f"{skey}_ey_{i}", 0.0)),
+                    "text": _txt,
+                    "color": str(st.session_state.get(f"{skey}_ecolor_{i}", "#000000")),
+                    "size": text_size})
+                _anno_order.append(("extra", i))
+
+            # Frequency caption → FIXED text trace, pinned at its bottom spot.
+            if _freq_slot is not None:
+                _ftxt = str(st.session_state.get(f"{skey}_etext_{_freq_slot}", "") or "")
+                if _ftxt:
+                    dfig.add_trace(go.Scatter(
+                        x=[float(st.session_state.get(f"{skey}_ex_{_freq_slot}", 0.0))],
+                        y=[float(st.session_state.get(f"{skey}_ey_{_freq_slot}", -1.1))],
+                        mode="text", text=[_ftxt],
+                        textfont=dict(color=str(st.session_state.get(
+                            f"{skey}_ecolor_{_freq_slot}", "#000000")),
+                            size=text_size),
+                        hoverinfo="skip", showlegend=False))
+
+            dfig.update_layout(
+                xaxis=dict(range=[-1.15, 1.15], visible=False, showgrid=False,
+                           zeroline=False, scaleanchor="y", scaleratio=1),
+                yaxis=dict(range=[-1.15, 1.15], visible=False, showgrid=False,
+                           zeroline=False),
+                plot_bgcolor="white", paper_bgcolor="white",
+                margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+
+            st.caption(tr(
+                "Drag the S-parameter labels, then click **Render matplotlib** "
+                "below to draw the figure at those positions. The frequency "
+                "caption is pinned at the bottom.",
+                "拖曳 S 參數標籤，再按下方的**產生 matplotlib 圖**以該位置繪圖。"
+                "頻率標註固定於底部。"))
+
+            # Render the draggable overlay.  Its returned value (the single
+            # dragged label {"index","x","y","nonce"}) is committed at the TOP of
+            # the NEXT run, read straight from session_state — so we only need to
+            # remember the label order here.  ``_anno_order`` is the exact order
+            # of the labels on screen now, so next run's commit maps the returned
+            # index to the right state key even if the label set later changes.
+            draggable_smith(figure=_json.loads(dfig.to_json()),
+                            labels=_labels, height=560,
+                            key=f"{skey}_drag_chart")
+            st.session_state[f"{skey}_drag_order"] = _anno_order
+        except Exception:                                # noqa: BLE001
+            st.caption(tr(
+                "Interactive drag view unavailable — use the x/y number inputs "
+                "or 🎯 Auto-place labels instead.",
+                "互動拖曳檢視無法使用 — 請改用 x/y 數值輸入或 🎯 自動排列標籤。"))
+
+        # Only draw the matplotlib figure once the user asks — at the positions
+        # committed so far (already written into the real x/y state).
+        if not st.button(tr("🖼️ Render matplotlib", "🖼️ 產生 matplotlib 圖"),
+                         key=f"{skey}_render_mpl_btn", type="primary"):
+            return
 
     # ── Build the matplotlib figure ──────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(7, 7), dpi=120)
@@ -2075,6 +2302,9 @@ def render_matplotlib_smith(S_mea=None, S_sim=None, fname: str = "",
     # bold would only apply to non-mathtext parts and mismatch with the
     # auto-formatted mathtext spans, giving e.g. bold "/5" next to regular
     # "S₁₂".  Keep everything visually uniform instead.
+    # Positions come straight from the committed x/y state — hand-dragged
+    # positions are committed there at the top of the run, so they render the
+    # same whether the "Drag labels" toggle is on or off.
     _ts = float(text_size)
     for sp in sparams:
         cfg = sparam_cfg[sp]

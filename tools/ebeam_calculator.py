@@ -241,46 +241,49 @@ with st.container(border=True):
     with col_left:
         st.subheader(tr("Corner Positions", "角落位置"))
 
-        with st.expander(tr(_EBL_CORNER_GUIDE, "ℹ️ 角落標示說明"), expanded=False):
-            st.image(_chip_corner_guide_png(zh=_is_zh()), width="stretch")
-            st.caption(tr(_EBL_CORNER_NOTE,
-                          "夾具座標：x 向右增加，y 向上增加。矩形模式下只需編輯一組"
-                          "對角（BL–TR 或 BR–TL），另一組會自動計算。"))
+        # with st.expander(tr(_EBL_CORNER_GUIDE, "ℹ️ 角落標示說明"), expanded=False):
+        #     st.image(_chip_corner_guide_png(zh=_is_zh()), width="stretch")
+        #     st.caption(tr(_EBL_CORNER_NOTE,
+        #                   "夾具座標：x 向右增加，y 向上增加。矩形模式下只需編輯一組"
+        #                   "對角（BL–TR 或 BR–TL），另一組會自動計算。"))
 
         _shape_opts = [tr("Rectangular", "矩形"), tr("Custom", "自訂")]
-        shape_mode = segmented_radio(
-            tr("Shape", "形狀"), _shape_opts,
-            key="ebc_shape_mode",
-        )
-        is_rect = (shape_mode == _shape_opts[0])
 
-        # In rectangular mode the user picks which diagonal pair drives the
-        # rectangle; the other pair is computed from it and shown disabled.
-        bltr_active = True  # default: BL/TR is the editable pair
-        if is_rect:
-            # Corner codes (BL/TR/BR/TL) stay verbatim in both languages, so
-            # this option list needs no format_func / index indirection.
-            diag = segmented_radio(
-                tr("Editable diagonal", "可編輯對角"), ["BL / TR", "BR / TL"],
-                key="ebc_diag_mode",
+        col_left_in, col_right_in = st.columns([1, 1])
+        with col_left_in:  
+            shape_mode = segmented_radio(
+                tr("Shape", "形狀"), _shape_opts,
+                key="ebc_shape_mode",
             )
-            bltr_active = (diag == "BL / TR")
+            is_rect = (shape_mode == _shape_opts[0])
+        with col_right_in:
+            # In rectangular mode the user picks which diagonal pair drives the
+            # rectangle; the other pair is computed from it and shown disabled.
+            bltr_active = True  # default: BL/TR is the editable pair
+            if is_rect:
+                # Corner codes (BL/TR/BR/TL) stay verbatim in both languages, so
+                # this option list needs no format_func / index indirection.
+                diag = segmented_radio(
+                    tr("Editable diagonal", "可編輯對角"), ["BL / TR", "BR / TL"],
+                    key="ebc_diag_mode",
+                )
+                bltr_active = (diag == "BL / TR")
 
-            if bltr_active:
-                st.session_state["ebc_tl_x"] = st.session_state["ebc_bl_x"]
-                st.session_state["ebc_tl_y"] = st.session_state["ebc_tr_y"]
-                st.session_state["ebc_br_x"] = st.session_state["ebc_tr_x"]
-                st.session_state["ebc_br_y"] = st.session_state["ebc_bl_y"]
-            else:
-                st.session_state["ebc_bl_x"] = st.session_state["ebc_tl_x"]
-                st.session_state["ebc_bl_y"] = st.session_state["ebc_br_y"]
-                st.session_state["ebc_tr_x"] = st.session_state["ebc_br_x"]
-                st.session_state["ebc_tr_y"] = st.session_state["ebc_tl_y"]
+                if bltr_active:
+                    st.session_state["ebc_tl_x"] = st.session_state["ebc_bl_x"]
+                    st.session_state["ebc_tl_y"] = st.session_state["ebc_tr_y"]
+                    st.session_state["ebc_br_x"] = st.session_state["ebc_tr_x"]
+                    st.session_state["ebc_br_y"] = st.session_state["ebc_bl_y"]
+                else:
+                    st.session_state["ebc_bl_x"] = st.session_state["ebc_tl_x"]
+                    st.session_state["ebc_bl_y"] = st.session_state["ebc_br_y"]
+                    st.session_state["ebc_tr_x"] = st.session_state["ebc_br_x"]
+                    st.session_state["ebc_tr_y"] = st.session_state["ebc_tl_y"]
 
-        disabled_bl = is_rect and not bltr_active
-        disabled_tr = is_rect and not bltr_active
-        disabled_tl = is_rect and bltr_active
-        disabled_br = is_rect and bltr_active
+            disabled_bl = is_rect and not bltr_active
+            disabled_tr = is_rect and not bltr_active
+            disabled_tl = is_rect and bltr_active
+            disabled_br = is_rect and bltr_active
 
         # Constraint floors: the EBL stage can't physically place the
         # chip below x = 90 mm or y = 110 mm. Beyond those, enforce
