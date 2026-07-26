@@ -6,11 +6,47 @@
 # alarm".  A calm blue primary keeps red reserved for genuinely destructive
 # actions and removes most of the visual noise across the app.
 [server]
-# Default is 200 MB. 250 MB GDS masks are validated to parse within a
-# 1 GB-RAM host (~770 MB peak); past ~330 MB the upload buffer + parsed
-# geometry would OOM Streamlit Community Cloud, so don't raise this
-# much further without re-profiling (tools/ebeam_calculator.py).
-maxUploadSize = 250
+# Streamlit's default is 200 MB. This cap is what stops a big GDS mask
+# from OOM-killing the container: the host has ~3 GB, ~1 GB of which is
+# already resident when the app is idle, leaving ~1.5 GB an upload may
+# use with margin to spare.
+#
+# 350 MB is the largest cap where *every* file structure measured stays
+# inside that 1.5 GB. Peak RSS above the import baseline, worst moment
+# (replacing an already-loaded mask), from
+# `gds/_profile_gds_limits.py --idle-mb 1000 --limit-mb 2500 --reupload`:
+#
+#   file    repeated cells   flat geometry   both at their guards
+#   100 MB      0.55 GB         0.93 GB
+#   200 MB      1.05 GB         (refused)
+#   250 MB      1.25 GB              —            1.23 GB
+#   300 MB      1.09 GB              —            1.30 GB
+#   400 MB      1.67 GB              —            1.61 GB   over budget
+#
+# Past ~290 MB the parse budget refuses the file and it is streamed
+# instead, which is why the cap can sit above the 300 MB row: measured
+# end-to-end at 350 MB with the worst structure known (six different
+# cells interleaved site-by-site), the refusal + stream peaks at
+# 0.60 GB and takes ~3 s.
+#
+# A 300 MB mask is ~10.5 M placements / 84 M polygons and parses in
+# ~0.8 s whatever its element ordering — repeated cells, a rotation on
+# every reference, or several different cells stepped together all sit
+# within a few tenths of a second of each other since `_decode_copies()`
+# learned to decode repeating *groups*, not just runs.
+#
+# This number is only the *hard* ceiling on what may be uploaded here.
+# Whether a given file then loads is decided at parse time by
+# tools/ebeam_calculator.py's `_limits_for()`, which sizes its budgets
+# from the RAM actually free at that moment — so the same app refuses
+# more when this container is busy and accepts more when it is idle.
+# Two consequences worth knowing:
+#   * running locally, launch_ebl_calculator.py raises this cap to a
+#     share of the workstation's RAM (a 32 GB PC gets ~3.2 GB), because
+#     a PC that over-commits pages instead of being SIGKILLed;
+#   * a file over budget is refused with a message — never a crash.
+# Raise this only after re-running gds/_profile_gds_limits.py.
+maxUploadSize = 350
 
 [theme]
 primaryColor = "#2563EB"            # calm blue — actions & selection, not alarm

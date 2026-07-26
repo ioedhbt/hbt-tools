@@ -1115,3 +1115,296 @@ html, body {{ margin: 0; padding: 0; font-family: 'Open Sans', -apple-system, Bl
 </script>
 """
     return fig_html.replace("</body>", inject + "</body>")
+
+
+def build_smith_bode_slider_payload(*, S_batch_joint, freq, slider_specs,
+                                     model_name: str, S_meas=None,
+                                     decimate_points: int = 120,
+                                     json_digits: int = 5,
+                                     smith_mults: dict | None = None) -> dict:
+    """Same figure + per-frame data as ``make_smith_bode_joint_slider_html``,
+    but returned as a JSON-safe dict for a bidirectional Streamlit component
+    instead of a self-contained HTML string with embedded JS sliders.
+
+    The per-frame nested arrays are built identically to the HTML version
+    (see that docstring for the frame layout / ordering convention), then
+    gzip+base64 compressed to shrink the payload sent across the component
+    boundary.  This function does NOT modify or call the HTML-string
+    builder — the logic is duplicated on purpose so the HTML path (used by
+    ``base_ui.py``) keeps its exact current behaviour untouched.
+
+    Returns
+    -------
+    dict with keys:
+      figure   : the Plotly figure as a plain dict (``fig.to_dict()``-like,
+                 via ``json.loads(fig.to_json())``).
+      data_b64 : gzip+base64 of the compact per-frame JSON array-of-arrays
+                 string.  Decode with
+                 ``json.loads(gzip.decompress(base64.b64decode(data_b64)))``
+                 to recover the nested frame data.
+      dims     : per-slider frame counts (cartesian axes).
+      mids     : per-slider midpoint index (initial display frame).
+      labels   : per-slider list of display-label strings.
+      smith    : trace indices for the 4 Smith model traces.
+      bode     : trace indices for the 2 Bode model traces.
+      extrap   : trace indices for the 2 extrapolation traces.
+      n_frames : total frame count (B).
+    """
+    from plotly.subplots import make_subplots
+
+    # Validate dims
+    dims = [len(sp["values_disp"]) for sp in slider_specs]
+    expected = int(np.prod(dims)) if dims else 0
+    if S_batch_joint.shape[0] != expected:
+        raise ValueError(f"S_batch_joint has {S_batch_joint.shape[0]} frames "
+                         f"but cartesian dims imply {expected}.")
+
+    # Decimate freq axis for browser performance.  When decimate_points
+    # ≥ len(freq), this is a no-op (full fidelity).
+    S_batch_joint, freq = _decimate_freq(S_batch_joint, freq,
+                                          max_points=decimate_points)
+    f_ghz = np.asarray(freq) * 1e-9
+    B = S_batch_joint.shape[0]
+    N = len(f_ghz)
+
+    # ── Per-trace Smith multiplier (mirrors the Plotly Smith chart's scale) ──
+    _sc = {nm: float((smith_mults or {}).get(nm, 1.0))
+           for nm in ("S11", "S12", "S21", "S22")}
+
+    def _sc_lbl(nm):
+        m = _sc[nm]
+        if abs(m - 1.0) < 1e-9:
+            return ""
+        return f" ×{m:g}" if m >= 1 else f" ÷{1 / m:g}"
+
+    # fT / fmax colours (blue / red) — shared with every other Bode plot.
+    _ft_col, _fmax_col = FT_FMAX_COLORS["fT"], FT_FMAX_COLORS["fmax"]
+
+    def _extrap_arr(gain_db, npts=14):
+        """20 dB/dec extrapolation of one gain trace → compact (x_json, y_json).
+
+        Returns ("[]", "[]") when the trace already crosses 0 dB in-band or is
+        otherwise un-extrapolatable, so the matching slider frame simply draws
+        no extrapolation segment.
+        """
+        fx, gx, _ = extrap_20dbdec(f_ghz, gain_db, n_pts=npts)
+        if fx is None:
+            return "[]", "[]"
+        return (_compact_json_1d(np.asarray(fx), json_digits),
+                _compact_json_1d(np.asarray(gx), json_digits))
+
+    # Midpoint joint index — initial display
+    midpoints = [d // 2 for d in dims]
+    mid_joint = 0
+    for k, m in enumerate(midpoints):
+        mid_joint = mid_joint * dims[k] + m
+
+    fig = make_subplots(
+        rows=1, cols=2, horizontal_spacing=0.10,
+        subplot_titles=(f"Smith — {model_name}", f"fT / fmax — {model_name}"),
+        column_widths=[1.05, 1.0],
+        specs=[[{"type": "xy"}, {"type": "xy"}]],
+    )
+
+    # Static Smith grid
+    for tr in extended_smith_grid(1.0):
+        fig.add_trace(tr, row=1, col=1)
+
+    # Optional static measured overlay
+    if S_meas is not None:
+        S_meas = np.asarray(S_meas)
+        if S_meas.shape[0] != N:
+            stride = int(np.ceil(S_meas.shape[0] / N))
+            S_meas_d = S_meas[::stride][:N]
+        else:
+            S_meas_d = S_meas
+        for name, (r, c) in [("S11", (0, 0)), ("S22", (1, 1)),
+                              ("S21", (1, 0)), ("S12", (0, 1))]:
+            col = _SMITH_SLIDER_COLORS[name]
+            s = S_meas_d[:, r, c] * _sc[name]
+            fig.add_trace(go.Scattergl(x=s.real, y=s.imag, mode="markers",
+                                        name=f"{name}{_sc_lbl(name)} meas",
+                                        marker=dict(color=col, size=5),
+                                        showlegend=False),
+                          row=1, col=1)
+    else:
+        S_meas_d = None
+
+    # Initial model Smith traces (midpoint frame).  Smith S-params are labelled
+    # inline near each trace (see _smith_label_annos) instead of in the legend,
+    # which keeps the busy legend box off the plot.
+    model_smith_indices: list[int] = []
+    _smith_label_annos = []
+    S0 = S_batch_joint[mid_joint]
+    for name, (r, c) in [("S11", (0, 0)), ("S22", (1, 1)),
+                          ("S21", (1, 0)), ("S12", (0, 1))]:
+        col = _SMITH_SLIDER_COLORS[name]
+        s = S0[:, r, c] * _sc[name]
+        fig.add_trace(go.Scattergl(x=s.real, y=s.imag, mode="lines",
+                                    name=f"{name}{_sc_lbl(name)} model",
+                                    line=dict(color=col, width=2, dash="dash"),
+                                    showlegend=False),
+                      row=1, col=1)
+        model_smith_indices.append(len(fig.data) - 1)
+        with np.errstate(invalid="ignore"):
+            cx = float(np.nanmean(s.real)); cy = float(np.nanmean(s.imag))
+        if np.isfinite(cx) and np.isfinite(cy):
+            rr = (cx * cx + cy * cy) ** 0.5
+            if rr > 1e-6:
+                f = (rr + 0.13) / rr
+                cx *= f; cy *= f
+            _smith_label_annos.append(dict(
+                x=cx, y=cy, xref="x", yref="y", showarrow=False,
+                text=f"{name}{_sc_lbl(name)}", font=dict(size=13, color=col)))
+
+    # Optional static measured Bode.  Colour by *quantity*: |h21|² (→ fT) blue,
+    # Mason U (→ fmax) red — matched to every other Bode plot.  Measured is
+    # distinguished from the model by its markers (model is dashed, no markers).
+    if S_meas_d is not None:
+        h21_m_db, U_m_db = compute_h21_U(S_meas_d)
+        fig.add_trace(go.Scattergl(x=f_ghz, y=h21_m_db,
+                                    mode="lines+markers", name="|h21|² meas",
+                                    line=dict(color=_ft_col, width=1.4),
+                                    marker=dict(size=4, symbol="circle")),
+                      row=1, col=2)
+        fig.add_trace(go.Scattergl(x=f_ghz, y=U_m_db,
+                                    mode="lines+markers", name="Mason U meas",
+                                    line=dict(color=_fmax_col, width=1.4,
+                                              dash="dot"),
+                                    marker=dict(size=4, symbol="square")),
+                      row=1, col=2)
+        # Static measured extrapolation → 0 dB (fT / fmax).
+        _mfx, _mfy, _ = extrap_20dbdec(f_ghz, h21_m_db)
+        if _mfx is not None:
+            fig.add_trace(go.Scattergl(x=_mfx, y=_mfy, mode="lines",
+                                        name="fT meas (extrap)",
+                                        line=dict(color=_ft_col, width=1.3,
+                                                  dash="dot")),
+                          row=1, col=2)
+        _mux, _muy, _ = extrap_20dbdec(f_ghz, U_m_db)
+        if _mux is not None:
+            fig.add_trace(go.Scattergl(x=_mux, y=_muy, mode="lines",
+                                        name="fmax meas (extrap)",
+                                        line=dict(color=_fmax_col, width=1.3,
+                                                  dash="dot")),
+                          row=1, col=2)
+
+    # Initial model Bode traces (midpoint frame) — |h21|² blue, Mason U red.
+    h21_s0, U_s0 = compute_h21_U(S0)
+    fig.add_trace(go.Scattergl(x=f_ghz, y=h21_s0, mode="lines",
+                                name="|h21|² model",
+                                line=dict(color=_ft_col, width=2, dash="dash")),
+                  row=1, col=2)
+    bode_h21_idx = len(fig.data) - 1
+    fig.add_trace(go.Scattergl(x=f_ghz, y=U_s0, mode="lines",
+                                name="Mason U model",
+                                line=dict(color=_fmax_col, width=2,
+                                          dash="longdash")),
+                  row=1, col=2)
+    bode_U_idx = len(fig.data) - 1
+
+    # Initial model extrapolation segments (auto, per-frame below) — fT / fmax.
+    _e0fx, _e0fy, _ = extrap_20dbdec(f_ghz, h21_s0)
+    fig.add_trace(go.Scattergl(
+        x=_e0fx if _e0fx is not None else [],
+        y=_e0fy if _e0fy is not None else [],
+        mode="lines", name="fT model (extrap)",
+        line=dict(color=_ft_col, width=1.6, dash="dot")), row=1, col=2)
+    ext_h21_idx = len(fig.data) - 1
+    _e0ux, _e0uy, _ = extrap_20dbdec(f_ghz, U_s0)
+    fig.add_trace(go.Scattergl(
+        x=_e0ux if _e0ux is not None else [],
+        y=_e0uy if _e0uy is not None else [],
+        mode="lines", name="fmax model (extrap)",
+        line=dict(color=_fmax_col, width=1.6, dash="dot")), row=1, col=2)
+    ext_U_idx = len(fig.data) - 1
+
+    smith_traces = list(model_smith_indices)          # [S11, S22, S21, S12]
+    bode_traces  = [bode_h21_idx, bode_U_idx]         # [h21, U]
+    extrap_traces = [ext_h21_idx, ext_U_idx]          # [fT extrap, fmax extrap]
+
+    fig.update_layout(
+        height=500,
+        showlegend=True,
+        plot_bgcolor="white", paper_bgcolor="white",
+        # Smith S-params are labelled inline (showlegend=False on those traces),
+        # so only the Bode |h21|² / Mason U entries remain — pin them small and
+        # unobtrusive at the bottom-left of the Bode (right) subplot.
+        legend=dict(orientation="v", x=0.62, y=0.02,
+                    xanchor="left", yanchor="bottom",
+                    bgcolor="rgba(255,255,255,0.7)", borderwidth=0,
+                    font=dict(size=11)),
+        margin=dict(l=50, r=20, t=50, b=50),
+        hovermode="closest",
+    )
+    for _a in _smith_label_annos:
+        fig.add_annotation(**_a)
+    fig.update_xaxes(range=[-1.1, 1.1], showgrid=False, zeroline=False,
+                     scaleanchor="y", scaleratio=1, title="Re(Γ)",
+                     row=1, col=1)
+    fig.update_yaxes(range=[-1.1, 1.1], showgrid=False, zeroline=False,
+                     title="Im(Γ)", row=1, col=1)
+    fig.update_xaxes(title="Frequency (GHz)", type="log",
+                     showgrid=True, gridcolor="#ebebeb", row=1, col=2)
+    fig.update_yaxes(title="Gain (dB)", range=[0, 50],
+                     showgrid=True, gridcolor="#ebebeb", row=1, col=2)
+
+    # ── Build compact per-frame data array (same layout as the HTML path) ──
+    # Per-frame layout (14 arrays, each length N or extrap-length):
+    #   [S11.real, S11.imag, S22.real, S22.imag,
+    #    S21.real, S21.imag, S12.real, S12.imag,
+    #    h21_dB,   U_dB,
+    #    h21extX, h21extY, UextX, UextY]
+    chunk_parts = []
+    _names = ["S11", "S22", "S21", "S12"]
+    for i in range(B):
+        Si = S_batch_joint[i]
+        h21, U = compute_h21_U(Si)
+        per_frame = []
+        for nm, (r, c) in zip(_names, [(0, 0), (1, 1), (1, 0), (0, 1)]):
+            s = Si[:, r, c] * _sc[nm]
+            per_frame.append(_compact_json_1d(s.real, json_digits))
+            per_frame.append(_compact_json_1d(s.imag, json_digits))
+        per_frame.append(_compact_json_1d(h21, json_digits))
+        per_frame.append(_compact_json_1d(U,   json_digits))
+        # Auto 20 dB/dec extrapolation → fT (from |h21|²) and fmax (from U).
+        _hx, _hy = _extrap_arr(h21)
+        _ux, _uy = _extrap_arr(U)
+        per_frame.extend((_hx, _hy, _ux, _uy))
+        chunk_parts.append("[" + ",".join(per_frame) + "]")
+    data_js = "[" + ",".join(chunk_parts) + "]"
+
+    # Slider step labels (one list per slider)
+    labels_lists = []
+    for sp in slider_specs:
+        fmt = sp.get("fmt", "%.4g").lstrip("%")
+        try:
+            lbls = [format(v, fmt) for v in sp["values_disp"]]
+        except (ValueError, TypeError):
+            lbls = [str(v) for v in sp["values_disp"]]
+        labels_lists.append(lbls)
+
+    # Per-slider parameter name + unit for the row's name column (the component
+    # has no other source for these — they live in the Python-side slider_specs).
+    names = [str(sp.get("label", "")) for sp in slider_specs]
+    units = [str(sp.get("unit", "")) for sp in slider_specs]
+
+    import gzip, base64, json as _json
+    # mtime=0 keeps the bytes deterministic for identical input across reruns
+    # (older Pythons defaulted mtime to the current time) — the component's
+    # rebuild-guard diffs data_b64 to preserve the user's scrub position, so a
+    # timestamp in the header would reset the sliders on every rerun.
+    data_bytes = gzip.compress(data_js.encode("utf-8"), compresslevel=6, mtime=0)
+    return {
+        "figure": _json.loads(fig.to_json()),
+        "data_b64": base64.b64encode(data_bytes).decode("ascii"),
+        "dims": dims,
+        "mids": midpoints,
+        "labels": labels_lists,
+        "names": names,
+        "units": units,
+        "smith": smith_traces,
+        "bode": bode_traces,
+        "extrap": extrap_traces,
+        "n_frames": int(B),
+    }

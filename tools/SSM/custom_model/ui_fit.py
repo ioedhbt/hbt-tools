@@ -55,6 +55,27 @@ _FIT_SPEC = {
 _UNIT = {"C": "fF", "R": "Ω", "L": "pH", "gm": "mS", "tau": "ps", "alpha": ""}
 _TOPO = "custom"
 
+# The b–c junction's resistance (Rbc / Rgd) sits in the 10²–10³ kΩ range on a
+# real device, so that *position* gets a kΩ input instead of the generic Ω one
+# — matching the built-in Cheng/Xu specs.  Keyed by element id, not name, so a
+# renamed component still gets the right unit.
+_KOHM_SCALE, _KOHM_UNIT = 1e-3, "kΩ"
+
+
+def _kohm_ids(model: CustomModel) -> frozenset[str]:
+    """Ids of the components displayed in kΩ — every R in the intrinsic b–c
+    junction (``BI→CI``), whatever the user named it."""
+    return frozenset(e.id for e in model.intrinsic_bc.elements() if e.kind == "R")
+
+
+def _disp_spec(cid: str, kind: str, kohm_ids: frozenset[str]) -> tuple:
+    """``(SI→display scale, non-degenerate start in SI, unit)`` for one
+    component — the kind default, overridden by position where it applies."""
+    scale, start = _FIT_SPEC.get(kind, (1.0, 1.0))
+    if kind == "R" and cid in kohm_ids:
+        return _KOHM_SCALE, start, _KOHM_UNIT
+    return scale, start, _UNIT.get(kind, "")
+
 
 # ════════════════════════════════════════════════════════════════════════════
 def _clear_tuning_state(fname: str) -> None:
@@ -116,14 +137,14 @@ def _value_inputs(model: CustomModel, fname: str) -> dict:
     {id: SI value}."""
     values: dict = {}
     per_row = 4
+    kohm = _kohm_ids(model)
     for title, items in model.grouped_value_specs():
         st.markdown(f"**{tr(title, _GROUP_TITLE_ZH.get(title, title))}**")
         for i in range(0, len(items), per_row):
             row = items[i:i + per_row]
             cs = st.columns(len(row))
             for col, (cid, kind, name) in zip(cs, row):
-                scale, start = _FIT_SPEC.get(kind, (1.0, 1.0))
-                unit = _UNIT.get(kind, "")
+                scale, start, unit = _disp_spec(cid, kind, kohm)
                 k = _val_key(cid, fname)
                 if k not in st.session_state:
                     st.session_state[k] = float(start * scale)

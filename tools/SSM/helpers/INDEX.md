@@ -517,6 +517,23 @@ Module-level helpers:
 
 `class Degachi(AbstractSSMModel)` (`SHORT="D"`): cascade re-extraction across 9 PARAM_GROUPS.
 
+### [`models/svg_topology.py`](../models/svg_topology.py) — "non-zero only" live SVG schematics
+
+Toggle-ON alternative to each model's static PNG template: builds the matching
+built-in custom-model preset, prunes every R/L/C whose current value is zero /
+absent / non-finite, and renders the survivors through
+`custom_model/schematic.py`. Also hosts the two hand-drawn pad-dummy
+schematics (no preset exists for them — they are a probe-pad network, not a
+device topology).
+
+| Function | Purpose |
+|---|---|
+| `_present(v)` / `_prune_network(net, all_p, values)` / `_prune_branches(branches, all_p, values)` | Non-zero test; drop dead Elements/branches and record survivors' values by `Element.id`. |
+| `build_pruned_model(short, all_p)` | Streamlit-free: preset for model `short` stripped to its currently non-zero components → `(model, values)` for `render_schematic`. |
+| `render_svg_topology(short, all_p, fname)` | Streamlit wrapper — pruned SVG + iframe + PNG download/copy buttons. Called from `base_ui.render_override_and_smith`'s "🖼️ Topology illustration" expander when the model sets `_SVG_TOPOLOGY` and the user flips the "Simplified schematic" toggle. |
+| `_pad_svg(caps, inds=None)` / `pad_open_svg(caps)` / `pad_short_svg(caps, inds)` | Hand-drawn Open (3-cap π: Cpbe/Cpce/Cpbc) and Short (same caps + Lb/Lc/Le center-node T) pad-dummy SVGs, with each component's live value printed next to it (SI-unit inputs; `_fmt` prints blank for zero/absent). |
+| `render_pad_topology(kind, params, fname, container=None)` | Streamlit wrapper for the two pad SVGs. **Single call site:** the RF simulator's "Open and Short Pad" model (`tools/RF_simulator.py`, "🖼️ Open/short topology" expander). Deliberately *not* rendered under the SSM models or the custom model — their own topology illustration already draws the pad parasitics in place. |
+
 ---
 
 ## Custom model builder (`custom_model/*.py`)

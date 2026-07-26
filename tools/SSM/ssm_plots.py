@@ -975,15 +975,30 @@ def _extrap_f0(f_ghz, gain_db, extrap_method, sp_window):
     return extrap_20dbdec(f_ghz, gain_db)[2]
 
 
+def _has_unity_gain(gain_db):
+    """True when a gain trace actually reaches 0 dB somewhere.
+
+    fT/fmax are *defined* as the unity-gain frequency, so a trace that never
+    reaches 0 dB has none — extrapolating one anyway yields a number that looks
+    plausible but is meaningless (an unbiased, open-base DUT would otherwise
+    report an fT of ~2 GHz purely from the shape of its sub-unity roll-off).
+    """
+    g = np.asarray(gain_db, dtype=float)
+    return bool(np.any(np.isfinite(g) & (g > 0.0)))
+
+
 def _eff_ft_fmax_ghz(f_ghz, h21_db, U_db,
                      extrap_method="−20 dB/dec", sp_window=None):
     """Effective fT / fmax in GHz: in-band 0-dB crossing if present, else the
     extrapolated 0-dB frequency using the *selected* method (so this tracks the
-    Bode plot's −20 dB/dec ⇄ single-pole radio)."""
+    Bode plot's −20 dB/dec ⇄ single-pole radio).
+
+    Returns None for either quantity when its gain trace never reaches 0 dB —
+    no unity gain, no unity-gain frequency."""
     fT, fmax = find_ft_fmax(f_ghz, h21_db, U_db)
-    if fT is None:
+    if fT is None and _has_unity_gain(h21_db):
         fT = _extrap_f0(f_ghz, h21_db, extrap_method, sp_window)
-    if fmax is None:
+    if fmax is None and _has_unity_gain(U_db):
         fmax = _extrap_f0(f_ghz, U_db, extrap_method, sp_window)
     return fT, fmax
 

@@ -132,8 +132,15 @@ same probe.
 
 Deliberately self-contained (see §1). Page sections:
 holder-position calculator → left-computer origin → **GDS mask viewer**
-(own single-pass streaming GDSII parser with instanced layers and a RAM
-budget, sized for Streamlit Cloud's ~1 GB) → workflow modes (dose-time
+(own single-pass streaming GDSII parser with instanced layers and
+RAM-adaptive budgets: `_limits_for()` sizes the parse guards per upload
+from the memory actually free — strictly, from the cgroup limit inside a
+container, where over-committing is a SIGKILL; more generously on a PC,
+where it only pages. Over-budget files are refused with a message, never
+a crash. `maxUploadSize` (350 MB in `.streamlit/config.toml`, raised by
+`launch_ebl_calculator.py` when run locally) is the outer ceiling; the
+numbers behind both come from `gds/_profile_gds_limits.py`) → workflow
+modes (dose-time
 test / first exposure / second alignment), each with an exposure Time
 Calculator (vectorized per-cell area binning; exact polygon clipping for
 small N).

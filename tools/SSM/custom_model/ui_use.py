@@ -33,7 +33,8 @@ from ..models.base_ui import (smith_scale_controls, render_visual_tuning_expande
 # Reuse the Fit view's model loader / value inputs / tuning-state clearing so the
 # combined view shares one model source (cmf_model) and one value-key scheme.
 from .ui_fit import (_make_adapter, _load_model, _value_inputs,
-                     _clear_tuning_state, _FIT_SPEC, _UNIT, _TOPO as _FTOPO)
+                     _clear_tuning_state, _disp_spec, _kohm_ids,
+                     _TOPO as _FTOPO)
 from ._i18n import tr
 
 _SMITH_COLORS = {"S11": "#1f77b4", "S22": "#ff7f0e",
@@ -223,10 +224,14 @@ def render_use_ui(measured: dict | None = None) -> None:
     # ── Tuning — Visual Tuning (🎯 Live tweak / ⚡ Wide sweep) always; Auto
     #    Tuning (grid sweep, ranks vs the device residual) only with a device.
     #    Reference trace: the measured device when present, else the current sim.
-    tuning_specs = [
-        (cid, name, _FIT_SPEC.get(kind, (1.0, 0))[0], _UNIT.get(kind, ""))
-        for _title, items in model.grouped_value_specs()
-        for cid, kind, name in items]
+    # Same display scale/unit the value inputs used (kΩ on the b–c junction R),
+    # so slider drags and "use best values" round-trip through one convention.
+    _kohm = _kohm_ids(model)
+    tuning_specs = []
+    for _title, items in model.grouped_value_specs():
+        for cid, kind, name in items:
+            _scale, _start, _unit = _disp_spec(cid, kind, _kohm)
+            tuning_specs.append((cid, name, _scale, _unit))
     adapter = _make_adapter(model)
     S_ref = S_meas if has_dev else S_sim
     render_visual_tuning_expander(adapter, values, S_ref, freq, z0,

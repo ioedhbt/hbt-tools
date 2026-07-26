@@ -773,6 +773,158 @@ def fit(data: dict, model, initial: dict = None, fit_keys: list = None,
     return result
 
 
+# ── Multi-start driver ───────────────────────────────────────────────────────
+#
+# `fit()` runs ONE optimizer from ONE start inside the `tune_hard_limits` /
+# `informed_default_range` box.  Two consequences, both measured on the
+# de-embedded batch in `deembed_these/`:
+#
+#   * That default box is sized for a small (4x10 µm²) InP HBT.  On a
+#     60x60 µm² device Cbe wants tens of pF and α₀ sits well below the
+#     hard-coded [0.95, 0.99] window, so the true optimum lies OUTSIDE the box
+#     and the fit pins against a wall at 69 % Total residual.  Widening to
+#     WIDE_BOUNDS (physically plausible for every size in the set) alone takes
+#     the same file to 9.0 %.
+#   * Nelder-Mead on 13-19 correlated variables reliably stops in a local
+#     minimum, which is why single-shot fits plateau above 5 %.
+#
+# `fit_multistart()` screens many log-uniform starts, then alternates
+# least_squares <-> Nelder-Mead on the best few until the improvement stops
+# (NM escapes the curved valleys where TRF stalls; TRF finishes the descent NM
+# only crawls down).  It reproduces the independently known plain-Cheng-T
+# global optimum of `s2p/deemb_preext_vce3.5_ib280u.s2p` (3.078 % Total), and
+# on a 40x40 device 14 vs 71 starts return the identical optimum — i.e. it
+# converges rather than merely improving.
+
+WIDE_BOUNDS = {
+    "Rpb": (0.05, 300.0), "Rpc": (0.05, 300.0), "Rpe": (0.01, 150.0),
+    "Cbex": (1e-16, 5e-11), "Cbcx": (1e-16, 5e-11), "Cbc": (1e-16, 5e-11),
+    "Rbi": (0.1, 2e4), "Rbe": (0.1, 1e5), "Cbe": (1e-15, 2e-9),
+    "Rbc": (1e2, 1e8), "alpha0": (0.02, 0.9995),
+    "tauB": (1e-15, 1e-9), "tauC": (1e-15, 1e-9),
+}
+
+
+def _ms_sample(rng, bounds, log_keys):
+    """One random start: log-uniform for decade-spanning keys, else uniform."""
+    out = {}
+    for k, (lo, hi) in bounds.items():
+        if k in log_keys and lo > 0:
+            out[k] = float(np.exp(rng.uniform(np.log(lo), np.log(hi))))
+        else:
+            out[k] = float(rng.uniform(lo, hi))
+    return out
+
+
+def _ms_jitter(rng, p, bounds, log_keys, frac=0.35):
+    """Multiplicative (log-space) perturbation of `p`, clipped to `bounds`."""
+    out = {}
+    for k, v in p.items():
+        if k not in bounds:
+            continue
+        lo, hi = bounds[k]
+        if k in log_keys and lo > 0:
+            v = max(float(v), lo) * float(np.exp(rng.normal(0.0, frac)))
+        else:
+            v = float(v) + rng.normal(0.0, frac * (hi - lo) * 0.25)
+        out[k] = float(min(max(v, lo), hi))
+    return out
+
+
+def fit_multistart(data: dict, model, bounds: dict = None, seeds: list = None,
+                   fixed: dict = None, n_random: int = 14,
+                   n_survivors: int = 4, polish_rounds: int = 6,
+                   screen_iter: int = 700, polish_iter: int = 4000,
+                   target: float = None, rng_seed: int = 0,
+                   backend: str = "auto") -> dict:
+    """Multi-start + alternating-polish wrapper around `fit()`.
+
+    Same return shape as `fit()` plus `n_starts`.  Use this instead of `fit()`
+    whenever a single-shot fit stalls at a high residual — see the note above
+    for why that happens.
+
+    Parameters (beyond `fit()`'s)
+    -----------------------------
+    bounds       : SI-unit box; defaults to `WIDE_BOUNDS` filtered to the keys
+                   `model` actually declares.  Pass your own to narrow it.
+    seeds        : extra starting-point dicts (a neighbouring bias point, a
+                   cached fit, an analytic extraction).  Seeds are only ever
+                   starting points — a bad one costs time, never correctness,
+                   because the best result over all starts is returned.
+    fixed        : {key: SI value} held constant, exactly as in `fit()`.  NOTE
+                   that supplying it disables the automatic de-embed freeze, so
+                   include the six pad/lead parasitics yourself when the data
+                   is de-embedded.
+    n_random     : random starts to screen (log-uniform inside `bounds`).
+    n_survivors  : best screened starts to carry into the polish stage.
+    target       : stop as soon as Total residual <= this (None = never).
+    """
+    _, _, _, _, spec_list = _model_context(model)
+    model_keys = {k for k, *_ in spec_list}
+
+    bounds = dict(bounds) if bounds else dict(WIDE_BOUNDS)
+    bounds = {k: v for k, v in bounds.items() if k in model_keys}
+    fixed = dict(fixed) if fixed else {}
+    for k in fixed:
+        bounds.pop(k, None)
+    if not bounds:
+        raise ValueError("fit_multistart: no free parameters left to fit")
+
+    log_keys = {k for k in bounds if k != "alpha0"}
+    rng = np.random.default_rng(rng_seed)
+
+    starts = [None] + [dict(s) for s in (seeds or [])]
+    starts += [_ms_sample(rng, bounds, log_keys) for _ in range(int(n_random))]
+
+    def _run(initial, method, maxiter):
+        return fit(data, model, initial=initial, bounds=bounds,
+                   fixed=fixed or None, method=method, maxiter=maxiter,
+                   backend=backend)
+
+    screened = []
+    for st in starts:
+        try:
+            r = _run(st, "nelder-mead", screen_iter)
+        except Exception:
+            continue
+        screened.append((r["residuals"]["Total"], r["params"], r))
+    if not screened:
+        raise RuntimeError("fit_multistart: every start failed")
+    screened.sort(key=lambda t: t[0])
+
+    best_tot, _best_p, best_res = screened[0]
+    for tot0, p0, res0 in screened[:int(n_survivors)]:
+        cur, cur_tot, cur_res = dict(p0), tot0, res0
+        for _ in range(int(polish_rounds)):
+            improved = False
+            for meth in ("least_squares", "nelder-mead"):
+                try:
+                    r = _run(cur, meth, polish_iter)
+                except Exception:
+                    continue
+                if r["residuals"]["Total"] < cur_tot - 1e-4:
+                    cur_tot, cur, cur_res = r["residuals"]["Total"], r["params"], r
+                    improved = True
+            try:                       # one jittered restart per round
+                r = _run(_ms_jitter(rng, cur, bounds, log_keys),
+                         "nelder-mead", polish_iter)
+                if r["residuals"]["Total"] < cur_tot - 1e-4:
+                    cur_tot, cur, cur_res = r["residuals"]["Total"], r["params"], r
+                    improved = True
+            except Exception:
+                pass
+            if not improved:
+                break
+        if cur_tot < best_tot:
+            best_tot, best_res = cur_tot, cur_res
+        if target is not None and best_tot <= target:
+            break
+
+    best_res = dict(best_res)
+    best_res["n_starts"] = len(starts)
+    return best_res
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # 6. Custom-model creation helpers
 # ════════════════════════════════════════════════════════════════════════════

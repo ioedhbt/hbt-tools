@@ -53,6 +53,32 @@ _win = sys.platform == "win32"
 VENV_PYTHON = VENV_DIR / ("Scripts/python.exe" if _win else "bin/python")
 VENV_STREAMLIT = VENV_DIR / ("Scripts/streamlit.exe" if _win else "bin/streamlit")
 
+# ── GDS upload limit, sized from this machine ─────────────────────────────────
+# `.streamlit/config.toml` caps uploads at 300 MB because that is what the
+# deployed 3 GB container can survive. A workstation is not that container,
+# so when launched locally the cap is raised to match the RAM actually
+# present — the app's own budgets (tools/ebeam_calculator.py, `_limits_for`)
+# then track free memory at parse time, and anything too big is refused with
+# a message rather than crashing.
+_UPLOAD_MB_MIN = 350         # never below the deployed cap (config.toml)
+_UPLOAD_MB_MAX = 4_000       # Streamlit/Tornado get unhappy past a few GB
+_UPLOAD_RAM_SHARE = 0.10     # a mask peaks at roughly 4-6× its file size
+
+
+def _upload_limit_mb() -> int:
+    """Max upload size for this machine, in MB (whole number for the CLI)."""
+    try:
+        import psutil
+        total_mb = psutil.virtual_memory().total / 1e6
+    except Exception:
+        try:                                  # psutil not installed yet
+            total_mb = (os.sysconf("SC_PHYS_PAGES")
+                        * os.sysconf("SC_PAGE_SIZE") / 1e6)
+        except (ValueError, AttributeError, OSError):
+            return _UPLOAD_MB_MIN
+    return int(min(_UPLOAD_MB_MAX,
+                   max(_UPLOAD_MB_MIN, total_mb * _UPLOAD_RAM_SHARE)))
+
 
 # ── Auto-update from a canonical GitHub repo (DISABLED for now) ───────────────
 # When enabled, updates pull from the OFFICIAL repository below regardless of
@@ -206,10 +232,16 @@ def main():
     print("=" * 50)
     print("  Launching E-Beam Lithography Calculator ...")
     print("=" * 50)
+    upload_mb = _upload_limit_mb()
+    print(f"  Max GDS upload: {upload_mb} MB "
+          f"(sized from this machine's RAM)")
     print()
 
     try:
-        subprocess.check_call([str(VENV_STREAMLIT), "run", str(APP_FILE)])
+        subprocess.check_call([
+            str(VENV_STREAMLIT), "run", str(APP_FILE),
+            f"--server.maxUploadSize={upload_mb}",
+        ])
     except KeyboardInterrupt:
         print("\nServer shut down cleanly.")
 

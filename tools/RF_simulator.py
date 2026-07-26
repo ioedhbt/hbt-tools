@@ -568,7 +568,8 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
     frames are the full cartesian product, JS coordinates the sliders so
     dragging one reflects the *current position* of all the others.
     """
-    from tools.SSM.helpers import make_smith_bode_joint_slider_html
+    from tools.SSM.helpers import build_smith_bode_slider_payload
+    from tools.SSM.components import smith_bode_slider
 
     tuning_specs = list(pad_specs) + list(ext_specs) + list(int_specs)
     label_for = {s[0]: s[1] for s in tuning_specs}
@@ -743,8 +744,25 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
     if build_clicked:
         import time as _time
         xp = _cp if (use_cuda and _HAS_CUDA) else np
-        device_label = (f"GPU (cupy {_CUDA_VER})"
-                        if xp is not np else "CPU (numpy)")
+        if xp is not np:
+            device_label = f"GPU (cupy {_CUDA_VER})"
+        else:
+            try:
+                from tools.SSM.helpers.rust_kernels import (
+                    HAS_RUST as _HR,
+                    _phase2_dispatch_enabled as _p2on,
+                    SIM_FOR_TOPOLOGY as _SIMTOPO,
+                )
+                from tools.SSM.helpers import rust_kernels as _RKMOD
+                _rust_used = bool(
+                    _HR and _p2on() and (
+                        _SIMTOPO.get(model_cls.SHORT) is not None
+                        or (getattr(model_cls, "USES_RUST_BATCH", False)
+                            and getattr(getattr(_RKMOD, "_rk", None),
+                                        "sim_custom_batch", None) is not None)))
+            except Exception:
+                _rust_used = False
+            device_label = "CPU (🦀 Rust)" if _rust_used else "CPU (numpy)"
         sweep_disps : list[np.ndarray] = []
         sweep_sis   : list[np.ndarray] = []
         slider_specs_out: list[dict] = []
@@ -762,7 +780,7 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
             sweep_disps.append(sd)
             sweep_sis.append(sd / scale)
             slider_specs_out.append(dict(
-                label=label, unit=unit, fmt=fmt,
+                key=key, label=label, unit=unit, fmt=fmt,
                 values_disp=sd.tolist()))
         meshes = np.meshgrid(*sweep_sis, indexing="ij")
         flats  = [m.ravel() for m in meshes]
@@ -830,7 +848,7 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
         f"**{elapsed:.2f} 秒**（每影格 {ms_each:.1f} 毫秒）。"
         "拖曳下方任一滑桿即可瀏覽聯合掃描結果。"))
 
-    html = make_smith_bode_joint_slider_html(
+    payload = build_smith_bode_slider_payload(
         S_batch_joint=state["S_batch"],
         freq=freq,
         slider_specs=state["slider_specs"],
@@ -843,14 +861,39 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
             f"rfsim_smithmult_{nm}", 1.0))
             for nm in ("S11", "S12", "S21", "S22")},
     )
-    n_sl = len(state["slider_specs"])
-    iframe_height = 500 + 26 + 36 * n_sl + 30
-    # st.iframe replaced components.v1.html (deprecated 2026-06-01).
-    # When src is a raw HTML string (no http(s) / file / Path prefix)
-    # Streamlit embeds it directly in an iframe — same behaviour as
-    # the old components.html call.  No `scrolling` parameter; the
-    # `height=` integer is interpreted in pixels just like before.
-    st.iframe(html, height=iframe_height)
+    n_sl   = len(state["slider_specs"])
+    height = 500 + 30 + 36 * n_sl + 52
+    # Bidirectional component: renders the Smith+Bode figure with client-side
+    # scrub sliders (payload is inflated in the browser via gzip
+    # DecompressionStream, so no multi-MB HTML string is re-embedded on every
+    # rerun) and posts the chosen slider indices back on "Use these values".
+    ret = smith_bode_slider(
+        payload=payload, height=height,
+        use_label=i18n.tr("Use these values", "採用這些數值"),
+        key=f"rfsim_sbslider_{prefix}")
+
+    if isinstance(ret, dict) and ret.get("nonce") is not None:
+        _nonce_key = f"_rfsim_pl_nonce_{prefix}"
+        if ret["nonce"] != st.session_state.get(_nonce_key):
+            st.session_state[_nonce_key] = ret["nonce"]
+            idxs  = ret.get("indices") or []
+            specs = state["slider_specs"]
+            _pad_keys = {s[0] for s in pad_specs}
+            _ext_keys = {s[0] for s in ext_specs}
+            def _widget_key(k):
+                if k in _pad_keys: return f"rfsim_{prefix}_pad_{k}"
+                if k in _ext_keys: return f"rfsim_{prefix}_ext_{k}"
+                return f"rfsim_{prefix}_int_{k}"
+            pend = {}
+            for i, sp in enumerate(specs):
+                if i < len(idxs):
+                    vals = sp.get("values_disp", [])
+                    ii = int(idxs[i])
+                    if 0 <= ii < len(vals):
+                        pend[_widget_key(sp["key"])] = float(vals[ii])
+            if pend:
+                st.session_state[f"_rfsim_pl_commit_{prefix}"] = pend
+                st.rerun()
 
 
 def _build_bode(S, freq_hz, title: str, *,
@@ -1083,6 +1126,22 @@ if model_choice == "Open and Short Pad":
             s2p_filename="rf_sim_short.s2p",
         )
 
+    # Open/Short pad-dummy schematics — the only place in the app that draws
+    # them (they used to also appear under every SSM model's fine-tune block;
+    # there the model's own topology illustration already shows the same pad
+    # parasitics).  Values come straight from the SI-unit input dicts above,
+    # so each component is labelled with its live value in the picture
+    # (`_fmt` prints a blank for a zero/absent element).
+    with st.container(key="hbt_exp_view_padtopo_rfsim"), \
+         st.expander(i18n.tr("🖼️ Open/short topology", "🖼️ Open/Short 拓樸"),
+                     expanded=True):
+        from tools.SSM.models.svg_topology import render_pad_topology
+        c_topo_o, c_topo_s = st.columns(2)
+        c_topo_o.caption(i18n.tr("Open pad", "Open 焊墊"))
+        render_pad_topology("open", p_open, "rfsim", container=c_topo_o)
+        c_topo_s.caption(i18n.tr("Short pad", "Short 焊墊"))
+        render_pad_topology("short", p_short, "rfsim", container=c_topo_s)
+
     # Chart on the LEFT, controls on the RIGHT — same split-call pattern the
     # Cheng/Xu models use above.  The "controls" phase must run before the
     # "chart" phase (it writes the session state the chart reads), so the
@@ -1242,6 +1301,14 @@ else:
     pad_r_specs     = sorted(
         [s for s in _pad_specs_for_model if s[0] in _pad_r_order],
         key=lambda s: _pad_r_order.index(s[0]))
+
+    # Apply any values committed from the ⚡ Smooth-sweep slider's
+    # "Use these values" button (deferred to before the input widgets
+    # exist — Streamlit forbids mutating a widget key post-instantiation).
+    _pl_pending = st.session_state.pop(f"_rfsim_pl_commit_{prefix}", None)
+    if _pl_pending:
+        for _wk, _wv in _pl_pending.items():
+            st.session_state[_wk] = _wv
 
     def _render_pad_row(specs):
         for col_w, spec in zip(st.columns(3), specs):

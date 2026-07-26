@@ -15,3 +15,9 @@ __pycache__/
 # ARE tracked — they're the whole point of the build script.
 tools/SSM/rust_kernels/target/
 s2p/
+
+# Generated GDS stress-test masks (hundreds of MB — regenerate with
+# gds/_gen_test_gds.py, see gds/README.md).  The generator and the
+# limits sweep next to them ARE tracked.
+gds/masks/
+gds/masks_extra/

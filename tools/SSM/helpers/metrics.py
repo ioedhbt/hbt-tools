@@ -129,7 +129,9 @@ def single_pole_extrap(f_ghz, gain_db, idx_lo, idx_hi,
         slope     : float (dB per decade of f).
         intercept : float (dB at f = 1 GHz).
     or (None, None, None, slope, intercept) when the fit returns a non-negative
-    slope or the projection fails.  ``slope`` / ``intercept`` may still be
+    slope, when the window never reaches 0 dB (no unity gain → no fT/fmax
+    exists, and the fitted crossing would sit *behind* the data), or when the
+    projection otherwise fails.  ``slope`` / ``intercept`` may still be
     NaN if the window itself is unusable.
     """
     f = np.asarray(f_ghz, dtype=float)
@@ -149,6 +151,17 @@ def single_pole_extrap(f_ghz, gain_db, idx_lo, idx_hi,
         return None, None, None, float(slope), float(intercept)
     f_zero = 10.0 ** (-intercept / slope)
     if not np.isfinite(f_zero) or f_zero <= 0:
+        return None, None, None, float(slope), float(intercept)
+
+    # An fT/fmax only exists if the device actually reaches unity gain. On a
+    # window that never rises above 0 dB (an open-base / unbiased DUT, where
+    # |h21| < 1 everywhere) the fitted line still crosses 0 dB — but *behind*
+    # the data, so the "crossing" is a backward extrapolation, not a transit
+    # frequency. Measured case: an open-base 5x10 DUT with max |h21| = -1.06 dB
+    # reported f_zero = 0.013 GHz, below the 0.01-5 GHz band it was fitted on.
+    # `extrap_20dbdec` already rejects this via its `gv[-1] <= 0` guard; this is
+    # the matching guard for the single-pole path.
+    if np.nanmax(g_w[mask]) <= 0.0 or f_zero <= float(f_w[mask][0]):
         return None, None, None, float(slope), float(intercept)
     f_start = float(f_w[mask][0])
     f_end = max(f_zero, float(f_max_target)) if f_max_target else f_zero

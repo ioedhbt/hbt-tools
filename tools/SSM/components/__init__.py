@@ -36,3 +36,33 @@ def draggable_smith(*, figure: dict, labels: list, height: int = 560, key=None):
     """
     return _draggable_smith(figure=figure, labels=labels, height=height,
                             key=key, default=None)
+
+
+_smith_bode_slider = components.declare_component("smith_bode_slider",
+    path=os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "smith_bode_slider"))
+
+
+def smith_bode_slider(*, payload: dict, height: int = 560,
+                      use_label: str = "Use these values", key=None):
+    """Bidirectional Smith+Bode scrub-slider (the ⚡ Smooth-sweep preview).
+
+    ``payload`` is the dict returned by
+    ``tools.SSM.helpers.build_smith_bode_slider_payload`` — a JSON-safe
+    Plotly figure plus a gzip+base64 blob of per-frame Smith/Bode data
+    (``data_b64``), cartesian axis sizes (``dims``), the initial midpoint
+    frame per axis (``mids``), per-axis display-value label strings
+    (``labels``), and the trace-index maps (``smith``/``bode``/``extrap``)
+    ``update()`` needs to swap frame data on scrub.  The browser inflates
+    ``data_b64`` itself (native ``DecompressionStream``) and renders one
+    range-slider per axis, exactly replicating the frame-swap logic of
+    ``make_smith_bode_joint_slider_html`` but without re-embedding a fresh
+    multi-MB HTML blob on every Streamlit rerun.
+
+    Returns ``{"indices": [...], "nonce": ...}`` — the per-axis slider
+    positions at the moment ``use_label`` was clicked — or ``None`` before
+    any click.  ``indices`` line up positionally with the ``slider_specs``
+    list the payload was built from; the caller maps index → value.
+    """
+    return _smith_bode_slider(payload=payload, height=height,
+                              use_label=use_label, key=key, default=None)

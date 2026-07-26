@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <!-- Vendored Plotly.js (same copy as ../draggable_smith/plotly.min.js) so
+       the component works fully offline — no CDN. Served from this folder by
+       Streamlit's component static server. -->
+  <script src="./plotly.min.js" charset="utf-8"></script>
+  <style>
+    html, body { margin: 0; padding: 0; font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, sans-serif; }
+    #sbPlot { width: 100%; }
+    #hbt-sliders {
+      padding: 12px 60px 14px 60px;
+      background: #fafafa;
+      border-top: 1px solid #e0e0e0;
+    }
+    .hbt-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin: 6px 0;
+      font-size: 13px;
+    }
+    .hbt-name {
+      min-width: 70px;
+      font-weight: 600;
+      color: #222;
+    }
+    .hbt-val {
+      min-width: 140px;
+      color: #444;
+      font-variant-numeric: tabular-nums;
+    }
+    .hbt-row input[type=range] {
+      flex: 1 1 auto;
+      accent-color: #1f77b4;
+      height: 24px;
+    }
+    #hbt-use-btn {
+      padding: 6px 14px;
+      margin: 8px 0 0 60px;
+      cursor: pointer;
+      border: 1px solid #1f77b4;
+      border-radius: 4px;
+      background: #1f77b4;
+      color: #fff;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div id="sbPlot">Decoding…</div>
+  <div id="sliderWrap"></div>
+  <script>
+    // ── Minimal Streamlit component bridge (no streamlit-component-lib build) ──
+    const READY  = "streamlit:componentReady";
+    const RENDER = "streamlit:render";
+    const VALUE  = "streamlit:setComponentValue";
+    const HEIGHT = "streamlit:setFrameHeight";
+    function post(type, extra) {
+      window.parent.postMessage(
+        Object.assign({ isStreamlitMessage: true, type: type }, extra || {}), "*");
+    }
+    function setValue(v)  { post(VALUE,  { value: v, dataType: "json" }); }
+    function setHeight(h) { post(HEIGHT, { height: h }); }
+
+    // Report the REAL rendered content height so the "Use these values" button
+    // (the last element) is never clipped. Plotly's responsive layout can make
+    // the plot taller than layout.height once it settles, so trust the DOM's
+    // scrollHeight rather than a Python-side estimate (kept only as a floor).
+    // Measured twice (next frame + a short delay) to catch post-layout reflow.
+    function reportHeight(minH) {
+      function measure() {
+        var h = document.body ? document.body.scrollHeight : 0;
+        setHeight(Math.max(h + 8, minH || 0));
+      }
+      requestAnimationFrame(measure);
+      setTimeout(measure, 150);
+    }
+
+    // ── Rebuild guard: keep the user's current slider scrub position across
+    // unrelated Streamlit reruns that resend the identical payload. ─────────
+    var _b64 = null, _DATA = null, _built = false;
+    var _PAYLOAD = null;    // the payload currently backing the plot/sliders
+
+    function plotDiv()  { return document.getElementById("sbPlot"); }
+    function showError(msg) {
+      var pd = plotDiv();
+      if (pd) pd.textContent = msg;
+    }
+
+    async function inflateB64(b64) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      if (!('DecompressionStream' in window)) throw new Error('DecompressionStream unsupported');
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+      const buf = await new Response(stream).arrayBuffer();
+      return JSON.parse(new TextDecoder().decode(buf));
+    }
+
+    function jointIndex(pos, dims) {
+      var j = 0;
+      for (var k = 0; k < dims.length; k++) j = j * dims[k] + pos[k];
+      return j;
+    }
+
+    // Resolve the Plotly graph div robustly: the fixed id is preferred, but
+    // fall back to the Plotly div class in case a build ever ignores it (same
+    // defensive pattern as the original embedded-HTML slider).
+    function getGD() {
+      return document.getElementById('sbPlot')
+          || document.querySelector('.js-plotly-plot')
+          || document.querySelector('.plotly-graph-div');
+    }
+
+    function update() {
+      if (!_PAYLOAD || !_DATA) return;
+      var dims = _PAYLOAD.dims, labels = _PAYLOAD.labels;
+      var pos = [];
+      for (var i = 0; i < dims.length; i++) {
+        var el = document.getElementById('sl' + i);
+        if (!el) return;                      // sliders not wired yet
+        pos.push(parseInt(el.value, 10));
+        var lbl = document.getElementById('sv' + i);
+        if (lbl) lbl.textContent = labels[i][pos[i]];
+      }
+      var gd = getGD();
+      if (!gd || !gd.data) return;
+      var frame = _DATA[jointIndex(pos, dims)];
+      if (!frame) return;
+      // frame = [S11r, S11i, S22r, S22i, S21r, S21i, S12r, S12i, h21, U,
+      //          h21extX, h21extY, UextX, UextY]
+      // NOTE: traces are Scattergl (WebGL). Plotly.restyle does NOT reliably
+      // repaint WebGL traces (the GL layer keeps the old buffers) — mutate the
+      // trace arrays in place and call Plotly.redraw, which rebuilds the GL
+      // scene (mirrors make_smith_bode_joint_slider_html's update()).
+      var SMITH = _PAYLOAD.smith, BODE = _PAYLOAD.bode, EXTRAP = _PAYLOAD.extrap;
+      for (var k = 0; k < SMITH.length; k++) {
+        gd.data[SMITH[k]].x = frame[2 * k];
+        gd.data[SMITH[k]].y = frame[2 * k + 1];
+      }
+      gd.data[BODE[0]].y = frame[8];
+      gd.data[BODE[1]].y = frame[9];
+      gd.data[EXTRAP[0]].x = frame[10]; gd.data[EXTRAP[0]].y = frame[11];
+      gd.data[EXTRAP[1]].x = frame[12]; gd.data[EXTRAP[1]].y = frame[13];
+      Plotly.redraw(gd);
+    }
+
+    function onUseClick() {
+      if (!_PAYLOAD) return;
+      var dims = _PAYLOAD.dims;
+      var indices = [];
+      for (var i = 0; i < dims.length; i++) {
+        var el = document.getElementById('sl' + i);
+        indices.push(el ? parseInt(el.value, 10) : 0);
+      }
+      setValue({ indices: indices, nonce: Date.now() });
+    }
+
+    // Escape param name/unit before dropping into the row HTML (they originate
+    // from Python model specs, but escape defensively). payload.labels carries
+    // the per-position *value* strings; payload.names/units carry the row's
+    // parameter name + unit (fall back to an ordinal if ever absent).
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function buildSliders(payload, useLabel) {
+      var wrap  = document.getElementById("sliderWrap");
+      var names = payload.names || [];
+      var units = payload.units || [];
+      var rows = [];
+      for (var i = 0; i < payload.dims.length; i++) {
+        var n         = payload.dims[i];
+        var mid       = payload.mids[i];
+        var initLabel = payload.labels[i][mid];
+        var nm        = names[i] ? esc(names[i]) : ('Param ' + (i + 1));
+        var un        = units[i] ? (' ' + esc(units[i])) : '';
+        rows.push(
+          '<div class="hbt-row">' +
+          '<div class="hbt-name">' + nm + '</div>' +
+          '<div class="hbt-val"><span id="sv' + i + '">' + esc(initLabel) +
+          '</span>' + un + '</div>' +
+          '<input type="range" id="sl' + i + '" min="0" max="' + (n - 1) +
+          '" value="' + mid + '" step="1">' +
+          '</div>'
+        );
+      }
+      wrap.innerHTML = '<div id="hbt-sliders">' + rows.join("") + '</div>' +
+        '<button id="hbt-use-btn" type="button"></button>';
+      // Set via textContent (not innerHTML) so use_label never needs escaping.
+      document.getElementById('hbt-use-btn').textContent = useLabel;
+
+      for (var j = 0; j < payload.dims.length; j++) {
+        var s = document.getElementById('sl' + j);
+        s.addEventListener('input', update);
+        s.addEventListener('change', update);
+      }
+      document.getElementById('hbt-use-btn').addEventListener('click', onUseClick);
+    }
+
+    async function build(args) {
+      var payload = args.payload;
+      _PAYLOAD = payload;
+      var pd = plotDiv();
+      pd.textContent = "Decoding…";
+      try {
+        _DATA = await inflateB64(payload.data_b64);
+      } catch (e) {
+        pd.textContent = "";
+        showError("This browser lacks gzip DecompressionStream — update your browser.");
+        return;
+      }
+      // Clear the "Decoding…" placeholder and give the div an explicit height:
+      // with responsive:true Plotly sizes to the CONTAINER and ignores
+      // layout.height, so without this the plot collapses to ~0 px when the
+      // iframe body hasn't been sized yet.
+      pd.textContent = "";
+      var figH = (payload.figure.layout && payload.figure.layout.height) || 500;
+      pd.style.height = figH + "px";
+      await Plotly.newPlot(pd, payload.figure.data, payload.figure.layout,
+        { displayModeBar: false, responsive: true, scrollZoom: false, staticPlot: false });
+      buildSliders(payload, args.use_label);
+      _built = true;
+      update();          // sync labels + plot to the initial (midpoint) positions
+      reportHeight(args.height);
+    }
+
+    window.addEventListener("message", function (event) {
+      const data = event.data;
+      if (!data || data.type !== RENDER) return;
+      const args = data.args || {};
+      if (!args.payload) return;
+      if (args.payload.data_b64 === _b64 && _built) {
+        // Same payload as last time (e.g. an unrelated Streamlit rerun) —
+        // don't rebuild, so the user's current scrub position survives.
+        reportHeight(args.height);
+        return;
+      }
+      _b64 = args.payload.data_b64;
+      _built = false;
+      build(args).catch(function (e) {
+        showError("smith_bode_slider error: " + (e && e.message ? e.message : e));
+      });
+    });
+
+    post(READY, { apiVersion: 1 });
+  </script>
+</body>
+</html>

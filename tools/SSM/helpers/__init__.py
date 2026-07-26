@@ -83,6 +83,7 @@ from .plotly_plots import (
     make_plateau,
     make_smith_bode_slider_fig,
     make_smith_bode_joint_slider_html,
+    build_smith_bode_slider_payload,
     add_overlay_trace_with_markers,
     thinned_indices,
 )

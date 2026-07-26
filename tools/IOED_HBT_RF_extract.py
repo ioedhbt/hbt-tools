@@ -1006,6 +1006,8 @@ with tab_sum:
         # loads, and stamp a nonce so Streamlit remounts the iframe (re-runs the
         # script) on every navigation. st.iframe embeds a raw HTML string in a
         # same-origin srcdoc iframe, so window.parent.document stays reachable.
+        # height=1 (not 0): Streamlit rejects a 0 height — it must be a positive
+        # integer, "stretch" or "content". 1px is the smallest legal sliver.
         if st.session_state.pop("_goto_individual",False):
             st.iframe(
                 """<script>
@@ -1032,7 +1034,7 @@ with tab_sum:
                   }, 50);
                 })();
                 </script>
-                <!-- nonce %s -->""" % (datetime.now().timestamp(),), height=0)
+                <!-- nonce %s -->""" % (datetime.now().timestamp(),), height=1)
 
 with tab_bd:
     render_batch_deembedding_tab(

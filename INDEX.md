@@ -29,6 +29,7 @@ the SSM index) in the same change.
 | `rust_things/` | Rust-kernel build + status scripts |
 | `tools/` | One `.py` per portal page (DC, RF, EBL tools) + shared portal infrastructure (`i18n`, `home`, `diagrams`) |
 | `tools/SSM/` | HBT small-signal-model extraction engine + UI (own index, see above) |
+| `gds/` | GDS mask stress-test pair: synthetic GDSII generator + memory/time limits sweep for the EBL page's viewer (dev only, not imported by the app) |
 | `tools/SSM/rust_kernels/` | Rust acceleration crate, prebuilt binaries, benchmark |
 | `.streamlit/`, `.hbttools/` | Streamlit config / auto-created local venv (not source) |
 
@@ -74,7 +75,9 @@ machine.
 | `param_specs(model)` | Every parameter `model` accepts, as `(key, label, si_scale, unit)` — builtin SHORT or a custom model. |
 | `simulate(model, params, freq, z0=50.0, backend="auto")` | Forward-simulate `S[N,2,2]` from an SI-unit `params` dict (missing keys fall back to physics-informed defaults). |
 | `residuals(S_meas, S_model)` | `{Total, S11, S12, S21, S22}` residual in % — the exact metric the Streamlit UI shows. |
-| `fit(data, model, initial=None, fit_keys=None, fixed=None, bounds=None, method="auto", maxiter=400, backend="auto")` | Fit `model` to `data` (from `load_data()`) → `{params, residuals, success, n_evals, message, backend}`. Auto-freezes de-embedded parasitics per the header (see above) unless `fit_keys`/`fixed` are given explicitly. |
+| `fit(data, model, initial=None, fit_keys=None, fixed=None, bounds=None, method="auto", maxiter=400, backend="auto")` | Fit `model` to `data` (from `load_data()`) → `{params, residuals, success, n_evals, message, backend}`. Auto-freezes de-embedded parasitics per the header (see above) unless `fit_keys`/`fixed` are given explicitly. **Single start, single optimizer** — see `fit_multistart()` when it stalls. |
+| `fit_multistart(data, model, bounds=None, seeds=None, fixed=None, n_random=14, n_survivors=4, polish_rounds=6, screen_iter=700, polish_iter=4000, target=None, rng_seed=0, backend="auto")` | Multi-start + alternating-polish driver over `fit()`; same result dict plus `n_starts`. Screens log-uniform random starts (plus any `seeds`) inside `bounds`, then alternates `least_squares`↔`nelder-mead` on the survivors until the gain stops. Use it whenever a one-shot `fit()` plateaus at a high residual. |
+| `WIDE_BOUNDS` | Default SI-unit bound box for `fit_multistart()`, wide enough for every device size from 4×10 µm² to 60×60 µm². `fit()`'s own box comes from `tune_hard_limits`/`informed_default_range`, which is sized for a small HBT and **excludes the true optimum on large devices**. |
 | `backend_status()` | Snapshot of CUDA/Rust availability + what `"auto"` resolves to — backs the `backend` CLI subcommand. |
 | `build_custom_model(base="Cheng T", modifications=None, name=None)` | Start a `CustomModel` from a built-in topology (`custom_model.core.builtin_custom_model`) and apply edits. |
 | `add_series_element` / `add_parallel_element` / `add_shunt_branch` / `add_parallel_to_shunt` | Thin wrappers to add R/L/C components to a `CustomModel`'s junction/section Networks or shunt branches — e.g. a Cce cap collector↔emitter, or Rbcx parallel to Cbcx. |
@@ -83,12 +86,28 @@ machine.
 Python usage:
 
 ```python
-from tools.SSM.agent_api import load_data, fit
+from tools.SSM.agent_api import load_data, fit, fit_multistart
 
 data = load_data("s2p/deemb_preext_vce3.5_ib280u.s2p")
 result = fit(data, model="T", maxiter=3000)   # Cheng T-topology
 print(result["residuals"]["Total"], result["params"])
+
+# When a one-shot fit plateaus (large devices, or any residual stuck > ~5 %):
+best = fit_multistart(data, "T", n_random=16,
+                      fixed={k: 0.0 for k in                   # de-embedded file:
+                             ("Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le")})
+print(best["residuals"]["Total"], best["n_starts"])   # -> 3.078 % over 17 starts
 ```
+
+Why the multi-start driver exists: `fit()` runs one Nelder-Mead from one
+start inside a bound box sized for a small HBT.  On a 60×60 µm² device the
+true optimum lies **outside** that box (Cbe wants tens of pF, α₀ sits below
+the hard-coded 0.95 floor), so the fit pins on a wall at 69 % Total; the
+wider `WIDE_BOUNDS` alone bring the same file to 9.0 %.  Multi-start then
+handles the second failure mode — Nelder-Mead on 13–19 correlated variables
+reliably stops in a local minimum.  Validation: `fit_multistart` reproduces
+the independently known plain-Cheng-T optimum of the file above (3.078 %),
+and on a 40×40 device 14 vs 71 random starts return the identical optimum.
 
 CLI usage (run from the repo root, or pass absolute paths — the CLI
 bootstraps `sys.path` to the repo root itself either way):
@@ -332,6 +351,13 @@ Short pad / custom model), key in all parameters from scratch, inspect
 Smith chart + fT/fmax Bode, download S2P/xlsx. Optional fit-target
 overlay of a measured device handed over from the extraction pages.
 
+The **Open and Short Pad** model is the app's only host of the pad-dummy
+schematics: its "🖼️ Open/short topology" expander draws both pads with each
+component's live value printed on the picture, via
+`SSM/models/svg_topology.py::render_pad_topology`. They are deliberately not
+rendered on the SSM-model or custom-model pages — a device model's own
+topology illustration already shows the same pad parasitics in place.
+
 | Function | Purpose |
 |---|---|
 | `_resolve_fit_target()` | Optional measured-device target (from cross-page handoff) for fit mode. |
@@ -373,10 +399,13 @@ model builder).
 Self-contained page (imports no repo modules, so
 `launch_ebl_calculator.py` can run it standalone). Sections: **1** chip
 position in the e-beam holder, **2** left-computer origin setup,
-**3** GDS mask viewer (streaming GDSII parser with a RAM budget so
-Streamlit Cloud's ~1 GB limit isn't blown), **4** workflow mode selector
-(dose-time test / first exposure / second alignment), each with a
-per-mode exposure Time Calculator.
+**3** GDS mask viewer (streaming GDSII parser with RAM budgets so a big
+mask can't OOM the host — uploads are capped at 300 MB in
+`.streamlit/config.toml`, and anything costlier than that is refused
+with a message rather than crashing; re-measure with
+`gds/_profile_gds_limits.py` before touching either), **4** workflow
+mode selector (dose-time test / first exposure / second alignment), each
+with a per-mode exposure Time Calculator.
 
 UI & small helpers:
 
@@ -397,20 +426,41 @@ Streaming GDSII parser + layer model:
 | `class _InstancedLayer` | A layer kept in instanced form (base polygons × offsets per group); `bbox`, `total_area_units2`, `instance_count`, `base_poly_count`. |
 | `_apply_ref_transform(cx, cy, rotation, magnification, x_reflection)` | Apply an SREF/AREF transform to coordinates. |
 | `_gds_real8(b)` | Decode a GDSII 8-byte excess-64 real. |
+| `class _StreamSummary` / `class _LayerAgg` / `_stream_scan(store, limits)` | Two-pass streaming scan of a compressed store: one 4 MB block live at a time, keeping only per-layer counts / bbox / area / 1024² count+area rasters. Nothing proportional to placement count is retained (300 MB mask: 0.64 s, ~150 MB). |
+| `_StreamSummary.cell_areas(...)` / `.total_area_mm2(...)` | Re-bin the area raster onto any exposure grid — changing chip size is a re-bin, not a re-scan. |
+| `_stream_window(store, summary, x0, x1, y0, y1, max_polys)` | Re-read only the blocks overlapping a zoom window (4 of 63 on a 250 MB mask); same return contract as `_instances_in_window`. |
+| `class _StreamLayer` / `_stream_coverage_grid(...)` | Adapter that lets one streamed layer stand in for a `_PolyLayer` in the viewer and Time Calculator (`len`, `bbox`, `instance_count`, area binning, coverage raster) without any geometry behind it. |
+| `_iter_stream_events(store)` / `_run_pass1` / `_resolve_directory` / `_run_pass2` / `_chunk_shoelace_areas` | The scan's internals: carry-aware block walker, cell directory + forward-reference resolution, reductions, vectorized per-chunk shoelace. |
+| `_rows_budget_msg(limit)` | Shared bilingual "too many cell placements" message for the placement guard (parser + flattener). |
 | `_element_run(a, mv, p0, blk, xy_off, xy_len)` | Bulk-decode a run of element records. |
+| `_tile_probe` / `_tile_windows` / `_element_slot_run` / `_decode_copies` / `_tile_advance` | Same trick one level up: find and verify a repeating *group* of k different elements (a layout stepping several cell types together), then gather each element's slot out of every repeat in one strided pass. `_decode_copies` is what the element loops call; it falls back to `_element_run` and backs off when no group is there. |
 | `_consolidate_cell(...)` | Merge one structure's parse accumulators into a raw-cell dict. |
-| `_parse_gds(buf)` | Single-pass streaming parse of a GDSII byte buffer. |
-| `_flatten_instanced(cell_name, cells, cache, budget)` | Resolve references → `{(layer, datatype): [group, …]}` under a RAM budget. |
+| `_parse_gds(buf, limits)` | Single-pass streaming parse of a GDSII byte buffer, under the given RAM-derived budgets. |
+| `_flatten_instanced(cell_name, cells, cache, budget)` | Resolve references → `{(layer, datatype): [group, …]}` under a RAM budget (`budget["limit_rows"]`). |
 | `_expand_groups_to_flat(groups)` | Tile group bases by their offsets into flat arrays. |
-| `_load_gds(digest, _upload)` / `_load_gds_layers(upload)` / `_spec_to_layer(spec)` | Cached parse → per-cell layer specs → layer objects. |
+| `_compress_upload(upload)` / `_inflate_store(store)` / `_store_ratio(store)` | Stage-1 compressed upload buffer: reads the raw upload in `_BLOCK_BYTES` (4 MB) chunks, zlib-level-1-compresses each and hashes incrementally into a `{"blocks", "nbytes", "digest", "name"}` store, so the widget's raw copy can be dropped and only the (typically ~3–9×) smaller store stays resident for the session; `_inflate_store` rebuilds the original bytes into one preallocated buffer for `_parse_gds`. |
+| `_load_gds(digest, _upload, _limits, budget_key)` / `_load_gds_layers(upload)` / `_spec_to_layer(spec)` | Cached parse → per-cell layer specs → layer objects. `upload` is a compressed store, an `st.file_uploader` value, or raw bytes/BytesIO (test scripts). A store is passed as a **thunk** so a cache hit never inflates it, and the buffer is freed inside `_load_gds` the moment the parse returns. `_limits` is excluded from the cache key (it holds a live float + display string — keying on it disabled the cache); `budget_key` buckets it at `_BUDGET_BUCKET_MB`. `_load_gds_layers` also sizes the budgets, pre-refuses uploads too big for free RAM, and converts a mid-parse `MemoryError` into a normal error message. |
+
+RAM-adaptive memory budgets (**the guards are computed per upload, not
+hard-coded** — a mask refused on the 3 GB container may load fine on a
+workstation):
+
+| Symbol | Purpose |
+|---|---|
+| `_read_int_file(path)` / `_cgroup_free_mb()` | cgroup v2/v1 accounting probes — the only way to see a container's real limit (psutil reports the *host's* memory). Inline copies of `tools/SSM/helpers/mem_budget.py`, since this page imports no repo modules. |
+| `_free_ram_mb()` | `(free_mb, total_mb, source)`; `source="container"` when a cgroup limit exists. |
+| `_mask_budget_mb()` | `(budget_mb, note, strict)` — peak RAM one mask may use now. Container: strictly free×0.75 with no floor (going over is a SIGKILL). PC: floored at 35% of installed RAM, capped at 60% (going over merely pages). |
+| `class _Limits` / `_limits_for(file_mb)` | The three parse budgets (`src_verts`, `rows`, `verts`) derived from the RAM budget minus the upload buffer, using the measured ~90 MB per million vertices/placements. |
+| `_DEFAULT_LIMITS` | Static fallback (the measured-safe 3 GB-container values) for callers with no file size — tests, direct `_parse_gds` calls. |
 
 Mask placement, plotting & coverage:
 
 | Function | Purpose |
 |---|---|
 | `_layer_trace(name, polys, color, scale)` | Filled outline trace of every polygon. |
-| `_layer_bbox_mm` / `_placed_bbox_mm` / `_bbox_rect_trace` | Layer bounding boxes (raw / placed) + dashed bbox rectangle. |
-| `_rasterize_coverage` / `_coverage_grid` / `_coverage_heatmap_trace` | Low-res coverage raster for dense instanced layers. |
+| `_layer_bbox_mm` / `_placed_bbox_mm` / `_bbox_rect_trace` | Layer bounding boxes (raw / placed) + dashed bbox rectangle (last resort only — see `_mask_overlay_traces`). |
+| `_layer_coverage_grid` / `_coverage_grid` / `_flat_coverage_grid` / `_stream_coverage_grid` | Low-res coverage grid for **every** layer kind — instanced (one point per placement, box-dilated by the cell's own extent so large stepped cells aren't a few dots), flat (every vertex, in bounded passes) or streamed (the scan's raster). `_raster_shape` caps the long axis so a tall, narrow mask can't demand a 10 000-row image; `_dilate_box` is the summed-area dilation. |
+| `_rasterize_coverage` / `_coverage_heatmap_trace` / `_use_coverage_raster` | That grid as a `go.Image` / `go.Heatmap`, plus the predicate deciding raster vs exact polygons. A dense layer is never shown as nothing. |
 | `_unit_pattern_traces(layer, color, scale)` | Base (unit) pattern per group. |
 | `_decimated_centers(layer, ...)` | Evenly-spread sample of instance centers (cap 5000). |
 | `_nan_xy_from_flat(...)` | Flat polygons → NaN-separated closed x/y lists. |
@@ -435,4 +485,6 @@ Per-cell area binning & exposure Time Calculator:
 | `tools/_profile_bulk_upload.py` | Profile the bulk-s2p-upload hot path (`profile_file`, `simulate_streamlit_loop`) — no Streamlit, per-stage `perf_counter` timings. |
 | `tools/_profile_rust_batch.py` | Benchmark `rust_parse_and_compute_batch` vs the per-file Python loop (`py_loop` vs `rust_batch`). |
 | `tools/_profile_ssm_extraction.py` | Profile the SSM extraction math pipeline end-to-end (`profile_extraction`, `_synth_dummies`). |
+| `gds/_gen_test_gds.py` | Synthetic GDSII writer for mask stress tests — sub-µm rectangles/circles/triangles in a 2 µm unit cell repeated over ≤ 1 × 1 cm (`unit_cell_shapes`, `plan_grid`, `places_for_mb`, `generate_gds`). Modes: `sref` (N placements), `sref_norun` (runs broken → slow path), `aref` (tiny file, huge expansion), `flat` (no repetition), `mixed` (both guards loaded at once), `bigcell` (one cell too big to stay instanced), `multi`/`multi_grouped` (`--cells N` distinct unit patterns, interleaved or one contiguous span each — the interleaved form is what breaks a run-only decoder). |
+| `gds/_profile_gds_limits.py` | Sweep those masks through the real viewer pipeline in fresh subprocesses (`run_worker`, `_run_case`, `_verdict`) and report parse time + peak RSS against the Streamlit Cloud budget. `--reupload` measures the two-masks-live peak; `--enforce` hard-caps address space (Linux). Use it before changing `maxUploadSize`. |
 | `tools/SSM/rust_kernels/benchmark.py` | Rust-vs-NumPy parity test + microbenchmark for every kernel; exits 0 when Rust isn't built (NumPy fallback is supported). |

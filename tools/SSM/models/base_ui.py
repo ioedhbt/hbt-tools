@@ -2477,7 +2477,8 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
     Built batch + slider specs stash in session_state until the user
     changes the selection / ranges and clicks ``🧮 Build`` again.
     """
-    from ..helpers.plotly_plots import make_smith_bode_joint_slider_html
+    from ..helpers.plotly_plots import build_smith_bode_slider_payload
+    from ..components import smith_bode_slider
 
     label_for = {s[0]: s[1] for s in tuning_specs}
     options   = [s[0] for s in tuning_specs]
@@ -2664,8 +2665,30 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
     if build_clicked:
         import time as _time
         xp = _cp if (use_cuda and _HAS_CUDA) else np
-        device_label = (f"GPU (cupy {_CUDA_VER})"
-                        if xp is not np else tr("CPU (numpy)", "CPU（numpy）"))
+        if xp is not np:
+            device_label = f"GPU (cupy {_CUDA_VER})"
+        else:
+            # CPU path routes through simulate_batch → the Rust end-to-end
+            # kernel whenever it's available (mirrors _detect_rust_active),
+            # so the badge must reflect what actually ran, not a hardcoded
+            # "numpy".  Only true NumPy composition gets the numpy label.
+            try:
+                from ..helpers.rust_kernels import (
+                    HAS_RUST as _HR,
+                    _phase2_dispatch_enabled as _p2on,
+                    SIM_FOR_TOPOLOGY as _SIMTOPO,
+                )
+                from ..helpers import rust_kernels as _RKMOD
+                _rust_used = bool(
+                    _HR and _p2on() and (
+                        _SIMTOPO.get(model_cls.SHORT) is not None
+                        or (getattr(model_cls, "USES_RUST_BATCH", False)
+                            and getattr(getattr(_RKMOD, "_rk", None),
+                                        "sim_custom_batch", None) is not None)))
+            except Exception:
+                _rust_used = False
+            device_label = (tr("CPU (🦀 Rust)", "CPU（🦀 Rust）") if _rust_used
+                            else tr("CPU (numpy)", "CPU（numpy）"))
         # Build per-axis sweeps then meshgrid → cartesian product
         sweep_disps  : list[np.ndarray] = []
         sweep_sis    : list[np.ndarray] = []
@@ -2684,7 +2707,7 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
             sweep_disps.append(sd)
             sweep_sis.append(sd / scale)
             slider_specs_out.append(dict(
-                label=label, unit=unit, fmt=fmt,
+                key=key, label=label, unit=unit, fmt=fmt,
                 values_disp=sd.tolist()))
         meshes = np.meshgrid(*sweep_sis, indexing="ij")
         flats  = [m.ravel() for m in meshes]
@@ -2761,7 +2784,7 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
         f"**{elapsed:.2f} 秒**（{ms_each:.1f} 毫秒/幀）。"
         "拖曳下方任一滑桿即可瀏覽。"))
 
-    html = make_smith_bode_joint_slider_html(
+    payload = build_smith_bode_slider_payload(
         S_batch_joint=state["S_batch"],
         freq=freq,
         slider_specs=state["slider_specs"],
@@ -2776,16 +2799,38 @@ def _render_plotly_slider_preview(model_cls, all_p, S_raw, freq, z0,
             for nm in ("S11", "S12", "S21", "S22")
         },
     )
-    # Plotly figure (height=500) + HTML slider rows below.  Each row
-    # is ~36 px tall; container has ~26 px padding.  +40 px buffer.
-    n_sl = len(state["slider_specs"])
-    iframe_height = 500 + 26 + 36 * n_sl + 30
-    # st.iframe replaced components.v1.html (deprecated 2026-06-01).
-    # When src is a raw HTML string (no http(s) / file / Path prefix)
-    # Streamlit embeds it directly in an iframe — same behaviour as
-    # the old components.html call.  No `scrolling` parameter; the
-    # `height=` integer is interpreted in pixels just like before.
-    st.iframe(html, height=iframe_height)
+    # Bidirectional component: renders the Smith+Bode figure with client-side
+    # scrub sliders (the per-frame data is inflated in the browser from a
+    # gzip+base64 blob via native DecompressionStream, so no multi-MB HTML
+    # string is re-embedded on every rerun) plus a "✅ Use these values" button
+    # that posts the chosen slider indices back.  Height is self-measured by
+    # the component so the button is never clipped.
+    n_sl   = len(state["slider_specs"])
+    height = 500 + 30 + 36 * n_sl + 52
+    ret = smith_bode_slider(
+        payload=payload, height=height,
+        use_label=tr("✅ Use these values", "✅ 使用這些數值"),
+        key=f"sbslider_{topo_key}_{fname}")
+
+    # Commit chosen slider values into the fine-tune sim_* override fields —
+    # same target keys + display-unit convention as the Live-mode commit
+    # above (`sim_{topo_key}_{k}_{fname}` = value × scale).  values_disp is
+    # already in display units, so it's written straight through.  A nonce
+    # guard stops the persisted component value from re-committing on every
+    # rerun.
+    if isinstance(ret, dict) and ret.get("nonce") is not None:
+        _nonce_key = f"_sbslider_nonce_{topo_key}_{fname}"
+        if ret["nonce"] != st.session_state.get(_nonce_key):
+            st.session_state[_nonce_key] = ret["nonce"]
+            idxs = ret.get("indices") or []
+            for i, sp in enumerate(state["slider_specs"]):
+                if i < len(idxs):
+                    vals = sp.get("values_disp", [])
+                    ii = int(idxs[i])
+                    if 0 <= ii < len(vals):
+                        st.session_state[
+                            f"sim_{topo_key}_{sp['key']}_{fname}"] = float(vals[ii])
+            st.rerun()
 
 
 def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
@@ -6728,25 +6773,13 @@ class SSMModelTemplate:
             else:
                 cls._render_topology(all_p, fname, smith_png=_smith_png)
 
-        # Open/Short pad-dummy topology — two columns (open | short), its own
-        # collapsed expander right before the Smith chart one below.  Skipped
-        # only if *none* of the six pad keys are in all_p at all (defensive;
-        # every registered model carries at least some of them — Kun-Yang has
-        # no Cpbe/Cpce/Cpbc but does have Lb/Lc/Le, so its Open column just
-        # renders blank cap values, which is fine — no HEMT special-casing).
-        _pad_topo_keys = ("Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le")
-        if any(k in all_p for k in _pad_topo_keys):
-            with st.container(key=f"hbt_exp_view_padtopo_{cls.SHORT}"), \
-                 st.expander(tr("🖼️ Open/short topology", "🖼️ Open/Short 拓樸"),
-                             expanded=False):
-                from .svg_topology import render_pad_topology
-                c_open, c_short = st.columns(2)
-                c_open.caption(tr("Open pad", "Open 焊墊"))
-                render_pad_topology("open", all_p, f"{cls.SHORT}_{fname}",
-                                    container=c_open)
-                c_short.caption(tr("Short pad", "Short 焊墊"))
-                render_pad_topology("short", all_p, f"{cls.SHORT}_{fname}",
-                                    container=c_short)
+        # NOTE: the Open/Short pad-dummy schematics (svg_topology.
+        # render_pad_topology) deliberately do NOT appear here.  A device
+        # model's own topology illustration above already draws its pad
+        # parasitics in place, so a second pad-only drawing was redundant on
+        # every model page (and on the custom model).  The pad schematics now
+        # live only where they are the subject: the RF simulator's "Open and
+        # Short Pad" model (tools/RF_simulator.py).
 
         # Smith chart (matplotlib) + its controls live in a single
         # expander, rendered side-by-side — matches the RF simulator
