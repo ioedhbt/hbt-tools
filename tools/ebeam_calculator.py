@@ -734,6 +734,14 @@ def _rows_budget_msg(limit: int) -> str:
     )
 
 
+# Vertices per pass wherever a flat layer is walked whole — _PolyLayer.
+# poly_areas and _flat_coverage_grid. Scaling, binning or cross-multiplying
+# a 20 M-vertex layer in one shot would allocate several hundred MB of
+# temporaries, on the very layers that are dense precisely because memory is
+# tight. At 1 M the working set is ~24 MB and the pass still runs in ~0.1 s.
+_FLAT_RASTER_CHUNK = 1 << 20
+
+
 class _PolyLayer:
     """All polygons of one (layer, datatype), stored as flat float64
     coordinate arrays plus per-polygon start offsets.
@@ -777,14 +785,37 @@ class _PolyLayer:
                 float(self.cx.max()), float(self.cy.max()))
 
     def poly_areas(self):
-        """|shoelace| area per polygon (source units²), vectorized."""
+        """|shoelace| area per polygon (source units²), vectorized.
+
+        Walked in vertex-bounded passes: the one-shot form allocates four
+        vertex-sized temporaries (the wrap index, both gathers and the
+        cross products), so a 13 M-vertex flat layer asked for ~400 MB of
+        scratch — on every rerun, since the exposure grid recomputes this.
+        Same bounded-pass reasoning as ``_flat_coverage_grid``.
+        """
         cx, cy, st = self.cx, self.cy, self.starts
-        if st.size <= 1:
+        n = int(st.size - 1)
+        if n <= 0:
             return np.zeros(0)
-        nxt = np.arange(cx.size) + 1
-        nxt[st[1:] - 1] = st[:-1]          # wrap each polygon's last → first
-        cross = cx * cy[nxt] - cx[nxt] * cy
-        return np.abs(0.5 * np.add.reduceat(cross, st[:-1]))
+        out = np.empty(n, dtype=np.float64)
+        i = 0
+        while i < n:
+            # As many whole polygons as fit in one vertex budget, but never
+            # fewer than one (a single polygon bigger than the budget still
+            # has to be done in one piece).
+            j = int(np.searchsorted(st, st[i] + _FLAT_RASTER_CHUNK,
+                                    side="right")) - 1
+            j = min(max(j, i + 1), n)
+            a, b = int(st[i]), int(st[j])
+            sub = st[i:j + 1] - a          # this pass's starts, rebased
+            x = cx[a:b]
+            y = cy[a:b]
+            nxt = np.arange(b - a) + 1
+            nxt[sub[1:] - 1] = sub[:-1]    # wrap each polygon's last → first
+            cross = x * y[nxt] - x[nxt] * y
+            np.abs(0.5 * np.add.reduceat(cross, sub[:-1]), out=out[i:j])
+            i = j
+        return out
 
     def first_vertices(self):
         """First vertex of every polygon as (x, y) arrays."""
@@ -1293,7 +1324,10 @@ def _parse_gds(buf, limits: "_Limits" = None):
                     for ch in chunks:
                         total_rows += ch.size >> 1
                         lst.append(ch.reshape(-1, 2))
-                elif el == _T_BOUNDARY:
+                elif el == _T_BOUNDARY and xdl >= 8:
+                    # xdl >= 8 (i.e. npts >= 1): a BOUNDARY whose XY record
+                    # is empty or truncated carries no polygon, and letting
+                    # npts reach 0 divides by zero in the run decode below.
                     npts = xdl >> 3
                     pts = np.frombuffer(mv, dtype=">i4", count=2 * npts,
                                         offset=xd0).astype(np.int64)
@@ -1988,7 +2022,14 @@ def _iter_stream_events(store: dict, max_block: int = None):
                         for ch in chunks:
                             yield ("sref", el_sname, el_rot, el_mag, el_refl,
                                    ch.reshape(-1, 2).astype(np.int64))
-                    elif el == _T_BOUNDARY:
+                    elif el == _T_BOUNDARY and xdl >= 8:
+                        # xdl >= 8 (npts >= 1) — an empty or truncated XY
+                        # record has no polygon in it, and npts == 0 would
+                        # make _chunk_shoelace_areas raise for every
+                        # consumer of this event. The full parser tolerates
+                        # such an element, so the streaming fallback (which
+                        # only ever runs on files too big to parse) must
+                        # not be the one thing that fails on it.
                         npts = xdl >> 3
                         pts = np.frombuffer(mv, dtype=">i4", count=2 * npts,
                                             offset=xd0).astype(np.int64)
@@ -2160,8 +2201,20 @@ def _run_pass1(store: dict):
             # A regular affine lattice's extremes over a rectangular index
             # range coincide with its 4 corners — no need to enumerate
             # cols*rows (up to ~1e9) placements just for a bbox.
-            cxs = np.array([x0, x1, x2, x1 + x2 - x0]) * unit_user
-            cys = np.array([y0, y1, y2, y1 + y2 - y0]) * unit_user
+            #
+            # GDSII's AREF corners are one *whole* pitch past the last
+            # placement (that is why the lattice builders divide by cols /
+            # rows rather than cols-1 / rows-1), so using them raw reports
+            # an extent one column and one row too wide. Step back to the
+            # last placement instead.
+            dxc = (x1 - x0) * (cols - 1) / cols
+            dyc = (y1 - y0) * (cols - 1) / cols
+            dxr = (x2 - x0) * (rows - 1) / rows
+            dyr = (y2 - y0) * (rows - 1) / rows
+            cxs = np.array([x0, x0 + dxc, x0 + dxr,
+                            x0 + dxc + dxr]) * unit_user
+            cys = np.array([y0, y0 + dyc, y0 + dyr,
+                            y0 + dyc + dyr]) * unit_user
             _fold_minmax(cur["refs"], (sname, rot, mag, refl), cols * rows,
                         float(cxs.min()), float(cys.min()),
                         float(cxs.max()), float(cys.max()))
@@ -2290,6 +2343,10 @@ def _run_pass2(store: dict, resolved: dict, top_set: set,
             if not child:
                 return
             bxmin = bymin = bxmax = bymax = None
+            # Placement extremes are the same for every layer of this
+            # child, so scan the point cloud once, not once per layer.
+            fxmin = float(fx.min()); fxmax = float(fx.max())
+            fymin = float(fy.min()); fymax = float(fy.max())
             for (l, d), (carea, ccount, cbbox) in child.items():
                 agg = agg_for((l, d))
                 agg.placements += k_total
@@ -2300,12 +2357,24 @@ def _run_pass2(store: dict, resolved: dict, top_set: set,
                 tccx, tccy = _apply_ref_transform(
                     np.array([ccx]), np.array([ccy]), rot, mag, refl)
                 px = fx + tccx[0]; py = fy + tccy[0]
-                agg.grow_bbox(float(px.min()), float(py.min()),
-                             float(px.max()), float(py.max()))
+                # Raster/point work is per *center* — one point per
+                # placement is the whole reason this stays O(1) in memory.
+                # The bbox is not: it has to cover the child's own extent
+                # around each center, or the layer reports the span of the
+                # placement lattice instead of the span of the geometry
+                # (short by half a cell on every side — 7.50 mm instead of
+                # 9.96 mm on a mask stepped in 2.5 mm blocks).
+                tcx, tcy = _apply_ref_transform(
+                    np.array([cx0, cx0, cx1, cx1]),
+                    np.array([cy0, cy1, cy0, cy1]), rot, mag, refl)
+                ex_lo = float(tcx.min()); ex_hi = float(tcx.max())
+                ey_lo = float(tcy.min()); ey_hi = float(tcy.max())
+                agg.grow_bbox(fxmin + ex_lo, fymin + ey_lo,
+                             fxmax + ex_hi, fymax + ey_hi)
                 _raster_add(agg, extent, px, py,
                           np.full(n_pts, carea * (mag * mag) * w_each))
-                bx0 = float(px.min()); bx1 = float(px.max())
-                by0 = float(py.min()); by1 = float(py.max())
+                bx0 = fxmin + ex_lo; bx1 = fxmax + ex_hi
+                by0 = fymin + ey_lo; by1 = fymax + ey_hi
                 if bxmin is None:
                     bxmin, bymin, bxmax, bymax = bx0, by0, bx1, by1
                 else:
@@ -2396,8 +2465,17 @@ def _run_pass2(store: dict, resolved: dict, top_set: set,
                     # coverage heatmap of a file like this still shows
                     # roughly the right footprint. None of this task's
                     # graded masks are AREF-heavy (all "sref" mode).
-                    fx = np.array([x0a, x1a, x2a, x1a + x2a - x0a])
-                    fy = np.array([y0a, y1a, y2a, y1a + y2a - y0a])
+                    # Corners stepped back to the last actual placement,
+                    # same as pass 1 — the raw GDSII corners sit one whole
+                    # pitch beyond it.
+                    dxc = (x1a - x0a) * (cols - 1) / cols
+                    dyc = (y1a - y0a) * (cols - 1) / cols
+                    dxr = (x2a - x0a) * (rowsN - 1) / rowsN
+                    dyr = (y2a - y0a) * (rowsN - 1) / rowsN
+                    fx = np.array([x0a, x0a + dxc, x0a + dxr,
+                                   x0a + dxc + dxr])
+                    fy = np.array([y0a, y0a + dyc, y0a + dyr,
+                                   y0a + dyc + dyr])
                 fx = fx * unit_user
                 fy = fy * unit_user
             _place(cur_block, sname, rot, mag, refl, fx, fy, k_total)
@@ -2502,8 +2580,8 @@ def _decode_structure_bytes(body, unit_user: float) -> dict:
                         a, mv, el_start, blk, xd0 - el_start, xdl)
                     for ch in chunks:
                         lst.append(ch.reshape(-1, 2))
-                elif el == _T_BOUNDARY:
-                    npts = xdl >> 3
+                elif el == _T_BOUNDARY and xdl >= 8:
+                    npts = xdl >> 3   # >= 1; see _iter_stream_events
                     pts = np.frombuffer(mv, dtype=">i4", count=2 * npts,
                                         offset=xd0).astype(np.int64)
                     bcx = pts[0::2]; bcy = pts[1::2]
@@ -2682,8 +2760,8 @@ def _walk_local(buf, start_p: int, seed_name):
                     for ch in chunks:
                         yield ("sref", el_sname, el_rot, el_mag, el_refl,
                                ch.reshape(-1, 2).astype(np.int64))
-                elif el == _T_BOUNDARY:
-                    npts = xdl >> 3
+                elif el == _T_BOUNDARY and xdl >= 8:
+                    npts = xdl >> 3   # >= 1; see _iter_stream_events
                     pts = np.frombuffer(mv, dtype=">i4", count=2 * npts,
                                         offset=xd0).astype(np.int64)
                     bcx = pts[0::2]; bcy = pts[1::2]
@@ -3168,13 +3246,29 @@ def _bbox_rect_trace(bbox_mm, color: str, name: str) -> go.Scatter:
     )
 
 
+# Placements handled per pass by the instanced helpers below. Each pass
+# holds a handful of float64/int64 temporaries per point, so doing a
+# 10 M-placement layer in one shot allocates ~600 MB of scratch — measured
+# as a +300 MB spike over the parse peak on a 300 MB mask, paid again on
+# every rerun (the exposure grid and the coverage raster are recomputed
+# each time). At 1 M the working set is ~50 MB and the wall time is
+# unchanged. Same reasoning as _FLAT_RASTER_CHUNK, for the instanced side.
+_INSTANCE_CHUNK = 1 << 20
+
+
 def _bin_points(out, px, py, weights, gx0, gy0, chip_size_mm, nx, ny):
     """Accumulate ``weights`` into the flat (nx*ny) cell grid by the cell
-    each (px, py) falls in. Cell order i outer, j inner."""
-    i = np.floor((px - gx0) / chip_size_mm).astype(np.int64)
-    j = np.floor((py - gy0) / chip_size_mm).astype(np.int64)
-    valid = (i >= 0) & (i < nx) & (j >= 0) & (j < ny)
-    np.add.at(out, i[valid] * ny + j[valid], weights[valid])
+    each (px, py) falls in. Cell order i outer, j inner. Bounded-memory
+    passes (see ``_INSTANCE_CHUNK``) — ``out`` is tiny, the inputs are not."""
+    for s in range(0, px.size, _INSTANCE_CHUNK):
+        e = min(s + _INSTANCE_CHUNK, px.size)
+        i = np.floor((px[s:e] - gx0) / chip_size_mm).astype(np.int64)
+        j = np.floor((py[s:e] - gy0) / chip_size_mm).astype(np.int64)
+        valid = (i >= 0) & (i < nx) & (j >= 0) & (j < ny)
+        flat = i[valid]
+        flat *= ny
+        flat += j[valid]
+        np.add.at(out, flat, weights[s:e][valid])
 
 
 def _fast_cell_areas_binned(layer: "_PolyLayer", scale_to_mm: float,
@@ -3211,10 +3305,13 @@ def _instanced_cell_areas_binned(layer: "_InstancedLayer", scale_to_mm: float,
             continue
         cxc = 0.5 * (bb[0] + bb[2])
         cyc = 0.5 * (bb[1] + bb[3])
-        px = (cxc + off[:, 0]) * scale_to_mm + ox
-        py = (cyc + off[:, 1]) * scale_to_mm + oy
-        w = np.full(off.shape[0], base_area, dtype=np.float64)
-        _bin_points(out, px, py, w, gx0, gy0, chip_size_mm, nx, ny)
+        k = int(off.shape[0])
+        for s in range(0, k, _INSTANCE_CHUNK):
+            e = min(s + _INSTANCE_CHUNK, k)
+            px = (cxc + off[s:e, 0]) * scale_to_mm + ox
+            py = (cyc + off[s:e, 1]) * scale_to_mm + oy
+            w = np.full(e - s, base_area, dtype=np.float64)
+            _bin_points(out, px, py, w, gx0, gy0, chip_size_mm, nx, ny)
     return out.tolist()
 
 
@@ -3371,11 +3468,6 @@ def _coverage_grid(layer: "_InstancedLayer", scale_to_mm: float,
             continue
         cxc = 0.5 * (bbb[0] + bbb[2])
         cyc = 0.5 * (bbb[1] + bbb[3])
-        pxs = (cxc + off[:, 0]) * scale_to_mm + ox
-        pys = (cyc + off[:, 1]) * scale_to_mm + oy
-        col = np.floor((pxs - x0d) / psz).astype(np.int64)
-        row = np.floor((pys - y0d) / psz).astype(np.int64)
-        m = (col >= 0) & (col < ncols) & (row >= 0) & (row < nrows)
         # One point per instance is right while a unit cell is sub-pixel
         # (the usual EBL mask: sub-µm shapes, tens of µm per pixel). A cell
         # *bigger* than a pixel — a handful of large stepped blocks — would
@@ -3383,12 +3475,22 @@ def _coverage_grid(layer: "_InstancedLayer", scale_to_mm: float,
         # spread each instance over the pixels its own extent covers.
         rx = int((bbb[2] - bbb[0]) * scale_to_mm / psz) // 2
         ry = int((bbb[3] - bbb[1]) * scale_to_mm / psz) // 2
+        # Dilation needs this group's own counts isolated, so it gets a
+        # scratch grid; without it the instances go straight into `cnt`.
+        # Either way the grid is ~px², not placement-sized.
+        acc = (np.zeros((nrows, ncols), dtype=np.int64)
+               if (rx or ry) else cnt)
+        k = int(off.shape[0])
+        for s in range(0, k, _INSTANCE_CHUNK):   # see _INSTANCE_CHUNK
+            e = min(s + _INSTANCE_CHUNK, k)
+            pxs = (cxc + off[s:e, 0]) * scale_to_mm + ox
+            pys = (cyc + off[s:e, 1]) * scale_to_mm + oy
+            col = np.floor((pxs - x0d) / psz).astype(np.int64)
+            row = np.floor((pys - y0d) / psz).astype(np.int64)
+            m = (col >= 0) & (col < ncols) & (row >= 0) & (row < nrows)
+            np.add.at(acc, (row[m], col[m]), 1)
         if rx or ry:
-            one = np.zeros((nrows, ncols), dtype=np.int64)
-            np.add.at(one, (row[m], col[m]), 1)
-            cnt += _dilate_box(one, ry, rx)
-        else:
-            np.add.at(cnt, (row[m], col[m]), 1)
+            cnt += _dilate_box(acc, ry, rx)
     return cnt, x0d + psz / 2, psz, y0d + psz / 2, psz
 
 
@@ -3411,13 +3513,6 @@ def _dilate_box(cnt, ry: int, rx: int):
     c1 = np.clip(np.arange(nc) + rx + 1, 0, nc)
     return (sat[np.ix_(r1, c1)] - sat[np.ix_(r0, c1)]
             - sat[np.ix_(r1, c0)] + sat[np.ix_(r0, c0)])
-
-
-# Vertices per pass in _flat_coverage_grid. Scaling and binning a 20 M-vertex
-# layer in one shot would allocate several hundred MB of temporaries — on the
-# very layers that are dense precisely because memory is tight. At 1 M the
-# working set is ~24 MB and the whole pass still runs in ~0.1 s.
-_FLAT_RASTER_CHUNK = 1 << 20
 
 
 def _flat_coverage_grid(layer: "_PolyLayer", scale_to_mm: float,
@@ -3587,15 +3682,29 @@ def _instances_in_window(layer: "_InstancedLayer", scale_to_mm: float,
             continue
         cxc = 0.5 * (bb[0] + bb[2])
         cyc = 0.5 * (bb[1] + bb[3])
-        px = (cxc + off[:, 0]) * scale_to_mm + ox
-        py = (cyc + off[:, 1]) * scale_to_mm + oy
-        m = (px >= x0) & (px <= x1) & (py >= y0) & (py <= y1)
-        sel = off[m]
-        if sel.shape[0]:
-            total += sel.shape[0] * int(bst.size - 1)
+        npoly = int(bst.size - 1)
+        k = int(off.shape[0])
+        picks = []
+        for s in range(0, k, _INSTANCE_CHUNK):   # see _INSTANCE_CHUNK
+            e = min(s + _INSTANCE_CHUNK, k)
+            px = (cxc + off[s:e, 0]) * scale_to_mm + ox
+            py = (cyc + off[s:e, 1]) * scale_to_mm + oy
+            m = (px >= x0) & (px <= x1) & (py >= y0) & (py <= y1)
+            if not m.any():
+                continue
+            sel = off[s:e][m]
+            total += sel.shape[0] * npoly
             if total > _MAX_REGION_POLYS:
+                # Bail on the chunk that crosses the cap rather than after
+                # the whole group: `total` is only ever shown as "more than
+                # _MAX_REGION_POLYS", and finishing the group would keep
+                # scanning a layer the caller has already refused to draw.
                 return ("over", total)
-            sel_groups.append((bcx, bcy, bst, sel))
+            picks.append(sel)
+        if picks:
+            sel_groups.append((bcx, bcy, bst,
+                               picks[0] if len(picks) == 1
+                               else np.concatenate(picks)))
     if not sel_groups:
         return None
     cx, cy, starts = _expand_groups_to_flat(sel_groups)

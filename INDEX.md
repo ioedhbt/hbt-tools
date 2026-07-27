@@ -430,7 +430,7 @@ Streaming GDSII parser + layer model:
 | `_StreamSummary.cell_areas(...)` / `.total_area_mm2(...)` | Re-bin the area raster onto any exposure grid — changing chip size is a re-bin, not a re-scan. |
 | `_stream_window(store, summary, x0, x1, y0, y1, max_polys)` | Re-read only the blocks overlapping a zoom window (4 of 63 on a 250 MB mask); same return contract as `_instances_in_window`. |
 | `class _StreamLayer` / `_stream_coverage_grid(...)` | Adapter that lets one streamed layer stand in for a `_PolyLayer` in the viewer and Time Calculator (`len`, `bbox`, `instance_count`, area binning, coverage raster) without any geometry behind it. |
-| `_iter_stream_events(store)` / `_run_pass1` / `_resolve_directory` / `_run_pass2` / `_chunk_shoelace_areas` | The scan's internals: carry-aware block walker, cell directory + forward-reference resolution, reductions, vectorized per-chunk shoelace. |
+| `_iter_stream_events(store)` / `_run_pass1` / `_resolve_directory` / `_run_pass2` / `_chunk_shoelace_areas` | The scan's internals: carry-aware block walker, cell directory + forward-reference resolution, reductions, vectorized per-chunk shoelace. Per-layer bboxes cover the referenced cell's own extent around each placement (not just the placement centers), and AREF corners are stepped back to the last placement — so a streamed layer reports the same extent the full parse does. |
 | `_rows_budget_msg(limit)` | Shared bilingual "too many cell placements" message for the placement guard (parser + flattener). |
 | `_element_run(a, mv, p0, blk, xy_off, xy_len)` | Bulk-decode a run of element records. |
 | `_tile_probe` / `_tile_windows` / `_element_slot_run` / `_decode_copies` / `_tile_advance` | Same trick one level up: find and verify a repeating *group* of k different elements (a layout stepping several cell types together), then gather each element's slot out of every repeat in one strided pass. `_decode_copies` is what the element loops call; it falls back to `_element_run` and backs off when no group is there. |
@@ -459,19 +459,19 @@ Mask placement, plotting & coverage:
 |---|---|
 | `_layer_trace(name, polys, color, scale)` | Filled outline trace of every polygon. |
 | `_layer_bbox_mm` / `_placed_bbox_mm` / `_bbox_rect_trace` | Layer bounding boxes (raw / placed) + dashed bbox rectangle (last resort only — see `_mask_overlay_traces`). |
-| `_layer_coverage_grid` / `_coverage_grid` / `_flat_coverage_grid` / `_stream_coverage_grid` | Low-res coverage grid for **every** layer kind — instanced (one point per placement, box-dilated by the cell's own extent so large stepped cells aren't a few dots), flat (every vertex, in bounded passes) or streamed (the scan's raster). `_raster_shape` caps the long axis so a tall, narrow mask can't demand a 10 000-row image; `_dilate_box` is the summed-area dilation. |
+| `_layer_coverage_grid` / `_coverage_grid` / `_flat_coverage_grid` / `_stream_coverage_grid` | Low-res coverage grid for **every** layer kind — instanced (one point per placement, box-dilated by the cell's own extent so large stepped cells aren't a few dots, in `_INSTANCE_CHUNK` passes), flat (every vertex, in `_FLAT_RASTER_CHUNK` passes) or streamed (the scan's raster). `_raster_shape` caps the long axis so a tall, narrow mask can't demand a 10 000-row image; `_dilate_box` is the summed-area dilation. |
 | `_rasterize_coverage` / `_coverage_heatmap_trace` / `_use_coverage_raster` | That grid as a `go.Image` / `go.Heatmap`, plus the predicate deciding raster vs exact polygons. A dense layer is never shown as nothing. |
 | `_unit_pattern_traces(layer, color, scale)` | Base (unit) pattern per group. |
 | `_decimated_centers(layer, ...)` | Evenly-spread sample of instance centers (cap 5000). |
 | `_nan_xy_from_flat(...)` | Flat polygons → NaN-separated closed x/y lists. |
-| `_instances_in_window(layer, ...)` | Expand only instances inside a zoom window. |
+| `_instances_in_window(layer, ...)` | Expand only instances inside a zoom window, scanning the placement table in `_INSTANCE_CHUNK` passes and bailing on the chunk that crosses `_MAX_REGION_POLYS`. |
 | `_mask_overlay_traces(layer, ...)` / `_dense_layer_note(layer)` | Placed-mask traces (density-adaptive) + one-line rendering note. |
 
 Per-cell area binning & exposure Time Calculator:
 
 | Function | Purpose |
 |---|---|
-| `_bin_points(out, px, py, weights, ...)` | Accumulate weights into the flat exposure-cell grid. |
+| `_bin_points(out, px, py, weights, ...)` | Accumulate weights into the flat exposure-cell grid, in `_INSTANCE_CHUNK`-sized passes so a 10 M-placement layer never allocates placement-sized scratch. |
 | `_fast_cell_areas_binned` / `_instanced_cell_areas_binned` / `_cell_areas_binned` | Vectorized per-cell mm² pattern area (flat / instanced / dispatch). |
 | `_polygon_clip_per_cell_mm(polys_mm, cells)` | Exact per-cell polygon clipping (accurate small-N path). |
 | `_render_time_calculator(prefix, polys_mm, cells, chip_size_mm, dotmap, ...)` | The per-mode Time Calculator section (dose, ramp, per-cell times, total HH:MM:SS). |
