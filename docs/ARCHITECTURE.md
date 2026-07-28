@@ -84,7 +84,7 @@ Layered, bottom-up:
 | I/O + caching | `helpers/s2p_io.py`, `fit_cache.py`, `chart_export.py` | Streamlit-aware but headless-tolerant |
 | Plot builders | `rf/ssm/helpers/plotly_plots.py` | Return figures, don't render |
 | Model classes | `models/*.py` | Math + per-model UI; registered in `models/__init__.py::REGISTRY` |
-| Shared model UI | `models/base_ui.py` | `SSMModelTemplate` — override expander, Smith+fT/fmax, Visual/Auto tuning |
+| Shared model UI | `models/base_ui/` (package) | `SSMModelTemplate` — override expander, Smith+fT/fmax, Visual/Auto tuning; re-exports its sibling modules (`residuals.py`, `smith_ui.py`, `fit_sections.py`, `param_groups.py`, `tuning/`) so `from .base_ui import X` is unchanged |
 | Orchestration | `main_ssm_extraction.py`, `ssm_plots.py`, `ssm_override.py`, `ssm_access_resistance.py` | The extraction page's Steps 1–3 |
 | Custom models | `custom_model/` | User-built topologies: `core.py` (SimPlan), `schematic.py`, `ui_build/use/fit.py` |
 
@@ -168,7 +168,7 @@ small N).
 | xlsx / clipboard export of any chart | `tools/common/chart_export.py` |
 | SSM extraction page layout / steps | `tools/rf/ssm/main_ssm_extraction.py` + `ssm_plots.py` |
 | A specific model's equations or override UI | `tools/rf/ssm/models/<model>.py` |
-| Tuning sweeps (Visual / Auto), residuals | `tools/rf/ssm/models/base_ui.py` |
+| Tuning sweeps (Visual / Auto), residuals | `tools/rf/ssm/models/base_ui/` (façade), `tools/rf/ssm/models/tuning/` (`sweep.py` orchestrator + `drivers_*.py` brute-force/Nelder-Mead/progressive engines + `preview.py` + `ranges.py`), `models/residuals.py` |
 | Custom model builder | `tools/rf/ssm/custom_model/` |
 | Rust kernels / dispatch / fallbacks | `tools/rf/ssm/helpers/rust_kernels.py` + `tools/rf/ssm/rust_kernels/` |
 | Fit-cache location or format | `tools/rf/ssm/helpers/fit_cache.py` |
