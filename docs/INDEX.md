@@ -135,7 +135,7 @@ prefix.
 
 | Function | Purpose |
 |---|---|
-| `_inject_button_css()` | Global CSS: light-gray fill on all secondary buttons (st.button / download / form submit / popover / uploader Browse) so they read as buttons. Primary buttons and segmented chips excluded. Kept in sync with the inline copies in `tools/ebeam_calculator.py` (standalone) and the iframe copy-button in `helpers/chart_export.py`. |
+| `_inject_button_css()` | Global CSS: light-gray fill on all secondary buttons (st.button / download / form submit / popover / uploader Browse) so they read as buttons. Primary buttons and segmented chips excluded. Kept in sync with the inline copy in `tools/ebeam/calculator.py` (standalone) and the iframe copy-button in `helpers/chart_export.py`. |
 | `check_password()` | Password gate; correct password from `st.secrets["APP_PASSWORD"]` (fallback `"IOED"` for local testing). |
 | `_page(tool_key, *, default=False)` | Build an `st.Page` for a tool key, pulling path/title/icon from the i18n registry so sidebar and in-page titles can't drift. |
 
@@ -395,7 +395,7 @@ model builder).
 
 ---
 
-## E-beam lithography (`tools/ebeam_calculator.py`)
+## E-beam lithography (`tools/ebeam/`)
 
 Self-contained page (imports no repo modules, so
 `launch_ebl_calculator.py` can run it standalone). Sections: **1** chip
@@ -407,6 +407,18 @@ with a message rather than crashing; re-measure with
 `gds/_profile_gds_limits.py` before touching either), **4** workflow
 mode selector (dose-time test / first exposure / second alignment), each
 with a per-mode exposure Time Calculator.
+
+`calculator.py` (the page script: header/i18n, `st.set_page_config`,
+`render_page()` covering Sections 1-4, called once at the bottom) used to
+be one ~6200-line file; it is now split by seam — the tables below still
+group symbols by what they do, but the file each one actually lives in is:
+`gdsii/limits.py` (RAM budgets), `gdsii/parser.py` (streaming GDSII
+decoder + layer objects), `gdsii/stream.py` (compressed upload store +
+large-mask streaming scan/window path), `plotting.py` (traces / coverage
+rasters / area binning) and `exposure.py` (Time Calculator). See
+`tools/ebeam/AGENTS.md` for the exact seams and the one-way dependency
+chain between them (no submodule imports `calculator.py` back — Streamlit
+always runs it as `__main__`, so that would re-execute the whole page).
 
 UI & small helpers:
 

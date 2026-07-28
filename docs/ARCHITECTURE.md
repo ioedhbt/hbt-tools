@@ -133,7 +133,13 @@ same probe.
 
 ## 6. EBL calculator (`tools/ebeam/`)
 
-Deliberately self-contained (see §1). Page sections:
+Deliberately self-contained (see §1). `calculator.py` is the page script
+(header/i18n, `st.set_page_config`, and `render_page()` called once at the
+bottom); the GDSII pipeline, plotting and Time Calculator are split into
+`gdsii/{limits,parser,stream}.py`, `plotting.py` and `exposure.py` — see
+`tools/ebeam/AGENTS.md` for the exact seams and why the dependency chain
+between them is one-way (`limits` -> `parser` -> `stream` -> `plotting` ->
+`exposure` -> `calculator.py`, never back up). Page sections:
 holder-position calculator → left-computer origin → **GDS mask viewer**
 (own single-pass streaming GDSII parser with instanced layers and
 RAM-adaptive budgets: `_limits_for()` sizes the parse guards per upload
@@ -166,7 +172,7 @@ small N).
 | Custom model builder | `tools/rf/ssm/custom_model/` |
 | Rust kernels / dispatch / fallbacks | `tools/rf/ssm/helpers/rust_kernels.py` + `tools/rf/ssm/rust_kernels/` |
 | Fit-cache location or format | `tools/rf/ssm/helpers/fit_cache.py` |
-| GDS parsing / EBL exposure times | `tools/ebeam/calculator.py` |
+| GDS parsing / EBL exposure times | `tools/ebeam/calculator.py` (page) + `tools/ebeam/gdsii/`, `plotting.py`, `exposure.py` |
 | Performance investigation | `dev/profile_*.py`, `tools/rf/ssm/rust_kernels/benchmark.py` |
 
 **Layering rules** (enforced by convention, checked by review):

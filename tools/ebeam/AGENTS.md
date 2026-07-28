@@ -3,15 +3,42 @@
 The JEOL ELS-7000 e-beam lithography calculator: holder positions, a GDS mask
 viewer, and exposure-time workflow modes.
 
+## Layout
+
+`calculator.py` used to be one ~6200-line file. It is now the page script
+plus a `render_page()` call, with the rest split by seam:
+
+| File | Contains |
+|---|---|
+| `calculator.py` | Page script Streamlit runs: header/i18n/`segmented_radio`, `st.set_page_config`, `_chip_corner_guide_png`, `_hex_to_rgba`, and `render_page()` (Sections 1-4: chip position, left-computer setup, GDS mask viewer, mode-selector workflows), called once at the bottom. |
+| `gdsii/limits.py` | RAM-budget sizing (`_limits_for`, `_mask_budget_mb`, `_Limits`, ...). Lowest layer — nothing else here imports it back. |
+| `gdsii/parser.py` | Single-pass streaming GDSII decoder + in-memory layer objects (`_PolyLayer`, `_InstancedLayer`, `_parse_gds`, `_flatten_instanced`). |
+| `gdsii/stream.py` | Compressed-upload store, bounded-memory scan/window path for masks too big to fully parse (`_load_gds`, `_load_gds_layers`, `_stream_scan`, `_stream_window`). |
+| `plotting.py` | Plotly traces, coverage rasters, per-cell area binning. |
+| `exposure.py` | Time Calculator (`_render_time_calculator`, `_polygon_clip_per_cell_mm`). |
+
+Dependency direction is one-way: `limits` -> `parser` -> `stream` ->
+`plotting` -> `exposure` -> `calculator.py`. Nothing imports back up that
+chain — in particular, no submodule imports `calculator.py`. That is not a
+style preference: Streamlit always executes `calculator.py` as `__main__`
+(never under the dotted name `tools.ebeam.calculator`), so an import of
+`tools.ebeam.calculator` from a module it imports would re-run the whole
+page a second time under that name — a second `st.set_page_config()` call,
+a second render. `calculator.py` and `gdsii/limits.py` each keep their own
+small inline copy of `_is_zh()`/`tr()` for this reason (and `plotting.py`
+keeps its own copy of `_hex_to_rgba`); everything downstream of `limits.py`
+imports `tr()` from there instead of duplicating it further.
+
 ## The one rule
 
 **This tool imports nothing from the rest of the repo.** Not `tools.common`,
-not `i18n`, nothing. It keeps its own inline `_is_zh()`, `tr()` and
-`segmented_radio()`.
+not `i18n`, nothing, in any of the files above. It keeps its own inline
+`_is_zh()`, `tr()` and `segmented_radio()`.
 
 That duplication is deliberate and the owner has confirmed it: the page is
 launched standalone by `launch_ebl_calculator.py` with its own `.ebl_venv/`,
-no portal and no password. Do **not** "deduplicate" it against `tools/common/`.
+no portal and no password. Do **not** "deduplicate" it against `tools/common/`,
+and do not "deduplicate" the split above back into one file either.
 
 Consequence to be aware of: `i18n._UI["ebl_corner_guide"]` and
 `["ebl_corner_note"]` exist but are unreachable from here. Leave them.
