@@ -43,6 +43,12 @@
     "parse.removed_params": [],
     "parse.z0": 50.0,
     "peel_parasitics": 229.73284781467925,
+    "reextract.T.alpha0_ov.tauB": 0.0,
+    "reextract.T.alpha0_ov.tauC": 3.16857e-13,
+    "reextract.T.cbex_zero_honoured": true,
+    "reextract.T.noop_matches_extract": true,
+    "reextract.pi.cbex_zero_honoured": true,
+    "reextract.pi.noop_matches_extract": true,
     "residuals": {
       "S11": 38.197626038,
       "S12": 123.517521,

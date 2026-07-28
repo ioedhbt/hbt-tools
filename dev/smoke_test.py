@@ -256,6 +256,35 @@ def collect_numbers() -> dict:
         except Exception as exc:                                  # noqa: BLE001
             out[f"extract.{short}"] = f"ERROR {type(exc).__name__}: {exc}"
 
+    # -- interactive re-extraction -------------------------------------------
+    # reextract() is what the "📊 Interactive Parameter Extraction" fields
+    # call on every edit.  It re-derives Step 2/3 under user overrides and is
+    # a completely separate code path from extract() — it is where τC used to
+    # silently revert to the uncorrected [Eq. 31] form, and where a
+    # deliberate Cbex = 0 used to be discarded as falsy.  Pinned here because
+    # nothing else in this file touches it.
+    for short in ("T", "pi"):
+        cls = models.REGISTRY[short]
+        base_p, base_a = cls.extract(Y_ex1, freq, 10)
+
+        # (a) no overrides — must reproduce extract() exactly
+        p0, _ = cls.reextract(Y_ex1, freq, 10, {}, 0, base_a)
+        out[f"reextract.{short}.noop_matches_extract"] = all(
+            abs(float(p0[k]) - float(base_p[k])) <= 1e-12 * max(1.0, abs(float(base_p[k])))
+            for k in base_p if np.isscalar(base_p[k]) and np.isfinite(base_p[k]))
+
+        # (b) alpha0 override — exercises the tauC branch
+        if "alpha0" in base_p:
+            p1, _ = cls.reextract(Y_ex1, freq, 10,
+                                  {"alpha0": float(base_p["alpha0"]) * 0.98}, 4,
+                                  base_a)
+            out[f"reextract.{short}.alpha0_ov.tauC"] = round(float(p1["tauC"]), 18)
+            out[f"reextract.{short}.alpha0_ov.tauB"] = round(float(p1["tauB"]), 18)
+
+        # (c) Cbex = 0 must survive as 0, not be replaced by the recomputed value
+        p2, _ = cls.reextract(Y_ex1, freq, 10, {"Cbex": 0.0}, 0, base_a)
+        out[f"reextract.{short}.cbex_zero_honoured"] = float(p2["Cbex"]) == 0.0
+
     # -- residual metric ------------------------------------------------------
     S_mod = api.simulate("T", {}, freq, backend="numpy")
     out["residuals"] = {k: round(float(v), 9)

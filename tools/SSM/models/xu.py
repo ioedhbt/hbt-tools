@@ -26,7 +26,7 @@ from .base_ui         import (sync_pad_from_preov, PAD_SPECS, SSMModelTemplate,
                               render_finetune_diagram)
 from ._shared          import (_b1, _detect_B, _stack22,
                                 _try_download_inter, has_inter, _load_font,
-                                _FONT_CACHE_DIR)
+                                _FONT_CACHE_DIR, tauC_from_alpha_phase)
 from . import AbstractSSMModel
 from ...i18n import tr
 
@@ -114,10 +114,8 @@ def _step3_T(Y_ex1, freq, Cbcx, Rbcx, n_low):
     tauB_arr = np.sqrt(np.maximum(U_arr - 1.0, 0.0)) / omega
     tauB     = safe_median(tauB_arr[n_low:])
 
-    # [Eq. 31 corrected] τC from phase of α
-    # arg(α) = −ω·τC − arctan(ω·τB)  →  τC = [−arg(α) − arctan(ω·τB)] / ω
-    with np.errstate(divide="ignore", invalid="ignore"):
-        tauC_arr = (-np.angle(alpha_arr) - np.arctan(omega * tauB_arr)) / (omega + 1e-40)
+    # [Eq. 31 corrected] τC from phase of α — see _shared.tauC_from_alpha_phase
+    tauC_arr = tauC_from_alpha_phase(alpha_arr, omega, tauB_arr)
     tauC = safe_median(tauC_arr[n_low:])
 
     params = dict(Rbi=Rbi, Rbe=Rbe, Cbe=Cbe, Rbc=Rbc, Cbc=Cbc,
@@ -898,24 +896,19 @@ class XuModel(SSMModelTemplate, AbstractSSMModel):
             U_arr     = (alpha0_ov / (np.abs(alpha_arr) + 1e-30)) ** 2
             tauB_arr  = np.sqrt(np.maximum(U_arr - 1.0, 0.0)) / omega
             tauB_ov   = safe_median(tauB_arr[n_low:])
-            with np.errstate(divide="ignore", invalid="ignore"):
-                V_arr    = 2.0 * omega * tauB_ov / (U_arr + 1e-30)
-                tauC_arr = -np.arctan(
-                    V_arr / np.sqrt(np.maximum(1.0 - V_arr**2, 1e-30))
-                ) / (2.0 * omega)
+            # Same [Eq. 31 corrected] formula Step 3 uses — this branch used
+            # to recompute τC from the older V = 2ωτB/U form, so nudging α₀
+            # silently swapped the model onto the uncorrected equation.
+            tauC_arr = tauC_from_alpha_phase(alpha_arr, omega, tauB_arr)
             tauC_ov = safe_median(tauC_arr[n_low:])
             arr_int["tauB"] = tauB_arr;  res_int["tauB"] = tauB_ov
             arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
 
         elif changed_group_idx >= 4 and "tauB" in overrides:
-            alpha0_cur = float(overrides.get("alpha0", res_int["alpha0"]))
-            U_arr      = (alpha0_cur / (np.abs(alpha_arr) + 1e-30)) ** 2
             tauB_ov    = float(overrides["tauB"])
-            with np.errstate(divide="ignore", invalid="ignore"):
-                V_arr    = 2.0 * omega * tauB_ov / (U_arr + 1e-30)
-                tauC_arr = -np.arctan(
-                    V_arr / np.sqrt(np.maximum(1.0 - V_arr**2, 1e-30))
-                ) / (2.0 * omega)
+            # [Eq. 31 corrected], as in Step 3 — τB here is the user's scalar
+            # override, which broadcasts against omega.
+            tauC_arr = tauC_from_alpha_phase(alpha_arr, omega, tauB_ov)
             tauC_ov = safe_median(tauC_arr[n_low:])
             arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
 

@@ -26,7 +26,7 @@ from .base_ui         import (sync_pad_from_preov, PAD_SPECS, SSMModelTemplate,
                               render_finetune_diagram)
 from ._shared          import (_b1, _detect_B, _stack22,
                                 _try_download_inter, has_inter, _load_font,
-                                _FONT_CACHE_DIR)
+                                _FONT_CACHE_DIR, tauC_from_alpha_phase)
 from . import AbstractSSMModel
 from ...i18n import tr
 
@@ -128,6 +128,13 @@ def _step2_pi(Y_ex1, freq, n_low):
             np.abs(np.imag(B)) > 1e-40,
             (np.real(B)*np.real(C) + np.imag(B)*np.imag(C)) / (omega*np.imag(B)),
             np.nan)
+    # NOT clamped with abs(), unlike the T-topology's Cbex.  That is
+    # deliberate and unverified: π derives Cbex from a different expression
+    # [Eqs. 26–28] than T's [Eq. 13], so the two need not share a sign
+    # convention, and clamping here would be guessing at the physics.  A
+    # negative value reaching the forward model is still suspect — if you
+    # confirm π's Cbex must be positive, add abs() here and in
+    # ChengPi.reextract together.
     Cbex = safe_median(Cbex_arr, n_low)
 
     Y_ex2 = Y_ex1.copy()
@@ -143,7 +150,12 @@ def _step2_pi(Y_ex1, freq, n_low):
     with np.errstate(divide="ignore", invalid="ignore"):
         Cbcx_arr = -np.where(np.abs(den) > 1e-40, num/(omega*den), np.nan)
     n0, n1 = len(freq)//4, 3*len(freq)//4
-    Cbcx = safe_median(Cbcx_arr[n0:n1])
+    # abs() to match _step2_T: this is the *same* [Eq. 22] expression (see
+    # the docstring), and T has always clamped it.  Without the clamp, noisy
+    # or narrow-band data whose median lands slightly negative handed a
+    # negative shunt capacitance to Ybcx = jωCbcx — physically invalid, and
+    # silently different from what the identical T-topology path produced.
+    Cbcx = abs(safe_median(Cbcx_arr[n0:n1]))
 
     return ({"Cbex": Cbex, "Cbcx": Cbcx},
             {"Cbex_arr": Cbex_arr, "Cbcx_arr": Cbcx_arr, "Y_ex2": Y_ex2})
@@ -196,10 +208,8 @@ def _step3_T(Y_ex2, freq, Cbcx, n_low):
     tauB_arr = np.sqrt(np.maximum(U_arr - 1.0, 0.0)) / omega
     tauB     = safe_median(tauB_arr[n_low:])
 
-    # [Eq. 31 corrected] τC from phase of α
-    # arg(α) = −ω·τC − arctan(ω·τB)  →  τC = [−arg(α) − arctan(ω·τB)] / ω
-    with np.errstate(divide="ignore", invalid="ignore"):
-        tauC_arr = (-np.angle(alpha_arr) - np.arctan(omega * tauB_arr)) / (omega + 1e-40)
+    # [Eq. 31 corrected] τC from phase of α — see _shared.tauC_from_alpha_phase
+    tauC_arr = tauC_from_alpha_phase(alpha_arr, omega, tauB_arr)
     tauC = safe_median(tauC_arr[n_low:])
 
     params = dict(Rbi=Rbi, Rbe=Rbe, Cbe=Cbe, Rbc=Rbc, Cbc=Cbc,
@@ -1149,7 +1159,14 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
 
         # ── Always recompute Y_ex2 from current Cbex ───────────────
         Cbex_arr = np.imag(Y_ex1[:, 0, 0] + Y_ex1[:, 0, 1]) / omega
-        Cbex = float(overrides.get("Cbex") or abs(safe_median(Cbex_arr, n_low)))
+        # Membership, not truthiness: `overrides.get("Cbex") or <fallback>`
+        # treated a deliberate Cbex = 0 (the natural way to test the model
+        # with the extrinsic base cap removed) as "not set" and silently
+        # substituted the recomputed value — the UI showed 0 while the
+        # simulated model used something else.  Matches how Cbcx is read
+        # a few lines below.
+        Cbex = (float(overrides["Cbex"]) if "Cbex" in overrides
+                else abs(safe_median(Cbex_arr, n_low)))
 
         Y_ex2 = Y_ex1.copy()
         for i, w in enumerate(omega):
@@ -1181,24 +1198,19 @@ class ChengT(SSMModelTemplate, AbstractSSMModel):
             U_arr     = (alpha0_ov / (np.abs(alpha_arr) + 1e-30)) ** 2
             tauB_arr  = np.sqrt(np.maximum(U_arr - 1.0, 0.0)) / omega
             tauB_ov   = safe_median(tauB_arr[n_low:])
-            with np.errstate(divide="ignore", invalid="ignore"):
-                V_arr    = 2.0 * omega * tauB_ov / (U_arr + 1e-30)
-                tauC_arr = -np.arctan(
-                    V_arr / np.sqrt(np.maximum(1.0 - V_arr**2, 1e-30))
-                ) / (2.0 * omega)
+            # Same [Eq. 31 corrected] formula Step 3 uses — this branch used
+            # to recompute τC from the older V = 2ωτB/U form, so nudging α₀
+            # silently swapped the model onto the uncorrected equation.
+            tauC_arr = tauC_from_alpha_phase(alpha_arr, omega, tauB_arr)
             tauC_ov = safe_median(tauC_arr[n_low:])
             arr_int["tauB"] = tauB_arr;  res_int["tauB"] = tauB_ov
             arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
 
         elif changed_group_idx >= 5 and "tauB" in overrides:
-            alpha0_cur = float(overrides.get("alpha0", res_int["alpha0"]))
-            U_arr      = (alpha0_cur / (np.abs(alpha_arr) + 1e-30)) ** 2
             tauB_ov    = float(overrides["tauB"])
-            with np.errstate(divide="ignore", invalid="ignore"):
-                V_arr    = 2.0 * omega * tauB_ov / (U_arr + 1e-30)
-                tauC_arr = -np.arctan(
-                    V_arr / np.sqrt(np.maximum(1.0 - V_arr**2, 1e-30))
-                ) / (2.0 * omega)
+            # [Eq. 31 corrected], as in Step 3 — τB here is the user's scalar
+            # override, which broadcasts against omega.
+            tauC_arr = tauC_from_alpha_phase(alpha_arr, omega, tauB_ov)
             tauC_ov = safe_median(tauC_arr[n_low:])
             arr_int["tauC"] = tauC_arr;  res_int["tauC"] = tauC_ov
 
@@ -1458,7 +1470,9 @@ class ChengPi(SSMModelTemplate, AbstractSSMModel):
                 np.abs(np.imag(B)) > 1e-40,
                 (np.real(B)*np.real(C) + np.imag(B)*np.imag(C)) / (omega * np.imag(B)),
                 np.nan)
-        Cbex = float(overrides.get("Cbex") or safe_median(Cbex_arr, n_low))
+        # Membership, not truthiness — see the T-topology counterpart.
+        Cbex = (float(overrides["Cbex"]) if "Cbex" in overrides
+                else safe_median(Cbex_arr, n_low))
 
         # ── Recompute Y_ex2 from current Cbex ────────────────────────────────
         Y_ex2 = Y_ex1.copy()
@@ -1474,7 +1488,8 @@ class ChengPi(SSMModelTemplate, AbstractSSMModel):
         with np.errstate(divide="ignore", invalid="ignore"):
             Cbcx_arr = -np.where(np.abs(den) > 1e-40, num / (omega * den), np.nan)
         n0c, n1c = len(freq) // 4, 3 * len(freq) // 4
-        Cbcx_recomp = safe_median(Cbcx_arr[n0c:n1c])
+        # abs() to match ChengT.reextract — same [Eq. 22] expression.
+        Cbcx_recomp = abs(safe_median(Cbcx_arr[n0c:n1c]))
 
         Cbcx = float(overrides["Cbcx"]) if (changed_group_idx >= 1
                                              and "Cbcx" in overrides) else Cbcx_recomp

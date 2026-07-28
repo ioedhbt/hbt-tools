@@ -20,6 +20,37 @@ from pathlib import Path as _Path
 # _stack22` call site keeps working unchanged.
 from ..helpers._array_utils import _b1, _detect_B, _stack22  # noqa: F401
 
+import numpy as _np
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# Cheng [Eq. 31 corrected] — τC from the phase of α
+# ════════════════════════════════════════════════════════════════════════════════
+
+def tauC_from_alpha_phase(alpha_arr, omega, tauB):
+    """Per-frequency τC from the phase of α  [Cheng Eq. 31, corrected].
+
+        arg(α) = −ω·τC − arctan(ω·τB)   →   τC = [−arg(α) − arctan(ω·τB)] / ω
+
+    ``tauB`` may be a scalar (a user override) or a per-frequency array
+    (the value Step 3 just derived); both broadcast against ``omega``.
+
+    This lives here because the formula was previously written out twice
+    per model — once in ``_step3_T`` using the corrected phase form, and
+    again inside ``reextract``'s α₀/τB override branches using the older
+
+        V = 2ωτB/U ;  τC = −arctan(V/√(1−V²)) / (2ω)
+
+    form that the ``[Eq. 31 corrected]`` comment was added to replace.
+    ``reextract`` runs whenever the user nudges α₀ or τB in the
+    interactive extraction UI, so simply touching a slider silently
+    swapped the fitted τC onto the uncorrected formula.  One definition,
+    used by every path, is what stops that from drifting apart again.
+    """
+    with _np.errstate(divide="ignore", invalid="ignore"):
+        return ((-_np.angle(alpha_arr) - _np.arctan(omega * tauB))
+                / (omega + 1e-40))
+
 
 # ════════════════════════════════════════════════════════════════════════════════
 # Font helpers (used by topology illustration overlays)

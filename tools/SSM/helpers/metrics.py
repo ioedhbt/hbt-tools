@@ -35,14 +35,30 @@ def compute_h21_U(S):
 
 
 def find_ft_fmax(f_ghz, h21_db, U_db):
-    """Linear interpolation to find 0 dB crossing.
+    """Linear interpolation to find the 0 dB crossing.
 
     Returns (fT, fmax) — either may be None if no in-band crossing exists.
+
+    Picks the **highest-frequency** crossing that the gain reached after
+    staying above 0 dB for a run of consecutive points, which is how
+    :func:`extract_limit` (this module, used by the At-a-Glance / bulk-upload
+    pages) has always defined a "genuine" crossing.  This function — used by
+    the SSM Extraction and Simulation & Fitting pages — previously took
+    ``idx[0]``, the *first* sign change, with no run-length filter, so a
+    single noise dip below 0 dB anywhere before the real roll-off produced a
+    much-too-low fT.  The two pages could therefore report different fT for
+    the same device, in the same session, after a handoff.
+
+    Selection can only improve on the old result: when no crossing clears the
+    run-length bar it still returns the last crossing rather than None, so no
+    caller loses a value it used to get.
     """
     # The earlier implementation looped in Python over every frequency
     # sample calling np.isfinite() per element — that single function ate
     # ~50% of the SSM extraction tab's per-DUT compute (~30 ms of ~60).
-    # Fully vectorised search using boolean masks runs in <100 µs.
+    # Everything below stays fully vectorised (<100 µs), including the
+    # run-length filter, which uses a running "index of last point at or
+    # below 0 dB" rather than a per-crossing backward scan.
     f_arr = np.asarray(f_ghz, dtype=float)
 
     def _zero_cross(arr):
@@ -52,8 +68,23 @@ def find_ft_fmax(f_ghz, h21_db, U_db):
         idx = np.flatnonzero(crossing)
         if idx.size == 0:
             return None
-        i = int(idx[0])
+
+        # Consecutive points above 0 dB ending at each sample.
+        above = np.isfinite(arr) & (arr > 0)
+        pos = np.arange(arr.size)
+        last_below = np.maximum.accumulate(np.where(above, -1, pos))
+        run_len = pos - last_below
+
+        # extract_limit uses a flat 10 on measured sweeps of several hundred
+        # points; scale it down so a short simulated sweep isn't filtered to
+        # nothing.
+        min_run = min(10, max(2, arr.size // 8))
+        genuine = idx[run_len[idx] >= min_run]
+
+        i = int((genuine if genuine.size else idx)[-1])
         slope = arr[i+1] - arr[i]
+        if not np.isfinite(slope) or slope == 0.0:
+            return float(f_arr[i])
         return float(f_arr[i] - arr[i] * (f_arr[i+1] - f_arr[i]) / slope)
 
     return _zero_cross(h21_db), _zero_cross(U_db)
