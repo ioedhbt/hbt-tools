@@ -1,5 +1,20 @@
 # Restructure plan — hbt-tools
 
+> **Status: executed.** Branch `restructure-and-bugfixes`, on top of
+> `808f1ba`. Every problem below is addressed except **P9** — the EBL
+> calculator keeps its duplicated `tr()` / `segmented_radio()` and stays
+> self-contained, by the owner's decision. Consequently bug **B4** is closed
+> as won't-fix and `i18n._UI["ebl_corner_*"]` stay unreachable on purpose.
+>
+> Also **not** done, deliberately: `csv_process.py`'s five sub-tool uploaders
+> have the same widget-GC issue as B1500A (BZ). They take five different file
+> types, so the single-cache fix that suited B1500A does not transfer; left
+> alone rather than half-fixed.
+>
+> The safety net in §7 is `dev/smoke_test.py` — 162 checks: imports, page
+> paths, **page rendering**, path resolution, and ~50 numerical goldens.
+> Run it after any structural change.
+
 Goal: domain folders, cheaper orientation for an AI agent, fewer
 cross-domain imports. Written 2026-07-28 against commit `808f1ba`.
 
