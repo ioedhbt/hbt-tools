@@ -191,6 +191,10 @@ def _example_path() -> Path:
     raise FileNotFoundError(f"none of {_EXAMPLE_CANDIDATES} exists")
 
 
+def H_load(api, path):
+    return api.load_data(str(path))
+
+
 def collect_numbers() -> dict:
     api = _imp("tools.rf.ssm.agent_api", "tools.SSM.agent_api")
     H = _imp("tools.rf.ssm.helpers", "tools.SSM.helpers")
@@ -209,7 +213,36 @@ def collect_numbers() -> dict:
     out["parse.S"] = _sig(d["S"])
     out["parse.z0"] = float(d["z0"])
     out["parse.deembedded"] = bool(d["meta"]["deembedded"])
+    out["parse.deembed_source"] = d["meta"].get("deembed_source")
     out["parse.removed_params"] = sorted(d["meta"]["removed_params"])
+
+    # De-embed detection + per-key freeze policy (agent_api).  Filenames are
+    # sniffed, so the negated forms below are the ones that used to be
+    # misclassified as de-embedded and have their parasitics pinned to 0.
+    _hdr = {"Cpbe": "12.3400 fF", "Cpce": "9.0000 fF", "Cpbc": "4.0000 fF",
+            "Lb": "40.0000 pH", "Lc": "35.0000 pH", "Le": "6.0000 pH",
+            "Rb": "0.0000 Ω", "Rc": "0.0000 Ω", "Re": "0.0000 Ω"}
+    _seed = {"Cpbe": 11e-15, "Cpce": 8e-15, "Cpbc": 3e-15,
+             "Lb": 30e-12, "Lc": 25e-12, "Le": 5e-12,
+             "Rpb": 3.0, "Rpc": 4.0, "Rpe": 1.0}
+    import tempfile
+    _fsim = np.linspace(1e9, 50e9, 15)
+    _Ssim = np.full((15, 2, 2), 0.1 + 0.05j)
+    for fname, title, hdr in (
+            ("wafer_deemb.s2p", "De-embedded wafer", _hdr),
+            ("raw_not_deembedded.s2p", "Measured raw data", None),
+            ("plain_measured.s2p", "Measured raw data", None),
+            ("legacy_deemb.s2p", "Measured raw data", None)):
+        p = Path(tempfile.mkdtemp()) / fname
+        p.write_bytes(H.write_s2p(_fsim, _Ssim, title=title, params=hdr))
+        dd = H_load(api, p)
+        rr = api.fit(dd, model="T", initial=dict(_seed), maxiter=1)
+        out[f"deembed.{fname}"] = {
+            "deembedded": bool(dd["meta"]["deembedded"]),
+            "source": dd["meta"].get("deembed_source"),
+            "pinned": sorted(k for k, v in _seed.items()
+                             if float(rr["params"].get(k, v)) == 0.0),
+        }
 
     freq, S, z0 = d["freq"], d["S"], d["z0"]
 

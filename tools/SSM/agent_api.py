@@ -136,6 +136,14 @@ _PAD_HEADER_KEYS = ("Cpbe", "Cpce", "Cpbc", "Lb", "Lc", "Le", "Rb", "Rc", "Re")
 
 _DEEMBED_TOKENS = ("deemb", "pre-ext", "preext", "de-embed")
 
+# Filename form of the same tokens, anchored to a token boundary...
+_DEEMBED_NAME_RE = re.compile(r"(?:^|[_\-. ])(?:de-?emb|pre-?ext)")
+# ...and a guard for names that say the opposite.  Anchoring alone is not
+# enough: "raw_not_deembedded.s2p" has a token boundary before "deemb" too.
+_NEGATED_DEEMB_RE = re.compile(
+    r"(?:^|[_\-. ])(?:not|non|un|no|raw|before|pre|todo|to[_\-. ]?be|without)"
+    r"[_\-. ]+de-?emb")
+
 
 def _unit_scale(unit: str) -> float:
     """Best-effort unit-string -> SI scale factor for header values."""
@@ -190,11 +198,22 @@ def _interpret_header(header_lines: list, filename: str) -> dict:
     header comments (+ filename).  See module docstring for the semantics."""
     header_text = " ".join(header_lines).lower()
     name_l = filename.lower()
-    deembedded = ("deemb" in name_l
-                  or any(tok in header_text for tok in _DEEMBED_TOKENS))
+    # A bare `"deemb" in name_l` also matched "raw_not_deembedded.s2p",
+    # "before_deembed.s2p", "to_be_deembedded.s2p" — i.e. exactly the files
+    # whose names say they are NOT de-embedded — and fit() would then pin
+    # their real pad caps and lead inductances to 0.
+    header_says = any(tok in header_text for tok in _DEEMBED_TOKENS)
+    name_says = (_DEEMBED_NAME_RE.search(name_l) is not None
+                 and _NEGATED_DEEMB_RE.search(name_l) is None)
+    deembedded = header_says or name_says
 
     values = _parse_header_values(header_lines)
     removed_params = {k: values[k] for k in _PAD_HEADER_KEYS if k in values}
+
+    # Which evidence carried it.  fit() only applies its blunt
+    # freeze-every-parasitic fallback when the *header* said so; a filename
+    # is a guess, and guessing wrong there silently biases the whole fit.
+    source = "header" if header_says else ("filename" if name_says else None)
 
     if deembedded:
         status = (
@@ -212,7 +231,7 @@ def _interpret_header(header_lines: list, filename: str) -> dict:
                   "fitted, or de-embedded first with the Streamlit app.")
 
     meta = {"deembedded": bool(deembedded), "removed_params": removed_params,
-            "status": status}
+            "deembed_source": source, "status": status}
     if header_lines:
         meta["header_title"] = header_lines[0].lstrip("!").strip()
     return meta
@@ -223,9 +242,19 @@ def load_data(path) -> dict:
 
     Returns dict: freq (Hz, (N,) real), S ((N,2,2) complex), z0 (float),
     header_lines (list of the leading '!' comment lines, [] for csv), meta
-    (see `_interpret_header` / module docstring — notably `meta['deembedded']`
-    and `meta['removed_params']`, used by `fit()` to auto-freeze parasitics
-    that a previous de-embedding step already removed).
+    (see `_interpret_header` / module docstring).
+
+    `meta` keys that drive `fit()`'s automatic parameter freezing:
+
+    * `deembedded`     — bool, whether this looks like de-embedded data.
+    * `deembed_source` — `"header"`, `"filename"` or None: which evidence
+      decided it.  `fit()` trusts a header far more than a filename.
+    * `removed_params` — `{header key: SI value}` for the pad caps / lead
+      inductances / access resistances the header lists.  `fit()` freezes a
+      parameter at 0 when its header entry is **non-zero**, i.e. that
+      quantity really was peeled out.  A listed 0 (conventionally
+      `Rb = 0.0000 Ω`) means nothing was removed for it, so it stays
+      fittable.
     """
     p = _Path(path)
     raw = p.read_bytes()
@@ -662,9 +691,41 @@ def fit(data: dict, model, initial: dict = None, fit_keys: list = None,
     fit_keys = list(all_keys) if fit_keys is None else list(fit_keys)
 
     if not user_specified and meta.get("deembedded"):
+        # Freeze per parameter, driven by what the header actually says was
+        # removed.  This used to freeze a hardcoded six-key set off the
+        # `deembedded` boolean alone and never read `removed_params` — which
+        # both this function's docstring and the module docstring claimed it
+        # did.  A raw file whose *name* merely contained "deemb" therefore had
+        # its real pad caps and lead inductances pinned to 0, and every other
+        # parameter silently absorbed them.
+        #
+        # `removed_params` keys are header names (Cpbe/Lb/Rb...); model keys
+        # for the access resistances are Rpb/Rpc/Rpe, so map through the same
+        # alias table get_s2p_header_params writes with.
+        #
+        # Presence alone is NOT the signal: get_s2p_header_params always emits
+        # all nine keys, and a de-embedded file conventionally carries
+        # "Rb = 0.0000 Ω" to mean *no* access resistance was peeled out (see
+        # the de-embedded status text below).  A non-zero value is what says
+        # the quantity was actually removed, so only those get frozen —
+        # anything listed as 0 is still in the data and stays fittable.
+        removed = meta.get("removed_params") or {}
+        header_alias = {"Rpb": "Rb", "Rpc": "Rc", "Rpe": "Re"}
         for k in all_keys:
             label, _sc = spec_by_key.get(k, ("", 1.0))
-            if _canonical_tune_key(k, label) in _PARASITIC_KEYS:
+            canon = _canonical_tune_key(k, label)
+            if canon not in _PARASITIC_KEYS:
+                continue
+            if removed:
+                hdr = header_alias.get(canon, canon)
+                if abs(float(removed.get(hdr, 0.0))) > 0.0:
+                    fixed[k] = 0.0
+            elif meta.get("deembed_source") == "header":
+                # De-embedded per the header text, but it does not enumerate
+                # what was removed (older files, hand-written headers).  Fall
+                # back to the previous whole-set behaviour so those keep
+                # working.  Deliberately NOT done when only the *filename*
+                # suggested de-embedding.
                 fixed[k] = 0.0
 
     fit_keys = [k for k in fit_keys if k not in fixed]

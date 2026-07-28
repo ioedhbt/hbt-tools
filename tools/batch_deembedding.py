@@ -383,10 +383,25 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
             data = write_s2p(
                 r["freq"], r["S_de"],
                 title=f"De-embedded {stem}",
+                # Key/unit convention must match
+                # models/__init__.py::AbstractSSMModel.get_s2p_header_params —
+                # bare key, unit as trailing text on the value — because that
+                # is what agent_api's header parser (_HDR_KV_RE +
+                # _PAD_HEADER_KEYS) reads back.  These were previously written
+                # as "Cpbe_fF = 12.34": the regex swallowed "Cpbe_fF" as the
+                # key, matched nothing in _PAD_HEADER_KEYS, and every file this
+                # tab exported reported removed_params == {} while claiming
+                # deembedded == True.
                 params={
-                    "Cpbe_fF": Cpbe * 1e15, "Cpce_fF": Cpce * 1e15, "Cpbc_fF": Cpbc * 1e15,
-                    "Lb_pH":   Lb   * 1e12, "Lc_pH":   Lc   * 1e12, "Le_pH":   Le   * 1e12,
-                    "Rb_Ohm":  Rb,          "Rc_Ohm":  Rc,          "Re_Ohm":  Re,
+                    "Cpbe": f"{Cpbe * 1e15:.4f} fF",
+                    "Cpce": f"{Cpce * 1e15:.4f} fF",
+                    "Cpbc": f"{Cpbc * 1e15:.4f} fF",
+                    "Lb":   f"{Lb * 1e12:.4f} pH",
+                    "Lc":   f"{Lc * 1e12:.4f} pH",
+                    "Le":   f"{Le * 1e12:.4f} pH",
+                    "Rb":   f"{Rb:.4f} Ω",
+                    "Rc":   f"{Rc:.4f} Ω",
+                    "Re":   f"{Re:.4f} Ω",
                 })
             zf.writestr(f"{stem}_deemb.s2p", data)
     date = datetime.now().strftime("%Y-%m-%d")

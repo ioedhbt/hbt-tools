@@ -12,6 +12,33 @@
       "|h21|\u00b2 (dB)"
     ],
     "compute_metrics.sig": 501235.56897949317,
+    "deembed.legacy_deemb.s2p": {
+      "deembedded": true,
+      "pinned": [],
+      "source": "filename"
+    },
+    "deembed.plain_measured.s2p": {
+      "deembedded": false,
+      "pinned": [],
+      "source": null
+    },
+    "deembed.raw_not_deembedded.s2p": {
+      "deembedded": false,
+      "pinned": [],
+      "source": null
+    },
+    "deembed.wafer_deemb.s2p": {
+      "deembedded": true,
+      "pinned": [
+        "Cpbc",
+        "Cpbe",
+        "Cpce",
+        "Lb",
+        "Lc",
+        "Le"
+      ],
+      "source": "header"
+    },
     "extract.T": {
       "Cbc": 8.712e-15,
       "Cbcx": 2.0568e-14,
@@ -38,6 +65,7 @@
     "find_ft": null,
     "h21_db": 7820.44251156958,
     "parse.S": 2782.9231540277997,
+    "parse.deembed_source": null,
     "parse.deembedded": false,
     "parse.freq": 16701670000000.0,
     "parse.removed_params": [],
