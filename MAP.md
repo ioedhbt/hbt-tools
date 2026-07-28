@@ -63,7 +63,12 @@ Layered bottom-up; see [docs/SSM_INDEX.md](docs/SSM_INDEX.md) for per-function d
 | models/[cheng.py](tools/rf/ssm/models/cheng.py) | pure+ui | Cheng T and π topologies (the two analytic-extraction models). | `ChengT`, `ChengPi` |
 | models/[xu.py](tools/rf/ssm/models/xu.py) · [kunyang.py](tools/rf/ssm/models/kunyang.py) · [degachi.py](tools/rf/ssm/models/degachi.py) | pure+ui | Forward-simulation-only topologies. | `XuModel`, `KunYangHEMT` |
 | models/[_shared.py](tools/rf/ssm/models/_shared.py) | pure | Code shared verbatim across models. | `tauC_from_alpha_phase` |
-| models/[base_ui.py](tools/rf/ssm/models/base_ui.py) | ui | Shared model UI: overrides, Smith+fT/fmax, Visual/Auto tuning sweeps. | `SSMModelTemplate`, `render_tuning_expander`, `PAD_SPECS` |
+| models/[base_ui/](tools/rf/ssm/models/base_ui/) | ui | `SSMModelTemplate` + the re-export surface. **Import shared model UI from here** — `from .base_ui import X` still resolves for everything below. | `SSMModelTemplate`, `PAD_SPECS` |
+| models/[residuals.py](tools/rf/ssm/models/residuals.py) | pure | Residual metrics. | `ssm_residual`, `_port_residuals` |
+| models/[smith_ui.py](tools/rf/ssm/models/smith_ui.py) | ui | Smith chart + fT/fmax panel, scale controls. | `render_smith_chart`, `render_smith_with_ftfmax` |
+| models/[param_groups.py](tools/rf/ssm/models/param_groups.py) | ui | The interactive per-parameter extraction fields. | `render_interactive_param_groups`, `render_finetune_diagram` |
+| models/[fit_sections.py](tools/rf/ssm/models/fit_sections.py) | ui | Cbex sweep tool, τ_total multi-file fit. | `_render_cbex_sweep_tool` |
+| models/[tuning/](tools/rf/ssm/models/tuning/) | ui | Auto/Visual tuning: `ranges` (bounds), `preview` (Visual), `sweep` (the expander + card helpers), `drivers_*` (the sweep / Nelder-Mead / progressive engines). | `render_tuning_expander`, `tune_hard_limits` |
 | [custom_model/](tools/rf/ssm/custom_model/) | pure+ui | User-built topologies: netlist → Y → S solver, schematic, build/use/fit UI. | `CustomModel`, `render_custom_section` |
 | [rust_kernels/](tools/rf/ssm/rust_kernels/) | — | Rust crate + committed per-platform binaries + parity benchmark. | `src/lib.rs` |
 

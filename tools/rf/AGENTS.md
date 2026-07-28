@@ -67,3 +67,29 @@ Subclass `SSMModelTemplate` + `AbstractSSMModel` in `models/<name>.py` (copy
 `_Y_int_*_batch`, register it in `models/__init__.py::REGISTRY`, then add rows
 to `docs/SSM_INDEX.md`. `dev/smoke_test.py` picks up new registry entries
 automatically — re-baseline once and check the numbers look physical.
+
+## The tuning tree (`models/tuning/`)
+
+`base_ui.py` used to be 6813 lines, of which `render_tuning_expander` was a
+single 3330-line function with no nested `def` — so any question about
+auto-tuning meant reading all of it. It is now:
+
+| file | holds |
+|---|---|
+| `base_ui/__init__.py` | `SSMModelTemplate` + the re-export surface |
+| `tuning/ranges.py` | parameter bounds, hard limits, informed defaults |
+| `tuning/preview.py` | Visual tuning (sliders, live/plotly previews) |
+| `tuning/sweep.py` | `render_tuning_expander` — now a ~450-line dispatcher over named `_render_*` cards |
+| `tuning/drivers_sweep.py` | `_run_one_sweep` — the GPU/CPU batch engine |
+| `tuning/drivers_nelder_mead.py` · `drivers_progressive.py` | the other two search strategies |
+
+**Import shared model UI from `.base_ui`, not the new modules.** The package
+re-exports everything, and every existing `from .base_ui import X` still
+resolves — keep it that way so call sites don't need to know the internal
+layout.
+
+`drivers_sweep.py` is still ~1300 lines. `_run_one_sweep` is one atomic engine
+(chunked OOM retry, top-K device buffers, VRAM calibration, cancellation) whose
+nested closures share 15+ mutable locals. Splitting it further means threading
+that state across new boundaries with no test coverage to catch a slip — don't,
+unless you add coverage first.
