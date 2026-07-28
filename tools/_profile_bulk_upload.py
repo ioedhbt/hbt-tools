@@ -24,7 +24,11 @@ from pathlib import Path
 from statistics import median
 
 # Force UTF-8 on stdout so the bar / box-drawing chars render under cp1252.
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+# Guarded: at *import* time this would rewrap (and, once the old wrapper is
+# collected, close) the interpreter's real stdout — which broke anything that
+# imports the whole `tools` package, e.g. dev/smoke_test.py's import sweep.
+if __name__ == "__main__":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))

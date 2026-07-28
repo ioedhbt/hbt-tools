@@ -22,7 +22,10 @@ import time
 from pathlib import Path
 from statistics import median
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+# Guarded — see _profile_bulk_upload.py: rewrapping at import time closes the
+# interpreter's real stdout for anything that imports the `tools` package.
+if __name__ == "__main__":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))

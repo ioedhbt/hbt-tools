@@ -1,0 +1,81 @@
+{
+  "numbers": {
+    "U_db": 10676.315557218237,
+    "compute_metrics.cols": [
+      "Freq (GHz)",
+      "K Factor",
+      "MAG/MSG (dB)",
+      "Mason U (dB)",
+      "fT Plateau (GHz)",
+      "fmax MAG Plateau (GHz)",
+      "fmax U Plateau (GHz)",
+      "|h21|\u00b2 (dB)"
+    ],
+    "compute_metrics.sig": 501235.56897949317,
+    "extract.T": {
+      "Cbc": 8.712e-15,
+      "Cbcx": 2.0568e-14,
+      "Cbe": 3.7273e-13,
+      "Cbex": 2.45942e-13,
+      "Rbc": 59661.34731634203,
+      "Rbe": 4.16598056229185,
+      "Rbi": 2.5238973989506968,
+      "alpha0": 0.9780691856692563,
+      "tauB": 0.0,
+      "tauC": 3.16857e-13
+    },
+    "extract.pi": {
+      "Cbc": -5.8964e-14,
+      "Cbcx": 8.8231e-14,
+      "Cbe": 4.99252147e-10,
+      "Cbex": -4.74407051e-10,
+      "Gm0": 0.2501036213613182,
+      "Rbe": 1000000.0,
+      "Rbi": 0.3127354671587963,
+      "tau": -1.7740139e-10
+    },
+    "find_fmax": null,
+    "find_ft": null,
+    "h21_db": 7820.44251156958,
+    "parse.S": 2782.9231540277997,
+    "parse.deembedded": false,
+    "parse.freq": 16701670000000.0,
+    "parse.removed_params": [],
+    "parse.z0": 50.0,
+    "peel_parasitics": 229.73284781467925,
+    "residuals": {
+      "S11": 38.197626038,
+      "S12": 123.517521,
+      "S21": 68.314624927,
+      "S22": 47.071161349,
+      "Total": 69.275233329
+    },
+    "s_to_y": 458.6779416273484,
+    "simulate.KY": 60.15896682077205,
+    "simulate.T": 15.182421304140533,
+    "simulate.XuT": 17.2759340441057,
+    "simulate.pi": 52.54622920998755,
+    "simulate_open": 216.01357285518256,
+    "simulate_short": 48.48768051093221,
+    "step_open": {
+      "Cpbc": 4e-15,
+      "Cpbe": 1.2e-14,
+      "Cpce": 9e-15
+    },
+    "step_short": {
+      "Lb": 4e-11,
+      "Lc": 3.5e-11,
+      "Le": 6e-12,
+      "Rpb": 1.5,
+      "Rpc": 2.0,
+      "Rpe": 0.7999999999999999
+    },
+    "y_to_s_roundtrip": -2.8199249151464246e-14,
+    "y_to_z": 344336.4796337875
+  },
+  "paths": {
+    "fit_cache_tail": "richard/.hbt-tools",
+    "rust_bin_tail": "rust_kernels/bin/macosx_arm64",
+    "rust_bin_under_repo": true
+  }
+}
