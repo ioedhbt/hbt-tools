@@ -29,6 +29,7 @@ from tools import i18n
 from tools.SSM.ssm_plots      import render_matplotlib_smith
 from tools.SSM             import handoff
 from tools.batch_deembedding  import render_batch_deembedding_tab
+from tools.SSM.helpers        import dedupe_upload_names
 from tools.SSM.helpers        import (
     parse_s2p, parse_csv,
     s_to_y, y_to_s_batch as y_to_s,
@@ -307,26 +308,29 @@ if dut_files:
     # parse + s_to_y + compute_metrics for 30 files completes in roughly
     # one-Nth the wall-clock of the old per-file Python loop.  CSV files
     # stay on the Python path (pandas dependency, low usage).
-    s2p_misses: list[tuple] = []   # (file_obj, key, bytes)
-    csv_misses: list[tuple] = []   # (file_obj, key, bytes)
-    for f in dut_files:
+    s2p_misses: list[tuple] = []   # (file_obj, name, key, bytes)
+    csv_misses: list[tuple] = []   # (file_obj, name, key, bytes)
+    # `fname` is disambiguated within the batch: all_data / _dut_keys /
+    # errors are all keyed on it, so two selected files with the same name
+    # (different folders) used to silently drop one device.
+    for f, fname in dedupe_upload_names(dut_files):
         content = f.getvalue()
         try:
             key = _dut_cache_key(content, s1o, s1s, s2o, s2s, s3t,
                                  n_pts, freq_min, freq_max)
         except Exception as e:
-            errors[f.name] = f"cache-key error: {e}"
+            errors[fname] = f"cache-key error: {e}"
             continue
         fresh_keys.add(key)
         cached = _dut_cache.get(key)
         if cached is not None:
-            all_data[f.name] = cached
-            _dut_keys[f.name] = key
+            all_data[fname] = cached
+            _dut_keys[fname] = key
             continue
-        if f.name.lower().endswith(".s2p"):
-            s2p_misses.append((f, key, content))
+        if fname.lower().endswith(".s2p"):
+            s2p_misses.append((f, fname, key, content))
         else:
-            csv_misses.append((f, key, content))
+            csv_misses.append((f, fname, key, content))
 
     # ── Pass 2: Rust batch parse + metrics + extract for .s2p misses ──
     # We hand n_pts/freq_min/freq_max in so the kernel can run extract_limit
@@ -334,49 +338,49 @@ if dut_files:
     # the common bulk-upload case), this skips the 3 Python extract_limit
     # calls per file — saves ~1.6 ms/file × 30 = ~48 ms cold first-upload.
     if s2p_misses:
-        batch_bytes = [c for _, _, c in s2p_misses]
+        batch_bytes = [c for _, _, _, c in s2p_misses]
         try:
             rust_results = rust_parse_and_compute_batch(
                 batch_bytes, n_pts, freq_min, freq_max)
         except Exception as e:
             rust_results = None
-            for f, _key, _c in s2p_misses:
-                errors[f.name] = f"batch parse failed: {e}"
+            for _f, fname, _key, _c in s2p_misses:
+                errors[fname] = f"batch parse failed: {e}"
         if rust_results is not None:
-            for (f, key, _content), prepared in zip(s2p_misses, rust_results):
+            for (f, fname, key, _content), prepared in zip(s2p_misses, rust_results):
                 if "error" in prepared:
-                    errors[f.name] = prepared["error"]
+                    errors[fname] = prepared["error"]
                     continue
                 try:
                     prepared["df_raw"] = _df_from_rust_entry(prepared)
                     df_raw,df_fin,S_fin,S_raw,freq,z0_dut,res = process_dut(
-                        None, f.name, s1o, s1s, s2o, s2s, s3t,
+                        None, fname, s1o, s1s, s2o, s2s, s3t,
                         n_pts, freq_min, freq_max, prepared=prepared)
                     entry = {
                         "df_raw":df_raw,"df_fin":df_fin,
                         "S_fin":S_fin,"S_raw":S_raw,
                         "freq":freq,"z0":z0_dut,**res}
                     _dut_cache[key] = entry
-                    all_data[f.name] = entry
-                    _dut_keys[f.name] = key
+                    all_data[fname] = entry
+                    _dut_keys[fname] = key
                 except Exception as e:
-                    errors[f.name] = str(e)
+                    errors[fname] = str(e)
 
     # ── Pass 3: Python path for .csv files ──
-    for f, key, content in csv_misses:
+    for f, fname, key, content in csv_misses:
         try:
             df_raw,df_fin,S_fin,S_raw,freq,z0_dut,res = process_dut(
                 content.decode("utf-8",errors="ignore"),
-                f.name,s1o,s1s,s2o,s2s,s3t,n_pts,freq_min,freq_max)
+                fname,s1o,s1s,s2o,s2s,s3t,n_pts,freq_min,freq_max)
             entry = {
                 "df_raw":df_raw,"df_fin":df_fin,
                 "S_fin":S_fin,"S_raw":S_raw,
                 "freq":freq,"z0":z0_dut,**res}
             _dut_cache[key] = entry
-            all_data[f.name] = entry
-            _dut_keys[f.name] = key
+            all_data[fname] = entry
+            _dut_keys[fname] = key
         except Exception as e:
-            errors[f.name] = str(e)
+            errors[fname] = str(e)
 
     # Evict entries for files no longer in the uploader (or with stale
     # cal/chart params) to bound memory across long sessions.

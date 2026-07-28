@@ -404,8 +404,8 @@ def render_smith_chart(S_mea, S_sim, model_name, error_pct, scales=None, key="sm
     if scales is None:
         scales = {"S11":1.0,"S12":1.0,"S21":1.0,"S22":1.0}
     fig = go.Figure()
-    for tr in extended_smith_grid(1.0):
-        fig.add_trace(tr)
+    for _grid_tr in extended_smith_grid(1.0):
+        fig.add_trace(_grid_tr)
     inline_annos = []     # populated when inline_labels=True (Sxx near trace)
     for name, (r, c) in [("S11",(0,0)),("S22",(1,1)),("S21",(1,0)),("S12",(0,1))]:
         col = _SMITH_COLORS[name]; sc = scales.get(name, 1.0)

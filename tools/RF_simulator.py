@@ -263,8 +263,8 @@ _SMITH_COLORS = {"S11": "#1f77b4", "S22": "#ff7f0e",
 def _build_smith(S, freq_hz, mults: dict, title: str):
     """``mults`` is a dict ``{"S11":..., "S12":..., "S21":..., "S22":...}``."""
     fig = go.Figure()
-    for tr in extended_smith_grid(1.0):
-        fig.add_trace(tr)
+    for _grid_tr in extended_smith_grid(1.0):
+        fig.add_trace(_grid_tr)
     f_ghz_local = freq_hz * 1e-9
     for name, (r, c) in [("S11", (0, 0)), ("S22", (1, 1)),
                          ("S21", (1, 0)), ("S12", (0, 1))]:

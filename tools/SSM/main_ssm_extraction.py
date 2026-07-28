@@ -196,7 +196,10 @@ def render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data=None)
     st.markdown(tr("## 🔬 Small-Signal Model (SSM) Parameter Extraction",
                    "## 🔬 小訊號模型（SSM）參數萃取"))
     with st.expander(tr("🖼️ Illustration", "🖼️ 示意圖"), expanded=False):
-        st.image(image="tools/SSM/de_embedding_illus.png")
+        # File-relative, not CWD-relative: LAUNCH_Tool spawns streamlit
+        # without cwd=ROOT, so launching from anywhere but the repo root made
+        # this raise instead of showing the figure.
+        st.image(str(Path(__file__).resolve().parent / "de_embedding_illus.png"))
 
     # Default low-freq fit width for Step 2/3 extractions.  Used to be a
     # user-facing slider ("Model low-freq pts") but nobody touched it in

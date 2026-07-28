@@ -109,6 +109,7 @@ from .widgets import (
     apply_pending,
     info_icon_html,
     segmented_radio,
+    dedupe_upload_names,
 )
 
 # ── fit_cache ────────────────────────────────────────────────────────────────

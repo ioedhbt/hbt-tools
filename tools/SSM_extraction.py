@@ -28,7 +28,8 @@ from pathlib import Path
 import streamlit as st
 
 from tools.SSM.main_ssm_extraction import render_ssm_tab
-from tools.SSM.helpers import parse_s2p, parse_csv, load_cal
+from tools.SSM.helpers import (parse_s2p, parse_csv, load_cal,
+                               dedupe_upload_names)
 from tools.SSM import handoff
 from tools import i18n
 
@@ -156,7 +157,9 @@ if not dut_files and not use_examples and not _injected:
 # ── Collect (name, bytes) sources from the uploads or the bundled examples. ──
 sources: list[tuple[str, bytes]] = []
 if dut_files:
-    sources = [(f.name, f.getvalue()) for f in dut_files]
+    # Disambiguated names: all_data is keyed on them, so two selected files
+    # with the same name would otherwise drop one device silently.
+    sources = [(name, f.getvalue()) for f, name in dedupe_upload_names(dut_files)]
 elif use_examples:
     ex_dir = Path(__file__).resolve().parent.parent / "dummy_data_practice"
     sources = [(p.name, p.read_bytes()) for p in sorted(ex_dir.glob("*.s2p"))]

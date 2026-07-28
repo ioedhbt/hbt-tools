@@ -186,6 +186,23 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
     st.caption(i18n.tr("Defaults are populated from the modeled Open/Short calculation.",
                        "預設值取自模型 Open/Short 計算結果。"))
 
+    # Re-seed when the calibration itself changes.  _ovr_input only seeds a
+    # key that does not exist yet, so uploading a *different* Open/Short dummy
+    # mid-session left the override fields showing the first dummy's values —
+    # and the de-embedding silently applied the old parasitics to the new
+    # calibration data, with nothing on screen to say so.
+    _cal_fp = tuple(round(float(d[k]), 18) for d, k in (
+        (params_open, "Cpbe"), (params_open, "Cpce"), (params_open, "Cpbc"),
+        (params_short, "Lb"), (params_short, "Lc"), (params_short, "Le")))
+    if st.session_state.get("bd_cal_fp") != _cal_fp:
+        if "bd_cal_fp" in st.session_state:
+            st.info(i18n.tr(
+                "Open/Short calibration changed — override values reseeded.",
+                "Open/Short 校準已變更 — 覆寫值已重新載入。"))
+        for k in ("bd_Cpbe", "bd_Cpce", "bd_Cpbc", "bd_Lb", "bd_Lc", "bd_Le"):
+            st.session_state.pop(k, None)
+        st.session_state["bd_cal_fp"] = _cal_fp
+
     c1, c2, c3 = st.columns(3)
     Cpbe = _ovr_input(c1, "Cpbe (fF)", params_open["Cpbe"], 1e15, "%.4f", "bd_Cpbe")
     Cpce = _ovr_input(c2, "Cpce (fF)", params_open["Cpce"], 1e15, "%.4f", "bd_Cpce")

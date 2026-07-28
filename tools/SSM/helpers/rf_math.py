@@ -53,8 +53,12 @@ z_to_y = _inv2   # Y = Z⁻¹
 
 def y_to_s_single(Y, z0=50.0):
     Yn = Y * z0; I = np.eye(2)
+    # Narrow: a bare `except` here also swallowed TypeError/KeyError from a
+    # malformed params dict upstream, turning a real bug into one NaN point
+    # in a several-hundred-point sweep that nobody notices on a plot.
     try:    return np.dot(I - Yn, np.linalg.inv(I + Yn))
-    except: return np.full((2,2), np.nan+0j)
+    except np.linalg.LinAlgError:
+        return np.full((2,2), np.nan+0j)
 
 
 def y_to_s_batch(Y, z0=50.0):

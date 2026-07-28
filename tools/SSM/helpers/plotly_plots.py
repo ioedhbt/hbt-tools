@@ -168,8 +168,8 @@ def make_smith(S, f_array, f_min, f_max, toggles, scales, title, max_r=1.0):
     mask = (f_array >= f_min) & (f_array <= f_max)
     S_p = S[mask].copy(); f_p = f_array[mask]
     fig = go.Figure()
-    for tr in extended_smith_grid(max_r):
-        fig.add_trace(tr)
+    for _grid_tr in extended_smith_grid(max_r):
+        fig.add_trace(_grid_tr)
     for key, (r, c), color, dash in [
         ("S11", (0, 0), "#1f77b4", "solid"),
         ("S22", (1, 1), "#ff7f0e", "dash"),
@@ -497,8 +497,8 @@ def make_smith_bode_slider_fig(*, S_batch, freq, model_name: str,
     )
 
     # ── (1) Static Smith grid (row 1) ─────────────────────────────────────
-    for tr in extended_smith_grid(1.0):
-        fig.add_trace(tr, row=1, col=1)
+    for _grid_tr in extended_smith_grid(1.0):
+        fig.add_trace(_grid_tr, row=1, col=1)
 
     # ── (2) Measured Smith — 4 traces if S_meas provided ─────────────────
     meas_smith_indices: list[int] = []
@@ -794,8 +794,8 @@ def make_smith_bode_joint_slider_html(*, S_batch_joint, freq, slider_specs,
     )
 
     # Static Smith grid
-    for tr in extended_smith_grid(1.0):
-        fig.add_trace(tr, row=1, col=1)
+    for _grid_tr in extended_smith_grid(1.0):
+        fig.add_trace(_grid_tr, row=1, col=1)
 
     # Optional static measured overlay
     if S_meas is not None:
@@ -1207,8 +1207,8 @@ def build_smith_bode_slider_payload(*, S_batch_joint, freq, slider_specs,
     )
 
     # Static Smith grid
-    for tr in extended_smith_grid(1.0):
-        fig.add_trace(tr, row=1, col=1)
+    for _grid_tr in extended_smith_grid(1.0):
+        fig.add_trace(_grid_tr, row=1, col=1)
 
     # Optional static measured overlay
     if S_meas is not None:

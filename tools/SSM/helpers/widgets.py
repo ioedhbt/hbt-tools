@@ -27,6 +27,32 @@ import streamlit as st
 from ...i18n import tr
 
 
+def dedupe_upload_names(files):
+    """Pair each uploaded file with a name unique within this batch.
+
+    Yields ``(file, name)``.  Streamlit happily accepts two selected files
+    with the same name from different folders, and every page keys its
+    ``all_data`` dict on ``f.name`` — so the second silently replaced the
+    first and one device disappeared from the analysis, the summary table
+    and the export, with no error shown.
+
+    The suffix goes before the extension (``data (2).s2p``) so the name
+    still reads as a filename wherever it is used as a display label.
+    """
+    seen: dict[str, int] = {}
+    out = []
+    for f in files or []:
+        name = getattr(f, "name", None) or "data"
+        n = seen.get(name, 0)
+        seen[name] = n + 1
+        if n:
+            stem, dot, ext = name.rpartition(".")
+            name = f"{stem} ({n + 1}).{ext}" if dot else f"{name} ({n + 1})"
+            seen[name] = 1
+        out.append((f, name))
+    return out
+
+
 def info_icon_html(text: str, label: str = "ⓘ") -> str:
     """HTML markup for a hover-help icon.
 

@@ -43,6 +43,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -175,11 +176,25 @@ def _read_model_file(path: Path) -> Optional[dict]:
 
 
 def _atomic_write_json(path: Path, payload: dict) -> None:
+    """Write `payload` to `path` atomically.
+
+    The temp file gets a unique name.  A fixed `path + ".tmp"` was shared by
+    every writer of the same (DUT, model), so two browser tabs saving at once
+    could interleave their json.dump calls into one file before either
+    replace() ran — corrupting the entry the "atomic" write existed to
+    protect.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=True, default=str)
-    tmp.replace(path)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
+                                    prefix=path.name + ".", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, sort_keys=True, default=str)
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 # ── One-shot legacy migration ────────────────────────────────────────────────

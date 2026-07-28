@@ -6,6 +6,11 @@
 # so the runtime venv (and requirements.txt) stay free of build tools.
 .hbttools_build/
 
+# Streamlit secrets (APP_PASSWORD etc).  .streamlit/config.toml IS tracked,
+# so the directory is already in the repo — without this line the first
+# person to create a secrets file locally would commit the password.
+.streamlit/secrets.toml
+
 # Python bytecode caches.
 __pycache__/
 *.pyc

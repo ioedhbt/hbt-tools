@@ -517,10 +517,36 @@ def main():
     try:
         subprocess.check_call(
             [str(VENV_STREAMLIT), "run", str(APP_FILE)],
-            env=_child_env)
+            env=_child_env, cwd=str(ROOT))   # cwd: pages load assets relative
+                                             # to the repo root, and streamlit
+                                             # does not chdir to the script dir
     except KeyboardInterrupt:
         print("\nServer shut down cleanly.")
 
 
 if __name__ == "__main__":
-    main()
+    # Without this, a failure during first-time setup (pip_install /
+    # recreate_venv raising CalledProcessError on a network drop, a full
+    # disk, or a bad wheel) printed a traceback and exited — and on a
+    # Windows double-click the console closed before it could be read,
+    # leaving a half-built .hbttools/ and no visible diagnostic.
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+        sys.exit(130)
+    except SystemExit:
+        raise
+    except BaseException as exc:                                  # noqa: BLE001
+        import traceback
+        print()
+        print("=" * 60)
+        print(f"  Setup failed: {type(exc).__name__}: {exc}")
+        print("=" * 60)
+        traceback.print_exc()
+        print()
+        print("The environment may be incomplete. Re-running this launcher "
+              "repairs it (missing packages are reinstalled).")
+        print("If it keeps failing, delete the .hbttools folder and try again.")
+        _pause_if_interactive()
+        sys.exit(1)

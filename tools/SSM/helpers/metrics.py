@@ -215,7 +215,7 @@ def compute_metrics(Y, freq_hz):
     f = freq_hz*1e-9
     y11,y12,y21,y22 = Y[:,0,0],Y[:,0,1],Y[:,1,0],Y[:,1,1]
     with np.errstate(divide="ignore", invalid="ignore"):
-        h21 = -y21/y11
+        h21 = -y21/(y11 + 1e-30)     # guard matches compute_h21_U above
         num_u = np.abs(y21-y12)**2
         den_u = 4.0*(y11.real*y22.real - y12.real*y21.real)
         U = np.where(den_u>0, num_u/den_u, np.nan)

@@ -67,12 +67,29 @@ _LOCAL_LAUNCH = os.environ.get("HBT_LOCAL_LAUNCH", "").strip().lower() in {
     "1", "true", "yes", "on"
 }
 
+def _app_password():
+    """The configured access password, or None when there isn't one.
+
+    This used to fall back to a hardcoded "IOED" on any exception.  The
+    comment called it a local-testing default, but `except Exception` also
+    covers "no secrets file", which is what a public Streamlit Cloud
+    deployment looks like before APP_PASSWORD is set in the dashboard — so
+    the gate silently accepted a password committed in plaintext in this
+    repo.  Developer machines don't need the fallback: LAUNCH_Tool.py sets
+    HBT_LOCAL_LAUNCH=1 and the gate is skipped entirely (see below).
+    """
+    try:
+        return st.secrets["APP_PASSWORD"]
+    except Exception:                                             # noqa: BLE001
+        return None
+
+
 def check_password():
     def password_entered():
-        try:
-            correct_pwd = st.secrets["APP_PASSWORD"]
-        except Exception:
-            correct_pwd = "IOED" # 本機測試預設密碼
+        correct_pwd = _app_password()
+        if correct_pwd is None:
+            st.session_state["authenticated"] = False
+            return
         if st.session_state["pwd_input"] == correct_pwd:
             st.session_state["authenticated"] = True
             del st.session_state["pwd_input"]
@@ -86,6 +103,15 @@ def check_password():
     st.divider()
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
+        if _app_password() is None:
+            # Fail closed rather than fall back to a shared default.
+            st.error(
+                "APP_PASSWORD is not configured for this deployment. / "
+                "此部署尚未設定 APP_PASSWORD。")
+            st.caption(
+                "Set it in the Streamlit Cloud app settings (Secrets), or "
+                "run locally with LAUNCH_Tool.py, which skips this gate.")
+            return False
         st.info("Please enter IOED Lab Password. / 請輸入 IOED 實驗室專屬密碼。")
         st.text_input("Access Password / 存取密碼", type="password", on_change=password_entered, key="pwd_input")
         if "authenticated" in st.session_state and not st.session_state["authenticated"]:

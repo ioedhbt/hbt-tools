@@ -50,8 +50,8 @@ def _smith_fig(S: np.ndarray, freq: np.ndarray, title: str,
     if scales is None:
         scales = {"S11": 1.0, "S12": 1.0, "S21": 1.0, "S22": 1.0}
     fig = go.Figure()
-    for tr in extended_smith_grid(1.0):
-        fig.add_trace(tr)
+    for _grid_tr in extended_smith_grid(1.0):
+        fig.add_trace(_grid_tr)
     f_ghz = freq * 1e-9
     for name, (r, c) in [("S11", (0, 0)), ("S22", (1, 1)),
                          ("S21", (1, 0)), ("S12", (0, 1))]:

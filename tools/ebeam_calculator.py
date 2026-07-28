@@ -3841,6 +3841,32 @@ def _polygon_clip_per_cell_mm(polys_mm: list, cells: list):
     return areas, clipped_all
 
 
+def _time_input_fingerprint(prefix, polys_mm, cells, chip_size_mm, dotmap,
+                            mark_cells) -> tuple:
+    """Cheap signature of everything a Time Calculator result depends on.
+
+    Used to invalidate ``{prefix}_time_result`` when the mask, the grid or
+    the dose settings change.  Deliberately avoids hashing every polygon
+    vertex — the mask store digest already identifies the loaded file, and
+    the counts/extents catch the in-page geometry edits.
+    """
+    store = st.session_state.get("_ebc_gds_store") or {}
+    dose_keys = (f"{prefix}_dose_us", f"{prefix}_dose_init_us",
+                 f"{prefix}_dose_step_us", f"{prefix}_dose_ramp",
+                 f"{prefix}_stage_s")
+    return (
+        store.get("digest"),
+        st.session_state.get("ebc_gds_cell"),
+        st.session_state.get("ebc_gds_layer"),
+        len(polys_mm or ()), len(cells or ()),
+        len(mark_cells or ()),
+        round(float(chip_size_mm), 9), int(dotmap),
+        tuple(round(float(v), 9) for v in (cells[0] if cells else ())),
+        tuple(round(float(v), 9) for v in (cells[-1] if cells else ())),
+        tuple(str(st.session_state.get(k)) for k in dose_keys),
+    )
+
+
 def _format_hms(seconds: float) -> str:
     """Format a duration in seconds as HH:MM:SS.sss."""
     if seconds < 0 or not math.isfinite(seconds):
@@ -3993,6 +4019,8 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
             init_us = step_us = None
 
         total_us = exposure_us + stage_us
+        st.session_state[f"{prefix}_time_fp"] = _time_input_fingerprint(
+            prefix, polys_mm, cells, chip_size_mm, dotmap, mark_cells)
         st.session_state[f"{prefix}_time_result"] = {
             "dose_ramp": dose_ramp,
             "cell_areas": cell_areas,
@@ -4023,6 +4051,17 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
             "stage_us": stage_us,
             "total_us": total_us,
         }
+
+    # Drop a result computed for different inputs.  Nothing used to
+    # invalidate it: uploading a different mask, removing the mask, or
+    # changing the chip size / dotmap / selected cells left the previous
+    # run's breakdown and total on screen looking current, so a dose/time
+    # setting could be taken from the wrong mask.
+    _fp_now = _time_input_fingerprint(prefix, polys_mm, cells, chip_size_mm,
+                                      dotmap, mark_cells)
+    if st.session_state.get(f"{prefix}_time_fp") != _fp_now:
+        st.session_state.pop(f"{prefix}_time_result", None)
+        st.session_state.pop(f"{prefix}_time_fp", None)
 
     result = st.session_state.get(f"{prefix}_time_result")
     if not result:

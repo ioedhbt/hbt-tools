@@ -13,6 +13,7 @@ Changelog (short):
 """
 __version__ = "1.1"
 
+import io
 import re
 
 import streamlit as st
@@ -268,14 +269,34 @@ if page == "B1500A Viewer":
     st.subheader(i18n.t("b1500a_step1"))
     uploaded_files = st.file_uploader(
         i18n.tr("Upload Excel file(s) (.xlsx)", "上傳 Excel 檔 (.xlsx)"),
-        type=["xlsx"], accept_multiple_files=True
+        type=["xlsx"], accept_multiple_files=True, key="b1500a_upload"
     )
+
+    # This uploader lives inside `if page == "B1500A Viewer"`, and Streamlit
+    # garbage-collects a widget's state on any run that skips it — so
+    # switching to TLM Analysis and back used to wipe the uploads and force a
+    # re-upload.  The keep-alive re-assignment trick IOED_Tool_Web.py uses for
+    # the sim_* keys does NOT work here: assigning to a file_uploader's key
+    # raises StreamlitValueAssignmentNotAllowedError.  Cache the *bytes* under
+    # a plain, non-widget key instead, which nothing garbage-collects.
+    if uploaded_files:
+        st.session_state["b1500a_upload_cache"] = [
+            (u.name, u.getvalue()) for u in uploaded_files]
+    _cached_uploads = st.session_state.get("b1500a_upload_cache") or []
+    if _cached_uploads and not uploaded_files:
+        c1, c2 = st.columns([4, 1])
+        c1.caption(i18n.tr(
+            f"Using {len(_cached_uploads)} previously uploaded file(s).",
+            f"正在使用先前上傳的 {len(_cached_uploads)} 個檔案。"))
+        if c2.button(i18n.tr("🗑️ Clear", "🗑️ 清除"), key="b1500a_clear_uploads"):
+            st.session_state.pop("b1500a_upload_cache", None)
+            st.rerun()
 
     # --- build a unified list of sources: uploads + received handoff files ---
     sources = []
-    for u in uploaded_files or []:
-        xls = pd.ExcelFile(u)
-        lname = u.name.lower()
+    for _uname, _ubytes in _cached_uploads:
+        xls = pd.ExcelFile(io.BytesIO(_ubytes))
+        lname = _uname.lower()
         if "gummel" in lname:
             dtype_default = "Gummel"
         elif "family" in lname:
@@ -283,8 +304,8 @@ if page == "B1500A Viewer":
         else:
             dtype_default = "Diode"
         sources.append({
-            "id": f"up::{u.name}",
-            "label": u.name,
+            "id": f"up::{_uname}",
+            "label": _uname,
             "sheets": xls.sheet_names,
             "get_df": (lambda s, xls=xls: xls.parse(s)),
             "dtype_default": dtype_default,

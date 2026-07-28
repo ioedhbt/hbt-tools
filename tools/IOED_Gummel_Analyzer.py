@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from tools import i18n
-from tools.SSM.helpers import segmented_radio, unique_sheet_name
+from tools.SSM.helpers import (segmented_radio, unique_sheet_name,
+                               dedupe_upload_names)
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -259,12 +260,12 @@ with col_up2:
 
 all_data, errors = {}, {}
 if dut_files:
-    for f in dut_files:
+    for f, fname in dedupe_upload_names(dut_files):
         try:
             df = load_and_standardize(f.getvalue().decode("utf-8", errors="ignore"), add_noise, ic_noise, ib_noise)
-            all_data[f.name] = df
+            all_data[fname] = df
         except Exception as e:
-            errors[f.name] = str(e)
+            errors[fname] = str(e)
     for fname, err in errors.items(): st.error(f"**{fname}**: {err}")
 
 uiuc_n_ic = calc_ideality(uiuc_ref["V_Ic"], uiuc_ref["Ic"], n_min, n_max, Vt)
