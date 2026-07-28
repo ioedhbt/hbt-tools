@@ -12,7 +12,7 @@ are meaningless; we're just timing the code paths the user actually hits
 when opening the SSM Extraction tab.
 
 Usage (from repo root):
-    .hbttools/Scripts/python.exe tools/_profile_ssm_extraction.py [REPS]
+    .hbttools/Scripts/python.exe dev/profile_ssm_extraction.py [REPS]
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from tools.rf.ssm.models.cheng import (
 )
 
 
-SAMPLES = sorted((ROOT / "dummy_data_practice").glob("*.s2p"))
+SAMPLES = sorted((ROOT / "examples").glob("*.s2p"))
 
 
 def _bracket(timings: dict, label: str, fn, *args, **kwargs):
@@ -170,7 +170,7 @@ def main() -> None:
     reps = int(sys.argv[1]) if len(sys.argv) > 1 else 10
 
     if not SAMPLES:
-        print(f"No .s2p files found in {ROOT / 'dummy_data_practice'}")
+        print(f"No .s2p files found in {ROOT / 'examples'}")
         return
 
     print(f"\n=== SSM extraction pipeline profiler ===")

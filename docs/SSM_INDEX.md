@@ -1,9 +1,9 @@
 # SSM — function index
 
-Single source of truth for every function across `tools/SSM/`. Skim this
+Single source of truth for every function across `tools/rf/ssm/`. Skim this
 file to find which submodule owns a function before grep'ing the codebase.
 
-All paths are relative to `tools/SSM/`. The index deliberately carries
+All paths are relative to `tools/rf/ssm/`. The index deliberately carries
 **no line numbers** (they drift as files evolve) — grep for the function
 name to jump to its definition.
 
@@ -94,7 +94,7 @@ Extraction → 🛠️ SSM Simulation & Fitting, with no re-uploading.
 No Streamlit UI required — see [`INDEX.md`](../../../INDEX.md#ai-agent-fitting-api-toolsssmagent_apypy)
 (repo root) for the full write-up. Bootstraps `sys.path` to the repo root at
 module import time (two parents up from this file) so `python
-tools/SSM/agent_api.py ...` works as a CLI from any cwd; imports Streamlit
+tools/rf/ssm/agent_api.py ...` works as a CLI from any cwd; imports Streamlit
 transitively (through `tools.SSM.models`) but never calls `st.*` itself.
 
 | Function | Purpose |

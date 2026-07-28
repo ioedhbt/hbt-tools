@@ -2,7 +2,7 @@
 
 Each subdirectory holds one compiled Rust extension binary for a specific
 host platform.  The Python wrapper at
-[`tools/SSM/helpers/rust_kernels.py`](../../helpers/rust_kernels.py)
+[`tools/rf/ssm/helpers/rust_kernels.py`](../../helpers/rust_kernels.py)
 adds the matching subdir to `sys.path` at import time and loads
 `hbt_rust_kernels` directly — **no pip install, no Rust toolchain, no
 maturin** needed on end-user machines.
@@ -31,7 +31,7 @@ need to rebuild when upgrading the runtime Python.
 Run **once per OS** from the repo root:
 
 ```
-python rust_things/build_rust_kernels.py
+python dev/build_rust_kernels.py
 ```
 
 The script creates a separate `.hbttools_build/` venv (so the runtime

@@ -3,7 +3,7 @@
 A small Rust crate that exposes SIMD/Rayon-accelerated CPU kernels for
 the math hot paths in the SSM extraction tool.  Building it is
 **optional**: when no binary is present the Python helpers in
-`tools/SSM/helpers/rust_kernels.py` silently fall back to NumPy, and
+`tools/rf/ssm/helpers/rust_kernels.py` silently fall back to NumPy, and
 the tool runs exactly as before.
 
 ## How end users get the speedup
@@ -17,7 +17,7 @@ toolchain on user machines.
 Per-OS binaries that need to be in the repo for full coverage:
 
 ```
-tools/SSM/rust_kernels/bin/
+tools/rf/ssm/rust_kernels/bin/
 ├── win_amd64/           hbt_rust_kernels.pyd        ← committed
 ├── linux_x86_64/        hbt_rust_kernels.so         ← committed (Streamlit Cloud)
 ├── macosx_arm64/        hbt_rust_kernels.so         ← committed
@@ -32,7 +32,7 @@ NumPy path.  The tool still works — they just don't get the speedup.
 Run **once per OS** from the repo root:
 
 ```
-python rust_things/build_rust_kernels.py
+python dev/build_rust_kernels.py
 ```
 
 What it does:
@@ -47,7 +47,7 @@ What it does:
    `abi3-py39` feature in `Cargo.toml` produces a single binary
    compatible with every Python ≥ 3.9 — no per-version rebuilds.
 5. Extracts the binary from the wheel and drops it at
-   `tools/SSM/rust_kernels/bin/<platform_arch>/hbt_rust_kernels.<ext>`.
+   `tools/rf/ssm/rust_kernels/bin/<platform_arch>/hbt_rust_kernels.<ext>`.
 
 Commit the resulting file.  Other contributors / Streamlit Cloud pick
 it up automatically the next time they pull.
@@ -81,12 +81,12 @@ you if it's missing (offers a one-click install of the Visual Studio
 Build Tools).  On Debian/Ubuntu: `apt install build-essential`.  On
 macOS: Xcode Command Line Tools.
 
-After that, `python rust_things/build_rust_kernels.py` handles everything else.
+After that, `python dev/build_rust_kernels.py` handles everything else.
 
 ## Verifying / benchmarking
 
 ```bash
-python tools/SSM/rust_kernels/benchmark.py
+python tools/rf/ssm/rust_kernels/benchmark.py
 ```
 
 Asserts numerical parity at 1e-10 rtol against the NumPy references,
@@ -147,14 +147,14 @@ A-B parity checks.
    `ndarray::Zip::from(…).and(…).par_for_each(…)`.
 2. Register it in the `#[pymodule] fn hbt_rust_kernels` block.
 3. Add a NumPy reference and a wrapper to
-   `tools/SSM/helpers/rust_kernels.py`.
+   `tools/rf/ssm/helpers/rust_kernels.py`.
 4. Extend `benchmark.py` with a parity + timing block.
 5. Rebuild and commit a fresh binary per OS:
-   `python rust_things/build_rust_kernels.py`.
+   `python dev/build_rust_kernels.py`.
 
 Callers in `helpers/` and `models/` should import from
 `tools.SSM.helpers.rust_kernels`, never from `hbt_rust_kernels`
 directly — that preserves the NumPy fallback for unbuilt platforms.
 
 (note To ship to Streamlit Cloud
-Run python rust_things/build_rust_kernels.py on Linux x86_64 (a WSL box, a Docker image, or a one-off VM). It'll drop a .so at tools/SSM/rust_kernels/bin/linux_x86_64/hbt_rust_kernels.so. Commit it. Streamlit Cloud picks it up automatically on next deploy — no pip install needed there either.)
+Run python dev/build_rust_kernels.py on Linux x86_64 (a WSL box, a Docker image, or a one-off VM). It'll drop a .so at tools/rf/ssm/rust_kernels/bin/linux_x86_64/hbt_rust_kernels.so. Commit it. Streamlit Cloud picks it up automatically on next deploy — no pip install needed there either.)

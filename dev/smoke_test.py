@@ -16,17 +16,13 @@ Usage
 The baseline lives in ``dev/_smoke_baseline.json`` and is committed, so a
 diff on it is a visible, reviewable claim that a number was *meant* to move.
 
-This file deliberately resolves each import against **both** the pre- and
-post-restructure module paths (see ``_imp``), so the same test — and the
-same baseline — is valid on either side of the move.  Once the restructure
-has landed the legacy candidates can be dropped.
-
 Exit code is 0 on pass, 1 on any failure.
 """
 from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.util
 import json
 import pkgutil
 import re
@@ -68,19 +64,9 @@ def check(label: str, ok: bool, detail: str = "") -> None:
         _failures.append(f"{label}{(' — ' + detail) if detail else ''}")
 
 
-def _imp(*candidates: str):
-    """Import the first importable module from ``candidates``.
-
-    Lets one test file span the restructure: pass the new path first, the
-    legacy path second.
-    """
-    last = None
-    for name in candidates:
-        try:
-            return importlib.import_module(name)
-        except ImportError as exc:
-            last = exc
-    raise ImportError(f"none of {candidates} importable: {last}")
+def _imp(name: str):
+    """Import ``name``, failing loudly rather than being swallowed."""
+    return importlib.import_module(name)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,13 +87,33 @@ def test_imports() -> None:
         except Exception as exc:                                  # noqa: BLE001
             check(f"import {name}", False, f"{type(exc).__name__}: {exc}")
 
+    # dev/ and dev/gds/ are scripts, not a package, so walk_packages misses
+    # them — but they import deep into tools/ and are exactly the kind of
+    # thing a move breaks without anyone noticing until months later.
+    here = Path(__file__).resolve()
+    for path in sorted(list((ROOT / "dev").glob("*.py"))
+                       + list((ROOT / "dev" / "gds").glob("*.py"))):
+        if path == here or path.name == "__init__.py":
+            continue
+        rel = path.relative_to(ROOT)
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"_smoke_{path.stem}", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            check(f"import {rel}", True)
+        except SystemExit:
+            check(f"import {rel}", True)          # argparse-on-import scripts
+        except Exception as exc:                                  # noqa: BLE001
+            check(f"import {rel}", False, f"{type(exc).__name__}: {exc}")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  2. Every page path / switch_page target resolves on disk
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_page_paths() -> None:
-    i18n = _imp("tools.common.i18n", "tools.i18n")
+    i18n = _imp("tools.common.i18n")
 
     for key, meta in i18n.TOOLS.items():
         check(f"TOOLS[{key}].path", (ROOT / meta["path"]).is_file(),
@@ -116,11 +122,8 @@ def test_page_paths() -> None:
         check(f"TOOLS[{key}].group", g in i18n.GROUPS and g in i18n.GROUP_ORDER, g)
 
     seen_pages = 0
-    for modname in ("tools.common.handoff", "tools.rf.ssm.handoff", "tools.dc_handoff"):
-        try:
-            mod = importlib.import_module(modname)
-        except ImportError:
-            continue
+    for modname in ("tools.common.handoff",):
+        mod = importlib.import_module(modname)
         for const in dir(mod):
             if not const.startswith("PAGE_"):
                 continue
@@ -140,8 +143,8 @@ def test_page_paths() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def collect_paths() -> dict:
-    rk = _imp("tools.rf.ssm.helpers.rust_kernels", "tools.rf.ssm.helpers.rust_kernels")
-    fc = _imp("tools.rf.ssm.helpers.fit_cache", "tools.rf.ssm.helpers.fit_cache")
+    rk = _imp("tools.rf.ssm.helpers.rust_kernels")
+    fc = _imp("tools.rf.ssm.helpers.fit_cache")
     return {
         "rust_bin_under_repo": str(rk._BIN_DIR).startswith(str(ROOT)),
         "rust_bin_tail": "/".join(Path(rk._BIN_DIR).parts[-3:]),
@@ -167,10 +170,7 @@ def _sig(arr) -> float:
 
 
 FREQ = np.linspace(1e9, 50e9, 21)
-_EXAMPLE_CANDIDATES = (
-    "examples/ADSsim_measured_ChengT_1p5V_Ib100u.s2p",
-    "dummy_data_practice/ADSsim_measured_ChengT_1p5V_Ib100u.s2p",
-)
+EXAMPLE = "examples/ADSsim_measured_ChengT_1p5V_Ib100u.s2p"
 
 # Fixed pad/lead values for the de-embedding golden — deliberately not the
 # defaults, so a sign/ordering change in the peel math actually shows up.
@@ -180,11 +180,10 @@ _PAD = {"Cpbe": 12e-15, "Cpce": 9e-15, "Cpbc": 4e-15,
 
 
 def _example_path() -> Path:
-    for rel in _EXAMPLE_CANDIDATES:
-        p = ROOT / rel
-        if p.is_file():
-            return p
-    raise FileNotFoundError(f"none of {_EXAMPLE_CANDIDATES} exists")
+    p = ROOT / EXAMPLE
+    if not p.is_file():
+        raise FileNotFoundError(f"missing example: {EXAMPLE}")
+    return p
 
 
 def H_load(api, path):
@@ -192,9 +191,9 @@ def H_load(api, path):
 
 
 def collect_numbers() -> dict:
-    api = _imp("tools.rf.ssm.agent_api", "tools.rf.ssm.agent_api")
-    H = _imp("tools.rf.ssm.helpers", "tools.rf.ssm.helpers")
-    models = _imp("tools.rf.ssm.models", "tools.rf.ssm.models")
+    api = _imp("tools.rf.ssm.agent_api")
+    H = _imp("tools.rf.ssm.helpers")
+    models = _imp("tools.rf.ssm.models")
 
     out: dict = {}
 

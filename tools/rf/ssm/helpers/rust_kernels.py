@@ -32,7 +32,7 @@ import numpy as np
 
 # ── Locate a committed-in-repo binary, before falling back to pip install ───
 #
-# The build script (`rust_things/build_rust_kernels.py`) compiles the
+# The build script (`dev/build_rust_kernels.py`) compiles the
 # crate once per host and drops the resulting `.pyd` / `.so` into
 # `tools/rf/ssm/rust_kernels/bin/<platform_arch>/`.  Adding that directory
 # to `sys.path` lets `import hbt_rust_kernels` succeed without any pip

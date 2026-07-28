@@ -3,7 +3,7 @@
 check_rust_status.py — One-liner status check for the Rust acceleration.
 
 Run from the repo root:
-    python rust_things/check_rust_status.py
+    python dev/check_rust_status.py
 
 Reports:
   • Whether the committed binary exists for the current OS+arch.
@@ -23,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-# This file lives in rust_things/ — the repo root is one level up.
+# This file lives in dev/ — the repo root is one level up.
 ROOT = Path(__file__).parent.parent.resolve()
 
 
@@ -69,7 +69,7 @@ def main() -> int:
             print("  (no compiled binary in this folder yet)")
     else:
         print("  (folder doesn't exist yet — run "
-              "`python rust_things/build_rust_kernels.py` once)")
+              "`python dev/build_rust_kernels.py` once)")
 
     # Force the wrapper to re-load with current env state.
     sys.path.insert(0, str(ROOT))
@@ -104,7 +104,7 @@ def main() -> int:
     else:
         print("Wrapper status: 🐢 NumPy fallback "
               "(no binary committed for this OS/arch)")
-        print("  To build: `python rust_things/build_rust_kernels.py`  "
+        print("  To build: `python dev/build_rust_kernels.py`  "
               "(needs the Rust toolchain — https://rustup.rs)")
 
     # ── Quick timing check on the primary hot kernel ─────────────────────────

@@ -20,7 +20,7 @@ on:
       - "tools/rf/ssm/rust_kernels/Cargo.toml"
       - "tools/rf/ssm/rust_kernels/Cargo.lock"
       - "tools/rf/ssm/rust_kernels/pyproject.toml"
-      - "rust_things/build_rust_kernels.py"
+      - "dev/build_rust_kernels.py"
       - ".github/workflows/build-rust-linux.yml"
   workflow_dispatch:
 
@@ -92,7 +92,7 @@ jobs:
       - name: Extract .so into bin/linux_x86_64/
         # Pull the compiled extension out of the wheel and drop it into
         # the committed-binary directory.  Mirrors what
-        # `rust_things/build_rust_kernels.py::_extract_binary` does locally.
+        # `dev/build_rust_kernels.py::_extract_binary` does locally.
         #
         # `ls -t` (most-recent-first) is belt-and-braces in case the
         # purge step above ever fails to fire — picking by mtime

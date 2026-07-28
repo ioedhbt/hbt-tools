@@ -10,7 +10,7 @@ session-state cache added in IOED_HBT_RF_extract.py — confirms the cache
 turns a multi-second rerun into a sub-millisecond one.
 
 Usage (from repo root):
-    .hbttools/Scripts/python.exe tools/_profile_bulk_upload.py [REPS]
+    .hbttools/Scripts/python.exe dev/profile_bulk_upload.py [REPS]
 
 REPS defaults to 5 (each file processed REPS times; medians reported).
 """
@@ -38,7 +38,7 @@ from tools.rf.ssm.helpers.rf_math import s_to_y, y_to_s_vec
 from tools.rf.ssm.helpers.metrics import compute_metrics, extract_limit
 
 
-SAMPLES = sorted((ROOT / "dummy_data_practice").glob("*.s2p"))
+SAMPLES = sorted((ROOT / "examples").glob("*.s2p"))
 
 
 def profile_file(path: Path) -> dict[str, float]:
@@ -129,7 +129,7 @@ def main() -> None:
     print(f"Sample files: {len(SAMPLES)} (each timed {reps}× — medians shown)\n")
 
     if not SAMPLES:
-        print(f"No .s2p files found in {ROOT / 'dummy_data_practice'}")
+        print(f"No .s2p files found in {ROOT / 'examples'}")
         return
 
     for p in SAMPLES:

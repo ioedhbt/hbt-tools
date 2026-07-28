@@ -3,8 +3,8 @@
 Orientation document for humans and AI agents: how the app boots, how a
 page is put together, how data flows, and where to look for a given kind
 of change. For a per-function catalogue use
-[INDEX.md](INDEX.md) (everything outside `tools/SSM/`) and
-[tools/SSM/helpers/INDEX.md](tools/SSM/helpers/INDEX.md) (the SSM tree).
+[INDEX.md](INDEX.md) (everything outside `tools/rf/ssm/`) and
+[docs/SSM_INDEX.md](docs/SSM_INDEX.md) (the SSM tree).
 
 ---
 
@@ -27,7 +27,7 @@ IOED_Tool_Web.py                    (the ONLY st.set_page_config in the repo)
   `IOED_Tool_Web.py`; no launcher, password gate active, fit cache
   auto-disabled (ephemeral disk).
 - The entry point lives at the repo root, so `st.Page` / `st.page_link` /
-  `st.switch_page` paths (in `i18n.TOOLS` and `tools/SSM/handoff.py`) are
+  `st.switch_page` paths (in `i18n.TOOLS` and `tools/rf/ssm/handoff.py`) are
   written **relative to the root** — i.e. with a `tools/` prefix.
 - `launch_ebl_calculator.py` is a second, independent launcher that runs
   **only** `tools/ebeam_calculator.py` (own venv `.ebl_venv/`, no portal,
@@ -51,7 +51,7 @@ on each interaction ("rerun"). Conventions shared by all pages:
   `sim_{topo}_{param}_{fname}`), so multiple DUTs coexist.
 - **Charts:** Plotly via `helpers/plotly_plots.py`, always rendered with
   `plotly_with_dl(...)` (chart + ⬇ xlsx + 📋 copy buttons); publication
-  Smith charts via `render_matplotlib_smith` in `tools/SSM/ssm_plots.py`.
+  Smith charts via `render_matplotlib_smith` in `tools/rf/ssm/ssm_plots.py`.
 
 ## 3. RF data flow
 
@@ -65,13 +65,13 @@ on each interaction ("rerun"). Conventions shared by all pages:
   → plots                            (helpers/plotly_plots.py, ssm_plots.py)
 ```
 
-**Cross-page handoff:** `tools/SSM/handoff.py` is a tiny session-state
+**Cross-page handoff:** `tools/rf/ssm/handoff.py` is a tiny session-state
 bus. RF At a Glance → SSM Extraction → RF Simulator pass the active DUT
 (`S`, `freq`, `z0`, label, optional seed params + sibling bias files) via
 `send(target, ...)` / `take(target)`, surviving `st.switch_page` with no
 re-upload.
 
-## 4. SSM extraction engine (`tools/SSM/`)
+## 4. SSM extraction engine (`tools/rf/ssm/`)
 
 Layered, bottom-up:
 
@@ -102,17 +102,17 @@ its rows to the SSM index.
 
 Three compute paths, selected at runtime with silent fallback:
 
-1. **Rust kernels** (`tools/SSM/rust_kernels/` crate → prebuilt binaries
+1. **Rust kernels** (`tools/rf/ssm/rust_kernels/` crate → prebuilt binaries
    in `bin/<arch>/`, loaded by `helpers/rust_kernels.py`). Hot paths:
    batched Y→S, end-to-end `sim_*_batch` topology sweeps, and the
    bulk-upload `parse_and_compute_batch`. Build with
-   `python rust_things/build_rust_kernels.py`, check with `python rust_things/check_rust_status.py`,
+   `python dev/build_rust_kernels.py`, check with `python dev/check_rust_status.py`,
    disable with `HBT_DISABLE_RUST=1`.
 2. **CuPy / CUDA GPU** for the Auto-Tuning grid sweeps (adaptive VRAM
    block sizing, fp32 sweep + fp64 rerank). NumPy code is written
    `xp`-generically (`xp = numpy or cupy`).
 3. **NumPy** — the always-available canonical reference; parity is
-   enforced by `tools/SSM/rust_kernels/benchmark.py`.
+   enforced by `tools/rf/ssm/rust_kernels/benchmark.py`.
 
 **Persistence:** fine-tuned SSM params are cached per (DUT, model) as
 JSON under `$HBT_FIT_CACHE_DIR` → `~/.hbt-tools/fits/…`
@@ -152,19 +152,19 @@ small N).
 | Add / rename a portal page, change sidebar groups | `tools/i18n.py` (`TOOLS`, `GROUP_ORDER`) + new `tools/<page>.py` |
 | Change password / language / nav behaviour | `IOED_Tool_Web.py` |
 | Launcher, venv, auto-update, dependency list | `LAUNCH_Tool.py` (portal) / `launch_ebl_calculator.py` (EBL) |
-| S2P/CSV parsing, Touchstone writing | `tools/SSM/helpers/s2p_io.py` |
-| De-embedding math | `tools/SSM/helpers/deembed_math.py` |
-| fT/fmax, gain metrics, extrapolation | `tools/SSM/helpers/metrics.py` |
-| Bode/Smith/plateau figure styling | `tools/SSM/helpers/plotly_plots.py` (colors: `FT_FMAX_COLORS`) |
-| xlsx / clipboard export of any chart | `tools/SSM/helpers/chart_export.py` |
-| SSM extraction page layout / steps | `tools/SSM/main_ssm_extraction.py` + `ssm_plots.py` |
-| A specific model's equations or override UI | `tools/SSM/models/<model>.py` |
-| Tuning sweeps (Visual / Auto), residuals | `tools/SSM/models/base_ui.py` |
-| Custom model builder | `tools/SSM/custom_model/` |
-| Rust kernels / dispatch / fallbacks | `tools/SSM/helpers/rust_kernels.py` + `tools/SSM/rust_kernels/` |
-| Fit-cache location or format | `tools/SSM/helpers/fit_cache.py` |
+| S2P/CSV parsing, Touchstone writing | `tools/rf/ssm/helpers/s2p_io.py` |
+| De-embedding math | `tools/rf/ssm/helpers/deembed_math.py` |
+| fT/fmax, gain metrics, extrapolation | `tools/rf/ssm/helpers/metrics.py` |
+| Bode/Smith/plateau figure styling | `tools/rf/ssm/helpers/plotly_plots.py` (colors: `FT_FMAX_COLORS`) |
+| xlsx / clipboard export of any chart | `tools/rf/ssm/helpers/chart_export.py` |
+| SSM extraction page layout / steps | `tools/rf/ssm/main_ssm_extraction.py` + `ssm_plots.py` |
+| A specific model's equations or override UI | `tools/rf/ssm/models/<model>.py` |
+| Tuning sweeps (Visual / Auto), residuals | `tools/rf/ssm/models/base_ui.py` |
+| Custom model builder | `tools/rf/ssm/custom_model/` |
+| Rust kernels / dispatch / fallbacks | `tools/rf/ssm/helpers/rust_kernels.py` + `tools/rf/ssm/rust_kernels/` |
+| Fit-cache location or format | `tools/rf/ssm/helpers/fit_cache.py` |
 | GDS parsing / EBL exposure times | `tools/ebeam_calculator.py` |
-| Performance investigation | `tools/_profile_*.py`, `tools/SSM/rust_kernels/benchmark.py` |
+| Performance investigation | `dev/profile_*.py`, `tools/rf/ssm/rust_kernels/benchmark.py` |
 
 **Maintenance rule:** structural changes (new page, new model, new
 layer/compute path) should update this outline **and** the matching

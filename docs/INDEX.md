@@ -1,6 +1,6 @@
 # hbt-tools — repository function & functionality index
 
-Single source of truth for every Python file **outside** `tools/SSM/`.
+Single source of truth for every Python file **outside** `tools/rf/ssm/`.
 Skim this file to find which module owns a function or feature before
 grep'ing the codebase.
 
@@ -8,8 +8,8 @@ The index deliberately carries **no line numbers** (they drift as files
 evolve) — grep for the function name to jump to its definition.
 
 > **The SSM tree has its own, more detailed index:**
-> [`tools/SSM/helpers/INDEX.md`](tools/SSM/helpers/INDEX.md) — covers
-> `tools/SSM/` (orchestration, `helpers/`, `models/`, `custom_model/`).
+> [`docs/SSM_INDEX.md`](docs/SSM_INDEX.md) — covers
+> `tools/rf/ssm/` (orchestration, `helpers/`, `models/`, `custom_model/`).
 > Read that one for anything SSM-related.
 >
 > **For the big picture** (boot flow, page anatomy, data flow, layers,
@@ -26,16 +26,16 @@ the SSM index) in the same change.
 | Area | What lives there |
 |---|---|
 | repo root | Portal entry point (`IOED_Tool_Web.py`) + bootstrap launchers (`LAUNCH_Tool.py`, `launch_ebl_calculator.py`) |
-| `rust_things/` | Rust-kernel build + status scripts |
+| `dev/` | Rust-kernel build + status scripts |
 | `tools/` | One `.py` per portal page (DC, RF, EBL tools) + shared portal infrastructure (`i18n`, `home`, `diagrams`) |
-| `tools/SSM/` | HBT small-signal-model extraction engine + UI (own index, see above) |
+| `tools/rf/ssm/` | HBT small-signal-model extraction engine + UI (own index, see above) |
 | `gds/` | GDS mask stress-test pair: synthetic GDSII generator + memory/time limits sweep for the EBL page's viewer (dev only, not imported by the app) |
-| `tools/SSM/rust_kernels/` | Rust acceleration crate, prebuilt binaries, benchmark |
+| `tools/rf/ssm/rust_kernels/` | Rust acceleration crate, prebuilt binaries, benchmark |
 | `.streamlit/`, `.hbttools/` | Streamlit config / auto-created local venv (not source) |
 
 ---
 
-## AI-agent fitting API (`tools/SSM/agent_api.py`)
+## AI-agent fitting API (`tools/rf/ssm/agent_api.py`)
 
 **Start here if you are an AI agent or script that needs to fit measured
 S-parameter data to an SSM model programmatically.** This module is a
@@ -64,7 +64,7 @@ header is treated as raw/measured data — every parasitic should be fitted
 project's Rust kernels (`helpers/rust_kernels.py`), then falls back to
 NumPy; pass `"cuda"`/`"rust"`/`"numpy"` to force one (gracefully falling
 back with a note when unavailable). `fit()`'s result dict includes
-`backend` (and `backend_note` on fallback). `python tools/SSM/agent_api.py
+`backend` (and `backend_note` on fallback). `python tools/rf/ssm/agent_api.py
 backend` reports what's available and what `auto` resolves to on this
 machine.
 
@@ -113,9 +113,9 @@ CLI usage (run from the repo root, or pass absolute paths — the CLI
 bootstraps `sys.path` to the repo root itself either way):
 
 ```bash
-python tools/SSM/agent_api.py inspect s2p/deemb_preext_vce3.5_ib280u.s2p
-python tools/SSM/agent_api.py backend
-python tools/SSM/agent_api.py fit s2p/deemb_preext_vce3.5_ib280u.s2p --model T --maxiter 3000 --out result.json
+python tools/rf/ssm/agent_api.py inspect s2p/deemb_preext_vce3.5_ib280u.s2p
+python tools/rf/ssm/agent_api.py backend
+python tools/rf/ssm/agent_api.py fit s2p/deemb_preext_vce3.5_ib280u.s2p --model T --maxiter 3000 --out result.json
 ```
 
 ---
@@ -179,11 +179,11 @@ Same bootstrap pattern as `LAUNCH_Tool.py` but minimal: venv at
 | `_autoupdate_disabled()` / `auto_update()` | Same best-effort update as the main launcher. |
 | `run` / `pip_works` / `_create_venv(fresh=False)` / `pip_install` / `is_importable` / `check_missing` / `_pause_if_interactive` / `main` | Same roles as their `LAUNCH_Tool.py` counterparts. |
 
-### `rust_things/build_rust_kernels.py` — one-shot Rust → binary build
+### `dev/build_rust_kernels.py` — one-shot Rust → binary build
 
 Builds the SSM Rust extension with maturin (in a dedicated
 `.hbttools_build` venv) and copies the compiled `.pyd`/`.so`/`.dylib`
-into `tools/SSM/rust_kernels/bin/<arch>/` so end users never need a Rust
+into `tools/rf/ssm/rust_kernels/bin/<arch>/` so end users never need a Rust
 toolchain. Run once per OS.
 
 | Function | Purpose |
@@ -195,9 +195,9 @@ toolchain. Run once per OS.
 | `_clean_wheel_dir()` / `_maturin_build(py)` / `_extract_binary(wheel, dest)` | Clean → build wheel → pull the compiled binary out of it. |
 | `main()` | End-to-end build + install into `bin/<arch>/`. |
 
-### `rust_things/check_rust_status.py` — Rust acceleration status CLI
+### `dev/check_rust_status.py` — Rust acceleration status CLI
 
-`python rust_things/check_rust_status.py` — reports whether the Rust extension
+`python dev/check_rust_status.py` — reports whether the Rust extension
 loads, which binary is used, and the import error if not
 (`_arch_tag()`, `main()`).
 
@@ -236,8 +236,8 @@ bullets and portal-level UI strings. The sidebar nav and each page's
 
 | Function | Purpose |
 |---|---|
-| `inject_css()` | Emit every app-wide `<style>` rule in one `st.markdown` call (button fills, chips, sticky residual strip, action-color system, language-toggle pinning, …). On Streamlit Cloud (`_IS_STREAMLIT_CLOUD`, same `/mount/src` detection as `tools/SSM/helpers/fit_cache.py`) an extra override block is appended that pushes `div.st-key-lang_toggle` down to `top: 3.25rem` — Cloud's own header + toolbar sit at the same top-right strip the toggle uses locally (`top: 0.5rem`) at a much higher z-index, so the toggle is fought below the header instead of trying to float above it. |
-| `render_ram_badge()` | Sidebar RAM-usage bar — thin rounded track + colored fill (green `<60%`, amber `60–85%`, red `≥85%`) + a `RAM used / limit GB (pct%)` label, sourced from `tools/SSM/helpers/mem_budget.py::ram_usage()`. Renders nothing when that returns `None`. Wrapped in `st.fragment(run_every="10s")` so it self-refreshes without a full-page rerun (falls back to plain rendering if the installed Streamlit lacks `run_every`). Called from `IOED_Tool_Web.py` inside `with st.sidebar:`, right after `st.sidebar.divider()`. |
+| `inject_css()` | Emit every app-wide `<style>` rule in one `st.markdown` call (button fills, chips, sticky residual strip, action-color system, language-toggle pinning, …). On Streamlit Cloud (`_IS_STREAMLIT_CLOUD`, same `/mount/src` detection as `tools/rf/ssm/helpers/fit_cache.py`) an extra override block is appended that pushes `div.st-key-lang_toggle` down to `top: 3.25rem` — Cloud's own header + toolbar sit at the same top-right strip the toggle uses locally (`top: 0.5rem`) at a much higher z-index, so the toggle is fought below the header instead of trying to float above it. |
+| `render_ram_badge()` | Sidebar RAM-usage bar — thin rounded track + colored fill (green `<60%`, amber `60–85%`, red `≥85%`) + a `RAM used / limit GB (pct%)` label, sourced from `tools/rf/ssm/helpers/mem_budget.py::ram_usage()`. Renders nothing when that returns `None`. Wrapped in `st.fragment(run_every="10s")` so it self-refreshes without a full-page rerun (falls back to plain rendering if the installed Streamlit lacks `run_every`). Called from `IOED_Tool_Web.py` inside `with st.sidebar:`, right after `st.sidebar.divider()`. |
 
 ---
 
@@ -327,7 +327,7 @@ preview, matplotlib Smith export), **📋 Summary** (fT/fmax table +
 Excel), **🧰 Batch De-embed** (delegates to
 `tools/batch_deembedding.py`). Bulk uploads go through the Rust
 `parse_and_compute_batch` accelerator when available. Cross-page DUT
-handoff via `tools/SSM/handoff.py`.
+handoff via `tools/rf/ssm/handoff.py`.
 
 | Function | Purpose |
 |---|---|
@@ -337,11 +337,11 @@ handoff via `tools/SSM/handoff.py`.
 | `_selected_dut_keys(names)` | Ordered cache keys of the currently-selected files. |
 | `_cached_fig(key, build_fn)` / `_evict_stale_figs()` | Session-level figure cache + eviction of figures whose DUTs are gone. |
 
-### `tools/SSM_extraction.py` — HBT SSM extraction page (thin wrapper)
+### `tools/rf/extraction.py` — HBT SSM extraction page (thin wrapper)
 
 Standalone portal page for SSM extraction: file upload + Open/Short
 dummy selection, then delegates everything to
-`tools/SSM/main_ssm_extraction.render_ssm_tab` (see the SSM index).
+`tools/rf/ssm/main_ssm_extraction.render_ssm_tab` (see the SSM index).
 Also hosts the "🧩 Custom model" section entry.
 
 ### `tools/RF_simulator.py` — forward RF S-parameter simulator
@@ -386,9 +386,9 @@ Rendered inside the RF extraction page's 🧰 tab.
 | `_ovr_input(col, label, default_si, scale, fmt, state_key)` | Override `number_input` that seeds once from the extracted value. |
 | `render_batch_deembedding_tab(*, all_data, open_data, short_data, ui, helpers)` | Public entry — renders the whole tab. |
 
-### `tools/SSM/` — small-signal-model engine
+### `tools/rf/ssm/` — small-signal-model engine
 
-See [`tools/SSM/helpers/INDEX.md`](tools/SSM/helpers/INDEX.md) for the
+See [`docs/SSM_INDEX.md`](docs/SSM_INDEX.md) for the
 full per-function catalogue (orchestration, helpers, models, custom
 model builder).
 
@@ -447,7 +447,7 @@ workstation):
 
 | Symbol | Purpose |
 |---|---|
-| `_read_int_file(path)` / `_cgroup_free_mb()` | cgroup v2/v1 accounting probes — the only way to see a container's real limit (psutil reports the *host's* memory). Inline copies of `tools/SSM/helpers/mem_budget.py`, since this page imports no repo modules. |
+| `_read_int_file(path)` / `_cgroup_free_mb()` | cgroup v2/v1 accounting probes — the only way to see a container's real limit (psutil reports the *host's* memory). Inline copies of `tools/rf/ssm/helpers/mem_budget.py`, since this page imports no repo modules. |
 | `_free_ram_mb()` | `(free_mb, total_mb, source)`; `source="container"` when a cgroup limit exists. |
 | `_mask_budget_mb()` | `(budget_mb, note, strict)` — peak RAM one mask may use now. Container: strictly free×0.75 with no floor (going over is a SIGKILL). PC: floored at 35% of installed RAM, capped at 60% (going over merely pages). |
 | `class _Limits` / `_limits_for(file_mb)` | The three parse budgets (`src_verts`, `rows`, `verts`) derived from the RAM budget minus the upload buffer, using the measured ~90 MB per million vertices/placements. |
@@ -482,9 +482,9 @@ Per-cell area binning & exposure Time Calculator:
 
 | File | Purpose |
 |---|---|
-| `tools/_profile_bulk_upload.py` | Profile the bulk-s2p-upload hot path (`profile_file`, `simulate_streamlit_loop`) — no Streamlit, per-stage `perf_counter` timings. |
-| `tools/_profile_rust_batch.py` | Benchmark `rust_parse_and_compute_batch` vs the per-file Python loop (`py_loop` vs `rust_batch`). |
-| `tools/_profile_ssm_extraction.py` | Profile the SSM extraction math pipeline end-to-end (`profile_extraction`, `_synth_dummies`). |
+| `dev/profile_bulk_upload.py` | Profile the bulk-s2p-upload hot path (`profile_file`, `simulate_streamlit_loop`) — no Streamlit, per-stage `perf_counter` timings. |
+| `dev/profile_rust_batch.py` | Benchmark `rust_parse_and_compute_batch` vs the per-file Python loop (`py_loop` vs `rust_batch`). |
+| `dev/profile_ssm_extraction.py` | Profile the SSM extraction math pipeline end-to-end (`profile_extraction`, `_synth_dummies`). |
 | `gds/_gen_test_gds.py` | Synthetic GDSII writer for mask stress tests — sub-µm rectangles/circles/triangles in a 2 µm unit cell repeated over ≤ 1 × 1 cm (`unit_cell_shapes`, `plan_grid`, `places_for_mb`, `generate_gds`). Modes: `sref` (N placements), `sref_norun` (runs broken → slow path), `aref` (tiny file, huge expansion), `flat` (no repetition), `mixed` (both guards loaded at once), `bigcell` (one cell too big to stay instanced), `multi`/`multi_grouped` (`--cells N` distinct unit patterns, interleaved or one contiguous span each — the interleaved form is what breaks a run-only decoder). |
 | `gds/_profile_gds_limits.py` | Sweep those masks through the real viewer pipeline in fresh subprocesses (`run_worker`, `_run_case`, `_verdict`) and report parse time + peak RSS against the Streamlit Cloud budget. `--reupload` measures the two-masks-live peak; `--enforce` hard-caps address space (Linux). Use it before changing `maxUploadSize`. |
-| `tools/SSM/rust_kernels/benchmark.py` | Rust-vs-NumPy parity test + microbenchmark for every kernel; exits 0 when Rust isn't built (NumPy fallback is supported). |
+| `tools/rf/ssm/rust_kernels/benchmark.py` | Rust-vs-NumPy parity test + microbenchmark for every kernel; exits 0 when Rust isn't built (NumPy fallback is supported). |

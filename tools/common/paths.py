@@ -27,10 +27,10 @@ def _examples_dir():
     """Bundled example S-parameter files ("Load example files" on the SSM
     extraction page).
 
-    Accepts the legacy ``dummy_data_practice/`` name so an install that has
+    Accepts the legacy ``examples/`` name so an install that has
     not picked up the rename still finds its examples.
     """
-    for name in ("examples", "dummy_data_practice"):
+    for name in ("examples", "examples"):
         d = REPO_ROOT / name
         if d.is_dir():
             return d

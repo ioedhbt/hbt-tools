@@ -2,7 +2,7 @@
 Benchmark `rust_parse_and_compute_batch` vs the per-file Python loop on
 the bulk-upload path (the hot path the user actually feels).
 
-Reads dummy_data_practice/*.s2p N_REPS times each to simulate "30 files",
+Reads examples/*.s2p N_REPS times each to simulate "30 files",
 and compares:
   - Python serial: parse_s2p + s_to_y + compute_metrics per file
   - Rust batch:    rust_parse_and_compute_batch on the full byte list
@@ -10,7 +10,7 @@ and compares:
 Also validates numerical parity element-wise.
 
 Usage:
-    .hbttools/Scripts/python.exe tools/_profile_rust_batch.py [N_FILES]
+    .hbttools/Scripts/python.exe dev/profile_rust_batch.py [N_FILES]
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def rust_batch(files_bytes: list[bytes]) -> list[dict]:
 
 def main():
     n_files = int(sys.argv[1]) if len(sys.argv) > 1 else 30
-    samples = sorted((ROOT / "dummy_data_practice").glob("*.s2p"))
+    samples = sorted((ROOT / "examples").glob("*.s2p"))
     pool = [p.read_bytes() for p in samples]
     files_bytes = [pool[i % len(pool)] for i in range(n_files)]
 

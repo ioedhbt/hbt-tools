@@ -64,7 +64,7 @@ double-click `launch_ebl_calculator.py` (Windows) or run
 | Tool | Page | In short |
 |---|---|---|
 | **RF At a Glance** | [`tools/IOED_HBT_RF_extract.py`](tools/IOED_HBT_RF_extract.py) | Upload multi-bias `.s2p` / VNA CSV files; Open/Short (and Thru-half) de-embedding; \|h₂₁\|², Mason U, K; auto-extrapolated fT/fmax; Smith & Bode charts; batch de-embedding; Excel/S2P export everywhere |
-| **HBT SSM Extraction** | [`tools/SSM_extraction.py`](tools/SSM_extraction.py) | Peeling extraction with Cheng T / Cheng π / Xu T topologies; Z-param / Cold-HBT / open-collector access resistances; per-parameter fine-tuning; GPU/Rust-accelerated auto-tuning sweeps; per-DUT fit cache |
+| **HBT SSM Extraction** | [`tools/rf/extraction.py`](tools/rf/extraction.py) | Peeling extraction with Cheng T / Cheng π / Xu T topologies; Z-param / Cold-HBT / open-collector access resistances; per-parameter fine-tuning; GPU/Rust-accelerated auto-tuning sweeps; per-DUT fit cache |
 | **RF Forward Simulator** | [`tools/RF_simulator.py`](tools/RF_simulator.py) | Forward-simulate any SSM (or a custom user-built model) from scratch; live sliders; Smith + fT/fmax Bode; fit against a measured device handed over from the other RF pages |
 | **EBL Calculator** | [`tools/ebeam_calculator.py`](tools/ebeam_calculator.py) | JEOL ELS-7000 chip-position & origin calculator; GDS mask viewer (streaming parser); dose-time test / first exposure / second alignment workflows with exposure-time estimates |
 | **B1500A Plot & TLM** | [`tools/B1500A_Plot.py`](tools/B1500A_Plot.py) | Diode / Gummel / Family curve viewer with ideality, knee voltage, R_out, Early voltage; TLM analysis |
@@ -80,7 +80,7 @@ The UI is bilingual (English / 中文) — toggle at the top right.
 
 Need to fit `.s2p`/`.csv` data to an SSM model (built-in or custom) from a
 script or AI agent, without the Streamlit UI? Use
-[`tools/SSM/agent_api.py`](tools/SSM/agent_api.py) — see
+[`tools/rf/ssm/agent_api.py`](tools/rf/ssm/agent_api.py) — see
 [`INDEX.md`](INDEX.md#ai-agent-fitting-api-toolsssmagent_apipy) for the full
 function table and usage examples. It reads the same de-embedding-status
 `!` header the app writes, so pointing it at an already de-embedded file
@@ -89,7 +89,7 @@ Fitting uses CUDA (cupy) > the project's Rust kernels > NumPy automatically
 (`backend="auto"`, override with `backend=`/`--backend`).
 
 ```bash
-python tools/SSM/agent_api.py fit s2p/deemb_preext_vce3.5_ib280u.s2p --model T --out result.json
+python tools/rf/ssm/agent_api.py fit s2p/deemb_preext_vce3.5_ib280u.s2p --model T --out result.json
 ```
 
 ---
@@ -99,8 +99,8 @@ python tools/SSM/agent_api.py fit s2p/deemb_preext_vce3.5_ib280u.s2p --model T -
 | Doc | What's inside |
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **How things work** — boot flow, page anatomy, data flow, SSM engine layers, acceleration, "task → file" lookup table |
-| [`INDEX.md`](INDEX.md) | Function-level catalogue of every Python file outside `tools/SSM/` |
-| [`tools/SSM/helpers/INDEX.md`](tools/SSM/helpers/INDEX.md) | Function-level catalogue of the SSM extraction tree |
+| [`INDEX.md`](INDEX.md) | Function-level catalogue of every Python file outside `tools/rf/ssm/` |
+| [`docs/SSM_INDEX.md`](docs/SSM_INDEX.md) | Function-level catalogue of the SSM extraction tree |
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history |
 
 ---
@@ -112,8 +112,8 @@ python tools/SSM/agent_api.py fit s2p/deemb_preext_vce3.5_ib280u.s2p --model T -
   on Streamlit Cloud). Details in
   [`ARCHITECTURE.md`](ARCHITECTURE.md#5-acceleration--persistence).
 - **Rust acceleration** — prebuilt kernel binaries ship with the repo.
-  `python rust_things/check_rust_status.py` reports whether they load;
-  `python rust_things/build_rust_kernels.py` rebuilds them (needs a Rust toolchain,
+  `python dev/check_rust_status.py` reports whether they load;
+  `python dev/build_rust_kernels.py` rebuilds them (needs a Rust toolchain,
   once per OS).
 - **Password** — deployed instances are gated by
   `st.secrets["APP_PASSWORD"]`; local launches via `LAUNCH_Tool.py` skip

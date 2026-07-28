@@ -2901,14 +2901,14 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                         "restart the launcher (`python LAUNCH_Tool.py`) to "
                         "pick it up.  If the import error persists after a "
                         "fresh restart, the .pyd may be from a different ABI; "
-                        "delete it and run `python rust_things/build_rust_kernels.py`.",
+                        "delete it and run `python dev/build_rust_kernels.py`.",
                         "磁碟上存在二進位檔，但無法匯入。"
                         "最常見的原因：Streamlit 程序是在二進位檔放入此資料夾"
                         "*之前*啟動的 — 請重新啟動啟動器"
                         "（`python LAUNCH_Tool.py`）以載入。"
                         "若重新啟動後匯入錯誤仍持續發生，"
                         "該 .pyd 可能來自不同的 ABI；"
-                        "請刪除後執行 `python rust_things/build_rust_kernels.py`。"))
+                        "請刪除後執行 `python dev/build_rust_kernels.py`。"))
         _render_slider_preview(model_cls, all_p, S_raw, freq, z0,
                                tuning_specs, fname, topo_key)
 
@@ -3026,10 +3026,10 @@ def render_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                    "padding:2px 8px;border-radius:4px;font-size:0.8em;"
                    "font-weight:600'"
                    f" title='{tr('CPU buttons use NumPy. Build the Rust crate'
-                                 ' (python rust_things/build_rust_kernels.py) and set'
+                                 ' (python dev/build_rust_kernels.py) and set'
                                  ' HBT_USE_RUST_SIM_BATCH=1 for ~25x speedup.',
                                  'CPU 按鈕使用 NumPy。建置 Rust crate'
-                                 '（python rust_things/build_rust_kernels.py）'
+                                 '（python dev/build_rust_kernels.py）'
                                  '並設定 HBT_USE_RUST_SIM_BATCH=1 可提升約 25 倍速度。')}'"
                    ">🐢 NumPy</span>")
         st.markdown(f"{tr('Compute backend', '運算後端')}: {_bk}", unsafe_allow_html=True)
