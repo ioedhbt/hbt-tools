@@ -43,9 +43,19 @@ if "hp_file_name" not in st.session_state:
 # Utilities
 # =================================================
 def read_table(raw):
-    try:
-        df = pd.read_csv(io.StringIO(raw), delim_whitespace=True, engine="python")
-    except Exception:
+    """Parse an SMU dump that may be whitespace- or comma-delimited.
+
+    ``sep=r"\\s+"`` (not the old ``delim_whitespace=True``, removed in
+    pandas 2.2/3.x — it raised ``TypeError`` on every modern install, and
+    the ``except`` below silently swallowed it into a comma parse that
+    produced one garbage column and an empty chart with no error).
+
+    Whether the file was actually whitespace-delimited is now decided by
+    the column count, not by an exception — so a genuine parse failure
+    propagates instead of being masked.
+    """
+    df = pd.read_csv(io.StringIO(raw), sep=r"\s+", engine="python")
+    if df.shape[1] < 2:                     # not whitespace-delimited
         df = pd.read_csv(io.StringIO(raw), engine="python")
     df.columns = df.columns.str.strip()
     return df

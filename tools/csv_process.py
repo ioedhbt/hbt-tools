@@ -11,6 +11,7 @@ import streamlit as st
 
 from tools import i18n
 from tools import dc_handoff
+from tools.SSM.helpers import unique_sheet_name
 import pandas as pd
 import numpy as np
 import io
@@ -23,6 +24,26 @@ st.caption(i18n.tool_desc("csv"))
 
 
 # --- Utility functions ---
+def read_smu_table(raw):
+    """Parse an SMU dump that may be whitespace- or comma-delimited.
+
+    ``sep=r"\\s+"`` (not the old ``delim_whitespace=True``, removed in
+    pandas 2.2/3.x — it raised ``TypeError`` on every modern install, and
+    the bare ``except`` around it silently swallowed that into a comma
+    parse that produced one garbage column, no matching SMU columns, and
+    an empty result with no error shown).
+
+    Whether the file was actually whitespace-delimited is now decided by
+    the column count, not by an exception — so a genuine parse failure
+    propagates instead of being masked.
+    """
+    df = pd.read_csv(io.StringIO(raw), sep=r"\s+", engine="python")
+    if df.shape[1] < 2:                     # not whitespace-delimited
+        df = pd.read_csv(io.StringIO(raw), engine="python")
+    df.columns = df.columns.str.strip()
+    return df
+
+
 def detect_header_row(text):
     """Detect header row by searching for 'DataName' in the first column (case-insensitive)."""
     lines = text.splitlines()
@@ -408,10 +429,14 @@ if page == "B1500A Smart Batch Tool":
     if processed:
         zip_buf = io.BytesIO()
         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            seen_zip = {}
             for fname, _, _, df in processed:
                 buf = io.BytesIO()
+                # One sheet per workbook here, so the sheet name can't
+                # collide — but the *zip entry* can, which would drop a
+                # file just as silently.  Dedupe on the entry name.
+                sheet = unique_sheet_name(fname.rsplit(".", 1)[0], seen_zip)
                 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-                    sheet = sanitize_sheet_name(fname.rsplit(".", 1)[0])
                     df.to_excel(writer, sheet_name=sheet, index=False)
                 zf.writestr(f"{sheet}.xlsx", buf.getvalue())
 
@@ -431,8 +456,9 @@ if page == "B1500A Smart Batch Tool":
                 if not items: continue
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                    seen = {}
                     for fname, df in items:
-                        sheet = sanitize_sheet_name(fname.rsplit(".", 1)[0])
+                        sheet = unique_sheet_name(fname.rsplit(".", 1)[0], seen)
                         df.to_excel(writer, sheet_name=sheet, index=False)
                 out_name = {"Family": "IcVc_Family.xlsx", "BE": "BE_Diode.xlsx", "BC": "BC_Diode.xlsx",
                             "Gummel": "Gummel.xlsx", "TLM": "TLM.xlsx", "Other": "Other.xlsx"}.get(gtype,
@@ -547,12 +573,15 @@ elif page == "B1500A Column Selection & Batch":
 
         if batch_files and st.button(i18n.tr("⚡ Process Batch", "⚡ 批次處理")):
             all_sheets = {}
+            seen = {}
             for f in batch_files:
                 df_proc = process_file(f, st.session_state.batch_template_cols,
                                        st.session_state.batch_template_header_idx)
                 raw_name = os.path.splitext(f.name)[0]
-                sheet_name = sanitize_sheet_name(raw_name)
-                all_sheets[sheet_name] = df_proc
+                # Keyed by sheet name, so two uploads whose names match after
+                # the 31-char Excel truncation used to silently drop one here,
+                # before the workbook was even built.
+                all_sheets[unique_sheet_name(raw_name, seen)] = df_proc
 
             out_buffer = io.BytesIO()
             out_filename = format_output_filename(st.session_state.get("batch_preset_choice", "none"))
@@ -626,7 +655,10 @@ elif page == "E5270B citi File Tool":
 
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-                    df.to_excel(writer, sheet_name=name[:31], index=False)
+                    # One sheet per workbook — can't collide, but `name` may
+                    # still carry characters Excel rejects.
+                    df.to_excel(writer, index=False,
+                                sheet_name=unique_sheet_name(name, {}))
                 st.download_button(
                     f"📥 {i18n.tr('Download', '下載')} {name}_excel.xlsx",
                     data=buf.getvalue(), file_name=f"{name}_excel.xlsx",
@@ -652,8 +684,11 @@ elif page == "E5270B citi File Tool":
                 if group_sheets:
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                        seen = {}
                         for n, df in group_sheets:
-                            df.to_excel(writer, sheet_name=n.rsplit(".", 1)[0][:31], index=False)
+                            df.to_excel(writer, index=False,
+                                        sheet_name=unique_sheet_name(
+                                            n.rsplit(".", 1)[0], seen))
                     buf.seek(0)
                     st.download_button(
                         f"📥 {i18n.tr('Download', '下載')} {g} Excel "
@@ -665,8 +700,11 @@ elif page == "E5270B citi File Tool":
             st.subheader(i18n.tr("Download All", "下載全部"))
             all_buf = io.BytesIO()
             with pd.ExcelWriter(all_buf, engine="openpyxl") as writer:
+                seen = {}
                 for n, df, _ in parsed_sheets:
-                    df.to_excel(writer, sheet_name=n.rsplit(".", 1)[0][:31], index=False)
+                    df.to_excel(writer, index=False,
+                                sheet_name=unique_sheet_name(
+                                    n.rsplit(".", 1)[0], seen))
             all_buf.seek(0)
             st.download_button(
                 i18n.tr("📦 Download ALL files", "📦 下載全部檔案"),
@@ -685,11 +723,7 @@ elif page == "HP4155A Data Processing Tool":
     results = []
     for uploaded in uploaded_files:
         raw = uploaded.getvalue().decode("utf-8", errors="ignore")
-        try:
-            df = pd.read_csv(io.StringIO(raw), delim_whitespace=True, engine="python")
-        except Exception:
-            df = pd.read_csv(io.StringIO(raw), engine="python")
-        df.columns = df.columns.str.strip()
+        df = read_smu_table(raw)
         results.append((uploaded.name or "data", df))
 
     st.subheader(i18n.tr("SMU role assignment", "SMU 角色指定"))
@@ -724,11 +758,7 @@ elif page == "HP4155A Data Processing Tool":
         per_file_outputs = []
         for uploaded in uploaded_files:
             raw = uploaded.getvalue().decode("utf-8", errors="ignore")
-            try:
-                df = pd.read_csv(io.StringIO(raw), delim_whitespace=True, engine="python")
-            except:
-                df = pd.read_csv(io.StringIO(raw), engine="python")
-            df.columns = df.columns.str.strip()
+            df = read_smu_table(raw)
             fname = sanitize_sheet_name(uploaded.name or "data")
             parsed = parse_smu_table(df, smu_role_map)
 

@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from tools import i18n
-from tools.SSM.helpers import segmented_radio
+from tools.SSM.helpers import segmented_radio, unique_sheet_name
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -505,7 +505,10 @@ with tab3:
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="openpyxl") as w:
             sum_df.to_excel(w, sheet_name="Summary", index=False)
-            for k, v in all_data.items(): v.to_excel(w, sheet_name=Path(k).stem[:31], index=False)
+            seen = {"Summary": 1}
+            for k, v in all_data.items():
+                v.to_excel(w, sheet_name=unique_sheet_name(Path(k).stem, seen),
+                           index=False)
 
         col_d1, col_d2 = st.columns(2)
         with col_d1:

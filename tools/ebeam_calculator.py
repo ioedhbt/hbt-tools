@@ -1895,29 +1895,6 @@ def _raster_add(agg: "_LayerAgg", extent, px, py, weight) -> None:
         np.add.at(agg.area_raster.reshape(-1), flat, weight)
 
 
-def _drain_sref_bucket(bucket: dict):
-    """Yield one ``("sref", ...)`` event per ``(sname, rot, mag, refl)`` key
-    in ``bucket`` (each value a list of ``(x, y)`` tuples), then clear it.
-
-    Companion to the bucketing in ``_iter_stream_events``: a run of SREFs
-    that are byte-identical except XY is already bulk-decoded by
-    ``_element_run`` into large chunks — cheap. When it *isn't* a run (per-
-    element rotation, e.g. ``--mode sref_norun`` in ``gds/_gen_test_gds.py``
-    — ordinary in real EBL masks, not exotic), yielding one 1-row event per
-    element made every downstream consumer (both passes, and
-    ``_stream_window``) pay a dict lookup + array alloc + transform +
-    raster-bin *per placement* instead of per chunk: ~1.09 M elements x 2
-    passes turned into two orders of magnitude longer than the full parser
-    on a 50 MB rotation-cycling mask (>45 s measured vs. 2.27 s). Bucketing
-    by (sname, rot, mag, refl) and flushing once per block collapses that
-    back to one event per *distinct reference template* per block — for
-    sref_norun's 4 cycling angles, 4 events per block instead of ~130 k."""
-    for key, pts in bucket.items():
-        sname, rot, mag, refl = key
-        yield ("sref", sname, rot, mag, refl, np.array(pts, dtype=np.int64))
-    bucket.clear()
-
-
 def _iter_stream_events(store: dict, max_block: int = None):
     """Shared record walker behind all of stage 2 — pass 1, pass 2 and
     ``_stream_window`` all iterate this generator and react to the events

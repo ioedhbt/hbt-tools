@@ -99,6 +99,7 @@ from .chart_export import (
     frames_to_tsv,
     xlsx_bytes_to_tsv,
     copy_button,
+    unique_sheet_name,
     EXCEL_MIME,
 )
 

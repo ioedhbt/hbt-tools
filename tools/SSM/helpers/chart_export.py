@@ -231,6 +231,39 @@ def fig_to_excel_bytes(fig) -> bytes | None:
     return buf.getvalue()
 
 
+def unique_sheet_name(raw: str, seen: dict, *, limit: int = 31) -> str:
+    """Excel-safe, collision-free worksheet name.
+
+    Excel caps sheet names at 31 characters and forbids ``: \\ / ? * [ ]``.
+    Lab filenames routinely share a prefix past that cap
+    (``Wafer3_Die12_2x20um_VCE1.0_IB100uA_run1`` vs ``…run2``), and
+    openpyxl does **not** raise on a duplicate name — it writes the second
+    frame into the first one's sheet, interleaving two devices' rows into
+    plausible-looking wrong data.  Always route a filename-derived sheet
+    name through here.
+
+    ``seen`` is a caller-owned dict whose lifetime is one workbook::
+
+        seen = {}
+        for name, df in frames:
+            df.to_excel(w, sheet_name=unique_sheet_name(name, seen), index=False)
+    """
+    base = re.sub(r"[:\\/*?\[\]]", "_", str(raw)).strip() or "Sheet"
+    base = base[:limit]
+    if base not in seen:
+        seen[base] = 1
+        return base
+    n = seen[base]
+    while True:
+        n += 1
+        suffix = f"_{n}"
+        cand = f"{base[:limit - len(suffix)]}{suffix}"
+        if cand not in seen:
+            seen[base] = n
+            seen[cand] = 1
+            return cand
+
+
 def bode_excel_bytes(freq_ghz, sim_traces, extrap_traces=None) -> bytes | None:
     """
     Standardised fT/fmax Bode export → single-sheet .xlsx bytes.
@@ -564,10 +597,11 @@ def build_excel(summary_df: pd.DataFrame, all_data: dict) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as w:
         summary_df.to_excel(w, sheet_name="Summary", index=False)
+        seen = {"Summary": 1}
         for k, v in all_data.items():
             df_p = v["df_fin"] if v["df_fin"] is not None else v["df_raw"]
-            base = re.sub(r"[:\\/*?\[\]]", "_", Path(k).stem)[:28]
-            df_p.to_excel(w, sheet_name=base, index=False)
+            df_p.to_excel(w, sheet_name=unique_sheet_name(Path(k).stem, seen),
+                          index=False)
     return buf.getvalue()
 
 
