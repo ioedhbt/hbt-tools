@@ -42,10 +42,10 @@ import streamlit as st
 
 # ── Page path registry ───────────────────────────────────────────────────────
 # Must match the st.Page entries in IOED_Tool_Web.py / common.i18n.TOOLS.
-PAGE_AT_A_GLANCE = "tools/IOED_HBT_RF_extract.py"
-PAGE_EXTRACTION  = "tools/SSM_extraction.py"
-PAGE_SIMFIT      = "tools/RF_simulator.py"
-PAGE_DC_ANALYSIS = "tools/B1500A_Plot.py"
+PAGE_AT_A_GLANCE = "tools/rf/at_a_glance.py"
+PAGE_EXTRACTION  = "tools/rf/extraction.py"
+PAGE_SIMFIT      = "tools/rf/simulator.py"
+PAGE_DC_ANALYSIS = "tools/dc/b1500a_plot.py"
 
 # ── RF bus ───────────────────────────────────────────────────────────────────
 # Valid handoff targets.

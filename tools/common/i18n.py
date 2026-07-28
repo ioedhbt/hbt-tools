@@ -42,7 +42,7 @@ def is_zh() -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 TOOLS: dict[str, dict] = {
     "rf_extract": {
-        "icon": "📡", "group": "rf", "path": "tools/IOED_HBT_RF_extract.py",
+        "icon": "📡", "group": "rf", "path": "tools/rf/at_a_glance.py",
         "en": "RF At a Glance", "zh": "RF 一覽",
         "desc_en": "De-embed S-parameters and extract fT / fmax with Smith & Bode charts.",
         "desc_zh": "去嵌入 S 參數並萃取 fT / fmax，產生 Smith 與 Bode 圖。",
@@ -64,7 +64,7 @@ TOOLS: dict[str, dict] = {
         ],
     },
     "ssm": {
-        "icon": "🔬", "group": "rf", "path": "tools/SSM_extraction.py",
+        "icon": "🔬", "group": "rf", "path": "tools/rf/extraction.py",
         "en": "Small Signal Model Extraction by Peeling",
         "zh": "剝離法小訊號模型萃取",
         "desc_en": "Extract Cheng T/π small-signal parameters from a DUT by peeling.",
@@ -87,7 +87,7 @@ TOOLS: dict[str, dict] = {
         ],
     },
     "rf_sim": {
-        "icon": "🛠️", "group": "rf", "path": "tools/RF_simulator.py",
+        "icon": "🛠️", "group": "rf", "path": "tools/rf/simulator.py",
         "en": "SSM Simulation & Fitting",
         "zh": "小訊號模型模擬與擬合",
         "desc_en": "Forward-simulate any SSM topology, or fit one to a measured file.",
@@ -110,31 +110,31 @@ TOOLS: dict[str, dict] = {
         ],
     },
     "ebl": {
-        "icon": "🧮", "group": "process", "path": "tools/ebeam_calculator.py",
+        "icon": "🧮", "group": "ebeam", "path": "tools/ebeam/calculator.py",
         "en": "EBL Calculator", "zh": "電子束微影計算機",
         "desc_en": "Compute JEOL ELS-7000 chip positions and exposure workflow.",
         "desc_zh": "計算 JEOL ELS-7000 晶片位置與曝光流程。",
     },
     "gummel": {
-        "icon": "📈", "group": "tcad", "path": "tools/IOED_Gummel_Analyzer.py",
+        "icon": "📈", "group": "tcad", "path": "tools/tcad/gummel_analyzer.py",
         "en": "Gummel Plot Analyzer", "zh": "Gummel 圖分析器",
         "desc_en": "Compare simulated Gummel plots against the UIUC reference.",
         "desc_zh": "比對模擬 Gummel 圖與 UIUC 參考資料。",
     },
     "b1500a": {
-        "icon": "📊", "group": "dc", "path": "tools/B1500A_Plot.py",
+        "icon": "📊", "group": "dc", "path": "tools/dc/b1500a_plot.py",
         "en": "DC Analysis", "zh": "DC 分析",
         "desc_en": "View B1500A Excel data, extract parameters, and run TLM analysis.",
         "desc_zh": "檢視 B1500A Excel 資料、萃取參數並進行 TLM 分析。",
     },
     "hp4155a": {
-        "icon": "📉", "group": "dc", "path": "tools/HP4155A_plot.py",
+        "icon": "📉", "group": "dc", "path": "tools/dc/hp4155a_plot.py",
         "en": "HP4155A Quick Plot", "zh": "HP4155A 快速繪圖",
         "desc_en": "Quick interactive SMU plots from HP4155A data.",
         "desc_zh": "由 HP4155A 資料快速繪製 SMU 互動圖。",
     },
     "csv": {
-        "icon": "🗂️", "group": "data", "path": "tools/csv_process.py",
+        "icon": "🗂️", "group": "data", "path": "tools/data/csv_process.py",
         "en": "Measurement Data Multi-Process", "zh": "量測資料批次處理",
         "desc_en": "Batch-process and convert measurement CSV / CITI files.",
         "desc_zh": "批次處理並轉換量測 CSV / CITI 檔案。",
@@ -142,10 +142,10 @@ TOOLS: dict[str, dict] = {
 }
 
 # Domain groups, in sidebar display order.
-GROUP_ORDER = ["rf", "process", "tcad", "dc", "data"]
+GROUP_ORDER = ["rf", "ebeam", "tcad", "dc", "data"]
 GROUPS: dict[str, dict] = {
     "rf":      {"en": "RF Measurement",        "zh": "高頻量測"},
-    "process": {"en": "Process",               "zh": "製程"},
+    "ebeam":   {"en": "Process",               "zh": "製程"},
     "tcad":    {"en": "Device Simulation",     "zh": "元件模擬"},
     "dc":      {"en": "DC Measurement",        "zh": "直流量測"},
     "data":    {"en": "Data Processing",       "zh": "資料處理"},

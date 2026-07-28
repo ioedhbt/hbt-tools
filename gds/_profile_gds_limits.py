@@ -108,7 +108,7 @@ def run_worker(path: str, rlimit_mb: float | None = None,
     if rlimit_mb:
         out["rlimit"] = _cap_address_space(rlimit_mb)
     t_imports = time.perf_counter()
-    import tools.ebeam_calculator as m       # noqa: E402  (timed on purpose)
+    import tools.ebeam.calculator as m       # noqa: E402  (timed on purpose)
     out["t_import_s"] = time.perf_counter() - t_imports
     out["rss_baseline_mb"] = _rss_mb()
     out["peak_baseline_mb"] = _peak_mb()
@@ -242,7 +242,7 @@ def app_limits(file_mb: float) -> dict:
     memory it would hold.
     """
     code = ("import json,sys;sys.path.insert(0,%r);"
-            "import tools.ebeam_calculator as m;"
+            "import tools.ebeam.calculator as m;"
             "print('__LIMITS__'+json.dumps(m._limits_for(%f)._asdict()))"
             % (str(ROOT), file_mb))
     proc = subprocess.run([sys.executable, "-c", code],

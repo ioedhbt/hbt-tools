@@ -50,15 +50,11 @@ TOL = 1e-9
 # calculator is the deliberately self-contained standalone app
 # (ARCHITECTURE.md §1).  Both are covered by the path check instead.
 _SKIP_IMPORT_SUFFIXES = (
-    "ebeam_calculator", "ebeam.calculator",
-    "B1500A_Plot", "dc.b1500a_plot",
-    "HP4155A_plot", "dc.hp4155a_plot",
-    "IOED_Gummel_Analyzer", "tcad.gummel_analyzer",
-    "IOED_HBT_RF_extract", "rf.at_a_glance",
-    "RF_simulator", "rf.simulator",
-    "SSM_extraction", "rf.extraction",
-    "csv_process", "data.csv_process",
-    "home", "portal.home",
+    "ebeam.calculator", "ebeam_calculator",
+    "dc.b1500a_plot", "dc.hp4155a_plot",
+    "tcad.gummel_analyzer",
+    "rf.at_a_glance", "rf.simulator", "rf.extraction",
+    "data.csv_process", "portal.home",
 )
 
 _failures: list[str] = []

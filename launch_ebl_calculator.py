@@ -10,7 +10,7 @@ Run with any system Python 3.9+:
     python launch_ebl_calculator.py
 
 The launcher finds the app at ``ebeam_calculator.py`` beside this file, or
-at ``tools/ebeam_calculator.py`` inside the repo — so it works whether you
+at ``tools/ebeam/calculator.py`` inside the repo — so it works whether you
 copy the two files out on their own or run it from the full checkout.
 
 Auto-update from GitHub is scaffolded below but DISABLED (no canonical
@@ -27,10 +27,16 @@ VENV_DIR = ROOT / ".ebl_venv"
 
 
 def _find_app_file():
-    """Locate ebeam_calculator.py: beside this launcher first, then under
-    tools/ in the repo layout."""
-    for candidate in (ROOT / "ebeam_calculator.py",
-                       ROOT / "tools" / "ebeam_calculator.py"):
+    """Locate the EBL calculator page.
+
+    Order: beside this launcher (standalone copy), then the current repo
+    layout, then the pre-restructure layout so an install that has not
+    picked up the move still starts.
+    """
+    for candidate in (ROOT / "calculator.py",
+                      ROOT / "ebeam_calculator.py",
+                      ROOT / "tools" / "ebeam" / "calculator.py",
+                      ROOT / "tools" / "ebeam_calculator.py"):
         if candidate.exists():
             return candidate
     return ROOT / "ebeam_calculator.py"   # default for the error message
@@ -57,7 +63,7 @@ VENV_STREAMLIT = VENV_DIR / ("Scripts/streamlit.exe" if _win else "bin/streamlit
 # `.streamlit/config.toml` caps uploads at 300 MB because that is what the
 # deployed 3 GB container can survive. A workstation is not that container,
 # so when launched locally the cap is raised to match the RAM actually
-# present — the app's own budgets (tools/ebeam_calculator.py, `_limits_for`)
+# present — the app's own budgets (tools/ebeam/calculator.py, `_limits_for`)
 # then track free memory at parse time, and anything too big is refused with
 # a message rather than crashing.
 _UPLOAD_MB_MIN = 350         # never below the deployed cap (config.toml)
@@ -202,7 +208,7 @@ def main():
     if not APP_FILE.exists():
         print(f"ERROR: Cannot find ebeam_calculator.py near {ROOT}")
         print("Place launch_ebl_calculator.py beside ebeam_calculator.py, "
-              "or run it from the repo root (tools/ebeam_calculator.py).")
+              "or run it from the repo root (tools/ebeam/calculator.py).")
         _pause_if_interactive()
         sys.exit(1)
 

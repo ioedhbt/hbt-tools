@@ -6779,7 +6779,7 @@ class SSMModelTemplate:
         # parasitics in place, so a second pad-only drawing was redundant on
         # every model page (and on the custom model).  The pad schematics now
         # live only where they are the subject: the RF simulator's "Open and
-        # Short Pad" model (tools/RF_simulator.py).
+        # Short Pad" model (tools/rf/simulator.py).
 
         # Smith chart (matplotlib) + its controls live in a single
         # expander, rendered side-by-side — matches the RF simulator

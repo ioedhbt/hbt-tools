@@ -4,7 +4,7 @@ hbt_rf_tool.py
 Main Streamlit application for HBT RF extraction.
 
 SSM extraction has moved to its own portal page,
-``tools/SSM_extraction.py`` (sidebar → "HBT SSM Extraction").  The
+``tools/rf/extraction.py`` (sidebar → "HBT SSM Extraction").  The
 Individual tab's "🔬 SSM Extraction" sub-tab here is now just a pointer
 with a "Go there!" button.  This file covers the RF metrics workflow:
 overlay / individual Bode·Plateau·Smith, summary, bulk upload, and the
@@ -28,7 +28,7 @@ from tools.common import i18n
 
 from tools.SSM.ssm_plots      import render_matplotlib_smith
 from tools.SSM             import handoff
-from tools.batch_deembedding  import render_batch_deembedding_tab
+from tools.rf.batch_deembedding import render_batch_deembedding_tab
 from tools.SSM.helpers        import dedupe_upload_names
 from tools.SSM.helpers        import (
     parse_s2p, parse_csv,

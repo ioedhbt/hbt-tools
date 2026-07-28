@@ -37,7 +37,7 @@
 #
 # This number is only the *hard* ceiling on what may be uploaded here.
 # Whether a given file then loads is decided at parse time by
-# tools/ebeam_calculator.py's `_limits_for()`, which sizes its budgets
+# tools/ebeam/calculator.py's `_limits_for()`, which sizes its budgets
 # from the RAM actually free at that moment — so the same app refuses
 # more when this container is busy and accepts more when it is idle.
 # Two consequences worth knowing:

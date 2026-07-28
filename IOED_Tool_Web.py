@@ -149,7 +149,7 @@ def _page(tool_key, *, default=False):
     return st.Page(m["path"], title=i18n.tool_name(tool_key),
                    icon=m["icon"], default=default)
 
-home_page = st.Page("tools/home.py", title=i18n.t("home_nav"),
+home_page = st.Page("tools/portal/home.py", title=i18n.t("home_nav"),
                     icon="🏠", default=True)
 # The custom-model builder is no longer its own page — it is embedded as a
 # "🧩 Custom model" section inside both RF Forward Simulator and HBT SSM
