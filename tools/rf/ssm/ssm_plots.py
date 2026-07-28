@@ -583,7 +583,7 @@ def render_intrinsic_preview(S_raw, freq, z0, para_step1, para_eff, fname,
 # Helper: fT / fmax Bode plot
 # ════════════════════════════════════════════════════════════════════════════════
 
-# compute_h21_U, find_ft_fmax, extrap_20dbdec moved to tools/SSM/helpers/metrics.py
+# compute_h21_U, find_ft_fmax, extrap_20dbdec moved to tools/rf/ssm/helpers/metrics.py
 # and imported at the top of this file via `from .helpers import …`.
 
 

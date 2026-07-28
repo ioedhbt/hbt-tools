@@ -18,22 +18,22 @@ What it does
    so the LAUNCH_Tool runtime venv (``.hbttools/``) stays untouched and
    ``requirements.txt`` never grows a maturin dependency.
 3. Installs ``maturin`` into the build venv.
-4. Runs ``maturin build --release`` against ``tools/SSM/rust_kernels/``,
+4. Runs ``maturin build --release`` against ``tools/rf/ssm/rust_kernels/``,
    producing an ABI3 wheel.  ABI3-py39 means the same .pyd / .so works on
    every Python ≥ 3.9 — no per-Python-version rebuilds.
 5. Extracts the compiled extension from the wheel and drops it into
-   ``tools/SSM/rust_kernels/bin/<platform_arch>/hbt_rust_kernels.<ext>``.
+   ``tools/rf/ssm/rust_kernels/bin/<platform_arch>/hbt_rust_kernels.<ext>``.
    That's exactly where ``helpers/rust_kernels.py`` looks at import time.
 
 Re-running is idempotent: the script overwrites the previous binary in
 place.  For a clean rebuild, delete the ``.hbttools_build`` venv and the
-``tools/SSM/rust_kernels/target`` directory.
+``tools/rf/ssm/rust_kernels/target`` directory.
 
 Cross-platform shipping
 -----------------------
 Each binary is OS- and arch-specific.  To support every platform, run this
 script once on each target OS and commit the resulting
-``tools/SSM/rust_kernels/bin/<tag>/...`` file to the repo.  The loader
+``tools/rf/ssm/rust_kernels/bin/<tag>/...`` file to the repo.  The loader
 picks the right one based on the running platform.  Typical tags:
 
     win_amd64       (Windows 64-bit)
@@ -257,15 +257,15 @@ def main() -> int:
     print("=" * 64)
     print(f"  Installed binary: {out}")
     print()
-    print("  The Python wrapper at tools/SSM/helpers/rust_kernels.py")
+    print("  The Python wrapper at tools/rf/ssm/helpers/rust_kernels.py")
     print("  will pick it up automatically on next import.  Verify with:")
     print()
-    print("      python tools/SSM/rust_kernels/benchmark.py")
+    print("      python tools/rf/ssm/rust_kernels/benchmark.py")
     print()
     print("  To ship to another OS (e.g. Streamlit Cloud Linux):")
     print("    1. Run this script on that OS.")
     print("    2. Commit the new file under")
-    print("         tools/SSM/rust_kernels/bin/<platform_arch>/")
+    print("         tools/rf/ssm/rust_kernels/bin/<platform_arch>/")
     print("       to the repo.")
     print("=" * 64)
     return 0

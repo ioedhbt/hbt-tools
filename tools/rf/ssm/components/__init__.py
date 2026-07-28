@@ -1,4 +1,4 @@
-"""tools.SSM.components — hand-written (no-build) Streamlit components.
+"""tools.rf.ssm.components — hand-written (no-build) Streamlit components.
 
 ``draggable_smith`` renders a Plotly Smith chart whose text annotations are
 draggable in the browser and streams the dragged annotation positions back to
@@ -48,7 +48,7 @@ def smith_bode_slider(*, payload: dict, height: int = 560,
     """Bidirectional Smith+Bode scrub-slider (the ⚡ Smooth-sweep preview).
 
     ``payload`` is the dict returned by
-    ``tools.SSM.helpers.build_smith_bode_slider_payload`` — a JSON-safe
+    ``tools.rf.ssm.helpers.build_smith_bode_slider_payload`` — a JSON-safe
     Plotly figure plus a gzip+base64 blob of per-frame Smith/Bode data
     (``data_b64``), cartesian axis sizes (``dims``), the initial midpoint
     frame per axis (``mids``), per-axis display-value label strings

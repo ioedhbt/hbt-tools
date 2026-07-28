@@ -4,7 +4,7 @@ benchmark.py — Rust-vs-NumPy parity test + microbenchmark.
 Usage
 -----
     # Run from the repo root:
-    python tools/SSM/rust_kernels/benchmark.py
+    python tools/rf/ssm/rust_kernels/benchmark.py
 
 The script:
   1. Generates random complex128 tensors at sizes representative of the
@@ -34,7 +34,7 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__),
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from tools.SSM.helpers.rust_kernels import (         # noqa: E402
+from tools.rf.ssm.helpers.rust_kernels import (         # noqa: E402
     HAS_RUST,
     inv2x2_batch, mm2x2_batch,
     y_to_s_batch, y_to_s_4d,
@@ -153,7 +153,7 @@ def main():
     print(f"Rust extension available: {HAS_RUST}")
     if not HAS_RUST:
         print("  (Falling back to NumPy.  Build the extension with:")
-        print("     cd tools/SSM/rust_kernels && pip install -e .")
+        print("     cd tools/rf/ssm/rust_kernels && pip install -e .")
         print("   then re-run this script to compare.)")
     print()
 
@@ -187,7 +187,7 @@ def main():
     print()
     print("Phase 2 status (per-topology end-to-end simulator):")
     try:
-        from tools.SSM.helpers.rust_kernels import (   # noqa: E402
+        from tools.rf.ssm.helpers.rust_kernels import (   # noqa: E402
             sim_cheng_t_batch, sim_cheng_pi_batch, sim_xu_t_batch,
         )
     except Exception as e:

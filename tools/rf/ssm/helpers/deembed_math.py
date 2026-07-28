@@ -1,7 +1,7 @@
 """
 helpers/deembed_math.py — Pure-math half of Open/Short de-embedding.
 
-Mirrors the math functions currently in tools/SSM/ssm_deembedding.py.
+Mirrors the math functions currently in tools/rf/ssm/ssm_deembedding.py.
 The Streamlit `render_*` functions stay in ssm_deembedding.py; only the
 stateless extraction / vectorised builder helpers live here.
 

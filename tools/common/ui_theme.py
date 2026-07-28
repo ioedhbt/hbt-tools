@@ -25,7 +25,7 @@ from tools.common import mem_budget
 
 
 # Streamlit Community Cloud mounts the checkout under /mount/src — same
-# detection rule as tools/SSM/helpers/fit_cache.py.  Used to move the
+# detection rule as tools/rf/ssm/helpers/fit_cache.py.  Used to move the
 # language-toggle CSS below the Cloud header (see inject_css()).
 try:
     _IS_STREAMLIT_CLOUD = Path("/mount/src").exists()
@@ -45,7 +45,7 @@ def inject_css() -> None:
            excluded.  The theme is locked to light mode in .streamlit/config.toml
            so fixed hex grays are safe.
            Keep in sync with: tools/ebeam/calculator.py (standalone copy)
-                              tools/SSM/helpers/chart_export.py (iframe copy-button)
+                              tools/rf/ssm/helpers/chart_export.py (iframe copy-button)
         */
         button[data-testid="stBaseButton-secondary"],
         button[data-testid="stBaseButton-secondaryFormSubmit"] {

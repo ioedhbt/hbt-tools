@@ -1,7 +1,7 @@
 """
 helpers/_array_utils.py — Tiny shape/broadcast utilities shared by the
 batched de-embedding builders (in this package) and the model batched
-forward simulators (in `tools.SSM.models`).
+forward simulators (in `tools.rf.ssm.models`).
 
 Previously each consumer carried its own copy of these three functions:
   - `helpers/deembed_math.py::_b1`

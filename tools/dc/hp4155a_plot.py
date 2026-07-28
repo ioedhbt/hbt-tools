@@ -12,7 +12,7 @@ import numpy as np
 import io
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from tools.SSM.helpers import xlsx_bytes_to_tsv, copy_button
+from tools.rf.ssm.helpers import xlsx_bytes_to_tsv, copy_button
 from tools.common import i18n
 
 st.title(i18n.title("hp4155a"))

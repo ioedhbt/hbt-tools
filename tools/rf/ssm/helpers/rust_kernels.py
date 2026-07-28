@@ -2,9 +2,9 @@
 helpers/rust_kernels.py — Optional Rust acceleration for hot kernels.
 
 If the `hbt_rust_kernels` extension module is built and installed
-(``pip install -e tools/SSM/rust_kernels``), the wrappers in this file
+(``pip install -e tools/rf/ssm/rust_kernels``), the wrappers in this file
 delegate to it.  Otherwise they fall back to the NumPy implementations
-already in :mod:`tools.SSM.helpers.rf_math` and friends — so this
+already in :mod:`tools.rf.ssm.helpers.rf_math` and friends — so this
 module is **purely additive**: removing or never building the Rust
 crate leaves the Python tool fully functional.
 
@@ -20,7 +20,7 @@ are ``ascontiguousarray``-ed automatically, at one extra allocation):
 
 A flag controlled by the ``HBT_DISABLE_RUST`` env var forces the
 NumPy path even when the extension is present — handy for benchmark
-parity tests (see :mod:`tools.SSM.rust_kernels.benchmark`).
+parity tests (see :mod:`tools.rf.ssm.rust_kernels.benchmark`).
 """
 from __future__ import annotations
 
@@ -34,13 +34,13 @@ import numpy as np
 #
 # The build script (`rust_things/build_rust_kernels.py`) compiles the
 # crate once per host and drops the resulting `.pyd` / `.so` into
-# `tools/SSM/rust_kernels/bin/<platform_arch>/`.  Adding that directory
+# `tools/rf/ssm/rust_kernels/bin/<platform_arch>/`.  Adding that directory
 # to `sys.path` lets `import hbt_rust_kernels` succeed without any pip
 # install or maturin step on end-user machines — they just check out the
 # repo, get the prebuilt binary for their OS, and the wrapper picks it up.
 #
 # Resolution order:
-#   1. Local committed binary in tools/SSM/rust_kernels/bin/<arch>/
+#   1. Local committed binary in tools/rf/ssm/rust_kernels/bin/<arch>/
 #   2. Any pip-installed `hbt_rust_kernels` package in the active venv
 #      (e.g. when a developer ran `pip install -e .` for live iteration).
 #   3. NumPy fallback (silent — the tool runs identically to before).
@@ -316,7 +316,7 @@ def port_residuals_batch(S_mea: np.ndarray,
 # **identical** to today's behaviour.
 #
 # Opt-in dispatch lives in `SSMModelTemplate.simulate_batch`
-# (`tools/SSM/models/base_ui.py`), gated on the env var
+# (`tools/rf/ssm/models/base_ui.py`), gated on the env var
 # `HBT_USE_RUST_SIM_BATCH=1`.  When unset, these wrappers are not
 # called at all.
 

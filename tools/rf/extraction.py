@@ -27,8 +27,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from tools.SSM.main_ssm_extraction import render_ssm_tab
-from tools.SSM.helpers import (parse_s2p, parse_csv, load_cal,
+from tools.rf.ssm.main_ssm_extraction import render_ssm_tab
+from tools.rf.ssm.helpers import (parse_s2p, parse_csv, load_cal,
                                dedupe_upload_names)
 from tools.common import handoff
 from tools.common import i18n

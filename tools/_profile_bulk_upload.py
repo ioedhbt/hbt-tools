@@ -33,9 +33,9 @@ if __name__ == "__main__":
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.SSM.helpers.s2p_io import parse_s2p
-from tools.SSM.helpers.rf_math import s_to_y, y_to_s_vec
-from tools.SSM.helpers.metrics import compute_metrics, extract_limit
+from tools.rf.ssm.helpers.s2p_io import parse_s2p
+from tools.rf.ssm.helpers.rf_math import s_to_y, y_to_s_vec
+from tools.rf.ssm.helpers.metrics import compute_metrics, extract_limit
 
 
 SAMPLES = sorted((ROOT / "dummy_data_practice").glob("*.s2p"))

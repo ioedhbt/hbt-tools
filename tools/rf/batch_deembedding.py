@@ -20,7 +20,7 @@ import streamlit as st
 import plotly.graph_objects as go
 
 from tools.common import i18n
-from tools.SSM.helpers import (step_open, step_short, peel_parasitics, write_s2p,
+from tools.rf.ssm.helpers import (step_open, step_short, peel_parasitics, write_s2p,
                                 deembed_open_short, s_to_y, plotly_with_dl)
 
 
@@ -289,7 +289,7 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
                                 "Cpbe": 0.0, "Cpce": 0.0, "Cpbc": 0.0}
                 # Build a virtual "post-Open" S so peel_parasitics applies only Short
                 # (peel does Y_dut - Y_pad first; with Y_pad=0 this is a no-op)
-                from tools.SSM.helpers import y_to_s_batch as _y2s
+                from tools.rf.ssm.helpers import y_to_s_batch as _y2s
                 S_after_open = _y2s(Y_after_open, d["z0"])
                 Y_de = peel_parasitics(S_after_open, d["freq"], d["z0"], p_short_only)
             elif use_meas_short and not use_meas_open:
@@ -300,7 +300,7 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
                 Y_after_open = peel_parasitics(d["S_raw"], d["freq"], d["z0"], p_open_only)
                 # Subtract measured Y_short (already Open-corrected by Gao convention
                 # ⇒ users supplying Short S2P should ensure it includes pads)
-                from tools.SSM.helpers import z_to_y, y_to_z
+                from tools.rf.ssm.helpers import z_to_y, y_to_z
                 Y_de = z_to_y(y_to_z(Y_after_open) - y_to_z(Y_short_meas - (Y_open_meas if Y_open_meas is not None else 0)))
             else:
                 # Both modeled (original behaviour)

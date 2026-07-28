@@ -5,7 +5,7 @@ No Streamlit UI is required to use this module: everything a script needs to
 load measured S-parameter data, inspect/build an SSM model (built-in or
 custom), forward-simulate it, and fit it to data lives here as plain
 functions returning dicts / numpy arrays (SI units throughout).  Importing
-Streamlit transitively (through `tools.SSM.models`) is fine — it works
+Streamlit transitively (through `tools.rf.ssm.models`) is fine — it works
 without a ScriptRunContext — but this module itself never calls `st.*`.
 
 Public API
@@ -23,10 +23,10 @@ save_custom_model(model, path)           -> Path
 
 CLI
 ---
-    python tools/SSM/agent_api.py inspect FILE
-    python tools/SSM/agent_api.py models
-    python tools/SSM/agent_api.py backend
-    python tools/SSM/agent_api.py fit FILE --model T [--initial p.json]
+    python tools/rf/ssm/agent_api.py inspect FILE
+    python tools/rf/ssm/agent_api.py models
+    python tools/rf/ssm/agent_api.py backend
+    python tools/rf/ssm/agent_api.py fit FILE --model T [--initial p.json]
         [--fit-keys a,b,c] [--fixed f.json] [--bounds b.json]
         [--method auto] [--backend auto] [--maxiter 400] [--out result.json]
 
@@ -71,7 +71,7 @@ from __future__ import annotations
 import sys as _sys
 from pathlib import Path as _Path
 
-# Bootstrap sys.path so `python tools/SSM/agent_api.py ...` works from any
+# Bootstrap sys.path so `python tools/rf/ssm/agent_api.py ...` works from any
 # cwd.  This is the one place that may NOT use tools.common.paths.REPO_ROOT:
 # `tools` is not importable until after this runs, so the root has to be
 # derived literally here.  Walk up to the directory holding `tools/` rather
@@ -90,14 +90,14 @@ import re
 import numpy as np
 from scipy.optimize import least_squares, minimize
 
-from tools.SSM.helpers import parse_s2p, parse_csv
-from tools.SSM.helpers import rust_kernels as _rust_kernels
-from tools.SSM.models import REGISTRY
-from tools.SSM.models.base_ui import (
+from tools.rf.ssm.helpers import parse_s2p, parse_csv
+from tools.rf.ssm.helpers import rust_kernels as _rust_kernels
+from tools.rf.ssm.models import REGISTRY
+from tools.rf.ssm.models.base_ui import (
     PAD_SPECS, _PARASITIC_KEYS, tune_hard_limits, informed_default_range,
     _canonical_tune_key, _port_residuals, _detect_low_perf_device,
 )
-import tools.SSM.custom_model.core as custom_core
+import tools.rf.ssm.custom_model.core as custom_core
 
 # ── CUDA detection (same try-import convention as models/base_ui.py) ─────────
 try:
@@ -354,7 +354,7 @@ def _model_context(model):
 
 
 def list_models() -> dict:
-    """Built-in model SHORT -> full name (from `tools.SSM.models.REGISTRY`),
+    """Built-in model SHORT -> full name (from `tools.rf.ssm.models.REGISTRY`),
     plus a `_note` explaining custom-model support."""
     out = {short: cls.NAME for short, cls in REGISTRY.items()}
     out["_note"] = (

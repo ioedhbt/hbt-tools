@@ -11,7 +11,7 @@ import streamlit as st
 
 from tools.common import i18n
 from tools.common import handoff
-from tools.SSM.helpers import unique_sheet_name
+from tools.rf.ssm.helpers import unique_sheet_name
 import pandas as pd
 import numpy as np
 import io

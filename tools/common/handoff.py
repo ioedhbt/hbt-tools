@@ -8,7 +8,7 @@ Gotchas:     PAGE_* strings are resolved by st.switch_page **relative to the
              "tools/..." prefix and must match i18n.TOOLS paths exactly.
 
 This merges what used to be two files with the same shape and the same
-idiom — ``tools/SSM/handoff.py`` (RF) and ``tools/dc_handoff.py`` (DC).
+idiom — ``tools/rf/ssm/handoff.py`` (RF) and ``tools/dc_handoff.py`` (DC).
 Keeping one module means the page-path registry below has exactly one
 definition; ``dev/smoke_test.py`` asserts every entry resolves on disk.
 

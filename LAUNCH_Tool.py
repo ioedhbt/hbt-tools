@@ -435,7 +435,7 @@ def main():
     # ── Rust acceleration status (informational only — never a blocker) ────────
     # Check whether the compiled hbt_rust_kernels extension is committed for
     # this OS+arch.  No pip install or rust toolchain is queried; we just
-    # look for the binary on disk in tools/SSM/rust_kernels/bin/<arch>/.
+    # look for the binary on disk in tools/rf/ssm/rust_kernels/bin/<arch>/.
     import platform as _platform
     _arch_machine = (_platform.machine() or "unknown").lower()
     if _win:

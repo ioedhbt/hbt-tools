@@ -32,14 +32,14 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np
 
-from tools.SSM.helpers.s2p_io import parse_s2p
-from tools.SSM.helpers.rf_math import s_to_y, y_to_s_vec
-from tools.SSM.helpers.metrics import compute_h21_U, find_ft_fmax, extrap_20dbdec
-from tools.SSM.helpers.deembed_math import (
+from tools.rf.ssm.helpers.s2p_io import parse_s2p
+from tools.rf.ssm.helpers.rf_math import s_to_y, y_to_s_vec
+from tools.rf.ssm.helpers.metrics import compute_h21_U, find_ft_fmax, extrap_20dbdec
+from tools.rf.ssm.helpers.deembed_math import (
     step_open, step_short, peel_parasitics,
     build_Y_pad_vec, build_Z_ser_vec,
 )
-from tools.SSM.models.cheng import (
+from tools.rf.ssm.models.cheng import (
     _step2_T, _step2_pi, _step3_T, _step3_pi,
     _Y_int_T_vec, _Y_int_Pi_vec, _sim_wrap_vec,
 )

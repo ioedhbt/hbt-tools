@@ -5,7 +5,7 @@ import streamlit as st
 st.set_page_config(page_title="IOED Lab Portal", layout="wide", page_icon="🔬")
 
 from tools.common import i18n
-from tools.SSM.helpers import segmented_radio
+from tools.rf.ssm.helpers import segmented_radio
 # All app-wide CSS lives in tools/ui_theme.py — edit there, not here.
 from tools.common.ui_theme import inject_css, render_ram_badge
 
@@ -153,7 +153,7 @@ home_page = st.Page("tools/portal/home.py", title=i18n.t("home_nav"),
                     icon="🏠", default=True)
 # The custom-model builder is no longer its own page — it is embedded as a
 # "🧩 Custom model" section inside both RF Forward Simulator and HBT SSM
-# Extraction (see tools/SSM/custom_model/render_custom_section).
+# Extraction (see tools/rf/ssm/custom_model/render_custom_section).
 
 # 4. 建立側邊欄群組導航選單 — Home first, then one group per measurement domain.
 nav: dict = {i18n.t("start_group"): [home_page]}

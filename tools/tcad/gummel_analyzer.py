@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from tools.common import i18n
-from tools.SSM.helpers import (segmented_radio, unique_sheet_name,
+from tools.rf.ssm.helpers import (segmented_radio, unique_sheet_name,
                                dedupe_upload_names)
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots

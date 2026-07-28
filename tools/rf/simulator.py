@@ -22,24 +22,24 @@ from tools.common import i18n
 from tools.common import handoff
 import plotly.graph_objects as go
 
-from tools.SSM.models.cheng    import (ChengT, ChengPi,
+from tools.rf.ssm.models.cheng    import (ChengT, ChengPi,
                                         _render_topology_illustration,
                                         _EXT_T_SPECS, _INT_T_SPECS,
                                         _EXT_PI_SPECS, _INT_PI_SPECS)
-from tools.SSM.models.xu       import (XuModel,
+from tools.rf.ssm.models.xu       import (XuModel,
                                         _render_topology_illustration as _render_xu_illustration,
                                         _EXT_T_SPECS as _XU_EXT_SPECS,
                                         _INT_T_SPECS as _XU_INT_SPECS,
                                         _XU_PAD_SPECS)
-from tools.SSM.models.kunyang  import (KunYangHEMT,
+from tools.rf.ssm.models.kunyang  import (KunYangHEMT,
                                         _render_topology_illustration as _render_ky_illustration,
                                         _EXT_KY_SPECS, _INT_KY_SPECS,
                                         _KY_PAD_SPECS, _DEFAULT_PARAMS as _KY_DEFAULT_PARAMS)
-from tools.SSM.models.base_ui  import (PAD_SPECS, render_finetune_diagram,
+from tools.rf.ssm.models.base_ui  import (PAD_SPECS, render_finetune_diagram,
                                         render_smith_with_ftfmax)
-from tools.SSM.ssm_plots       import (render_matplotlib_smith,
+from tools.rf.ssm.ssm_plots       import (render_matplotlib_smith,
                                         render_tau_fmax_expander)
-from tools.SSM.helpers         import (extended_smith_grid, parse_s2p, parse_csv,
+from tools.rf.ssm.helpers         import (extended_smith_grid, parse_s2p, parse_csv,
                                         write_s2p, simulate_open, simulate_short,
                                         compute_h21_U, find_ft_fmax,
                                         extrap_20dbdec, single_pole_extrap,
@@ -194,7 +194,7 @@ model_choice  = segmented_radio(i18n.tr("Model", "模型"), MODEL_OPTIONS,
 measured = _resolve_fit_target()
 
 if model_choice == "🧩 Custom model":
-    from tools.SSM.custom_model import render_custom_section
+    from tools.rf.ssm.custom_model import render_custom_section
     render_custom_section(measured)
     st.stop()
 
@@ -568,8 +568,8 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
     frames are the full cartesian product, JS coordinates the sliders so
     dragging one reflects the *current position* of all the others.
     """
-    from tools.SSM.helpers import build_smith_bode_slider_payload
-    from tools.SSM.components import smith_bode_slider
+    from tools.rf.ssm.helpers import build_smith_bode_slider_payload
+    from tools.rf.ssm.components import smith_bode_slider
 
     tuning_specs = list(pad_specs) + list(ext_specs) + list(int_specs)
     label_for = {s[0]: s[1] for s in tuning_specs}
@@ -748,12 +748,12 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
             device_label = f"GPU (cupy {_CUDA_VER})"
         else:
             try:
-                from tools.SSM.helpers.rust_kernels import (
+                from tools.rf.ssm.helpers.rust_kernels import (
                     HAS_RUST as _HR,
                     _phase2_dispatch_enabled as _p2on,
                     SIM_FOR_TOPOLOGY as _SIMTOPO,
                 )
-                from tools.SSM.helpers import rust_kernels as _RKMOD
+                from tools.rf.ssm.helpers import rust_kernels as _RKMOD
                 _rust_used = bool(
                     _HR and _p2on() and (
                         _SIMTOPO.get(model_cls.SHORT) is not None
@@ -786,7 +786,7 @@ def _render_rfsim_plotly_slider_preview(model_cls, all_p, freq, prefix: str,
         flats  = [m.ravel() for m in meshes]
         n_total = int(flats[0].size) if flats else 0
 
-        from tools.SSM.models.base_ui import _chunked_simulate_batch_to_host
+        from tools.rf.ssm.models.base_ui import _chunked_simulate_batch_to_host
         t0 = _time.perf_counter()
         with st.spinner(i18n.tr(f"Computing {n_total} frames on {device_label}…",
                                 f"正在 {device_label} 上計算 {n_total} 個影格…")):
@@ -1135,7 +1135,7 @@ if model_choice == "Open and Short Pad":
     with st.container(key="hbt_exp_view_padtopo_rfsim"), \
          st.expander(i18n.tr("🖼️ Open/short topology", "🖼️ Open/Short 拓樸"),
                      expanded=True):
-        from tools.SSM.models.svg_topology import render_pad_topology
+        from tools.rf.ssm.models.svg_topology import render_pad_topology
         c_topo_o, c_topo_s = st.columns(2)
         c_topo_o.caption(i18n.tr("Open pad", "Open 焊墊"))
         render_pad_topology("open", p_open, "rfsim", container=c_topo_o)
@@ -1238,7 +1238,7 @@ else:
         st.markdown(i18n.tr(f"### 🎯 Fit — {model_cls.NAME}",
                             f"### 🎯 擬合 — {model_cls.NAME}"))
 
-        from tools.SSM.helpers.fit_cache import get_fit_timestamp
+        from tools.rf.ssm.helpers.fit_cache import get_fit_timestamp
         _cache_ts = get_fit_timestamp(_fit_fname, _short)
         _tooltip = (f"{measured['stage']} · {f_ghz[0]:.3g}–{f_ghz[-1]:.3g} GHz · "
                     f"{len(freq)} pts — the simulation follows the measured grid "
@@ -1278,7 +1278,7 @@ else:
                 para_eff, (dict(_seed), {}), show_tuning=True,
                 prefer_calc_vals=_fresh, show_cache_banner=False)
         else:
-            from tools.SSM.main_ssm_extraction import render_builtin_forward_sim
+            from tools.rf.ssm.main_ssm_extraction import render_builtin_forward_sim
             render_builtin_forward_sim(_short, measured["S"], freq,
                                        measured["z0"], _fit_fname,
                                        show_header=False, show_cache_banner=False)
@@ -1448,7 +1448,7 @@ else:
                                  tau_sum_tex=_tau_tex,
                                  extrap_key=f"rfsim_bode_{prefix}")
 
-    from tools.SSM.ssm_plots import render_matplotlib_smith
+    from tools.rf.ssm.ssm_plots import render_matplotlib_smith
 
     # Topology illustration and matplotlib Smith chart go in their own
     # expanders so users can collapse each independently — mirrors how

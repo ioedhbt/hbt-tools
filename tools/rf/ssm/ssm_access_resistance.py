@@ -1,7 +1,7 @@
 """
 ssm_deembedding.py — Streamlit render functions for series/access resistance
 extraction methods. The pure-math half (step_open, step_short, peel_parasitics,
-build_Y_pad_*, build_Z_ser_*, etc.) lives in tools/SSM/helpers/deembed_math.py.
+build_Y_pad_*, build_Z_ser_*, etc.) lives in tools/rf/ssm/helpers/deembed_math.py.
 
 References: Gao, HBT for Circuit Design, Wiley 2015, §4.2, §5.5.1~3, and Table 5.3.
 
@@ -31,8 +31,8 @@ from .helpers import (s_to_y, y_to_z, z_to_y,
 # ════════════════════════════════════════════════════════════════════════════════
 
 # Math helpers (_agg_arr, build_Y_pad/Z_ser_vec/_batch, step_open, step_short,
-# peel_parasitics) live in tools/SSM/helpers/deembed_math.py and are re-exported
-# via `tools.SSM.helpers`. The render_* functions below use them via that surface.
+# peel_parasitics) live in tools/rf/ssm/helpers/deembed_math.py and are re-exported
+# via `tools.rf.ssm.helpers`. The render_* functions below use them via that surface.
 
 
 # ════════════════════════════════════════════════════════════════════════════════

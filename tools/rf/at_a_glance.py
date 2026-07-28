@@ -26,11 +26,11 @@ from datetime import datetime
 
 from tools.common import i18n
 
-from tools.SSM.ssm_plots      import render_matplotlib_smith
-from tools.SSM             import handoff
+from tools.rf.ssm.ssm_plots      import render_matplotlib_smith
+from tools.rf.ssm             import handoff
 from tools.rf.batch_deembedding import render_batch_deembedding_tab
-from tools.SSM.helpers        import dedupe_upload_names
-from tools.SSM.helpers        import (
+from tools.rf.ssm.helpers        import dedupe_upload_names
+from tools.rf.ssm.helpers        import (
     parse_s2p, parse_csv,
     s_to_y, y_to_s_batch as y_to_s,
     strict_freq_check,
@@ -81,7 +81,7 @@ with st.expander(f"{i18n.t('whats_new')} · v{__version__}", expanded=False):
     # ), accent="#d62728"), width="stretch")
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  CORE RF UTILITIES — moved to tools/SSM/helpers/ (rf_math, s2p_io,
+#  CORE RF UTILITIES — moved to tools/rf/ssm/helpers/ (rf_math, s2p_io,
 #  deembed_math, metrics). See helpers/INDEX.md for the catalog.
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -189,9 +189,9 @@ def process_dut(content, filename, s1_o, s1_s, s2_o, s2_s, s3_t,
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-#  PLOTTING UTILITIES — moved to tools/SSM/helpers/plotly_plots.py
+#  PLOTTING UTILITIES — moved to tools/rf/ssm/helpers/plotly_plots.py
 #  (PALETTE, darken, bode_layout, make_smith, make_bode, make_plateau)
-#  and tools/SSM/helpers/chart_export.py (build_excel, metric_card, load_cal).
+#  and tools/rf/ssm/helpers/chart_export.py (build_excel, metric_card, load_cal).
 # ═════════════════════════════════════════════════════════════════════════════
 
 

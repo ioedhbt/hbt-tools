@@ -16,7 +16,7 @@ classifiers     = [
 
 [tool.maturin]
 # Pure-Rust extension (no Python source files in the wheel — our Python
-# wrapper lives at tools/SSM/helpers/rust_kernels.py, outside this crate).
+# wrapper lives at tools/rf/ssm/helpers/rust_kernels.py, outside this crate).
 # ABI3-tagged so one compiled file works on every CPython ≥ 3.9 (matches
 # the abi3-py39 feature in Cargo.toml).  No per-Python-version rebuilds.
 features    = ["pyo3/extension-module"]

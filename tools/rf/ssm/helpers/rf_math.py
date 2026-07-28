@@ -1,7 +1,7 @@
 """
 helpers/rf_math.py — Pure RF math utilities (no Streamlit, no plotting).
 
-(Was previously tools/SSM/ssm_core.py — that file has been deleted.)
+(Was previously tools/rf/ssm/ssm_core.py — that file has been deleted.)
 """
 from __future__ import annotations
 import hashlib, json

@@ -2870,9 +2870,9 @@ def render_visual_tuning_expander(model_cls, all_p, S_raw, freq, z0,
                 "padding:2px 8px;border-radius:4px;font-size:0.8em;"
                 "font-weight:600'"
                 f" title='{tr('Build the Rust crate for ~10x speedup.'
-                             ' See tools/SSM/rust_kernels/README.md.',
+                             ' See tools/rf/ssm/rust_kernels/README.md.',
                              '建置 Rust crate 可加速約 10 倍。'
-                             '詳見 tools/SSM/rust_kernels/README.md。')}'"
+                             '詳見 tools/rf/ssm/rust_kernels/README.md。')}'"
                 f">🐢 {tr('NumPy fallback', 'NumPy 備援')}</span>")
         st.markdown(
             tr("Backends", "運算後端") + ": " + "  ".join(_chips),

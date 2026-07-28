@@ -24,7 +24,7 @@ from plotly.subplots import make_subplots
 
 from tools.common import i18n
 from tools.common import handoff
-from tools.SSM.helpers import segmented_radio
+from tools.rf.ssm.helpers import segmented_radio
 
 
 # =================================================

@@ -30,10 +30,10 @@ sys.path.insert(0, str(ROOT))
 
 import numpy as np
 
-from tools.SSM.helpers import (
+from tools.rf.ssm.helpers import (
     parse_s2p, s_to_y, compute_metrics, rust_parse_and_compute_batch,
 )
-from tools.SSM.helpers.rust_kernels import HAS_RUST, rust_diagnostic
+from tools.rf.ssm.helpers.rust_kernels import HAS_RUST, rust_diagnostic
 
 
 def py_loop(files_bytes: list[bytes]) -> list[dict]:

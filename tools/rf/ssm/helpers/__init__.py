@@ -1,5 +1,5 @@
 """
-tools.SSM.helpers — Single import surface for all SSM helper functions.
+tools.rf.ssm.helpers — Single import surface for all SSM helper functions.
 
 See INDEX.md (next to this file) for a human-readable catalog of every
 helper, what it does, and which modules use it.

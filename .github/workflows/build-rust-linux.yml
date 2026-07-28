@@ -1,7 +1,7 @@
 name: Build Rust kernels (Linux x86_64)
 
 # Builds the Linux x86_64 .so for `hbt_rust_kernels` and commits it back
-# under `tools/SSM/rust_kernels/bin/linux_x86_64/` so Streamlit Cloud
+# under `tools/rf/ssm/rust_kernels/bin/linux_x86_64/` so Streamlit Cloud
 # (which runs Linux but has no Rust toolchain) can use the accelerated
 # CPU kernels.
 #
@@ -16,10 +16,10 @@ on:
   push:
     branches: [IOED-Tools, main]
     paths:
-      - "tools/SSM/rust_kernels/src/**"
-      - "tools/SSM/rust_kernels/Cargo.toml"
-      - "tools/SSM/rust_kernels/Cargo.lock"
-      - "tools/SSM/rust_kernels/pyproject.toml"
+      - "tools/rf/ssm/rust_kernels/src/**"
+      - "tools/rf/ssm/rust_kernels/Cargo.toml"
+      - "tools/rf/ssm/rust_kernels/Cargo.lock"
+      - "tools/rf/ssm/rust_kernels/pyproject.toml"
       - "rust_things/build_rust_kernels.py"
       - ".github/workflows/build-rust-linux.yml"
   workflow_dispatch:
@@ -63,8 +63,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            tools/SSM/rust_kernels/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('tools/SSM/rust_kernels/Cargo.toml', 'tools/SSM/rust_kernels/src/**') }}
+            tools/rf/ssm/rust_kernels/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('tools/rf/ssm/rust_kernels/Cargo.toml', 'tools/rf/ssm/rust_kernels/src/**') }}
           restore-keys: |
             cargo-${{ runner.os }}-
 
@@ -83,10 +83,10 @@ jobs:
         # kernels were added since the cached run.  That's how the
         # `parse_and_compute_batch` regression slipped through.
         run: |
-          rm -rf tools/SSM/rust_kernels/target/wheels
+          rm -rf tools/rf/ssm/rust_kernels/target/wheels
 
       - name: Build wheel (release, abi3-py39)
-        working-directory: tools/SSM/rust_kernels
+        working-directory: tools/rf/ssm/rust_kernels
         run: maturin build --release --out target/wheels
 
       - name: Extract .so into bin/linux_x86_64/
@@ -99,17 +99,17 @@ jobs:
         # guarantees we always grab the wheel maturin just produced.
         run: |
           set -euo pipefail
-          WHEEL=$(ls -t tools/SSM/rust_kernels/target/wheels/hbt_rust_kernels-*.whl | head -n1)
+          WHEEL=$(ls -t tools/rf/ssm/rust_kernels/target/wheels/hbt_rust_kernels-*.whl | head -n1)
           echo "Wheel: $WHEEL"
-          mkdir -p tools/SSM/rust_kernels/bin/linux_x86_64
+          mkdir -p tools/rf/ssm/rust_kernels/bin/linux_x86_64
           # Remove any stale binaries first so we don't leave abi3-py38
           # lying around once we've upgraded.
-          rm -f tools/SSM/rust_kernels/bin/linux_x86_64/hbt_rust_kernels*.so
+          rm -f tools/rf/ssm/rust_kernels/bin/linux_x86_64/hbt_rust_kernels*.so
           python - "$WHEEL" <<'PY'
           import sys, zipfile, shutil, os
           from pathlib import Path
           wheel = Path(sys.argv[1])
-          dest  = Path("tools/SSM/rust_kernels/bin/linux_x86_64")
+          dest  = Path("tools/rf/ssm/rust_kernels/bin/linux_x86_64")
           with zipfile.ZipFile(wheel) as z:
               members = [m for m in z.namelist()
                          if Path(m).name.startswith("hbt_rust_kernels")
@@ -123,7 +123,7 @@ jobs:
                   shutil.copyfileobj(f, g)
               print(f"Extracted {src}  ->  {out}")
           PY
-          ls -la tools/SSM/rust_kernels/bin/linux_x86_64/
+          ls -la tools/rf/ssm/rust_kernels/bin/linux_x86_64/
 
       - name: Smoke test the built binary
         # Import the .so and exercise every public kernel exported by the
@@ -139,9 +139,9 @@ jobs:
         run: |
           python - <<'PY'
           import sys, glob, numpy as np
-          bins = sorted(glob.glob("tools/SSM/rust_kernels/bin/linux_x86_64/hbt_rust_kernels*.so"))
+          bins = sorted(glob.glob("tools/rf/ssm/rust_kernels/bin/linux_x86_64/hbt_rust_kernels*.so"))
           assert bins, "no .so found"
-          sys.path.insert(0, "tools/SSM/rust_kernels/bin/linux_x86_64")
+          sys.path.insert(0, "tools/rf/ssm/rust_kernels/bin/linux_x86_64")
           import hbt_rust_kernels as rk
 
           # ── y_to_s_4d ───────────────────────────────────────────────
@@ -188,7 +188,7 @@ jobs:
           set -e
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tools/SSM/rust_kernels/bin/linux_x86_64/
+          git add tools/rf/ssm/rust_kernels/bin/linux_x86_64/
           if git diff --cached --quiet; then
             echo "No changes to commit — binary is already up to date."
             exit 0

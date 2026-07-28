@@ -73,9 +73,9 @@ def main() -> int:
 
     # Force the wrapper to re-load with current env state.
     sys.path.insert(0, str(ROOT))
-    if "tools.SSM.helpers.rust_kernels" in sys.modules:
-        del sys.modules["tools.SSM.helpers.rust_kernels"]
-    from tools.SSM.helpers.rust_kernels import HAS_RUST  # noqa: E402
+    if "tools.rf.ssm.helpers.rust_kernels" in sys.modules:
+        del sys.modules["tools.rf.ssm.helpers.rust_kernels"]
+    from tools.rf.ssm.helpers.rust_kernels import HAS_RUST  # noqa: E402
 
     forced_off = os.environ.get("HBT_DISABLE_RUST", "").strip().lower() in {
         "1", "true", "yes", "on"
@@ -93,7 +93,7 @@ def main() -> int:
         # Pull the captured error from the wrapper module first; if it
         # didn't capture anything, retry the import here to surface the
         # exception type and message.
-        from tools.SSM.helpers.rust_kernels import _RUST_IMPORT_ERROR  # noqa: E402
+        from tools.rf.ssm.helpers.rust_kernels import _RUST_IMPORT_ERROR  # noqa: E402
         if _RUST_IMPORT_ERROR:
             print(f"  import error: {_RUST_IMPORT_ERROR}")
         else:
@@ -114,7 +114,7 @@ def main() -> int:
         print("\nnumpy missing — skipping timing check.")
         return 0 if HAS_RUST else 1
 
-    from tools.SSM.helpers.rust_kernels import (    # noqa: E402
+    from tools.rf.ssm.helpers.rust_kernels import (    # noqa: E402
         y_to_s_4d, _np_y_to_s_4d,
     )
 

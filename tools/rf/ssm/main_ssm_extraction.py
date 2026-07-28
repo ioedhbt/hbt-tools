@@ -8,7 +8,7 @@ all maths to the dedicated modules.  To add a new model:
   Nothing else changes here.
 
 Call from your app tab:
-    from tools.SSM.ssm_extraction import render_ssm_tab
+    from tools.rf.ssm.ssm_extraction import render_ssm_tab
     render_ssm_tab(fname, S_raw, freq, z0, open_data, short_data, all_data)
 """
 from __future__ import annotations

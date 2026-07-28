@@ -116,7 +116,7 @@ def test_page_paths() -> None:
         check(f"TOOLS[{key}].group", g in i18n.GROUPS and g in i18n.GROUP_ORDER, g)
 
     seen_pages = 0
-    for modname in ("tools.common.handoff", "tools.SSM.handoff", "tools.dc_handoff"):
+    for modname in ("tools.common.handoff", "tools.rf.ssm.handoff", "tools.dc_handoff"):
         try:
             mod = importlib.import_module(modname)
         except ImportError:
@@ -140,8 +140,8 @@ def test_page_paths() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def collect_paths() -> dict:
-    rk = _imp("tools.rf.ssm.helpers.rust_kernels", "tools.SSM.helpers.rust_kernels")
-    fc = _imp("tools.rf.ssm.helpers.fit_cache", "tools.SSM.helpers.fit_cache")
+    rk = _imp("tools.rf.ssm.helpers.rust_kernels", "tools.rf.ssm.helpers.rust_kernels")
+    fc = _imp("tools.rf.ssm.helpers.fit_cache", "tools.rf.ssm.helpers.fit_cache")
     return {
         "rust_bin_under_repo": str(rk._BIN_DIR).startswith(str(ROOT)),
         "rust_bin_tail": "/".join(Path(rk._BIN_DIR).parts[-3:]),
@@ -192,9 +192,9 @@ def H_load(api, path):
 
 
 def collect_numbers() -> dict:
-    api = _imp("tools.rf.ssm.agent_api", "tools.SSM.agent_api")
-    H = _imp("tools.rf.ssm.helpers", "tools.SSM.helpers")
-    models = _imp("tools.rf.ssm.models", "tools.SSM.models")
+    api = _imp("tools.rf.ssm.agent_api", "tools.rf.ssm.agent_api")
+    H = _imp("tools.rf.ssm.helpers", "tools.rf.ssm.helpers")
+    models = _imp("tools.rf.ssm.models", "tools.rf.ssm.models")
 
     out: dict = {}
 

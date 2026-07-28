@@ -129,7 +129,7 @@ def bode_layout(title, ytitle, yr, xr):
     """Plotly layout dict for Bode / plateau plots (log-x frequency axis).
 
     Legend placement mirrors the Raw-vs-De-embedded comparison plot in
-    :mod:`tools.SSM.ssm_plots._compare_bode_smith`: horizontal, centered
+    :mod:`tools.rf.ssm.ssm_plots._compare_bode_smith`: horizontal, centered
     below the plot area, with a soft white background.  This keeps the
     trace names from squeezing the chart when many DUTs / S-parameters
     are overlaid in the Overlay or Individual tabs.

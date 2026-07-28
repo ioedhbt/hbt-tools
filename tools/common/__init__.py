@@ -10,7 +10,7 @@ Why this package exists
 -----------------------
 These modules used to live inside the SSM (RF) engine, so the DC pages, the
 Gummel analyser and even the portal entry point reached into
-``tools.SSM.helpers`` for a radio widget, a clipboard button or a RAM probe.
+``tools.rf.ssm.helpers`` for a radio widget, a clipboard button or a RAM probe.
 Tracing a DC bug therefore led straight into the RF small-signal-model tree.
 None of the modules here depend on anything RF.
 

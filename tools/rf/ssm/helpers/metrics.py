@@ -6,7 +6,7 @@ Consolidates:
   - compute_metrics, extract_limit                 (was in IOED_HBT_RF_extract.py)
 
 The leading underscores have been removed from the ssm_plots originals since
-these functions are now public API of `tools.SSM.helpers`.
+these functions are now public API of `tools.rf.ssm.helpers`.
 """
 from __future__ import annotations
 import numpy as np
