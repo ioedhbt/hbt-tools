@@ -6,7 +6,8 @@ Run it after every structural change.  It answers three questions:
 
   1. Does everything still import?          (catches broken/relative imports)
   2. Do all page paths still resolve?       (catches sidebar/switch_page breakage)
-  3. Did any number change?                 (catches silent numerical regressions)
+  3. Does every page still render?          (catches page-level import/run errors)
+  4. Did any number change?                 (catches silent numerical regressions)
 
 Usage
 -----
@@ -136,6 +137,47 @@ def test_page_paths() -> None:
     for m in re.finditer(r'st\.Page\(\s*"([^"]+)"', entry):
         check(f"IOED_Tool_Web st.Page({m.group(1)})",
               (ROOT / m.group(1)).is_file(), f"missing: {m.group(1)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  2b. Every page actually executes
+# ─────────────────────────────────────────────────────────────────────────────
+
+# A page's top-level code cannot be reached by the import sweep — importing a
+# Streamlit page *runs* it — so pages were the one place with no coverage at
+# all.  That gap is not theoretical: the restructure rewrote an aligned-column
+# import in at_a_glance.py to a module that no longer existed, and every check
+# above still passed because the file merely had to *exist*.  Rendering each
+# page headlessly is what catches it.
+_PAGE_RENDER_SKIP = {
+    # st.page_link() resolves against the st.navigation registry, which only
+    # exists when the portal is the entry point.  Standalone it raises
+    # KeyError: 'url_pathname'.  Covered by the portal render below instead.
+    "tools/portal/home.py",
+}
+
+
+def test_pages_render() -> None:
+    try:
+        from streamlit.testing.v1 import AppTest
+    except Exception:                                             # noqa: BLE001
+        return                       # older streamlit: skip rather than fail
+
+    i18n = _imp("tools.common.i18n")
+    targets = ["IOED_Tool_Web.py"] + [m["path"] for m in i18n.TOOLS.values()]
+
+    import os
+    os.environ["HBT_LOCAL_LAUNCH"] = "1"          # skip the password gate
+    for rel in targets:
+        if rel in _PAGE_RENDER_SKIP:
+            continue
+        try:
+            at = AppTest.from_file(str(ROOT / rel), default_timeout=180).run()
+            exc = at.exception
+            check(f"render {rel}", not exc,
+                  str(exc[0].value)[:160] if exc else "")
+        except Exception as exc:                                  # noqa: BLE001
+            check(f"render {rel}", False, f"{type(exc).__name__}: {exc}"[:160])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -350,6 +392,7 @@ def main() -> int:
 
     test_imports()
     test_page_paths()
+    test_pages_render()
 
     numbers = collect_numbers()
     paths = collect_paths()

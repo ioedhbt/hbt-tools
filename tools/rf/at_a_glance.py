@@ -27,7 +27,7 @@ from datetime import datetime
 from tools.common import i18n
 
 from tools.rf.ssm.ssm_plots      import render_matplotlib_smith
-from tools.rf.ssm             import handoff
+from tools.common            import handoff
 from tools.rf.batch_deembedding import render_batch_deembedding_tab
 from tools.rf.ssm.helpers        import dedupe_upload_names
 from tools.rf.ssm.helpers        import (
