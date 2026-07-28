@@ -225,10 +225,14 @@ def app_constant(name: str) -> int:
     genuinely constant values — the memory budgets are *not* constants
     any more (see ``app_limits``).
     """
-    src = (ROOT / "tools" / "ebeam_calculator.py").read_text(encoding="utf-8")
+    # The EBL page is split across tools/ebeam/**; the constants this
+    # scrapes live in gdsii/limits.py, but search the whole subtree so a
+    # future move doesn't silently break the scrape.
+    src = "\n".join(p.read_text(encoding="utf-8")
+                    for p in sorted((ROOT / "tools" / "ebeam").rglob("*.py")))
     hit = re.search(rf"^{name}\s*=\s*([\d_]+)", src, re.M)
     if not hit:
-        raise SystemExit(f"could not find {name} in ebeam_calculator.py")
+        raise SystemExit(f"could not find {name} under tools/ebeam/")
     return int(hit.group(1).replace("_", ""))
 
 

@@ -444,7 +444,11 @@ def main():
         _arch_dir = f"macosx_{_arch_machine}"
     else:
         _arch_dir = f"linux_{_arch_machine}"
-    _rust_bin_dir = (ROOT / "tools" / "SSM" / "rust_kernels" / "bin"
+    # NOTE: duplicated literal, deliberately.  This runs before the venv
+    # exists, so it cannot import tools.common.paths.  If the crate moves,
+    # this and dev/{build_rust_kernels,check_rust_status}.py must move with
+    # it — dev/smoke_test.py asserts all three agree.
+    _rust_bin_dir = (ROOT / "tools" / "rf" / "ssm" / "rust_kernels" / "bin"
                      / _arch_dir)
     def _has_active_binary(_dir):
         # Same filter as check_rust_status.py: ignore .old-<ts>.<ext>

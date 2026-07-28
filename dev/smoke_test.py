@@ -7,7 +7,8 @@ Run it after every structural change.  It answers three questions:
   1. Does everything still import?          (catches broken/relative imports)
   2. Do all page paths still resolve?       (catches sidebar/switch_page breakage)
   3. Does every page still render?          (catches page-level import/run errors)
-  4. Did any number change?                 (catches silent numerical regressions)
+  4. Do independently-derived paths agree?  (catches hand-built path drift)
+  5. Did any number change?                 (catches silent numerical regressions)
 
 Usage
 -----
@@ -192,6 +193,49 @@ def collect_paths() -> dict:
         "rust_bin_tail": "/".join(Path(rk._BIN_DIR).parts[-3:]),
         "fit_cache_tail": "/".join(Path(fc.cache_path_str()).parts[-2:]),
     }
+
+
+def test_derived_paths_agree() -> None:
+    """Every independently-derived copy of a repo path must still resolve.
+
+    The goldens above only pin `helpers/rust_kernels._BIN_DIR`, which is
+    file-relative and therefore survived the restructure on its own.  Three
+    *other* places built the crate path from segments —
+    `ROOT / "tools" / "SSM" / "rust_kernels"` — which no string-literal
+    rewrite touches.  They kept pointing at the pre-move location, so
+    `build_rust_kernels.py` aborted with "crate directory missing" and the
+    launcher announced "Rust acceleration: not available" while a working
+    binary sat on disk.  Nothing here caught it, because each check only ever
+    looked at one of the copies.
+    """
+    paths = _imp("tools.common.paths")
+    rk = _imp("tools.rf.ssm.helpers.rust_kernels")
+
+    check("paths.REPO_ROOT is the repo", paths.REPO_ROOT == ROOT,
+          str(paths.REPO_ROOT))
+    check("paths.EXAMPLES_DIR exists", paths.EXAMPLES_DIR.is_dir(),
+          str(paths.EXAMPLES_DIR))
+    check("paths.RUST_CRATE_DIR exists", paths.RUST_CRATE_DIR.is_dir(),
+          str(paths.RUST_CRATE_DIR))
+    check("crate has Cargo.toml", (paths.RUST_CRATE_DIR / "Cargo.toml").is_file())
+
+    # helpers/rust_kernels derives its bin dir independently of paths.py —
+    # they must land in the same crate.
+    check("rust_kernels._BIN_DIR agrees with paths.RUST_BIN_BASE",
+          Path(rk._BIN_DIR).parent == paths.RUST_BIN_BASE,
+          f"{rk._BIN_DIR} vs {paths.RUST_BIN_BASE}")
+
+    # LAUNCH_Tool.py cannot import paths.py (it runs pre-venv), so it keeps a
+    # literal. Parse it back out and confirm it matches.
+    launcher = (ROOT / "LAUNCH_Tool.py").read_text(encoding="utf-8")
+    m = re.search(r'_rust_bin_dir = \(ROOT((?:\s*/\s*"[^"]+")+)', launcher)
+    if m is None:
+        check("LAUNCH_Tool rust bin dir found", False, "pattern not present")
+    else:
+        segs = re.findall(r'"([^"]+)"', m.group(1))
+        check("LAUNCH_Tool rust path matches paths.py",
+              ROOT.joinpath(*segs) == paths.RUST_BIN_BASE,
+              f"{ROOT.joinpath(*segs)} vs {paths.RUST_BIN_BASE}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -393,6 +437,7 @@ def main() -> int:
     test_imports()
     test_page_paths()
     test_pages_render()
+    test_derived_paths_agree()
 
     numbers = collect_numbers()
     paths = collect_paths()

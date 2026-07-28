@@ -25,6 +25,11 @@ from pathlib import Path
 
 # This file lives in dev/ — the repo root is one level up.
 ROOT = Path(__file__).parent.parent.resolve()
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+# Single source of truth for the crate location — three scripts used to build
+# this path by hand and drifted apart when the tree moved.
+from tools.common.paths import RUST_CRATE_DIR              # noqa: E402
 
 
 def _arch_tag() -> str:
@@ -51,7 +56,7 @@ def main() -> int:
     print(f"Python      : {sys.version.split()[0]} on {sys.platform}")
     print(f"Machine arch: {_arch_tag()}")
 
-    bin_dir = ROOT / "tools" / "SSM" / "rust_kernels" / "bin" / _arch_tag()
+    bin_dir = RUST_CRATE_DIR / "bin" / _arch_tag()
     print(f"Bin dir     : {bin_dir}")
     if bin_dir.is_dir():
         bins = (list(bin_dir.glob("hbt_rust_kernels*.pyd"))

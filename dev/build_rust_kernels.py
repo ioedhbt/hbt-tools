@@ -54,7 +54,12 @@ from pathlib import Path
 
 # This file lives in dev/ — the repo root is one level up.
 ROOT       = Path(__file__).parent.parent.resolve()
-CRATE_DIR  = ROOT / "tools" / "SSM" / "rust_kernels"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+# Single source of truth for the crate location — three scripts used to build
+# this path by hand and drifted apart when the tree moved.
+from tools.common.paths import RUST_CRATE_DIR              # noqa: E402
+CRATE_DIR  = RUST_CRATE_DIR
 BIN_BASE   = CRATE_DIR / "bin"
 BUILD_VENV = ROOT / ".hbttools_build"
 TARGET_DIR = CRATE_DIR / "target"
