@@ -237,6 +237,30 @@ def test_derived_paths_agree() -> None:
               ROOT.joinpath(*segs) == paths.RUST_BIN_BASE,
               f"{ROOT.joinpath(*segs)} vs {paths.RUST_BIN_BASE}")
 
+    # Both launchers address repo content through `ROOT / "..."` literals for
+    # the same pre-venv reason.  Every one of those must point at something
+    # that exists, otherwise the launcher fails at the worst moment — on a
+    # user's first run — with a message about a missing file.
+    #
+    # Names that legitimately may not exist yet: venvs and other generated
+    # artefacts, plus launch_ebl_calculator's deliberate legacy/standalone
+    # fallback candidates.
+    _may_be_absent = {
+        ".hbttools", ".hbttools_build", ".ebl_venv", ".git",
+        ".hbttools_update_sha", "_gds_stress", ".fit_cache",
+        "__pycache__",                               # a purge target, not an input
+        "calculator.py", "ebeam_calculator.py",     # standalone-copy fallbacks
+    }
+    for fname in ("LAUNCH_Tool.py", "launch_ebl_calculator.py"):
+        src = (ROOT / fname).read_text(encoding="utf-8")
+        for mm in re.finditer(r'ROOT((?:\s*/\s*"[^"]+")+)', src):
+            segs = re.findall(r'"([^"]+)"', mm.group(1))
+            target = ROOT.joinpath(*segs)
+            if segs[0] in _may_be_absent or segs[-1] in _may_be_absent:
+                continue
+            check(f"{fname}: ROOT/{'/'.join(segs)}", target.exists(),
+                  "does not exist")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  4. Numerical goldens — the part that makes a refactor safe
