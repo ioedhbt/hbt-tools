@@ -82,9 +82,19 @@ Layered bottom-up; see [docs/SSM_INDEX.md](docs/SSM_INDEX.md) for per-function d
 **Deliberately self-contained: imports no other repo module.** It keeps its own
 `tr()` and `segmented_radio()` on purpose, so it can be run standalone.
 
+Dependencies run one way — `limits → parser → stream → plotting → exposure →
+calculator` — and **nothing imports `calculator.py` back**. Streamlit always
+executes it as `__main__`, so importing it under its dotted name would run the
+whole page a second time (and call `st.set_page_config` twice).
+
 | path | layer | does |
 |---|---|---|
-| [calculator.py](tools/ebeam/calculator.py) | page | Holder positions, GDS mask viewer, exposure workflow modes. |
+| [calculator.py](tools/ebeam/calculator.py) | page | The page script: header, `set_page_config`, chip-position calc, and `render_page()`. |
+| [gdsii/limits.py](tools/ebeam/gdsii/limits.py) | pure | RAM-budget sizing — `_limits_for`, `_Limits`. Also the shared `tr()` for this subtree. |
+| [gdsii/parser.py](tools/ebeam/gdsii/parser.py) | pure | Single-pass GDSII decoder, `_PolyLayer` / `_InstancedLayer`. |
+| [gdsii/stream.py](tools/ebeam/gdsii/stream.py) | io | Compressed upload store + bounded-memory scan/window path for oversized masks. |
+| [plotting.py](tools/ebeam/plotting.py) | ui | Plotly traces, coverage rasters, per-cell area binning. |
+| [exposure.py](tools/ebeam/exposure.py) | ui | The Time Calculator. |
 
 ## `dev/` — not imported by the app
 
