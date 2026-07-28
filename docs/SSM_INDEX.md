@@ -3,7 +3,7 @@
 Single source of truth for every function across `tools/rf/ssm/`. Skim this
 file to find which submodule owns a function before grep'ing the codebase.
 
-All paths are relative to `tools/rf/ssm/`. The index deliberately carries
+All paths are relative to the repo root (this file lives in `docs/`). The index deliberately carries
 **no line numbers** (they drift as files evolve) — grep for the function
 name to jump to its definition.
 
@@ -21,7 +21,7 @@ The submodule paths below are for jump-to-definition only.
 
 ## Top-level orchestration
 
-### [`main_ssm_extraction.py`](../main_ssm_extraction.py) — UI entry point
+### [`main_ssm_extraction.py`](../tools/rf/ssm/main_ssm_extraction.py) — UI entry point
 
 | Function | Purpose |
 |---|---|
@@ -36,7 +36,7 @@ The submodule paths below are for jump-to-definition only.
 - `_agg` — was a dead duplicate of `helpers/deembed_math.py::_agg_arr`; never called within this module.
 - `_render_s2p_downloads` — its functionality lives under each model's measured-vs-modeled Smith chart now (📥 modeled S2P button beside ⬇ xlsx, wired in `models/base_ui.py::render_smith_with_ftfmax`).
 
-### [`handoff.py`](../handoff.py) — cross-page workflow bus (NEW)
+### [`handoff.py`](../tools/common/handoff.py) — cross-page workflow bus (NEW)
 
 Lets the three RF pages pass the **active DUT** between each other via
 `st.session_state` (survives `st.switch_page`): 📡 RF At a Glance → 🔬 SSM
@@ -49,13 +49,13 @@ Extraction → 🛠️ SSM Simulation & Fitting, with no re-uploading.
 | `send(target, *, S, freq, z0, label, stage="raw", params=None, model_short=None, extras=None)` | Stash a payload (`stage` ∈ raw/deembedded/intrinsic; `params`+`model_short` seed the Sim/Fit override fields; `extras={label:{S,freq,z0}}` carries the *other* batch-de-embedded bias files so Extraction's Z-param / Cold-HBT / τ_total methods have them). |
 | `peek(target)` / `take(target)` | Read / one-shot consume the pending payload. |
 
-### [`ssm_override.py`](../ssm_override.py) — pre-extraction series-R picker
+### [`ssm_override.py`](../tools/rf/ssm/ssm_override.py) — pre-extraction series-R picker
 
 | Function | Purpose |
 |---|---|
 | `render_unified_pre_override(fname, para_step1, cold_res, rz12_Re)` | Unified pad parameter UI. For Rb/Rc/Re it selects the highest source (Short Step 1b / Cold-HBT / Z-param method / Open-collector / Custom). Returns the effective `para_eff` dict (SI). |
 
-### [`ssm_access_resistance.py`](../ssm_access_resistance.py) — series/access-R extractors
+### [`ssm_access_resistance.py`](../tools/rf/ssm/ssm_access_resistance.py) — series/access-R extractors
 
 | Function | Purpose |
 |---|---|
@@ -63,7 +63,7 @@ Extraction → 🛠️ SSM Simulation & Fitting, with no re-uploading.
 | `render_open_collector_section(all_data, para_eff, fname)` | Open-collector method UI: Re(Z₁₁−Z₁₂)/Re(Z₂₂−Z₁₂)/Re(Z₁₂) vs 1/IB → Rb/Rc/Re. Writes `ocm_R*_{fname}` session keys. |
 | `_render_cold_hbt(fname, open_data, para_step1, do_measured, freq, re_zparam=None, open_arr=None, short_arr=None, all_data=None)` | Cold-HBT extraction UI (Gao §5.5.2). **`all_data`** lets the user pick the cold device from already-loaded bias files (segmented source toggle) instead of uploading — defaults to a loaded file with "cold" in its name; falls back to the uploader when no other files are loaded. Strips pad caps + lead L + Re from Z_cor before A/B/C/D. Returns a `cold_res` dict or `None`. **Each extracted variable (Cex, Cbc, Rbi, Cbe, Rb, Rc) is rendered inside its own bordered `st.container`** (inside `_cold_plot`) so individual parameters are visually distinct. |
 
-### [`ssm_plots.py`](../ssm_plots.py) — Step 1 / Step 2 diagnostic Streamlit blocks
+### [`ssm_plots.py`](../tools/rf/ssm/ssm_plots.py) — Step 1 / Step 2 diagnostic Streamlit blocks
 
 | Function | Purpose |
 |---|---|
@@ -89,9 +89,9 @@ Extraction → 🛠️ SSM Simulation & Fitting, with no re-uploading.
 | `render_matplotlib_smith(S_mea=None, S_sim=None, fname="", topo_key="", *, sets=None, default_multiplier=1.0, phase="both", freq_hz=None, add_pool=None)` | Publication-style matplotlib Smith chart. Backward-compatible (mea/sim) and extensible (`sets=[…]`) call forms. `phase="controls"` renders widgets only; `phase="chart"` renders the figure only; `phase="both"` is the legacy combined form. SSM, RF simulator **and RF parameter extraction** call it twice (right column = controls, left column = chart) inside a side-by-side block, passing `freq_hz` for the auto frequency-range annotation. The freq-range label is (re)seeded by a **frequency-span signature** into a dedicated annotation slot, so a new device (e.g. after a cross-page handover) refreshes the label instead of leaving it blank, while an unchanged span preserves manual edits. Editing a Multiplier auto-updates that S-param's Text label (`_sync_text_to_mult`). **`add_pool`** = list of `{"label","S"}` for *other* uploaded files; the styling table then shows a **"➕ Add a file trace"** button + per-row file picker / 🗑 remove / own colour, appending the chosen files to `sets` (selection persisted in `…_extra_files`) so multiple measured files overlay on one chart (used by RF parameter extraction). When any extra file is overlaid the chart switches to **one colour per file** (base + each added file get a single colour; the per-S-param "Trace" colour column is hidden). S-param labels (S11…S22) **auto-position** at each primary-set trace's centroid (nudged outward via `_auto_label_pos`) instead of fixed defaults — x/y stay adjustable and the text-colour picker is always available. |
 | `render_ft_fmax_overlay(S_raw, sim_results, freq, fname)` | Multi-model Bode plot using `FT_FMAX_COLORS` — all fT traces blue, all fmax traces red. Models are distinguished by line name in the legend; modeled traces are dashed, extrap traces dotted. xlsx download uses the standardised `bode_excel_bytes` (simulated + extrapolated columns). |
 
-### [`agent_api.py`](../agent_api.py) — headless AI-agent fitting API (NEW)
+### [`agent_api.py`](../tools/rf/ssm/agent_api.py) — headless AI-agent fitting API (NEW)
 
-No Streamlit UI required — see [`INDEX.md`](../../../INDEX.md#ai-agent-fitting-api-toolsssmagent_apypy)
+No Streamlit UI required — see [`INDEX.md`](INDEX.md#ai-agent-fitting-api-toolsssmagent_apypy)
 (repo root) for the full write-up. Bootstraps `sys.path` to the repo root at
 module import time (two parents up from this file) so `python
 tools/rf/ssm/agent_api.py ...` works as a CLI from any cwd; imports Streamlit
@@ -127,7 +127,7 @@ transitively (through `tools.SSM.models`) but never calls `st.*` itself.
 
 ## Helpers (`helpers/*.py`)
 
-### [`helpers/_array_utils.py`](_array_utils.py) — Shared array helpers (NEW)
+### [`helpers/_array_utils.py`](../tools/rf/ssm/helpers/_array_utils.py) — Shared array helpers (NEW)
 
 Canonical home for the small shape/broadcast utilities formerly duplicated across `helpers/deembed_math.py`, `models/_shared.py`, and `models/degachi.py`. Placed under `helpers/` (not `models/`) so the helpers package — which can't reach back into `models/` without a load-order cycle — can use them directly. `models/_shared.py` re-exports the names so `from ._shared import _b1, _detect_B, _stack22` keeps working everywhere it used to.
 
@@ -137,7 +137,7 @@ Canonical home for the small shape/broadcast utilities formerly duplicated acros
 | `_detect_B(p, xp)` | Determine batch size B from any `(B,)`-shaped value in `p`. |
 | `_stack22(a00, a01, a10, a11, xp)` | Stack four planes into a `(..., 2, 2)` tensor in 3 launches. |
 
-### [`helpers/rf_math.py`](rf_math.py) — Pure RF math (no Streamlit, no plotting)
+### [`helpers/rf_math.py`](../tools/rf/ssm/helpers/rf_math.py) — Pure RF math (no Streamlit, no plotting)
 
 | Function | Purpose |
 |---|---|
@@ -157,7 +157,7 @@ Canonical home for the small shape/broadcast utilities formerly duplicated acros
 | `extended_smith_grid(max_r=1.0)` | Plotly Smith chart background traces (built fresh each call from cached coords). |
 | `params_hash(p)` | MD5 hash of a parameter dict, for caching. |
 
-### [`helpers/s2p_io.py`](s2p_io.py) — Touchstone / CSV I/O and dummy simulators
+### [`helpers/s2p_io.py`](../tools/rf/ssm/helpers/s2p_io.py) — Touchstone / CSV I/O and dummy simulators
 
 | Function | Purpose |
 |---|---|
@@ -173,7 +173,7 @@ Canonical home for the small shape/broadcast utilities formerly duplicated acros
 | `simulate_open(p, freq, z0=50.0)` | Forward-simulate Open dummy from pad params (cached). |
 | `simulate_short(p, freq, z0=50.0)` | Forward-simulate Short dummy from pad+lead params (cached). |
 
-### [`helpers/deembed_math.py`](deembed_math.py) — Open/Short extraction & de-embedding
+### [`helpers/deembed_math.py`](../tools/rf/ssm/helpers/deembed_math.py) — Open/Short extraction & de-embedding
 
 | Function | Purpose |
 |---|---|
@@ -193,7 +193,7 @@ Canonical home for the small shape/broadcast utilities formerly duplicated acros
 | `deembed_open_short(Y_dut, Y_open, Y_short)` | Standard open-short de-embedding (Gao §4.2). |
 | `deembed_thru_half(Y_dut, Y_thru_deemb)` | THRU/2 half-impedance subtraction. |
 
-### [`helpers/metrics.py`](metrics.py) — Gain figures of merit
+### [`helpers/metrics.py`](../tools/rf/ssm/helpers/metrics.py) — Gain figures of merit
 
 | Function | Purpose |
 |---|---|
@@ -204,7 +204,7 @@ Canonical home for the small shape/broadcast utilities formerly duplicated acros
 | `compute_metrics(Y, freq_hz)` | Build DataFrame: Freq, |h21|², Mason U, MAG/MSG, K, fT/fmax plateaus. |
 | `extract_limit(freq_ghz, gain_db, plateau_arr, n_pts, f_min, f_max)` | Genuine-crossing fT/fmax extractor with extrapolation fallback (≥10 consecutive points above 0 dB). Ported to Rust as `_extract_limit_rust` inside `parse_and_compute_batch` — see `helpers/rust_kernels.py`. |
 
-### [`helpers/plotly_plots.py`](plotly_plots.py) — Plotly Smith / Bode / Plateau builders
+### [`helpers/plotly_plots.py`](../tools/rf/ssm/helpers/plotly_plots.py) — Plotly Smith / Bode / Plateau builders
 
 | Function / Constant | Purpose |
 |---|---|
@@ -224,7 +224,7 @@ Canonical home for the small shape/broadcast utilities formerly duplicated acros
 | `_compact_json_1d(arr, digits=5)` | Format a 1-D float array as compact JSON (~3× smaller). **Non-finite values are emitted as `null`** — a bare `nan`/`inf` token is invalid JS and previously threw a SyntaxError that froze the whole pre-computed slider. |
 | `make_smith_bode_joint_slider_html(...)` | HTML-slider variant — embeds full joint sweep as JS array, injects `<input type="range">` per axis. JS now **mutates trace arrays + `Plotly.redraw`** (scattergl-safe; `restyle` silently no-ops on WebGL) and resolves the graph div via `getGD()` (`#hbtSlPlot` → `.js-plotly-plot` fallback) so the sliders never fail to wire. Smith S-params are labelled **inline on the traces**; only the Bode legend remains (small, bottom-left). |
 
-### [`helpers/widgets.py`](widgets.py) — Streamlit input widgets
+### [`helpers/widgets.py`](../tools/common/widgets.py) — Streamlit input widgets
 
 | Function | Purpose |
 |---|---|
@@ -234,7 +234,7 @@ Canonical home for the small shape/broadcast utilities formerly duplicated acros
 | `_candidates(arr_disp, default_disp, cold_disp=None)` | Build `[(label, value), …]` list from optional sources. |
 | `quickset_buttons(...)` | Row of one-click buttons (mean / median / low f / high f / default / cold). |
 
-### [`helpers/mem_budget.py`](mem_budget.py) — Container/cgroup-aware RAM budget probes
+### [`helpers/mem_budget.py`](../tools/common/mem_budget.py) — Container/cgroup-aware RAM budget probes
 
 Pure Python, no Streamlit import (safe to import from anywhere, including
 `tools/ui_theme.py`). `psutil.virtual_memory()` reports the HOST's memory,
@@ -253,7 +253,7 @@ instead of calling psutil directly.
 | `ram_available_bytes()` | Best-effort allocatable bytes right now: `min()` of (cgroup limit − usage) and psutil's `available`, whichever is known/more pessimistic; falls back to a conservative 1 GiB constant when nothing is knowable. Never raises — this is what `base_ui.py`'s Auto Tuning chunk sizing calls. |
 | `ram_usage()` | `(used_bytes, limit_bytes)` for UI display (prefers the cgroup pair, falls back to psutil `(used, total)`); `None` when neither source works — `tools/ui_theme.py::render_ram_badge` renders nothing in that case. |
 
-### [`helpers/fit_cache.py`](fit_cache.py) — Persistent per-(DUT, model) fitted-value cache
+### [`helpers/fit_cache.py`](../tools/rf/ssm/helpers/fit_cache.py) — Persistent per-(DUT, model) fitted-value cache
 
 | Function | Purpose |
 |---|---|
@@ -280,7 +280,7 @@ instead of calling psutil directly.
 | `import_cache_bytes(raw, merge=True)` | Parse a unified JSON blob and write back as per-model files. |
 | `differs_from(p_si, ref_si, keys=None, ...)` | True if any numeric value in `p_si` deviates from `ref_si`. |
 
-### [`helpers/rust_kernels.py`](rust_kernels.py) — Optional Rust SIMD/Rayon acceleration
+### [`helpers/rust_kernels.py`](../tools/rf/ssm/helpers/rust_kernels.py) — Optional Rust SIMD/Rayon acceleration
 
 | Symbol | Purpose |
 |---|---|
@@ -315,7 +315,7 @@ instead of calling psutil directly.
 
 Re-exported from `helpers/__init__.py` with a `rust_` prefix (e.g. `rust_inv2x2_batch`, `rust_parse_and_compute_batch`) and `RUST_KERNELS_AVAILABLE` for `HAS_RUST`.
 
-Build instructions live in [`rust_kernels/README.md`](../rust_kernels/README.md). The Linux x86_64 binary is built by `.github/workflows/build-rust-linux.yml` and committed back to `bin/linux_x86_64/`. The CI smoke test exercises both `y_to_s_4d` and `parse_and_compute_batch` (verifies the SoA dict has all 20 expected keys).
+Build instructions live in [`rust_kernels/README.md`](../tools/rf/ssm/rust_kernels/README.md). The Linux x86_64 binary is built by `.github/workflows/build-rust-linux.yml` and committed back to `bin/linux_x86_64/`. The CI smoke test exercises both `y_to_s_4d` and `parse_and_compute_batch` (verifies the SoA dict has all 20 expected keys).
 
 ---
 
@@ -333,7 +333,7 @@ Build instructions live in [`rust_kernels/README.md`](../rust_kernels/README.md)
 
 Each per-model file: `{"saved_at": "<ISO>", "params": {<SI-unit dict>}}`.
 
-### [`helpers/chart_export.py`](chart_export.py) — Excel export & Streamlit UI helpers
+### [`helpers/chart_export.py`](../tools/common/chart_export.py) — Excel export & Streamlit UI helpers
 
 | Function | Purpose |
 |---|---|
@@ -358,7 +358,7 @@ Each per-model file: `{"saved_at": "<ISO>", "params": {<SI-unit dict>}}`.
 
 ## Models (`models/*.py`)
 
-### [`models/__init__.py`](../models/__init__.py) — Registry + abstract base
+### [`models/__init__.py`](../tools/rf/ssm/models/__init__.py) — Registry + abstract base
 
 | Class / function | Purpose |
 |---|---|
@@ -373,7 +373,7 @@ Each per-model file: `{"saved_at": "<ISO>", "params": {<SI-unit dict>}}`.
 | `REGISTRY` | `{SHORT: ModelClass}` — drives the model UI loop in `main_ssm_extraction.py`. |
 | `DEFAULT_SELECTION` | List of model SHORTs shown on first run. |
 
-### [`models/_shared.py`](../models/_shared.py) — Font helpers (`_b1`/`_detect_B`/`_stack22` re-exports)
+### [`models/_shared.py`](../tools/rf/ssm/models/_shared.py) — Font helpers (`_b1`/`_detect_B`/`_stack22` re-exports)
 
 After the array-utility consolidation, this module is mostly font code. The three array helpers (`_b1`, `_detect_B`, `_stack22`) are now re-exported from `helpers/_array_utils.py` so existing call sites (`from ._shared import _b1, ...`) keep working unchanged.
 
@@ -384,7 +384,7 @@ After the array-utility consolidation, this module is mostly font code. The thre
 | `has_inter()` | True if Inter is installed locally or successfully cached. |
 | `_load_font(size)` | Load a TrueType font with Inter → Arial → fallback chain. |
 
-### [`models/base_ui.py`](../models/base_ui.py) — Shared Streamlit UI helpers for all models
+### [`models/base_ui.py`](../tools/rf/ssm/models/base_ui.py) — Shared Streamlit UI helpers for all models
 
 | Function | Purpose |
 |---|---|
@@ -431,7 +431,7 @@ After the array-utility consolidation, this module is mostly font code. The thre
 
 **Pre-bake truth table API** — `SSMModelTemplate` exposes `STATIC_SUBNETWORKS` (declarative dependency map, set per concrete model) and uses it to skip re-computing static sub-networks across slider ticks. Per-model `_build_intrinsic_static_cache` overrides live in `cheng.py` (ChengT + ChengPi), `xu.py` (XuT), and `kunyang.py` (KunYangHEMT).
 
-### [`models/cheng.py`](../models/cheng.py) — Cheng (2022) T and π topologies
+### [`models/cheng.py`](../tools/rf/ssm/models/cheng.py) — Cheng (2022) T and π topologies
 
 Module-level helpers:
 
@@ -453,13 +453,13 @@ Module-level helpers:
 | `_render_topology_illustration(all_p, topology, fname)` | Overlay live parameter values on the schematic template PNG. |
 | `_override_ui(fname, tK, calc_vals, int_specs, label, ext_specs=_EXT_SPECS, cache_ctx=None)` | Render the fine-tune override expander (Pad / Extrinsic / Intrinsic) for one Cheng topology. Reseeds from `calc_vals` when the sync hash mismatches **or** any `sim_{tK}_{key}_{fname}` widget key is missing (Streamlit GC'd it after a page switch) — the missing-key check catches what the hash-only check couldn't: the hash's own session key survives GC while the widget keys it's supposed to guard don't. The "✏️ Fine-tune ..." expander is wrapped in `st.container(key=f"hbt_exp_edit_{tK}")` — amber left-border edit-cluster (`tools/ui_theme.py` action-color system). First element inside the expander is a 3-column button row: reset-to-interactive-values (`rst_sim_{tK}_{fname}`), "📌 Use cache" (only when `cache_ctx["has_cache"]` — wrapped in `st.container(key=f"hbt_amber_usecache_{tK}")` for the amber apply-action style; sets `st.session_state[cache_ctx["req_key"]] = True` and reruns so `render_override_and_smith`'s cache-apply-request block loads the cached snapshot before widgets instantiate), and "0️⃣ Reset all to 0" (`zero_sim_{tK}_{fname}` — zeroes every `sim_{tK}_{key}_{fname}` widget key across `all_specs`; does not touch the on-disk cache, and the auto-save "mostly-zero" guard in `render_override_and_smith` refuses to persist the resulting near-zero state). |
 
-Shared helpers `_b1`, `_detect_B`, `_stack22`, `_try_download_inter`, `has_inter`, `_load_font` are imported from [`models/_shared.py`](../models/_shared.py).
+Shared helpers `_b1`, `_detect_B`, `_stack22`, `_try_download_inter`, `has_inter`, `_load_font` are imported from [`models/_shared.py`](../tools/rf/ssm/models/_shared.py).
 
 `class ChengT(SSMModelTemplate, AbstractSSMModel)`: methods `extract`, `sweep_cbex`, `simulate`, `reextract`, `_results_rows`, `_render_results_trace`, `_do_override_ui`, `_render_topology`, `_build_intrinsic_static_cache`.
 
 `class ChengPi(SSMModelTemplate, AbstractSSMModel)`: methods `extract`, `sweep_cbex`, `simulate`, `reextract`, `_results_rows`, `_do_override_ui`, `_render_topology`, `_build_intrinsic_static_cache`.
 
-### [`models/xu.py`](../models/xu.py) — Xu's T (2014)
+### [`models/xu.py`](../tools/rf/ssm/models/xu.py) — Xu's T (2014)
 
 Module-level helpers:
 
@@ -479,7 +479,7 @@ Module-level helpers:
 
 `class XuModel(SSMModelTemplate, AbstractSSMModel)` (`SHORT="XuT"`): methods `extract`, `simulate`, `reextract`, `_results_rows`, `_render_results_trace`, `_do_override_ui`, `_render_topology`, `_build_intrinsic_static_cache`.
 
-### [`models/kunyang.py`](../models/kunyang.py) — Kun-Yang HEMT (pi-model, forward sim only)
+### [`models/kunyang.py`](../tools/rf/ssm/models/kunyang.py) — Kun-Yang HEMT (pi-model, forward sim only)
 
 Forward-simulation-only model — no extraction is performed. Built inside → out:
 
@@ -504,7 +504,7 @@ Module-level helpers:
 
 `class KunYangHEMT(SSMModelTemplate, AbstractSSMModel)` (`SHORT="KY"`): methods `extract`, `simulate`, `render_step_formulas`, `_results_rows`, `_render_results_trace`, `_do_override_ui`, `_render_topology`, `_build_intrinsic_static_cache`, `get_s2p_header_params`.
 
-### [`models/degachi.py`](../models/degachi.py) — Degachi & Ghannouchi (2008) augmented π *(currently disabled in the registry — uncomment in `models/__init__.py` to re-enable)*
+### [`models/degachi.py`](../tools/rf/ssm/models/degachi.py) — Degachi & Ghannouchi (2008) augmented π *(currently disabled in the registry — uncomment in `models/__init__.py` to re-enable)*
 
 | Function | Purpose |
 |---|---|
@@ -517,7 +517,7 @@ Module-level helpers:
 
 `class Degachi(AbstractSSMModel)` (`SHORT="D"`): cascade re-extraction across 9 PARAM_GROUPS.
 
-### [`models/svg_topology.py`](../models/svg_topology.py) — "non-zero only" live SVG schematics
+### [`models/svg_topology.py`](../tools/rf/ssm/models/svg_topology.py) — "non-zero only" live SVG schematics
 
 Toggle-ON alternative to each model's static PNG template: builds the matching
 built-in custom-model preset, prunes every R/L/C whose current value is zero /
@@ -538,7 +538,7 @@ device topology).
 
 ## Custom model builder (`custom_model/*.py`)
 
-**Bilingual UI:** every user-facing string in `ui_build.py` / `ui_use.py` / `ui_fit.py` / `__init__.py` is wrapped in `tr(en, zh)` from [`custom_model/_i18n.py`](../custom_model/_i18n.py) — an inline EN/中文 helper that defers the active language to the portal's `tools.i18n.is_zh()` (the 🌐 Language radio). Add new builder strings as `tr("English", "中文")`, not bare literals. Grouped value-input section titles (English, from `CustomModel.grouped_value_specs()`) are display-translated via `ui_fit._GROUP_TITLE_ZH`.
+**Bilingual UI:** every user-facing string in `ui_build.py` / `ui_use.py` / `ui_fit.py` / `__init__.py` is wrapped in `tr(en, zh)` from [`custom_model/_i18n.py`](../tools/rf/ssm/custom_model/_i18n.py) — an inline EN/中文 helper that defers the active language to the portal's `tools.i18n.is_zh()` (the 🌐 Language radio). Add new builder strings as `tr("English", "中文")`, not bare literals. Grouped value-input section titles (English, from `CustomModel.grouped_value_specs()`) are display-translated via `ui_fit._GROUP_TITLE_ZH`.
 
 
 User-built ("custom") small-signal models. Two modes (Simulate-and-Fit was
@@ -599,7 +599,7 @@ Intrinsic cores (`core.py::_intrinsic_Y(itype, Ybe, Ybc, Yce, src, omega)`):
 α₀·e^(−jωτ_C)/(1+jωτ_B)). Both stamped as a 3-terminal common-emitter 2-port
 between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ_C).
 
-### [`custom_model/core.py`](../custom_model/core.py) — data model + solver
+### [`custom_model/core.py`](../tools/rf/ssm/custom_model/core.py) — data model + solver
 
 | Function / class | Purpose |
 |---|---|
@@ -616,7 +616,7 @@ between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ
 | `_intrinsic_Y_b(itype, Ybe, Ybc, Yce, src, jw, xp)` | Batched common-emitter 2-port from junction admittances + scalar source params (π / T α-source). |
 | `_simulate_plan_core(plan, jw, vals, z0, xp, B)` / `_stamp(...)` | One-chunk evaluator: build `(B,N,n,n)` Y, embed indefinite 2-port, Kron-reduce, Y→S. When `plan.alpha_cbex` is set, also stamps the extra α·Y_cbex·(V_bb−V_ei) collector source ("Ie after Cbex"). |
 
-### [`custom_model/schematic.py`](../custom_model/schematic.py) — live SVG
+### [`custom_model/schematic.py`](../tools/rf/ssm/custom_model/schematic.py) — live SVG
 
 | Function | Purpose |
 |---|---|
@@ -633,13 +633,13 @@ between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ
 
 `CustomModel.emitter` (a `Network`) holds source/emitter-leg "delay" extras drawn between the intrinsic emitter and the emitter access R/L — e.g. the Kun-Yang R_delay∥C_delay above the Rs node.
 
-### [`custom_model/__init__.py`](../custom_model/__init__.py)
+### [`custom_model/__init__.py`](../tools/rf/ssm/custom_model/__init__.py)
 
 | Function | Purpose |
 |---|---|
 | `render_custom_section()` | Load / Build radio (RF Forward Simulator). On "Send to Load/Fit" from build it consumes `cm_nav_to_loadfit` (before the radio) to switch to Load. |
 
-### [`custom_model/ui_build.py`](../custom_model/ui_build.py) — "Build" UI
+### [`custom_model/ui_build.py`](../tools/rf/ssm/custom_model/ui_build.py) — "Build" UI
 
 | Function | Purpose |
 |---|---|
@@ -649,14 +649,14 @@ between BI/CI/EI; the controlled source is scalar (params gm/τ or α₀/τ_B/τ
 | `_auto_download_json` / `fire_pending_download` | Trigger a browser download via a hidden data-URI anchor; `fire_pending_download` (called atop the Load + Fit views) downloads a model "sent" from build after the navigation rerun. |
 | `_network_editor` / `_shunt_list_editor` | Reusable series-of-parallel and shunt-branch editors (🗑️ trash; name keys carry `_ver()`; "➕ Cap" pre-adds a C). |
 
-### [`custom_model/ui_use.py`](../custom_model/ui_use.py) — combined Simulate & Fit UI
+### [`custom_model/ui_use.py`](../tools/rf/ssm/custom_model/ui_use.py) — combined Simulate & Fit UI
 
 | Function | Purpose |
 |---|---|
 | `render_use_ui(measured=None)` | **Unified** workbench (merges the old Load/simulate + Fit modes). Loads via `ui_fit._load_model` (shared `cmf_model`) → `ui_fit._value_inputs` (keys `sim_custom_{cid}_{fname}`) → forward-simulate. **With a device** (`measured` present): freq locked to the device grid; `render_smith_with_ftfmax` overlay + residual + fT/fmax, matplotlib Smith (measured+modeled), and Visual + Auto Tuning (ref = `S_meas`). **Without**: user-set freq, model-only `_smith_fig` + forward Bode, Visual Tuning only (ref = current sim). `fname` = device label when fitting else `"forward"`; clears stale tuning state on model change via `ui_fit._clear_tuning_state`. |
 | `_smith_fig(S, freq, title, scales=None)` | Plotly Smith for the model-only (no-device) view; `scales` applies the per-trace × multiplier. |
 
-### [`custom_model/ui_fit.py`](../custom_model/ui_fit.py) — Fit helpers + model adapter
+### [`custom_model/ui_fit.py`](../tools/rf/ssm/custom_model/ui_fit.py) — Fit helpers + model adapter
 
 | Function | Purpose |
 |---|---|

@@ -1,10 +1,13 @@
 # How things work — program outline
 
-Orientation document for humans and AI agents: how the app boots, how a
-page is put together, how data flows, and where to look for a given kind
-of change. For a per-function catalogue use
-[INDEX.md](INDEX.md) (everything outside `tools/rf/ssm/`) and
-[docs/SSM_INDEX.md](docs/SSM_INDEX.md) (the SSM tree).
+How the app boots, how a page is put together, how data flows, and what
+the layering rules are.
+
+**Start at [MAP.md](../MAP.md) instead** if you just need to find the module
+that owns something — it is one line per file and usually enough. Come here
+for the *why*. For per-function detail use [INDEX.md](INDEX.md) (everything
+outside `tools/rf/ssm/`) and [SSM_INDEX.md](SSM_INDEX.md) (the SSM tree).
+Each tool folder also carries its own `AGENTS.md` with local rules.
 
 ---
 
@@ -14,11 +17,11 @@ of change. For a per-function catalogue use
 LAUNCH_Tool.py                      (double-click / python3)
   ├─ auto_update()                  git pull, or GitHub zip overlay for non-git installs
   ├─ .hbttools/ venv                created on first run; deps installed (CuPy matched to detected CUDA)
-  └─ streamlit run IOED_Tool_Web.py   with HBT_LOCAL_LAUNCH=1  → password gate skipped
+  └─ streamlit run IOED_Tool_Web.py   cwd=repo root, HBT_LOCAL_LAUNCH=1 → password gate skipped
 
 IOED_Tool_Web.py                    (the ONLY st.set_page_config in the repo)
   ├─ check_password()               st.secrets["APP_PASSWORD"]; skipped on local launch
-  ├─ 🌐 language toggle             writes st.session_state["ui_lang"] → tools/i18n
+  ├─ 🌐 language toggle             writes st.session_state["ui_lang"] → tools/common/i18n
   └─ st.navigation(nav)             sidebar groups built from i18n.TOOLS / GROUP_ORDER
         └─ runs ONE tools/<page>.py per rerun
 ```
@@ -30,26 +33,26 @@ IOED_Tool_Web.py                    (the ONLY st.set_page_config in the repo)
   `st.switch_page` paths (in `i18n.TOOLS` and `tools/rf/ssm/handoff.py`) are
   written **relative to the root** — i.e. with a `tools/` prefix.
 - `launch_ebl_calculator.py` is a second, independent launcher that runs
-  **only** `tools/ebeam_calculator.py` (own venv `.ebl_venv/`, no portal,
+  **only** `tools/ebeam/calculator.py` (own venv `.ebl_venv/`, no portal,
   no password). That page therefore imports **no repo modules**.
 
-## 2. Anatomy of a portal page (`tools/*.py`)
+## 2. Anatomy of a portal page (`tools/<group>/*.py`)
 
 Every page is a straight-line Streamlit script, re-executed top-to-bottom
 on each interaction ("rerun"). Conventions shared by all pages:
 
 - **Title/desc from the registry:** `st.title(i18n.title("<tool_key>"))` —
   never a hard-coded string, so sidebar and page title can't drift.
-- **Bilingual UI:** every user-facing string goes through `tools/i18n.py`
+- **Bilingual UI:** every user-facing string goes through `tools/common/i18n.py`
   (portal-level `t(key)`) or, in the custom-model builder, the inline
   `tr(en, zh)` helper.
-- **"ℹ️ How it works" expander:** `tools/diagrams.pipeline_png(...)`.
+- **"ℹ️ How it works" expander:** `tools/common/diagrams.pipeline_png(...)`.
 - **Uploader reset:** pages keep an integer `*_uploader_key` in session
   state and bump it to programmatically clear `st.file_uploader`.
 - **Widget state:** everything the user can tweak lives in
   `st.session_state` under per-file / per-model keys (e.g.
   `sim_{topo}_{param}_{fname}`), so multiple DUTs coexist.
-- **Charts:** Plotly via `helpers/plotly_plots.py`, always rendered with
+- **Charts:** Plotly via `rf/ssm/helpers/plotly_plots.py`, always rendered with
   `plotly_with_dl(...)` (chart + ⬇ xlsx + 📋 copy buttons); publication
   Smith charts via `render_matplotlib_smith` in `tools/rf/ssm/ssm_plots.py`.
 
@@ -79,7 +82,7 @@ Layered, bottom-up:
 |---|---|---|
 | Pure math (no Streamlit) | `helpers/rf_math.py`, `deembed_math.py`, `metrics.py`, `_array_utils.py` | Import-safe anywhere, unit-testable |
 | I/O + caching | `helpers/s2p_io.py`, `fit_cache.py`, `chart_export.py` | Streamlit-aware but headless-tolerant |
-| Plot builders | `helpers/plotly_plots.py` | Return figures, don't render |
+| Plot builders | `rf/ssm/helpers/plotly_plots.py` | Return figures, don't render |
 | Model classes | `models/*.py` | Math + per-model UI; registered in `models/__init__.py::REGISTRY` |
 | Shared model UI | `models/base_ui.py` | `SSMModelTemplate` — override expander, Smith+fT/fmax, Visual/Auto tuning |
 | Orchestration | `main_ssm_extraction.py`, `ssm_plots.py`, `ssm_override.py`, `ssm_access_resistance.py` | The extraction page's Steps 1–3 |
@@ -116,19 +119,19 @@ Three compute paths, selected at runtime with silent fallback:
 
 **Persistence:** fine-tuned SSM params are cached per (DUT, model) as
 JSON under `$HBT_FIT_CACHE_DIR` → `~/.hbt-tools/fits/…`
-(`helpers/fit_cache.py`; auto-disabled on Streamlit Cloud). Everything
+(`rf/ssm/helpers/fit_cache.py`; auto-disabled on Streamlit Cloud). Everything
 else is `st.session_state` (lost on refresh).
 
 CPU-side Auto Tuning chunk/budget sizes are cgroup-aware via
-`helpers/mem_budget.py` (reads `/sys/fs/cgroup/...` before falling back
+`common/mem_budget.py` (reads `/sys/fs/cgroup/...` before falling back
 to `psutil`), so they're sized against Streamlit Cloud's actual
 container memory limit instead of the host's — a fixed-size chunk sized
 off host RAM was getting SIGKILLed by the cgroup OOM-killer before any
 `except MemoryError` path could run. The portal sidebar also shows a
-live RAM-usage bar (`tools/ui_theme.py::render_ram_badge`) built on the
+live RAM-usage bar (`tools/common/ui_theme.py::render_ram_badge`) built on the
 same probe.
 
-## 6. EBL calculator (`tools/ebeam_calculator.py`)
+## 6. EBL calculator (`tools/ebeam/`)
 
 Deliberately self-contained (see §1). Page sections:
 holder-position calculator → left-computer origin → **GDS mask viewer**
@@ -149,22 +152,30 @@ small N).
 
 | Task | Start at |
 |---|---|
-| Add / rename a portal page, change sidebar groups | `tools/i18n.py` (`TOOLS`, `GROUP_ORDER`) + new `tools/<page>.py` |
+| Add / rename a portal page, change sidebar groups | `tools/common/i18n.py` (`TOOLS`, `GROUP_ORDER`) + new `tools/<group>/<page>.py` |
 | Change password / language / nav behaviour | `IOED_Tool_Web.py` |
 | Launcher, venv, auto-update, dependency list | `LAUNCH_Tool.py` (portal) / `launch_ebl_calculator.py` (EBL) |
 | S2P/CSV parsing, Touchstone writing | `tools/rf/ssm/helpers/s2p_io.py` |
 | De-embedding math | `tools/rf/ssm/helpers/deembed_math.py` |
 | fT/fmax, gain metrics, extrapolation | `tools/rf/ssm/helpers/metrics.py` |
 | Bode/Smith/plateau figure styling | `tools/rf/ssm/helpers/plotly_plots.py` (colors: `FT_FMAX_COLORS`) |
-| xlsx / clipboard export of any chart | `tools/rf/ssm/helpers/chart_export.py` |
+| xlsx / clipboard export of any chart | `tools/common/chart_export.py` |
 | SSM extraction page layout / steps | `tools/rf/ssm/main_ssm_extraction.py` + `ssm_plots.py` |
 | A specific model's equations or override UI | `tools/rf/ssm/models/<model>.py` |
 | Tuning sweeps (Visual / Auto), residuals | `tools/rf/ssm/models/base_ui.py` |
 | Custom model builder | `tools/rf/ssm/custom_model/` |
 | Rust kernels / dispatch / fallbacks | `tools/rf/ssm/helpers/rust_kernels.py` + `tools/rf/ssm/rust_kernels/` |
 | Fit-cache location or format | `tools/rf/ssm/helpers/fit_cache.py` |
-| GDS parsing / EBL exposure times | `tools/ebeam_calculator.py` |
+| GDS parsing / EBL exposure times | `tools/ebeam/calculator.py` |
 | Performance investigation | `dev/profile_*.py`, `tools/rf/ssm/rust_kernels/benchmark.py` |
+
+**Layering rules** (enforced by convention, checked by review):
+
+- `tools/common/` may not import any tool group — that is why it exists.
+- `tools/ebeam/` imports nothing from the repo at all (standalone launcher).
+- Cross-package imports are **absolute**; relatives only within a package.
+- The repo root comes from `tools.common.paths.REPO_ROOT`, never `parents[N]`.
+- `tools/<folder>` matches the `i18n` group key one-for-one.
 
 **Maintenance rule:** structural changes (new page, new model, new
 layer/compute path) should update this outline **and** the matching

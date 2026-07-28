@@ -8,12 +8,13 @@ The index deliberately carries **no line numbers** (they drift as files
 evolve) — grep for the function name to jump to its definition.
 
 > **The SSM tree has its own, more detailed index:**
-> [`docs/SSM_INDEX.md`](docs/SSM_INDEX.md) — covers
+> [`docs/SSM_INDEX.md`](SSM_INDEX.md) — covers
 > `tools/rf/ssm/` (orchestration, `helpers/`, `models/`, `custom_model/`).
 > Read that one for anything SSM-related.
 >
-> **For the big picture** (boot flow, page anatomy, data flow, layers,
-> "task → file" lookup) read [`ARCHITECTURE.md`](ARCHITECTURE.md) first.
+> **For the big picture** read [`../MAP.md`](../MAP.md) first (one line per
+> module + the invariants), then [`ARCHITECTURE.md`](ARCHITECTURE.md) for
+> boot flow, page anatomy, data flow and the layering rules.
 
 **Maintenance rule:** whenever a function is added, removed, renamed, or
 its behaviour meaningfully changes, update the matching row here (or in
@@ -47,7 +48,7 @@ without a `ScriptRunContext`), but the module itself never calls `st.*`.
 
 **Header-driven de-embedding awareness:** `.s2p` files this app writes carry
 leading `!` comment lines stating what was done to the data — e.g.
-[`s2p/deemb_preext_vce3.5_ib280u.s2p`](s2p/deemb_preext_vce3.5_ib280u.s2p)'s
+[`s2p/deemb_preext_vce3.5_ib280u.s2p`](../s2p/deemb_preext_vce3.5_ib280u.s2p)'s
 header lists `Cpbe/Cpce/Cpbc` (pad caps) and `Lb/Lc/Le` (lead inductances)
 with `Rb=Rc=Re=0.0`, meaning the pad caps + lead inductances have **already
 been removed** from that S-parameter data (only the access resistances were
@@ -388,7 +389,7 @@ Rendered inside the RF extraction page's 🧰 tab.
 
 ### `tools/rf/ssm/` — small-signal-model engine
 
-See [`docs/SSM_INDEX.md`](docs/SSM_INDEX.md) for the
+See [`docs/SSM_INDEX.md`](SSM_INDEX.md) for the
 full per-function catalogue (orchestration, helpers, models, custom
 model builder).
 
