@@ -587,7 +587,7 @@ _POLY_LIMIT = 50_000
 # (psutil reports the *host's* memory, which on Streamlit Cloud is far
 # more than the container may use, so sizing off it alone gets the process
 # SIGKILLed before any `except MemoryError` can run). Inline copies of the
-# probes in tools/SSM/helpers/mem_budget.py; this file imports no repo
+# probes in tools/common/mem_budget.py; this file imports no repo
 # modules so it can run standalone (see the module docstring).
 _CGROUP_FILES = (
     ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),        # v2

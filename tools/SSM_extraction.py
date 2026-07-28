@@ -30,8 +30,9 @@ import streamlit as st
 from tools.SSM.main_ssm_extraction import render_ssm_tab
 from tools.SSM.helpers import (parse_s2p, parse_csv, load_cal,
                                dedupe_upload_names)
-from tools.SSM import handoff
-from tools import i18n
+from tools.common import handoff
+from tools.common import i18n
+from tools.common.paths import EXAMPLES_DIR
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ with st.expander(f"{i18n.t('whats_new')} · v{__version__}", expanded=False):
     ))
 
 # with st.expander(i18n.t("how_it_works"), expanded=False):
-#     from tools.diagrams import pipeline_png
+#     from tools.common.diagrams import pipeline_png
 #     st.image(pipeline_png((
 #         ("Upload",   "DUT s2p / csv"),
 #         ("De-embed", "pads"),
@@ -161,7 +162,7 @@ if dut_files:
     # with the same name would otherwise drop one device silently.
     sources = [(name, f.getvalue()) for f, name in dedupe_upload_names(dut_files)]
 elif use_examples:
-    ex_dir = Path(__file__).resolve().parent.parent / "dummy_data_practice"
+    ex_dir = EXAMPLES_DIR
     sources = [(p.name, p.read_bytes()) for p in sorted(ex_dir.glob("*.s2p"))]
     st.caption(i18n.t("using_example"))
 

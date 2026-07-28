@@ -45,7 +45,7 @@ from .base_ui        import (sync_pad_from_preov, PAD_SPECS, SSMModelTemplate,
                              render_finetune_diagram)
 from ._shared        import _b1, _detect_B, _stack22, has_inter, _load_font
 from . import AbstractSSMModel
-from ...i18n import tr
+from tools.common.i18n import tr
 
 
 _ILLUS_DIR = _Path(__file__).parent / "illus_template"

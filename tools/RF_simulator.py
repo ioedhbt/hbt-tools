@@ -18,8 +18,8 @@ from pathlib import Path
 import numpy as np
 import streamlit as st
 
-from tools import i18n
-from tools.SSM import handoff
+from tools.common import i18n
+from tools.common import handoff
 import plotly.graph_objects as go
 
 from tools.SSM.models.cheng    import (ChengT, ChengPi,

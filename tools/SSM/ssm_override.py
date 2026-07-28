@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch
 
-from ..i18n import tr
+from tools.common.i18n import tr
 from .models.base_ui import PAD_SPECS
 
 

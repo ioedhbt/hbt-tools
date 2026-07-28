@@ -393,8 +393,9 @@ class CustomModel:
 # Persistence — custom_models/ folder (+ caller-side download/upload)
 # ════════════════════════════════════════════════════════════════════════════
 def _repo_root() -> Path:
-    # tools/SSM/custom_model/core.py → parents[3] == repo root
-    return Path(__file__).resolve().parents[3]
+    # One definition, immune to this file's nesting depth.
+    from tools.common.paths import REPO_ROOT
+    return REPO_ROOT
 
 
 def models_dir() -> Path:

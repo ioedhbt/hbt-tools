@@ -22,8 +22,8 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from tools import i18n
-from tools import dc_handoff
+from tools.common import i18n
+from tools.common import handoff
 from tools.SSM.helpers import segmented_radio
 
 
@@ -238,7 +238,7 @@ if page == "B1500A Viewer":
     st.caption(i18n.tool_desc("b1500a"))
 
     # with st.expander(i18n.t("how_it_works"), expanded=False):
-    #     from tools.diagrams import pipeline_png
+    #     from tools.common.diagrams import pipeline_png
     #     st.image(pipeline_png((
     #         ("Upload",  "xlsx"),
     #         ("Select",  "sheet · type"),
@@ -247,7 +247,7 @@ if page == "B1500A Viewer":
     #     ), accent="#1f77b4"), width="stretch")
 
     # --- one-shot consume any files handed off from the Multi-Process page ---
-    _h = dc_handoff.take()
+    _h = handoff.take_dc()
     if _h:
         st.session_state.setdefault("dc_recv_files", [])
         # de-dup by name; append received payload files

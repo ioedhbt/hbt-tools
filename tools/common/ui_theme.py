@@ -20,8 +20,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from tools import i18n
-from tools.SSM.helpers import mem_budget
+from tools.common import i18n
+from tools.common import mem_budget
 
 
 # Streamlit Community Cloud mounts the checkout under /mount/src — same

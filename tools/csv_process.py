@@ -9,8 +9,8 @@ __version__ = "1.0"
 
 import streamlit as st
 
-from tools import i18n
-from tools import dc_handoff
+from tools.common import i18n
+from tools.common import handoff
 from tools.SSM.helpers import unique_sheet_name
 import pandas as pd
 import numpy as np
@@ -500,8 +500,8 @@ if page == "B1500A Smart Batch Tool":
                     "No Family/Gummel/BE/BC files to analyze (TLM/Other are skipped).",
                     "沒有可分析的 Family/Gummel/BE/BC 檔案（TLM/Other 已略過）。"))
             else:
-                dc_handoff.send(payload)
-                st.switch_page(dc_handoff.PAGE_DC_ANALYSIS)
+                handoff.send_dc(payload)
+                st.switch_page(handoff.PAGE_DC_ANALYSIS)
         if skipped:
             st.caption(i18n.tr(
                 f"{skipped} TLM/Other file(s) skipped — not viewer-compatible.",

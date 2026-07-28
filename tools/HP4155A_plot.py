@@ -13,13 +13,13 @@ import io
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from tools.SSM.helpers import xlsx_bytes_to_tsv, copy_button
-from tools import i18n
+from tools.common import i18n
 
 st.title(i18n.title("hp4155a"))
 st.caption(i18n.tool_desc("hp4155a"))
 
 # with st.expander(i18n.t("how_it_works"), expanded=False):
-#     from tools.diagrams import pipeline_png
+#     from tools.common.diagrams import pipeline_png
 #     st.image(pipeline_png((
 #         ("① Assign SMU", "roles"),
 #         ("② Data File",  "upload"),

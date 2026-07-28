@@ -18,7 +18,7 @@ from .helpers          import (open_elem_Y, s_to_y, y_to_z,
                                 single_pole_extrap, segmented_radio,
                                 FT_FMAX_SYMBOLS, FT_FMAX_COLORS)
 from .models.base_ui   import render_smith_chart, ssm_residual
-from ..i18n             import tr
+from tools.common.i18n             import tr
 
 
 # ── Open element mode constants ───────────────────────────────────────────────

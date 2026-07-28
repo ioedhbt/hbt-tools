@@ -28,7 +28,7 @@ from ._shared          import (_b1, _detect_B, _stack22,
                                 _try_download_inter, has_inter, _load_font,
                                 _FONT_CACHE_DIR, tauC_from_alpha_phase)
 from . import AbstractSSMModel
-from ...i18n import tr
+from tools.common.i18n import tr
 
 # Default Rbcx (Ω): user-tunable; not extracted from data.
 _RBCX_DEFAULT = 285e3

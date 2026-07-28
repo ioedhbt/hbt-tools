@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from tools import i18n
+from tools.common import i18n
 from tools.SSM.helpers import (segmented_radio, unique_sheet_name,
                                dedupe_upload_names)
 import plotly.graph_objects as go
@@ -20,7 +20,7 @@ st.title(i18n.title("gummel"))
 st.caption(i18n.tool_desc("gummel"))
 
 # with st.expander(i18n.t("how_it_works"), expanded=False):
-#     from tools.diagrams import pipeline_png
+#     from tools.common.diagrams import pipeline_png
 #     st.image(pipeline_png((
 #         ("Upload",     "sim Gummel CSV"),
 #         ("Overlay",    "vs UIUC ref"),

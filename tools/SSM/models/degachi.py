@@ -50,7 +50,7 @@ from .base_ui           import (smith_scale_controls,
                                  sync_pad_from_preov, PAD_SPECS,
                                  render_tuning_expander, render_smith_with_ftfmax)
 from . import AbstractSSMModel
-from ...i18n import tr
+from tools.common.i18n import tr
 
 
 # ════════════════════════════════════════════════════════════════════════════════

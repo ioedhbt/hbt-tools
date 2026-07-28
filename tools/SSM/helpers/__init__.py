@@ -88,8 +88,8 @@ from .plotly_plots import (
     thinned_indices,
 )
 
-# ── chart_export ─────────────────────────────────────────────────────────────
-from .chart_export import (
+# ── chart_export (moved to tools.common; re-exported) ────────────────────────
+from tools.common.chart_export import (
     fig_to_excel_bytes,
     bode_excel_bytes,
     plotly_with_dl,
@@ -103,8 +103,8 @@ from .chart_export import (
     EXCEL_MIME,
 )
 
-# ── widgets ──────────────────────────────────────────────────────────────────
-from .widgets import (
+# ── widgets (moved to tools.common; re-exported for call-site stability) ─────
+from tools.common.widgets import (
     quickset_buttons,
     apply_pending,
     info_icon_html,

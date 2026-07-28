@@ -18,7 +18,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 
-from ..i18n import tr
+from tools.common.i18n import tr
 from .helpers import (s_to_y, y_to_z, z_to_y,
                       open_elem_Y,
                       parse_s2p_bytes, interpolate_s2f,

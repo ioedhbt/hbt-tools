@@ -4,10 +4,10 @@ import streamlit as st
 # ⚠️ 整個專案的網頁設定，統一在這裡宣告一次
 st.set_page_config(page_title="IOED Lab Portal", layout="wide", page_icon="🔬")
 
-from tools import i18n
+from tools.common import i18n
 from tools.SSM.helpers import segmented_radio
 # All app-wide CSS lives in tools/ui_theme.py — edit there, not here.
-from tools.ui_theme import inject_css, render_ram_badge
+from tools.common.ui_theme import inject_css, render_ram_badge
 
 
 inject_css()

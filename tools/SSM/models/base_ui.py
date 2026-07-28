@@ -20,8 +20,8 @@ from ..helpers import (extended_smith_grid, params_hash, s_to_y,
                         build_Y_pad_batch, build_Z_ser_batch,
                         plotly_with_dl,
                         quickset_buttons, apply_pending, segmented_radio)
-from ..helpers.mem_budget import ram_available_bytes
-from ...i18n import is_zh, tr
+from tools.common.mem_budget import ram_available_bytes
+from tools.common.i18n import is_zh, tr
 
 # Streamlit's "rerun current script" exception — raised when any st.* call
 # happens after the user has clicked a widget that triggers a re-run (e.g.

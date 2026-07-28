@@ -24,7 +24,7 @@ import html as _html
 import numpy as np
 import streamlit as st
 
-from ...i18n import tr
+from .i18n import tr
 
 
 def dedupe_upload_names(files):

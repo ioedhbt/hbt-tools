@@ -48,11 +48,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from tools.common.paths import REPO_ROOT
+
 
 _LEGACY_FILENAME = "fit_cache.json"
 _LEGACY_RENAMED  = "fit_cache.legacy.json"
 _FITS_SUBDIR     = "fits"
-_FALLBACK_DIR    = Path(__file__).resolve().parents[3] / ".fit_cache"
+# REPO_ROOT, not parents[N]: this file has moved package levels
+# before, and a wrong count silently relocates the whole fit cache.
+_FALLBACK_DIR    = REPO_ROOT / ".fit_cache"
 
 
 # ── Cloud / ephemeral-host detection ─────────────────────────────────────────

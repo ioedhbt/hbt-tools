@@ -72,9 +72,14 @@ import sys as _sys
 from pathlib import Path as _Path
 
 # Bootstrap sys.path so `python tools/SSM/agent_api.py ...` works from any
-# cwd — this file lives at <repo_root>/tools/SSM/agent_api.py, so two
-# parents up from its own directory is the repo root.
-_REPO_ROOT = _Path(__file__).resolve().parents[2]
+# cwd.  This is the one place that may NOT use tools.common.paths.REPO_ROOT:
+# `tools` is not importable until after this runs, so the root has to be
+# derived literally here.  Walk up to the directory holding `tools/` rather
+# than counting parents, so it survives this file being moved.
+_REPO_ROOT = next(
+    (parent for parent in _Path(__file__).resolve().parents
+     if (parent / "tools" / "__init__.py").exists()),
+    _Path(__file__).resolve().parents[2])
 if str(_REPO_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_REPO_ROOT))
 

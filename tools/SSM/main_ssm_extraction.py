@@ -21,7 +21,7 @@ import pandas as pd
 import streamlit as st
 
 # ── Internal modules ──────────────────────────────────────────────────────────
-from ..i18n             import tr
+from tools.common.i18n             import tr
 from .helpers          import (strict_freq_check, s_to_y,
                                 step_open, step_short, peel_parasitics,
                                 parse_s2p_bytes, interpolate_s2f,

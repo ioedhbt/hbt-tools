@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from tools import i18n
+from tools.common import i18n
 
 
 st.title(i18n.t("home_title"))

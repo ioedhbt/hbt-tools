@@ -19,7 +19,7 @@ import numpy as np
 import streamlit as st
 import plotly.graph_objects as go
 
-from tools import i18n
+from tools.common import i18n
 from tools.SSM.helpers import (step_open, step_short, peel_parasitics, write_s2p,
                                 deembed_open_short, s_to_y, plotly_with_dl)
 
@@ -430,7 +430,7 @@ def render_batch_deembedding_tab(*, all_data, open_data, short_data,
         width="stretch")
 
     # ── 7. Hand the de-embedded device(s) to the SSM pages ────────────────────
-    from tools.SSM import handoff
+    from tools.common import handoff
     with st.container(border=True):
         st.markdown(f"**🔁 {i18n.tr('Send de-embedded device(s) to an SSM page', '將去嵌入元件傳送至 SSM 頁面')}**")
         names = list(bd_results.keys())

@@ -24,7 +24,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 
-from tools import i18n
+from tools.common import i18n
 
 from tools.SSM.ssm_plots      import render_matplotlib_smith
 from tools.SSM             import handoff
@@ -68,7 +68,7 @@ with st.expander(f"{i18n.t('whats_new')} · v{__version__}", expanded=False):
     ))
 
 # with st.expander(i18n.t("how_it_works"), expanded=False):
-    # from tools.diagrams import pipeline_png
+    # from tools.common.diagrams import pipeline_png
     # # Labels stay English: pipeline_png() rasterizes them with matplotlib
     # # (tools/diagrams.py, not this file) using a Latin-only default font, so
     # # CJK text would render as missing-glyph boxes.
