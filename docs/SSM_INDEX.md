@@ -384,7 +384,7 @@ After the array-utility consolidation, this module is mostly font code. The thre
 | `has_inter()` | True if Inter is installed locally or successfully cached. |
 | `_load_font(size)` | Load a TrueType font with Inter → Arial → fallback chain. |
 
-### [`models/base_ui.py`](../tools/rf/ssm/models/base_ui.py) — Shared Streamlit UI helpers for all models
+### [`models/base_ui.py`](../tools/rf/ssm/models/base_ui/) — Shared Streamlit UI helpers for all models
 
 | Function | Purpose |
 |---|---|
