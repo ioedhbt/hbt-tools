@@ -49,7 +49,7 @@ TOL = 1e-9
 # calculator is the deliberately self-contained standalone app
 # (ARCHITECTURE.md §1).  Both are covered by the path check instead.
 _SKIP_IMPORT_SUFFIXES = (
-    "ebeam.calculator", "ebeam_calculator",
+    "ebeam.calculator", "ebeam_calculator", "ebeam.process_flow",
     "dc.b1500a_plot", "dc.hp4155a_plot",
     "tcad.gummel_analyzer",
     "rf.at_a_glance", "rf.simulator", "rf.extraction",

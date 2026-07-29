@@ -40,6 +40,14 @@ launched standalone by `launch_ebl_calculator.py` with its own `.ebl_venv/`,
 no portal and no password. Do **not** "deduplicate" it against `tools/common/`,
 and do not "deduplicate" the split above back into one file either.
 
+The rule covers the files in the table above — the ones the standalone
+launcher ships. It is **not** a rule about the folder. `process_flow.py` also
+lives here, and imports `tools.common` freely: it is a separate portal page
+that shares the directory only because a tool's folder must equal its i18n
+group key, and `ebeam` is the group the sidebar labels "Process". It is never
+launched standalone. Don't "fix" its imports, and don't let it grow a
+dependency on the EBL files (or vice versa) — they are unrelated tools.
+
 Consequence to be aware of: `i18n._UI["ebl_corner_guide"]` and
 `["ebl_corner_note"]` exist but are unreachable from here. Leave them.
 

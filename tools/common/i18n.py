@@ -115,6 +115,24 @@ TOOLS: dict[str, dict] = {
         "desc_en": "Compute JEOL ELS-7000 chip positions and exposure workflow.",
         "desc_zh": "計算 JEOL ELS-7000 晶片位置與曝光流程。",
     },
+    "process_flow": {
+        "icon": "🧱", "group": "ebeam", "path": "tools/ebeam/process_flow.py",
+        "en": "HBT Process Flow Illustration", "zh": "HBT 製程流程圖解",
+        "desc_en": "Walk through the InP HBT fabrication steps in interactive 3-D.",
+        "desc_zh": "以互動 3D 逐步瀏覽 InP HBT 製程步驟。",
+        "features_en": [
+            "Clickable step rail with animated transitions between steps",
+            "Orbit / zoom the 3-D stack from any angle",
+            "Cross-section toggle for the emitter undercut",
+            "Self-contained single HTML file — downloadable, opens offline",
+        ],
+        "features_zh": [
+            "可點選的步驟列，步驟間具動畫轉場",
+            "可自由旋轉 / 縮放 3D 疊層",
+            "可切換剖面檢視射極底切",
+            "單一自包含 HTML 檔 — 可下載，離線亦能開啟",
+        ],
+    },
     "gummel": {
         "icon": "📈", "group": "tcad", "path": "tools/tcad/gummel_analyzer.py",
         "en": "Gummel Plot Analyzer", "zh": "Gummel 圖分析器",

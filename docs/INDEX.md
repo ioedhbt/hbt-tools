@@ -398,7 +398,10 @@ model builder).
 ## E-beam lithography (`tools/ebeam/`)
 
 Self-contained page (imports no repo modules, so
-`launch_ebl_calculator.py` can run it standalone). Sections: **1** chip
+`launch_ebl_calculator.py` can run it standalone — a rule that covers
+`calculator.py` and the modules below it, not the unrelated
+`process_flow.py` page documented at the end of this section).
+Sections: **1** chip
 position in the e-beam holder, **2** left-computer origin setup,
 **3** GDS mask viewer (streaming GDSII parser with RAM budgets so a big
 mask can't OOM the host — uploads are capped at 300 MB in
@@ -488,6 +491,21 @@ Per-cell area binning & exposure Time Calculator:
 | `_fast_cell_areas_binned` / `_instanced_cell_areas_binned` / `_cell_areas_binned` | Vectorized per-cell mm² pattern area (flat / instanced / dispatch). |
 | `_polygon_clip_per_cell_mm(polys_mm, cells)` | Exact per-cell polygon clipping (accurate small-N path). |
 | `_render_time_calculator(prefix, polys_mm, cells, chip_size_mm, dotmap, ...)` | The per-mode Time Calculator section (dose, ramp, per-cell times, total HH:MM:SS). |
+
+### `tools/ebeam/process_flow.py` — HBT Process Flow Illustration page
+
+A second, unrelated page sharing this folder because a page's folder must
+match its i18n group key (`ebeam` == the sidebar's "Process" group). It is
+portal-only — never launched standalone — so unlike the EBL files above it
+imports `tools.common` normally. All it does is embed
+`docs/process_flow/inp_hbt_process_flow.html`, verbatim, in an iframe; the
+illustration is owned entirely by that HTML file.
+
+| Symbol | Purpose |
+|---|---|
+| `FLOW_HTML` | The illustration's path, off `paths.REPO_ROOT`. Missing file → `st.error` + `st.stop()`, not a traceback. |
+| `_load_flow_html(path_str, mtime)` | Cached read. `mtime` is a cache-key argument only, so editing the HTML refreshes the page without clearing the cache. |
+| `_MIN_HEIGHT` / `_DEFAULT_HEIGHT` | Iframe height slider bounds. The document lays itself out with `height:100vh; min-height:560px`, so inside an iframe the slider resizes the illustration rather than scrolling it — hence the 560 floor. |
 
 ---
 

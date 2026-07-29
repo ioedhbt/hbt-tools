@@ -154,6 +154,15 @@ test / first exposure / second alignment), each with an exposure Time
 Calculator (vectorized per-cell area binning; exact polygon clipping for
 small N).
 
+`tools/ebeam/process_flow.py` also lives in this folder but is a different
+tool: the **HBT Process Flow Illustration** page, which reads
+`docs/process_flow/inp_hbt_process_flow.html` verbatim and drops it into an
+iframe (`st.components.v1.html`), with a height slider and a download button.
+It is here only because a page's folder must match its i18n group key and
+`ebeam` is the group the sidebar labels "Process"; it is never launched
+standalone, so the §1 self-containment rule does not apply to it — it imports
+`tools.common` like every other page.
+
 ## 7. Where to look — task → file
 
 | Task | Start at |
@@ -173,12 +182,16 @@ small N).
 | Rust kernels / dispatch / fallbacks | `tools/rf/ssm/helpers/rust_kernels.py` + `tools/rf/ssm/rust_kernels/` |
 | Fit-cache location or format | `tools/rf/ssm/helpers/fit_cache.py` |
 | GDS parsing / EBL exposure times | `tools/ebeam/calculator.py` (page) + `tools/ebeam/gdsii/`, `plotting.py`, `exposure.py` |
+| The 3-D process-flow illustration itself | `docs/process_flow/inp_hbt_process_flow.html` (the page `tools/ebeam/process_flow.py` only embeds it) |
 | Performance investigation | `dev/profile_*.py`, `tools/rf/ssm/rust_kernels/benchmark.py` |
 
 **Layering rules** (enforced by convention, checked by review):
 
 - `tools/common/` may not import any tool group — that is why it exists.
-- `tools/ebeam/` imports nothing from the repo at all (standalone launcher).
+- The EBL calculator (`tools/ebeam/calculator.py` + `gdsii/`, `plotting.py`,
+  `exposure.py`) imports nothing from the repo at all — that is the set the
+  standalone launcher ships. `tools/ebeam/process_flow.py` is a separate
+  portal page in the same folder and is exempt.
 - Cross-package imports are **absolute**; relatives only within a package.
 - The repo root comes from `tools.common.paths.REPO_ROOT`, never `parents[N]`.
 - `tools/<folder>` matches the `i18n` group key one-for-one.
