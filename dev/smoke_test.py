@@ -5,6 +5,7 @@ smoke_test.py — the repo's regression net.  No test framework required.
 Run it after every structural change.  It answers three questions:
 
   1. Does everything still import?          (catches broken/relative imports)
+  1b. Does every import *statement* resolve? (catches lazy in-function imports)
   2. Do all page paths still resolve?       (catches sidebar/switch_page breakage)
   3. Does every page still render?          (catches page-level import/run errors)
   4. Do independently-derived paths agree?  (catches hand-built path drift)
@@ -108,6 +109,102 @@ def test_imports() -> None:
             check(f"import {rel}", True)          # argparse-on-import scripts
         except Exception as exc:                                  # noqa: BLE001
             check(f"import {rel}", False, f"{type(exc).__name__}: {exc}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  1b. Every import statement resolves — including the lazy ones
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The import sweep above only executes module-level code, and a page render
+# only executes the paths that a default render happens to take.  Neither
+# reaches an import sitting inside a function body — and this repo has ~40 of
+# them, deferred for import cost or to break a cycle.  One of those
+# (`from .chart_export import bode_excel_bytes`, fired only when a user
+# exports a Bode chart) survived the restructure pointing at a module that had
+# moved to tools.common, and every other check passed.
+#
+# So: parse every file, resolve every import target statically, and confirm it
+# exists.  No execution, so it is safe for pages too, and it sees imports at
+# any nesting depth.
+
+def _resolve_relative(modname: str, level: int, node_module: str | None) -> str:
+    """`from ..x import y` inside package P -> the absolute module name."""
+    parts = modname.split(".")
+    base = parts[: len(parts) - (level - 1)] if level > 1 else parts
+    return ".".join(base + ([node_module] if node_module else []))
+
+
+def test_all_imports_resolve() -> None:
+    import ast
+    import importlib.util as _iu
+
+    def modname_for(path: Path) -> str:
+        rel = path.relative_to(ROOT).with_suffix("")
+        parts = list(rel.parts)
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        return ".".join(parts)
+
+    checked: set[tuple[str, str]] = set()
+    files = [p for p in ROOT.joinpath("tools").rglob("*.py")
+             if "__pycache__" not in p.parts]
+    files += [p for p in ROOT.joinpath("dev").rglob("*.py")
+              if "__pycache__" not in p.parts]
+
+    for path in sorted(files):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError as exc:
+            check(f"parse {path.relative_to(ROOT)}", False, str(exc))
+            continue
+
+        this_mod = modname_for(path)
+        pkg = this_mod.rsplit(".", 1)[0] if "." in this_mod else this_mod
+        # For a package __init__, `.` refers to the package itself.
+        pkg_for_rel = this_mod if path.name == "__init__.py" else pkg
+
+        for node in ast.walk(tree):
+            targets: list[str] = []
+            names: list[str] = []
+            if isinstance(node, ast.ImportFrom):
+                if node.level:
+                    targets.append(_resolve_relative(
+                        pkg_for_rel, node.level, node.module))
+                elif node.module:
+                    targets.append(node.module)
+                names = [a.name for a in node.names if a.name != "*"]
+            elif isinstance(node, ast.Import):
+                targets += [a.name for a in node.names]
+
+            for target in targets:
+                if not target.startswith(("tools", "dev")):
+                    continue                       # third-party / stdlib
+                key = (this_mod, target)
+                if key in checked:
+                    continue
+                checked.add(key)
+                try:
+                    found = _iu.find_spec(target) is not None
+                except (ImportError, AttributeError, ValueError):
+                    found = False
+                check(f"{path.relative_to(ROOT)} imports {target}", found,
+                      "module does not exist")
+                if not found or not names:
+                    continue
+
+                # The other half of the same bug class: the module still
+                # exists but the *name* moved out of it — e.g. a helper that
+                # left `helpers/__init__`'s re-export list.  Only checked for
+                # modules already imported by the sweep above, so this never
+                # executes a page.
+                mod = sys.modules.get(target)
+                if mod is None:
+                    continue
+                for nm in names:
+                    ok = hasattr(mod, nm) or _iu.find_spec(
+                        f"{target}.{nm}") is not None
+                    check(f"{path.relative_to(ROOT)}: {target}.{nm}", ok,
+                          "name not found in module")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -459,6 +556,7 @@ def main() -> int:
     args = ap.parse_args()
 
     test_imports()
+    test_all_imports_resolve()
     test_page_paths()
     test_pages_render()
     test_derived_paths_agree()

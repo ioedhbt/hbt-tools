@@ -323,7 +323,7 @@ def make_bode(df, title, xr, yr, sh21, su, smag, color, *,
     fig.update_layout(**bode_layout(f"Bode — {title}", "Gain (dB)", yr, xr_eff))
 
     if return_excel_bytes:
-        from .chart_export import bode_excel_bytes
+        from tools.common.chart_export import bode_excel_bytes
         # Map the internal extrap-curve keys to stable, human-readable column
         # labels for the side-by-side extrapolated block.
         _extrap_labels = {
