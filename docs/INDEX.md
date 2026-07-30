@@ -498,13 +498,17 @@ A second, unrelated page sharing this folder because a page's folder must
 match its i18n group key (`ebeam` == the sidebar's "Process" group). It is
 portal-only — never launched standalone — so unlike the EBL files above it
 imports `tools.common` normally. All it does is embed
-`docs/process_flow/inp_hbt_process_flow.html`, verbatim, in an iframe; the
-illustration is owned entirely by that HTML file.
+`docs/process_flow/inp_hbt_process_flow.html` in an iframe; the illustration is
+owned entirely by that HTML file. The single exception is language: the page
+rewrites one handshake line so the document follows the portal's 🌐 and hides
+its own toggle. Nothing else about the HTML is parsed or touched.
 
 | Symbol | Purpose |
 |---|---|
 | `FLOW_HTML` | The illustration's path, off `paths.REPO_ROOT`. Missing file → `st.error` + `st.stop()`, not a traceback. |
 | `_load_flow_html(path_str, mtime)` | Cached read. `mtime` is a cache-key argument only, so editing the HTML refreshes the page without clearing the cache. |
+| `_HOST_LINE` | The illustration's language handshake, verbatim: `const HOST = {lang:null, embed:false};`. Its default — no language imposed, not embedded — is what lets the downloaded file read `?lang=`/`localStorage` and show its own toggle. |
+| `_hosted(html, lang)` | Substitute `_HOST_LINE` with `lang:'en'\|'zh'` and `embed:true`, or return `None` if that line is missing or duplicated. `None` → `st.warning` + embed the file untouched (two toggles, still working). |
 | `_MIN_HEIGHT` / `_DEFAULT_HEIGHT` | Iframe height slider bounds. The document lays itself out with `height:100vh; min-height:560px`, so inside an iframe the slider resizes the illustration rather than scrolling it — hence the 560 floor. |
 
 ---

@@ -95,7 +95,7 @@ whole page a second time (and call `st.set_page_config` twice).
 | path | layer | does |
 |---|---|---|
 | [calculator.py](tools/ebeam/calculator.py) | page | The page script: header, `set_page_config`, chip-position calc, and `render_page()`. |
-| [process_flow.py](tools/ebeam/process_flow.py) | page | **Not part of the EBL tool** — shares this folder only because folder == group key, and `ebeam` is the group the sidebar labels "Process". Embeds `docs/process_flow/inp_hbt_process_flow.html` in an iframe; imports `tools.common` freely. |
+| [process_flow.py](tools/ebeam/process_flow.py) | page | **Not part of the EBL tool** — shares this folder only because folder == group key, and `ebeam` is the group the sidebar labels "Process". Embeds `docs/process_flow/inp_hbt_process_flow.html` in an iframe; imports `tools.common` freely. Rewrites one line of it — the `HOST` language handshake — so the illustration follows the portal's 🌐 and hides its own toggle (`_HOST_LINE`, `_hosted`). |
 | [gdsii/limits.py](tools/ebeam/gdsii/limits.py) | pure | RAM-budget sizing — `_limits_for`, `_Limits`. Also the shared `tr()` for this subtree. |
 | [gdsii/parser.py](tools/ebeam/gdsii/parser.py) | pure | Single-pass GDSII decoder, `_PolyLayer` / `_InstancedLayer`. |
 | [gdsii/stream.py](tools/ebeam/gdsii/stream.py) | io | Compressed upload store + bounded-memory scan/window path for oversized masks. |
@@ -115,7 +115,7 @@ whole page a second time (and call `st.set_page_config` twice).
 
 | path | does |
 |---|---|
-| [process_flow/inp_hbt_process_flow.html](docs/process_flow/inp_hbt_process_flow.html) | Standalone interactive 3-D InP HBT process flow: clickable steps, animated transitions, orbit camera, cross-section toggle for the emitter undercut. All 10 steps are written and exposed; `STEPS_SHOWN` caps how many the rail shows, for verifying a new step in isolation. Hand-written WebGL in one file, no dependencies — open it in a browser, or view it in the app via [tools/ebeam/process_flow.py](tools/ebeam/process_flow.py), which reads it verbatim and never rewrites it. |
+| [process_flow/inp_hbt_process_flow.html](docs/process_flow/inp_hbt_process_flow.html) | Standalone interactive 3-D InP HBT process flow: clickable steps, animated transitions, orbit camera, cross-section toggle for the emitter undercut. All 10 steps are written and exposed; `STEPS_SHOWN` caps how many the rail shows, for verifying a new step in isolation. Bilingual (English / 繁體中文) off a flat `ZH` table keyed by the English string, so materials, chemistries and the step names fall through untranslated and `window.i18nMissing()` lists any drift; standalone it reads `?lang=`, then `localStorage`, and shows its own toggle. Hand-written WebGL in one file, no dependencies — open it in a browser, or view it in the app via [tools/ebeam/process_flow.py](tools/ebeam/process_flow.py), which rewrites only the `HOST` handshake line. |
 
 ---
 

@@ -15,8 +15,8 @@
   --text:#151a2b; --text-2:#4a5268; --muted:#727b93;
   --accent:#a8700c; --accent-soft:#f4e3bf;
   --viewport:#e8eaf1;
-  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
-  --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono","PingFang TC","Microsoft JhengHei","Noto Sans TC","Heiti TC",monospace;
+  --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Microsoft JhengHei","Noto Sans TC","Heiti TC",sans-serif;
 }
 @media (prefers-color-scheme: dark){
   :root{
@@ -166,6 +166,8 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 }
 .btn[hidden]{display:none}
 .btn:hover{color:var(--text);border-color:var(--muted)}
+.btn:disabled{opacity:.34}
+.btn:disabled:hover{color:var(--text-2);border-color:var(--rule)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--ink);font-weight:600}
 .btn.primary:hover{color:var(--ink);filter:brightness(1.08)}
 .btn.on{border-color:var(--accent);color:var(--accent)}
@@ -232,15 +234,16 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 <div class="app">
   <header class="masthead">
-    <h1>InP HBT Process Flow</h1>
-    <span class="sub">Interactive process flow</span>
+    <h1 data-i18n>InP HBT Process Flow</h1>
+    <span class="sub" data-i18n>Interactive process flow</span>
     <span class="spacer"></span>
     <span class="chip" id="zoomchip">device view</span>
-    <button class="btn" id="themebtn" title="Toggle light / dark">◐ Theme</button>
+    <button class="btn" id="langbtn" data-i18n-title title="Switch language">中文</button>
+    <button class="btn" id="themebtn" data-i18n data-i18n-title title="Toggle light / dark">◐ Theme</button>
   </header>
 
-  <nav class="rail" aria-label="Process steps">
-    <h2>Sequence</h2>
+  <nav class="rail" data-i18n-aria aria-label="Process steps">
+    <h2 data-i18n>Sequence</h2>
     <ol class="flow" id="flow"></ol>
     <p class="railnote" id="railnote"></p>
   </nav>
@@ -255,15 +258,15 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       <div class="stagetxt" id="stagetxt"></div>
     </div>
     <div class="transport">
-      <button class="btn primary" id="playall">▶ From start</button>
-      <button class="btn" id="playhere">▶ From here</button>
+      <button class="btn primary" id="playall" data-i18n>▶ From start</button>
+      <button class="btn" id="playhere" data-i18n>▶ From here</button>
       <button class="btn" id="playpause">▶ Play</button>
       <span style="flex:1"></span>
-      <button class="btn" id="focuspost" hidden>Focus post</button>
-      <button class="btn" id="focusbridge" hidden>Focus airbridge</button>
-      <button class="btn" id="xsec">Cross-section</button>
+      <button class="btn" id="focuspost" data-i18n hidden>Focus post</button>
+      <button class="btn" id="focusbridge" data-i18n hidden>Focus airbridge</button>
+      <button class="btn" id="xsec" data-i18n>Cross-section</button>
       <button class="btn" id="speed">1.0×</button>
-      <button class="btn" id="resetview">Reset view</button>
+      <button class="btn" id="resetview" data-i18n>Reset view</button>
     </div>
   </main>
 
@@ -272,9 +275,9 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     <h3 id="i-title">Wafer cut</h3>
     <p id="i-body"></p>
     <dl class="facts" id="i-facts"></dl>
-    <h4>Epitaxial stack</h4>
+    <h4 data-i18n>Epitaxial stack</h4>
     <table class="stack" id="i-stack">
-      <thead><tr><th>#</th><th>Layer</th><th class="r">nm</th><th class="r">type</th></tr></thead>
+      <thead><tr><th>#</th><th data-i18n>Layer</th><th class="r">nm</th><th class="r" data-i18n>type</th></tr></thead>
       <tbody></tbody>
     </table>
   </aside>
@@ -298,6 +301,246 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
  * ======================================================================== */
 
 /* ---------------------------------------------------------------------------
+ * 0.  Language
+ *
+ * English is the source of truth: every string is written in English where it
+ * belongs and passed through TR() on its way to the DOM or the HUD.  ZH holds
+ * only the strings that have a Traditional-Chinese form, so anything missing
+ * falls straight through — which is what materials, chemical formulas, crystal
+ * directions, units and the ten step names all want.  Edit an English string
+ * and its translation drops out rather than breaking; window.i18nMissing()
+ * lists everything that has drifted.
+ *
+ * HOST is the one line the portal rewrites.  tools/ebeam/process_flow.py
+ * substitutes the active Streamlit language and sets embed, which hides this
+ * document's own toggle so there is never more than one language control.
+ * ------------------------------------------------------------------------ */
+const HOST = {lang:null, embed:false};
+
+const ZH = {
+  'InP HBT Process Flow': 'InP HBT 製程流程',
+  'Interactive process flow': '互動式製程流程',
+  '◐ Theme': '◐ 主題',
+  'Toggle light / dark': '切換亮 / 暗色',
+  'Switch language': '切換語言',
+  'Sequence': '製程順序',
+  'Process steps': '製程步驟',
+  'device view': '元件視角',
+  'wafer view': '晶圓視角',
+  'This illustration needs WebGL.': '此圖解需要瀏覽器支援 WebGL。',
+  '▶ From start': '▶ 從頭播放',
+  '▶ From here': '▶ 從此播放',
+  '▶ Play': '▶ 播放',
+  '❚❚ Pause': '❚❚ 暫停',
+  'Focus post': '聚焦支柱',
+  'Focus airbridge': '聚焦空氣橋',
+  'Cross-section': '剖面視圖',
+  'Reset view': '重設視角',
+  'start ▸': '開始 ▸',
+  '▸ animate': '▸ 播放動畫',
+  'Play step {n}': '播放第 {n} 步',
+  'Show state after step {n}': '顯示第 {n} 步完成後的狀態',
+  'Step {n} of {t}': '第 {n} 步 / 共 {t} 步',
+  'Steps {a}–{b} ({name} onward) are hidden while these are verified.':
+    '第 {a}–{b} 步（{name} 之後）在驗證完成前先隱藏。',
+  'Epitaxial stack': '磊晶結構',
+  'Layer': '層',
+  'type': '型別',
+  'Substrate': '基板',
+  'drag to orbit': '拖曳旋轉',
+  'scroll to zoom in/out': '滾輪縮放',
+  'primary flat': '主平邊',
+  'secondary flat': '副平邊',
+  '12 × 12 mm² die': '12 × 12 mm² 晶粒',
+  'B · port 1': 'B · 埠 1',
+  'C · port 2': 'C · 埠 2',
+  'EMITTER WRITE': '射極曝寫',
+  'BASE WRITE': '基極曝寫',
+  '2.3 µm slot · 0.8 µm bridge': '2.3 µm 開口 · 0.8 µm 微橋',
+  'Etch stop': '蝕刻停止層',
+  'Sub-collector': '次集極',
+  'Collector': '集極',
+  'Base': '基極',
+  'Emitter': '射極',
+  'Emitter cap': '射極覆蓋層',
+  '76 mm (3 inch) S.I. InP — primary flat front, secondary flat +90° right':
+    '76 mm（3 吋）半絕緣 InP — 主平邊朝前，副平邊在右側 +90°',
+  'Scribe lanes on a 12 mm pitch': '以 12 mm 間距劃出切割道',
+  'Lift one 12 × 12 mm² die out of the wafer': '自晶圓取出一顆 12 × 12 mm² 晶粒',
+  'Wafer': '晶圓',
+  '3" S.I. InP': '3" 半絕緣 InP',
+  'Flats': '平邊',
+  'primary front · secondary +90°': '主平邊朝前 · 副平邊 +90°',
+  'Die': '晶粒',
+  'Epi total': '磊晶總厚',
+  '747.5 nm / 12 layers': '747.5 nm / 12 層',
+  'A semi-insulating InP wafer arrives with the full HBT epitaxy, 747.5 nm. It is scribed on a 12 mm pitch and cleaved into 12 × 12 mm² dies.':
+    '半絕緣 InP 晶圓出廠時已長好完整 HBT 磊晶，共 747.5 nm。以 12 mm 間距劃線後裂片成 12 × 12 mm² 晶粒。',
+  'Zoom in on one device: the emitter stripe and a post at each end': '拉近看單一元件：射極條紋與兩端各一支柱',
+  'Spin the tri-layer resist: thick lift-off layer + two imaging layers': '旋塗三層光阻：厚剝離層加兩層成像層',
+  'E-beam writes the stripe, then a square at each post': '電子束先曝寫條紋，再曝寫兩端支柱方塊',
+  'Develop — the bottom opening is wider than the top': '顯影 — 底部開口比頂部寬',
+  'E-gun evaporation: Thick emitter metal': '電子槍蒸鍍：厚射極金屬',
+  'Lift-off removes the resist and the overburden': '剝離去除光阻與其上多餘金屬',
+  'Exposure': '曝光',
+  'e-beam, tri-layer resist': '電子束、三層光阻',
+  'Thick metals defines the emitter: a 350 nm × 7 µm stripe with a post metal at each end. The stripe comes out a trapezoid, wider at the foot than at the top.':
+    '厚金屬定義射極：一道 350 nm × 7 µm 的條紋，兩端各接一塊支柱金屬。條紋斷面呈梯形，底寬頂窄。',
+  'Spin a thick photoresist over everything': '全面旋塗厚光阻',
+  'Optical exposure — the mask is chrome only over the two posts': '光學曝光 — 光罩只在兩支柱上有鉻',
+  'Develop: resist survives on the posts, corners rounded by the optics':
+    '顯影：光阻只留在支柱上，轉角被光學系統圓化',
+  'C₆H₈O₇:H₂O₂ takes the InGaAs cap, self-aligned to the metal':
+    'C₆H₈O₇:H₂O₂ 蝕去 InGaAs 覆蓋層，與金屬自對準',
+  'HCl:H₃PO₄ takes the InP and AlInP, undercutting as it goes':
+    'HCl:H₃PO₄ 蝕去 InP 與 AlInP，並同時側向內縮',
+  'Strip. Across the stripe the mesa undercuts; along it the sidewall flares':
+    '去膜。橫過條紋方向台面內縮；沿條紋方向側壁外擴',
+  'Mask': '光罩',
+  'post squares only': '僅兩支柱方塊',
+  'The emitter metal acts as its own mask. Citric takes the InGaAs cap, then HCl:H₃PO₄ takes the InP and AlInP to the base. HCl is anisotropic, so the mesa undercuts across the stripe and flares along it.':
+    '射極金屬本身就是蝕刻遮罩。檸檬酸先蝕去 InGaAs 覆蓋層，HCl:H₃PO₄ 再蝕去 InP 與 AlInP 直到基極。HCl 為非等向性，因此台面橫向內縮、縱向外擴。',
+  'Spin the tri-layer resist again': '再次旋塗三層光阻',
+  'E-beam writes the base level: a wider slot and larger squares': '電子束曝寫基極層：較寬的開口與較大的方塊',
+  'Develop — the bottom layer undercuts': '顯影 — 底層形成倒錐側壁',
+  'Evaporate: a ring on the base, the microbridge, and full cover over each post':
+    '蒸鍍：基極上一圈環、微橋，以及覆滿兩支柱',
+  'Lift-off. The ring stops short of the emitter — the undercut breaks the film':
+    '剝離。環形止於射極之前 — 側向內縮處金屬自然斷開',
+  'Written by': '曝寫方式',
+  'Microbridge': '微橋',
+  '800 nm width': '寬 800 nm',
+  'Thin base contact lands as a closed ring around the emitter, with an 800 nm microbridge running out to the base post. The InP undercut breaks the film at the emitter, so base and emitter metal touch only over the posts.':
+    '薄基極接觸金屬沉積成環繞射極的閉合環，並以 800 nm 微橋延伸至基極支柱。InP 的側向內縮使金屬在射極處斷開，因此基極與射極金屬僅在支柱上方相接。',
+  'Thick resist, then flood UV through the mesa photomask': '厚光阻，再透過台面光罩全面 UV 曝光',
+  'Develop: the device cover and a filleted square over each post': '顯影：留下元件覆蓋區與兩支柱上的圓角方塊',
+  'C₆H₈O₇:H₂O₂ takes the GaAsSb base': 'C₆H₈O₇:H₂O₂ 蝕去 GaAsSb 基極',
+  'HCl:H₃PO₄ takes the InP, undercutting again, and stops on the InGaAs':
+    'HCl:H₃PO₄ 蝕去 InP，再次側向內縮，並停在 InGaAs 上',
+  'Strip — a shadowed ridge still carries the microbridge': '去膜 — 陰影下留存的脊部仍支撐著微橋',
+  'Stop layer': '停止層',
+  'L3 InGaAs sub-collector': 'L3 InGaAs 次集極',
+  'Citric takes the GaAsSb base and HCl:H₃PO₄ the collector InP, stopping on the L3 sub-collector.':
+    '檸檬酸蝕去 GaAsSb 基極，HCl:H₃PO₄ 蝕去集極 InP，停在 L3 次集極上。',
+  'Two resist layers, then UV through the collector photomask': '兩層光阻，再透過集極光罩 UV 曝光',
+  'Develop the top layer — it now carries the pattern': '顯影上層 — 圖案已轉移至此',
+  'DUV flood, top layer as its own mask; the bottom clears wider': '深紫外全面曝光，以上層自身為遮罩；下層開得更寬',
+  'Evaporate metal onto the L3 InGaAs sub-collector': '將金屬蒸鍍在 L3 InGaAs 次集極上',
+  'Lift-off on the undercut': '利用倒錐側壁完成剝離',
+  'Contacts': '接觸層',
+  'Thick collector metal goes down on the L3 InGaAs and swallows the far post whole.':
+    '厚集極金屬沉積在 L3 InGaAs 上，並將遠端支柱整個包住。',
+  'Resist, then UV through the isolation mask': '上光阻，再透過隔離光罩 UV 曝光',
+  'Develop: two separate islands, nothing under the bridge': '顯影：留下兩塊分離的島，橋下不留光阻',
+  'Citric on L3, run long — this is what releases the airbridge': '以檸檬酸長時間蝕刻 L3 — 空氣橋就是這樣被釋放的',
+  'HCl:H₃PO₄ removes the L2 sub-collector': 'HCl:H₃PO₄ 蝕去 L2 次集極',
+  'Citric removes the L1 etch stop, down to the S.I. substrate': '檸檬酸蝕去 L1 蝕刻停止層，直達半絕緣基板',
+  'Strip — each transistor stands on its own island': '去膜 — 每顆電晶體各自立於一座島上',
+  'C₆H₈O₇:H₂O₂ — extended': '檸檬酸 — 長時間',
+  'C₆H₈O₇:H₂O₂ — etch stop': '檸檬酸 — 蝕刻停止層',
+  'Stops on': '停在',
+  'S.I. InP substrate': '半絕緣 InP 基板',
+  'Also': '附帶效果',
+  'releases the airbridge': '釋放空氣橋',
+  'The field is etched to the semi-insulating substrate, isolating devices from each other. The extended etching time also eats the base layer under the microbridge until the metal is spanning open air, creating an airbridge.':
+    '將場區蝕刻至半絕緣基板，使各元件彼此隔離。延長蝕刻時間同時會吃掉微橋下方的磊晶層，直到金屬懸空跨越，形成空氣橋。',
+  'Spin on: the liquid wets the topography and follows it': '旋塗：液體潤濕表面起伏並隨之覆蓋',
+  'Slow cure ramp — it reflows and the humps come down': '緩慢升溫固化 — 材料回流，隆起被壓平',
+  'Crosslinked and planar, 2.2 µm above the substrate': '交聯完成且平坦，位於基板上方 2.2 µm',
+  'As spun': '旋塗後',
+  'follows the contour': '順著表面起伏',
+  'After cure': '固化後',
+  '2.2 µm, planar': '2.2 µm，平坦',
+  'Role': '作用',
+  'Planar dielectric, via-free': '平坦化介電層，免導通孔',
+  'BCB spins on as a liquid and drapes over the topography, then reflows flat during the slow cure.':
+    'BCB 以液態旋塗並披覆表面起伏，在緩慢固化過程中回流成平面。',
+  'Blanket RIE thins the whole film': '全面反應離子蝕刻，整層減薄',
+  'The two posts and the emitter break through': '兩支柱與射極先後露出',
+  'Etch stops at 1 µm — only those three metals are exposed': '蝕刻停在 1 µm — 只有這三處金屬露出',
+  'Etch-back to': '回蝕至',
+  'Exposes': '露出',
+  'emitter + both post metals': '射極與兩支柱金屬',
+  'Everything else': '其餘部分',
+  'thinned, still covered': '已減薄，仍被覆蓋',
+  'Chemistry': '蝕刻氣體',
+  'A blanket RIE thins the BCB, exposing only the three tallest metals: the emitter and both post caps.':
+    '全面反應離子蝕刻將 BCB 減薄，只露出最高的三處金屬：射極與兩支柱頂蓋。',
+  'Two resist layers, then UV through the M1 photomask': '兩層光阻，再透過 M1 光罩 UV 曝光',
+  'Develop the top layer': '顯影上層',
+  'DUV flood — the bottom clears wider and undercuts': '深紫外全面曝光 — 下層開得更寬並形成倒錐',
+  'Evaporate thick gold': '蒸鍍厚金',
+  'Lift-off — the GSG launch is finished': '剝離 — GSG 饋入結構完成',
+  'Ground': '接地',
+  'bridges over the emitter': '跨越射極上方',
+  'Port 1 · 2': '埠 1 · 2',
+  'base post · collector post': '基極支柱 · 集極支柱',
+  'Vias': '導通孔',
+  'via-free': '免導通孔',
+  'Thick gold forms the GSG launch. Ground on the emitter, one signal finger onto each post. The etch-back exposes the three metals for a via-free process.':
+    '厚金形成 GSG 饋入結構：接地跨在射極上，兩支柱各接一根訊號指。回蝕已露出這三處金屬，因此整個製程免導通孔。',
+};
+
+let LANG = (function(){
+  if (HOST.lang) return HOST.lang === 'zh' ? 'zh' : 'en';
+  try {
+    const q = new URLSearchParams(location.search).get('lang');
+    if (q) return q.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+    const stored = localStorage.getItem('hbtflow.lang');
+    if (stored === 'zh' || stored === 'en') return stored;
+  } catch (e) { /* no query string, or storage blocked: English */ }
+  return 'en';
+})();
+
+const MISSING = new Set();
+function TR(s){
+  if (LANG !== 'zh' || !s) return s;
+  const v = ZH[s];
+  if (typeof v !== 'string'){ MISSING.add(s); return s; }   // also blocks Object.prototype
+  return v;
+}
+window.i18nMissing = () => Array.from(MISSING).sort();
+/** Fill {name} placeholders after translation, so word order can move. */
+const TRF = (s, m) => s.replace(/\{(\w+)\}/g, (all, k) => m[k]);
+
+function setLang(v){
+  LANG = v === 'zh' ? 'zh' : 'en';
+  // when the portal owns the language, remembering our own would fight it
+  if (!HOST.embed){ try { localStorage.setItem('hbtflow.lang', LANG); } catch (e) {} }
+  applyLang();
+}
+
+/** Re-translate the static markup.  The English in the file is the key. */
+function applyStatic(){
+  for (const n of document.querySelectorAll('[data-i18n]')){
+    if (n.dataset.en === undefined) n.dataset.en = n.textContent;
+    n.textContent = TR(n.dataset.en);
+  }
+  for (const n of document.querySelectorAll('[data-i18n-title]')){
+    if (n.dataset.enTitle === undefined) n.dataset.enTitle = n.title;
+    n.title = TR(n.dataset.enTitle);
+  }
+  for (const n of document.querySelectorAll('[data-i18n-aria]')){
+    const a = n.getAttribute('aria-label');
+    if (n.dataset.enAria === undefined) n.dataset.enAria = a;
+    n.setAttribute('aria-label', TR(n.dataset.enAria));
+  }
+  document.title = TR('InP HBT Process Flow');
+}
+
+/** Everything that holds text, rebuilt in the active language. */
+function applyLang(){
+  document.documentElement.lang = LANG === 'zh' ? 'zh-Hant-TW' : 'en';
+  applyStatic();
+  langBtn.textContent = LANG === 'zh' ? 'EN' : '\u4e2d\u6587';
+  buildRail();
+  railNote();
+  fillStack();
+  syncPanel();
+  lastStage = ''; lastBadge = '';        // force the stage line and badges out
+}
+
+/* ---------------------------------------------------------------------------
  * 1.  Geometry constants
  *
  * The device is a long strip: the 350 nm × 7 µm emitter stripe in the middle
@@ -315,11 +558,11 @@ const fp = (x0, x1, z0, z1) => ({x0, x1, z0, z1: Math.min(z1, zF())});
 const SUBTOP = 0;            // top of the S.I. substrate = origin of the epi
 const SUBBOT = -700;         // how much substrate we bother to draw
 
-// Wafer, true scale: 100 mm diameter = 5e7 nm radius.
-const WR   = 50e6;                       // wafer radius
+// Wafer, true scale: 3 inch = 76 mm diameter = 3.81e7 nm radius.
+const WR   = 38.1e6;                     // wafer radius
 const WTH  = 1.75e6;                     // 350 um substrate, x5 so the plate reads
-const WPRI = 47.2853e6;                  // primary-flat chord offset (32.5 mm)
-const WSEC = 49.1833e6;                  // secondary-flat chord offset (18 mm)
+const WPRI = 36.4775e6;                  // primary-flat chord offset (22 mm flat)
+const WSEC = 37.7009e6;                  // secondary-flat chord offset (11 mm flat)
 const DIE  = 12e6;                       // 12 x 12 mm die
 const WGRID = 20000;                     // scribe lanes float just above the surface
 
@@ -387,9 +630,14 @@ const BR_UC     = 120;                   // and how far it creeps under the brid
 // On the two edges that face across that gap the mask stops flush with the
 // base-collector mesa, so no shelf of semiconductor is left under the bridge;
 // the pad island is just the mesa post.
-const ISO_HW  = 6800, ISO_Z0 = -BC_ZH, ISO_Z1 = 14200, ISO_R = 700;
-const ISOP_HW = BC_POST, ISOP_Z0 = -POST_Z - BC_POST, ISOP_Z1 = -POST_Z + BC_POST;
+// The mesa above is undercut across and flared along, so its FOOT — what the
+// island has to line up with — is BC_UC narrower in x and BC_UC longer in z
+// than the mask that printed it.
+const ISO_HW  = 6800, ISO_Z0 = -(BC_ZH + BC_UC), ISO_Z1 = 14200, ISO_R = 700;
+const ISOP_HW = BC_POST - BC_UC;
+const ISOP_Z0 = -POST_Z - (BC_POST + BC_UC), ISOP_Z1 = -POST_Z + (BC_POST + BC_UC);
 const ISOP_R  = BC_FILLET;
+const ISO_UC  = 110;                     // HCl undercut per side through L2
 
 // Dielectric + pads
 // BCB.  It goes on as a liquid that wets the topography, and the slow cure
@@ -463,7 +711,7 @@ const EPI = [
   {i:9,  name:'Emitter',       mat:'InP',             A:100,  type:'N',  col:C.inp_n,   grp:'em'},
   {i:10, name:'Emitter',       mat:'InP',             A:700,  type:'N+', col:C.inp_np,  grp:'em'},
   {i:11, name:'Emitter cap',   mat:'In₀.₅₃Ga₀.₄₇As', A:100,  type:'N+', col:C.igaas,   grp:'em'},
-  {i:12, name:'Emitter cap',   mat:'InₓGa₁₋ₓAs 0.53→1', A:350, type:'N+', col:C.igaas_g, grp:'em'},
+  {i:12, name:'Emitter cap',   mat:'InₓGa₁₋ₓAs 0.53→1', A:350, type:'N+', col:C.igaas, grp:'em'},
 ];
 (function stackUp(){
   let y = SUBTOP;
@@ -525,7 +773,8 @@ function rnd(i){ const s = Math.sin(i*127.1+311.7)*43758.5453; return s - Math.f
 const glCanvas = document.getElementById('gl');
 const gl = glCanvas.getContext('webgl', {antialias:true, alpha:false, depth:true});
 if (!gl) { document.getElementById('view').innerHTML =
-  '<p style="padding:24px;color:var(--muted)">This illustration needs WebGL.</p>'; }
+  '<p style="padding:24px;color:var(--muted)">'
+  + TR('This illustration needs WebGL.') + '</p>'; }
 
 const VS = `
 attribute vec3 aPos; attribute vec3 aNrm; attribute vec4 aCol;
@@ -791,6 +1040,7 @@ function prism(poly, y0, y1, col, o){
 
 /** Camera-facing additive streak — e-beam, evaporation flux, plasma. */
 let camRight = [1,0,0], camUp = [0,1,0], camFwd = [0,0,-1];
+let camFit = null, camTgt = null, camEl = 0, camAz = 0;   // the eased camera
 /** Effect streaks are drawn to read the same whatever the camera is framing. */
 const fxScale = () => Math.max(0.22, Math.min(3, viewFit / 13800));
 function streak(x, yTop, yBot, z, hw, col, a, mode){
@@ -928,6 +1178,8 @@ function ringBox(inner, outer, y0, y1, col, o){
 const SEAM = 0;              // abut exactly: an overlap would fight, a gap would show
 const SINK = 3;              // a film starts this far inside what it sits on, so
                              // its underside is never coplanar with that surface
+const LAP  = 60;             // and one piece of a casting runs this far under the
+                             // next, so no two of its walls land on each other
 const sq = (cz, h) => ({x0:-h, x1:h, z0:cz-h, z1:cz+h});
 const sqPoly = (cz, h) => [[-h, cz-h], [h, cz-h], [h, cz+h], [-h, cz+h]];
 const blockPoly = () => [[-BX,-BZ], [BX,-BZ], [BX,BZ], [-BX,BZ]];
@@ -1017,7 +1269,8 @@ function cmPieces(){
                  [-hw, CM_Z0+r], ...arc(-(hw-r), CM_Z0+r, 180, 270),
                  [-CM_SLOT, CM_Z0], [-CM_SLOT, zA], [0, CM_APEX], [CM_SLOT, zA]];
   // the post mesa is not part of the field film; the post skin covers it
-  return [keyhole(outer, [sqPoly(POST_Z, BC_POST - SINK)])];
+  const foot = BC_POST - BC_UC - LAP;                 // in under the mesa foot
+  return [keyhole(outer, [roundRect(POST_Z, foot, foot, BC_FILLET)])];
 }
 function cmFilm(y0, y1, col, o){
   o = Object.assign({}, o, {edges:false});
@@ -1133,6 +1386,7 @@ function blankP(){
   return {
     emEtchY: EPI_TOP,  emUC: 0,        // emitter etch front / undercut
     bcEtchY: Y_BASE_TOP, bcUC: 0,      // base–collector etch front / undercut
+    isoUC: 0,                          // lateral undercut through the L2 InP
     bcRidgeTop: Y_BASE_TOP,            // top of the ridge left under the microbridge
     isoEtchY: Y_SC_TOP,                // isolation etch front
     emH: 0, emCap: 0,                  // emitter metal, base metal over it
@@ -1151,7 +1405,7 @@ function stepEndP(k){
   if (k >= 4){ P.bmH = BM_H; P.emCap = BM_H; }
   if (k >= 5){ P.bcEtchY = Y_SC_TOP; P.bcUC = 1; }
   if (k >= 6){ P.cmH = CM_H; }
-  if (k >= 7){ P.isoEtchY = SUBTOP; P.bcRidgeTop = Y_SC_TOP; }
+  if (k >= 7){ P.isoEtchY = SUBTOP; P.bcRidgeTop = Y_SC_TOP; P.isoUC = 1; }
   if (k >= 8){ P.bcbTop = BCB_TOP;  P.bcbCure = 1; }
   if (k >= 9){ P.bcbTop = BCB_BACK; P.bcbCure = 1; }
   if (k >= 10){ P.padH = M1_TOP - BCB_BACK; }
@@ -1374,9 +1628,16 @@ function latentIn(shapes, yTop, a){
 }
 
 /** The two islands the isolation mask prints, corners filleted by the optics. */
-function isoIslands(){
-  return [roundRect((ISO_Z0+ISO_Z1)/2,   ISO_HW,  (ISO_Z1-ISO_Z0)/2,   ISO_R),
-          roundRect((ISOP_Z0+ISOP_Z1)/2, ISOP_HW, (ISOP_Z1-ISOP_Z0)/2, ISOP_R)];
+function isoIslands(a){
+  a = a || 0;
+  return [roundRect((ISO_Z0+ISO_Z1)/2,   ISO_HW - a,  (ISO_Z1-ISO_Z0)/2 + a,   ISO_R),
+          roundRect((ISOP_Z0+ISOP_Z1)/2, ISOP_HW - a, (ISOP_Z1-ISOP_Z0)/2 + a, ISOP_R)];
+}
+/** L3 and L1 come off in citric and stay straight; the L2 InP does not. */
+function isoInset(y, P){
+  const L2 = EPI.find(l => l.i === 2);
+  if (!P.isoUC || y >= L2.y1) return 0;
+  return ISO_UC * P.isoUC * clamp01((L2.y1 - y) / (L2.y1 - L2.y0));
 }
 /** The sub-collector and the etch stop, cut back to those two islands. */
 function drawIsoLayer(L, P, alpha){
@@ -1385,7 +1646,9 @@ function drawIsoLayer(L, P, alpha){
   if (etchY >= L.y1 - 1e-6){ box(FP_FULL(), L.y0, L.y1, L.col, o); return; }
   if (etchY > L.y0 + 1e-6) box(FP_FULL(), L.y0, etchY, L.col, o);
   const y0 = Math.max(L.y0, Math.min(etchY, L.y1));
-  for (const p of isoIslands()) prismZ(p, y0, L.y1, L.col, o);
+  const a = isoInset(y0, P), b = isoInset(L.y1, P);
+  const B = isoIslands(a), T = isoIslands(b);
+  for (let i=0;i<B.length;i++) prism2Z(B[i], T[i], y0, L.y1, L.col, o);
 }
 
 /** The emitter stack: stripe plus a pedestal under each post, both tapered. */
@@ -1431,18 +1694,21 @@ function drawDevice(P){
     if (!CUTAWAY){
       // the far post is swallowed whole: up the mesa, over it, over the stack
       const cz = POST_Z, m = MESA_HW + g, p = POST_HW + g, pt = POST_HWT + g;
-      polyRing(roundRect(cz, BC_POST - SINK, BC_POST - SINK, BC_FILLET),
+      const foot = BC_POST - BC_UC - LAP;
+      // skirt up the mesa, ledge over it, skirt up the pedestal: every piece
+      // runs LAP under the next, so none of its walls ever land on another's
+      polyRing(roundRect(cz, foot, foot, BC_FILLET),
                roundRect(cz, BC_POST+h, BC_POST+h, BC_FILLET+h),
                Y_SC_TOP - SINK, Y_BASE_TOP + BM_H + h, C.metal, o);
-      ringBox(sq(cz, m - SINK), sq(cz, BC_POST + h - SINK),
+      ringBox(sq(cz, m - LAP), sq(cz, BC_POST),
               Y_BASE_TOP+BM_H-SINK, Y_BASE_TOP+BM_H+h, C.metal, o);
-      ringBox(sq(cz, p), sq(cz, m), Y_BASE_TOP+BM_H-SINK, EPI_TOP+BM_H+h, C.metal, o);
+      ringBox(sq(cz, p - LAP), sq(cz, m), Y_BASE_TOP+BM_H-SINK, EPI_TOP+BM_H+h, C.metal, o);
       slab(fp(-p, p, cz-p, cz+p), fp(-pt, pt, cz-pt, cz+pt), EPI_TOP+BM_H-SINK, top, C.metal, o);
       box(fp(-pt, pt, cz-pt, cz+pt), top, top + h, C.metal, o);
     }
     // and the pad the mask also opens on the base post
     const cz = -POST_Z, p = POST_HW + g, pt = POST_HWT + g;
-    ringBox(sq(cz, p), sq(cz, CM_PAD), EPI_TOP+BM_H-SINK, EPI_TOP+BM_H+h, C.metal, o);
+    ringBox(sq(cz, p - LAP), sq(cz, CM_PAD), EPI_TOP+BM_H-SINK, EPI_TOP+BM_H+h, C.metal, o);
     slab(fp(-p, p, cz-p, cz+p), fp(-pt, pt, cz-pt, cz+pt), EPI_TOP+BM_H-SINK, top, C.metal, o);
     box(fp(-pt, pt, cz-pt, cz+pt), top, top + h, C.metal, o);
   }
@@ -1453,9 +1719,10 @@ function drawDevice(P){
     // A closed ring on the base: the slot, less the emitter's own shadow.  In
     // the device region it stays on the base — nothing climbs the emitter
     // here; that only happens over the posts.
-    const shadow = stripePoly(EM_HW - aM + 40, EM_ZH + aM + 40,
-                              {len:END_EM.len + 40, flat:0},
-                              {len:END_EM.len + 40, flat:0});
+    // E-gun metal arrives straight down, so the ring stops exactly on the
+    // vertical shadow of the widest thing above it, the InGaAs cap.  It cannot
+    // reach inside that, and there is no reason for it to stop short either.
+    const shadow = stripePoly(EM_HW, EM_ZH, END_EM, END_EM);
     prismZ(keyhole(bmOuterPoly(), [shadow]), y0, y1, C.metal, {a:A, edges:false});
     // Over each post the metal covers the whole opening: the base around the
     // pedestal, up its flared flanks, over the shoulder, and over the metal.
@@ -1634,12 +1901,14 @@ function drawDevice(P){
     }
   }
   if (F && F.kind === 'flux'){
-    for (let i=0;i<70;i++){
+    // an evaporated flux, drawn thick and gold: this is metal arriving
+    const sc = fxScale(), hw = 95*sc, len = 2300*sc;
+    for (let i=0;i<46;i++){
       const x = (rnd(i)*2-1) * BX * 0.97;
       const z = -BZ + rnd(i+90)*(zF()+BZ);
       const ph = (F.t*1.7 + rnd(i+400)) % 1;
       const yT = lerp(F.y0 + 2400, F.y0 + 260, ph);
-      streak(x, yT, yT - 240, z, 8, F.col || C.flux, 0.30*(1-ph*0.4));
+      streak(x, yT, yT - len, z, hw, C.metal, 0.40*(1-ph*0.35), 'blend');
     }
   }
   if (F && F.kind === 'plasma'){
@@ -1744,29 +2013,23 @@ function waferPoly(){
   return p;
 }
 
-/** The wafer minus the one die, as four convex pieces around the socket. */
+/**
+ * The wafer minus the one die.  This used to be four convex pieces cut at the
+ * socket's four sides, and every cut raised a wall the full width of the wafer:
+ * while the plate is fading out those pairs of coincident transparent walls
+ * read as seams running clean across it.  So the socket is a hole in one
+ * polygon, joined on by a channel, exactly like every pattern at device scale.
+ */
 function waferSocket(){
   if (WAFER_SOCKET) return WAFER_SOCKET;
-  const h = DIE/2, w = waferPoly();
-  // clipPoly keeps fn <= 0, so each test names the half-plane it KEEPS
-  const mid = clipPoly(clipPoly(w, q => -h - q[0]), q => q[0] - h);   // -h <= x <= h
-  WAFER_SOCKET = [
-    clipPoly(w, q => q[0] + h),        // x <= -h   left of the socket
-    clipPoly(w, q => h - q[0]),        // x >= +h   right of it
-    clipPoly(mid, q => q[1] + h),      // z <= -h   behind it
-    clipPoly(mid, q => h - q[1]),      // z >= +h   in front of it
-  ].filter(p => p.length > 2);
+  WAFER_SOCKET = keyhole(waferPoly(), [sqPoly(0, DIE/2)]);
   return WAFER_SOCKET;
 }
 
 function drawWafer(alpha, gridA, dieLift, cutDie){
   if (alpha <= 0.01) return;
   const o = {a:alpha, edges:true, edgeA:0.5*alpha};
-  if (cutDie){
-    for (const piece of waferSocket()) prism(piece, -WTH, 0, C.wafer, o);
-  } else {
-    prism(waferPoly(), -WTH, 0, C.wafer, o);
-  }
+  prism(cutDie ? waferSocket() : waferPoly(), -WTH, 0, C.wafer, o);
   if (gridA > 0.01){
     const c = hex(C.scribe), n = Math.ceil(WR/DIE) + 1;
     for (let i=-n;i<=n+1;i++){
@@ -1790,9 +2053,9 @@ function drawWafer(alpha, gridA, dieLift, cutDie){
  *  buildScene(k, t) renders the transition INTO step k, so buildScene(k,1) is
  *  the resting state at dot k and equals buildScene(k+1, 0).
  * ------------------------------------------------------------------------ */
-const VIEW_WAFER = {fit:5.9e7, target:[0, 2e6, 0],    el:0.86};
+const VIEW_WAFER = {fit:4.5e7, target:[0, 2e6, 0],    el:0.86};
 // the freed die, framed on its own — where step 1 ends and step 2 starts
-const dieView = lift => ({fit:1.16e7, target:[0, lift - WTH/2, 0], el:0.55});
+const dieView = lift => ({fit:1.16e7, target:[0, lift, 0], el:0.55});
 const VIEW_FULL  = {fit:13800, target:[0, 200, 0],    el:0.52, az:0.55};  // whole strip
 const VIEW_PAD   = {fit:34000, target:[0, 900, 0],    el:0.46, az:0.55};  // the whole GSG
 const VIEW_XS    = {fit:1250,  target:[0, 640, -260], el:0.26, az:0.34};  // emitter profile
@@ -1826,12 +2089,11 @@ function blendView(a, b, t){
 const STEPS_SHOWN = 10;      // later steps are hidden while these are verified
 const STEPS = [
 {
-  n:1, title:'Wafer cut', dur:8,
-  stages:[[0.34,'100 mm S.I. InP — primary flat front, secondary flat +90° right'],
-          [0.55,'Epitaxy already grown: 12 layers, 747.5 nm total'],
-          [0.70,'Scribe lanes on a 12 mm pitch'],
+  n:1, title:'Wafer cut', dur:5,
+  stages:[[0.28,'76 mm (3 inch) S.I. InP — primary flat front, secondary flat +90° right'],
+          [0.48,'Scribe lanes on a 12 mm pitch'],
           [1.00,'Lift one 12 × 12 mm² die out of the wafer']],
-  facts:[['Wafer','100 mm ⌀ S.I. InP'],['Flats','primary front · secondary +90°'],
+  facts:[['Wafer','3" S.I. InP'],['Flats','primary front · secondary +90°'],
          ['Die','12 × 12 mm²'],['Epi total','747.5 nm / 12 layers']],
   body:'A semi-insulating InP wafer arrives with the full HBT epitaxy, 747.5 nm. It is scribed on a 12 mm pitch and cleaved into 12 × 12 mm² dies.'
 },
@@ -1898,8 +2160,8 @@ const STEPS = [
           [0.84,'HCl:H₃PO₄ removes the L2 sub-collector'],
           [0.92,'Citric removes the L1 etch stop, down to the S.I. substrate'],
           [1.00,'Strip — each transistor stands on its own island']],
-  facts:[['InGaAs (3)','citric — run long'],['InP (2)','HCl:H₃PO₄'],
-         ['InGaAs (1)','citric — etch stop'],['Stops on','S.I. InP substrate'],
+  facts:[['InGaAs (3)','C₆H₈O₇:H₂O₂ — extended'],['InP (2)','HCl:H₃PO₄'],
+         ['InGaAs (1)','C₆H₈O₇:H₂O₂ — etch stop'],['Stops on','S.I. InP substrate'],
          ['Also','releases the airbridge']],
   body:'The field is etched to the semi-insulating substrate, isolating devices from each other. The extended etching time also eats the base layer under the microbridge until the metal is spanning open air, creating an airbridge.'
 },
@@ -1941,13 +2203,13 @@ function buildScene(k, t){
 
   if (k === 1){
     // wafer -> scribe lanes -> lift one die out of its socket
-    const spin = ease(seg(t,0,0.34));
-    const grid = seg(t,0.60,0.80);
-    const cut  = seg(t,0.70,1.0);
+    const spin = ease(seg(t,0,0.24));
+    const grid = seg(t,0.30,0.46);
+    const cut  = seg(t,0.42,0.86);
     const lift = easeOut(cut)*DIE*2.0;               // clear of the socket it left
     // once it is clear of the socket the camera leaves the wafer behind and
     // closes on the die, which is all the rest of the flow happens on
-    const zoom = ease(seg(t,0.76,1.0));
+    const zoom = ease(seg(t,0.58,1.0));
     blendView(VIEW_WAFER, dieView(lift), zoom);
     autoAzim = lerp(-0.62, DEF_AZ, spin);
     drawWafer(1, grid, lift, cut > 0.004);
@@ -1982,7 +2244,7 @@ function buildScene(k, t){
                   dev:dv, latent: la, pat:PAT_EM,
                   over: EM_H*ev, fade: 1-lo, lift: 1100*lo*lo};
     if (t > 0.32 && t < 0.55) P.fx = {kind:'ebeam', p:wr, y0:RTOP, pat:PAT_EM};
-    else if (ev > 0 && ev < 1) P.fx = {kind:'flux', t:t*6, y0:RTOP, col:C.flux};
+    else if (ev > 0 && ev < 1) P.fx = {kind:'flux', t:t*6, y0:RTOP};
     break;
   }
   case 3: {
@@ -2017,7 +2279,7 @@ function buildScene(k, t){
                   dev:dv, latent: la, pat:PAT_BASE,
                   over: BM_H*ev, fade: 1-lo, lift: 900*lo*lo};
     if (t > 0.26 && t < 0.41) P.fx = {kind:'ebeam', p:wr, y0:RTOP, pat:PAT_BASE};
-    else if (ev > 0 && ev < 1) P.fx = {kind:'flux', t:t*6, y0:RTOP, col:C.flux};
+    else if (ev > 0 && ev < 1) P.fx = {kind:'flux', t:t*6, y0:RTOP};
     break;
   }
   case 5: {
@@ -2056,7 +2318,7 @@ function buildScene(k, t){
     else if (t > 0.44 && t < 0.53)                     // DUV flood, no mask
       P.fx = {kind:'uv', mask:'duv', t:t*6, y0:Y_SC_TOP + T1 + T2};
     else if (ev > 0 && ev < 1)
-      P.fx = {kind:'flux', t:t*6, y0:Y_SC_TOP + T1 + T2 + 500, col:C.flux};
+      P.fx = {kind:'flux', t:t*6, y0:Y_SC_TOP + T1 + T2 + 500};
     break;
   }
   case 7: {
@@ -2071,6 +2333,7 @@ function buildScene(k, t){
     P.isoEtchY = e3 > 0 ? lerp(yL2, SUBTOP, e3)
                : e2 > 0 ? lerp(yL3, yL2, e2)
                         : lerp(Y_SC_TOP, yL3, e1);
+    P.isoUC = ease(seg(t,0.64,0.92));                  // HCl undercuts the L2 InP
     // nothing shields the microbridge, so the long L3 etch is what frees it
     P.bcRidgeTop = lerp(Y_BASE_TOP, Y_SC_TOP, e1);
     if (co > 0)
@@ -2113,7 +2376,7 @@ function buildScene(k, t){
     else if (t > 0.44 && t < 0.53)
       P.fx = {kind:'uv', mask:'duv', t:t*6, y0:BCB_BACK + T1 + T2};
     else if (ev > 0 && ev < 1)
-      P.fx = {kind:'flux', t:t*6, y0:BCB_BACK + T1 + T2 + 600, col:C.flux};
+      P.fx = {kind:'flux', t:t*6, y0:BCB_BACK + T1 + T2 + 600};
     break;
   }}
   drawDevice(P);
@@ -2187,7 +2450,7 @@ function theme(){
   };
   return themeCache;
 }
-const HUD_FONT = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+const HUD_FONT = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang TC","Microsoft JhengHei","Noto Sans TC","Heiti TC", monospace';
 
 function drawFrame(){
   if (!gl) return;
@@ -2195,14 +2458,27 @@ function drawFrame(){
   const bg = TH.bg;
   EDGE = TH.edge; EDGE_A = 0.3;
 
-  const az = (autoAzim !== null && !userTouched) ? autoAzim : azim;
-  const el = (autoElev !== null && !userTouched) ? autoElev : elev;
-  const dist = (viewFit * zoomMul) / Math.tan(0.26);
+  // Every step asks for its own framing, and toggling the cross-section or a
+  // focus button changes it outright.  The camera chases that rather than
+  // cutting to it, which also smooths the deliberate blends in steps 1 and 2.
+  const azT = (autoAzim !== null && !userTouched) ? autoAzim : azim;
+  const elT = (autoElev !== null && !userTouched) ? autoElev : elev;
+  if (camFit === null){
+    camFit = viewFit; camTgt = viewTarget.slice(); camEl = elT; camAz = azT;
+  } else {
+    const k = 0.22;
+    camFit = Math.exp(lerp(Math.log(camFit), Math.log(viewFit), k));
+    for (let i=0;i<3;i++) camTgt[i] = lerp(camTgt[i], viewTarget[i], k);
+    camEl = lerp(camEl, elT, k);
+    camAz = lerp(camAz, azT, k);
+  }
+  const az = camAz, el = camEl;
+  const dist = (camFit * zoomMul) / Math.tan(0.26);
   const ce = Math.cos(el), se = Math.sin(el);
-  eye = [viewTarget[0] + dist*ce*Math.sin(az),
-         viewTarget[1] + dist*se,
-         viewTarget[2] + dist*ce*Math.cos(az)];
-  const Vm = lookAt(eye, viewTarget, [0,1,0]);
+  eye = [camTgt[0] + dist*ce*Math.sin(az),
+         camTgt[1] + dist*se,
+         camTgt[2] + dist*ce*Math.cos(az)];
+  const Vm = lookAt(eye, camTgt, [0,1,0]);
   const Pm = perspective(0.52, W/H, dist*0.02, dist*9);
   viewProj = mul(Pm, Vm);
   camRight = [Math.cos(az), 0, -Math.sin(az)];
@@ -2295,7 +2571,7 @@ function drawHUD(k, t){
   hud.font = HUD_FONT;
 
   // ---- scale bar --------------------------------------------------------
-  const pxPerUnit = (H*0.5) / (viewFit*zoomMul);       // px per nm at the target
+  const pxPerUnit = (H*0.5) / ((camFit || viewFit)*zoomMul);   // px per nm at the target
   const targetPx = 118;
   let len = targetPx / pxPerUnit;                      // in nm
   const pow = Math.pow(10, Math.floor(Math.log10(len)));
@@ -2358,8 +2634,8 @@ function drawHUD(k, t){
   if (k === 10 && t > 0.86){
     hud.globalAlpha = clamp01((t-0.86)/0.1);
     tag([0, M1_TOP, 0],             'E (GND)', 26, -30, 'left');
-    tag([0, M1_TOP, -POST_Z-1800],  'B · port 1', -26, -30, 'right');
-    tag([0, M1_TOP,  POST_Z+1800],  'C · port 2',  26, -30, 'left');
+    tag([0, M1_TOP, -POST_Z-1800],  TR('B · port 1'), -26, -30, 'right');
+    tag([0, M1_TOP,  POST_Z+1800],  TR('C · port 2'),  26, -30, 'left');
     hud.globalAlpha = 1;
   }
 
@@ -2368,13 +2644,13 @@ function drawHUD(k, t){
     const fa = waferHUD.flats === undefined ? 1 : waferHUD.flats;
     if (fa > 0.01){                        // they go as the camera leaves the wafer
       hud.globalAlpha = waferHUD.a * fa;
-      tag([0, WGRID, WPRI],   'primary flat',   -26,  40, 'right');
-      tag([WSEC, WGRID, 0],   'secondary flat',  46,  22, 'left');
-      tag([-WR*0.80, WGRID, -WR*0.60], '⌀ 100 mm', -30, -22, 'right');
+      tag([0, WGRID, WPRI],   TR('primary flat'),   -26,  40, 'right');
+      tag([WSEC, WGRID, 0],   TR('secondary flat'),  46,  22, 'left');
+      tag([-WR*0.80, WGRID, -WR*0.60], '⌀ 76 mm', -30, -22, 'right');
     }
     hud.globalAlpha = waferHUD.a;
     if (waferHUD.cut > 0.05)
-      tag([DIE/2, waferHUD.lift, -DIE/2], '12 × 12 mm² die', 40, -30, 'left');
+      tag([DIE/2, waferHUD.lift, -DIE/2], TR('12 × 12 mm² die'), 40, -30, 'left');
     hud.globalAlpha = 1;
   }
 
@@ -2390,7 +2666,7 @@ function drawHUD(k, t){
     hud.strokeStyle = ruleC; hud.lineWidth = 1;
     hud.strokeRect(x0+0.5, y0+0.5, w-1, h-1);
     hud.fillStyle = mutedC;
-    hud.fillText(WRT.title, x0+9, y0+16);
+    hud.fillText(TR(WRT.title), x0+9, y0+16);
     // the whole write field; z runs down the inset
     const sc = (h - 56) / (2*FIELD_ZH);
     const cx = x0 + w/2, cy = y0 + h/2 + 8;
@@ -2418,7 +2694,7 @@ function drawHUD(k, t){
     hud.strokeStyle = TH.accent; hud.lineWidth = 1.5;
     hud.beginPath(); hud.moveTo(cx-20, sy); hud.lineTo(cx+20, sy); hud.stroke();
     hud.fillStyle = mutedC;
-    hud.fillText(pat.label, x0+9, y0+h-10);
+    hud.fillText(TR(pat.label), x0+9, y0+h-10);
   }
 }
 
@@ -2429,25 +2705,31 @@ let cur = 1, tt = 1, playing = false, playAll = false, speed = 1;
 
 const flowEl = document.getElementById('flow');
 const rows = [];
-for (const S of STEPS.slice(0, STEPS_SHOWN)){
-  const segRow = document.createElement('li');
-  segRow.className = 'frow seg';
-  segRow.innerHTML =
-    '<button class="hit" aria-label="Play step ' + S.n + ': ' + S.title + '"></button>' +
-    '<span class="gfx"><span class="stem"></span></span>' +
-    '<span class="txt">' + (S.n === 1 ? 'start ▸' : '▸ animate') + '</span>';
-  segRow.querySelector('.hit').addEventListener('click', () => play(S.n));
-  flowEl.appendChild(segRow);
+function buildRail(){
+  flowEl.innerHTML = '';
+  rows.length = 0;
+  for (const S of STEPS.slice(0, STEPS_SHOWN)){
+    const segRow = document.createElement('li');
+    segRow.className = 'frow seg';
+    segRow.innerHTML =
+      '<button class="hit" aria-label="' + TRF(TR('Play step {n}'), {n:S.n})
+        + ': ' + S.title + '"></button>' +
+      '<span class="gfx"><span class="stem"></span></span>' +
+      '<span class="txt">' + (S.n === 1 ? TR('start ▸') : TR('▸ animate')) + '</span>';
+    segRow.querySelector('.hit').addEventListener('click', () => play(S.n));
+    flowEl.appendChild(segRow);
 
-  const dotRow = document.createElement('li');
-  dotRow.className = 'frow dot';
-  dotRow.innerHTML =
-    '<button class="hit" aria-label="Show state after step ' + S.n + '"></button>' +
-    '<span class="gfx"><span class="mark"></span></span>' +
-    '<span class="txt"><span class="num">' + String(S.n).padStart(2,'0') + '</span>' + S.title + '</span>';
-  dotRow.querySelector('.hit').addEventListener('click', () => jump(S.n));
-  flowEl.appendChild(dotRow);
-  rows.push({seg:segRow, dot:dotRow, stem:segRow.querySelector('.stem')});
+    const dotRow = document.createElement('li');
+    dotRow.className = 'frow dot';
+    dotRow.innerHTML =
+      '<button class="hit" aria-label="'
+        + TRF(TR('Show state after step {n}'), {n:S.n}) + '"></button>' +
+      '<span class="gfx"><span class="mark"></span></span>' +
+      '<span class="txt"><span class="num">' + String(S.n).padStart(2,'0') + '</span>' + S.title + '</span>';
+    dotRow.querySelector('.hit').addEventListener('click', () => jump(S.n));
+    flowEl.appendChild(dotRow);
+    rows.push({seg:segRow, dot:dotRow, stem:segRow.querySelector('.stem')});
+  }
 }
 
 const el = {
@@ -2461,15 +2743,16 @@ const el = {
   zoomchip:document.getElementById('zoomchip'),
 };
 
-(function railNote(){
+function railNote(){
   const hidden = STEPS.length - STEPS_SHOWN;
   document.getElementById('railnote').textContent = hidden > 0
-    ? 'Steps ' + (STEPS_SHOWN+1) + '–' + STEPS.length + ' (' + STEPS[STEPS_SHOWN].title.toLowerCase()
-      + ' onward) are hidden while these are verified.'
+    ? TRF(TR('Steps {a}–{b} ({name} onward) are hidden while these are verified.'),
+          {a:STEPS_SHOWN+1, b:STEPS.length,
+           name:STEPS[STEPS_SHOWN].title.toLowerCase()})
     : '';
-})();
+}
 
-(function fillStack(){
+function fillStack(){
   // the layer number lives inside its own colour, so the two read as one thing
   const chip = (col, txt) => {
     const c = hex(col), lum = c[0]*0.299 + c[1]*0.587 + c[2]*0.114;
@@ -2482,22 +2765,23 @@ const el = {
     const L = EPI[i];
     rowsHtml.push(
       '<tr data-i="'+L.i+'"><td>'+chip(L.col, L.i)+'</td><td class="nm">'
-      + L.name + ' <span style="color:var(--muted)">' + L.mat + '</span></td>'
+      + TR(L.name) + ' <span style="color:var(--muted)">' + L.mat + '</span></td>'
       + '<td class="r">'+nm(L.t)+'</td><td class="r">'+L.type+'</td></tr>');
   }
   rowsHtml.push('<tr data-i="0"><td>'+chip(C.sub,'&nbsp;')
-    +'</td><td class="nm">Substrate <span style="color:var(--muted)">S.I. InP</span></td>'
+    +'</td><td class="nm">' + TR('Substrate')
+    +' <span style="color:var(--muted)">S.I. InP</span></td>'
     +'<td class="r">—</td><td class="r">—</td></tr>');
   el.stackBody.innerHTML = rowsHtml.join('');
-})();
+}
 
 function syncPanel(){
   const S = STEPS[cur-1];
-  el.eyebrow.textContent = 'Step ' + S.n + ' of ' + STEPS_SHOWN;
-  el.title.textContent = S.title;
-  el.body.textContent = S.body;
+  el.eyebrow.textContent = TRF(TR('Step {n} of {t}'), {n:S.n, t:STEPS_SHOWN});
+  el.title.textContent = S.title;                  // step names stay English
+  el.body.textContent = TR(S.body);
   el.facts.innerHTML = S.facts.map(f =>
-    '<div><dt>'+f[0]+'</dt><dd>'+f[1]+'</dd></div>').join('');
+    '<div><dt>'+TR(f[0])+'</dt><dd>'+TR(f[1])+'</dd></div>').join('');
 
   // grey out the layers that are gone from the field by this step
   const goneFrom = {3:[7,8,9,10,11,12], 5:[4,5,6], 7:[1,2,3]};
@@ -2524,22 +2808,23 @@ function syncStage(){
   for (const st of S.stages){ if (tt <= st[0] + 1e-9){ label = st[1]; break; } }
   if (label !== lastStage){
     lastStage = label;
-    el.stage.innerHTML = '<b>' + String(S.n).padStart(2,'0') + '</b> &nbsp;' + label;
+    el.stage.innerHTML = '<b>' + String(S.n).padStart(2,'0') + '</b> &nbsp;' + TR(label);
   }
   for (let i=0;i<rows.length;i++){
     const fill = i+1 < cur ? 100 : i+1 === cur ? tt*100 : 0;
     rows[i].stem.style.setProperty('--fill', fill.toFixed(1)+'%');
   }
   const wafer = viewFit > 2e6;
-  const badges = ['drag to orbit', 'scroll to zoom in/out'];
+  const badges = [TR('drag to orbit'), TR('scroll to zoom in/out')];
   const bstr = badges.join('|') + wafer;
   if (bstr !== lastBadge){
     lastBadge = bstr;
     el.badge.innerHTML = badges.map(b => '<span>'+b+'</span>').join('');
-    el.zoomchip.textContent = wafer ? 'wafer view' : 'device view';
+    el.zoomchip.textContent = TR(wafer ? 'wafer view' : 'device view');
   }
-  const pp = playing ? '❚❚ Pause' : '▶ Play';
+  const pp = TR(playing ? '❚❚ Pause' : '▶ Play');
   if (ppBtn.textContent !== pp) ppBtn.textContent = pp;
+  hereBtn.disabled = cur >= STEPS_SHOWN;   // nothing comes after the last step
   // the airbridge close-up only means anything while it is being released
   const canFocus = cur === 7;
   bridgeBtn.hidden = !canFocus;
@@ -2561,8 +2846,12 @@ function play(n){ cur = n; tt = 0; playing = true; syncPanel(); }
 document.getElementById('playall').addEventListener('click', () => {
   playAll = true; play(1);
 });
-document.getElementById('playhere').addEventListener('click', () => {
-  playAll = true; play(cur);                 // carry on to the end from where we are
+const hereBtn = document.getElementById('playhere');
+hereBtn.addEventListener('click', () => {
+  // "here" is the state on screen, which is the end of `cur` — so carry on with
+  // the step that comes after it rather than replaying the one already done
+  if (cur >= STEPS_SHOWN) return;
+  playAll = true; play(cur + 1);
 });
 const ppBtn = document.getElementById('playpause');
 ppBtn.addEventListener('click', () => {
@@ -2594,6 +2883,9 @@ speedBtn.addEventListener('click', () => {
   speed = speed === 1 ? 2 : speed === 2 ? 0.5 : 1;
   speedBtn.textContent = speed.toFixed(1) + '×';
 });
+const langBtn = document.getElementById('langbtn');
+langBtn.hidden = HOST.embed;         // embedded: the portal's toggle is the only one
+langBtn.addEventListener('click', () => setLang(LANG === 'zh' ? 'en' : 'zh'));
 document.getElementById('themebtn').addEventListener('click', () => {
   const r = document.documentElement;
   const dark = r.dataset.theme
@@ -2632,7 +2924,7 @@ function frame(now){
 }
 
 resize();
-syncPanel();
+applyLang();          // builds the rail, the epi table and the dossier
 requestAnimationFrame(frame);
 </script>
 </body>

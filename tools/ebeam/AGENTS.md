@@ -48,6 +48,13 @@ group key, and `ebeam` is the group the sidebar labels "Process". It is never
 launched standalone. Don't "fix" its imports, and don't let it grow a
 dependency on the EBL files (or vice versa) — they are unrelated tools.
 
+Its translations do **not** live in `tools/common/i18n.py`. The illustration is
+one self-contained HTML file that has to work when downloaded, so it carries its
+own `ZH` table and its own toggle; `process_flow.py` only tells it which
+language the portal is on, by rewriting the `HOST` line. Don't move those
+strings into `_UI` — that would break the standalone file, which is the whole
+point of it.
+
 Consequence to be aware of: `i18n._UI["ebl_corner_guide"]` and
 `["ebl_corner_note"]` exist but are unreachable from here. Leave them.
 

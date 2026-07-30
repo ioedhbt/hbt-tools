@@ -156,12 +156,22 @@ small N).
 
 `tools/ebeam/process_flow.py` also lives in this folder but is a different
 tool: the **HBT Process Flow Illustration** page, which reads
-`docs/process_flow/inp_hbt_process_flow.html` verbatim and drops it into an
-iframe (`st.components.v1.html`), with a height slider and a download button.
-It is here only because a page's folder must match its i18n group key and
-`ebeam` is the group the sidebar labels "Process"; it is never launched
-standalone, so the §1 self-containment rule does not apply to it — it imports
-`tools.common` like every other page.
+`docs/process_flow/inp_hbt_process_flow.html` and drops it into an iframe
+(`st.iframe`, which routes both a local `.html` path and a raw HTML string
+through `srcdoc`), alongside a download button for the standalone file. It is
+here only because a page's folder must match its i18n group key and `ebeam` is
+the group the sidebar labels "Process"; it is never launched standalone, so the
+§1 self-containment rule does not apply to it — it imports `tools.common` like
+every other page.
+
+The page rewrites exactly one line of the document and nothing else: the
+illustration carries its own English / 繁體中文 layer *and its own toggle*, so
+that the downloaded file governs itself, but embedded in the portal there must
+be a single language control. So `process_flow.py` substitutes
+`const HOST = {lang:null, embed:false};` with the active `i18n` language and
+`embed:true`, which makes the document follow the sidebar's 🌐 and hide its own
+button. If that line ever moves the page says so and embeds the file untouched,
+so the worst case is two toggles, not a broken page.
 
 ## 7. Where to look — task → file
 
