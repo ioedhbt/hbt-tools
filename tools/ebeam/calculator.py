@@ -275,6 +275,17 @@ def _hex_to_rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({r}, {g}, {b}, {alpha})"
 
 
+def _colored_num(value, default: float, fmt: str = "%.3f",
+                  eps: float = 1e-6) -> str:
+    """Format ``value`` as Markdown colored text for Setup Instructions:
+    green when it still matches ``default`` (the calculator's own
+    textbook default), blue when it has moved away from that default —
+    the signal that this number differs from the generic instructions and
+    needs a second look before typing it into the JEOL software."""
+    color = "green" if abs(float(value) - float(default)) <= eps else "blue"
+    return f":{color}[{fmt % float(value)}]"
+
+
 def render_page() -> None:
     """Render the EBL Calculator page body: Sections 1-4 (chip
     position, left-computer setup, GDS mask viewer, mode-selector
@@ -452,6 +463,41 @@ def render_page() -> None:
     # ─── Section 2: Left Computer Setup ──────────────────────────────────────────
     with st.container(border=True):
         st.header(tr("Left Computer Setup", "左側電腦設定"))
+
+        # Live values behind the placeholders in Setup Instructions below.
+        # Read straight from session_state (same read-ahead pattern already
+        # used for ebc_sa_o_mark1 further down this file) since Job 1/2's
+        # own widgets render after this expander. The two global keys are
+        # guaranteed present by the _DEFAULTS.setdefault() loop above;
+        # per-mode keys only exist once that mode's block has run at least
+        # once this session, so those fall back to that mode's own
+        # documented default until then.
+        _si_origin_x = float(st.session_state["ebc_origin_x"])
+        _si_origin_y = float(st.session_state["ebc_origin_y"])
+        _si_chip_size = int(st.session_state["ebc_chip_size"])
+        _si_dotmap = int(st.session_state["ebc_dotmap"])
+        _si_dxdy = _si_chip_size / 1000.0  # μm -> mm; FE/SA tile edge-to-edge
+        _si_dt_cel_x = float(st.session_state.get("ebc_dt_cel_x", 9.7))
+        _si_dt_cel_y = float(st.session_state.get("ebc_dt_cel_y", 9.7))
+        _si_dt_dx = float(st.session_state.get("ebc_dt_dx", 0.6))
+        _si_dt_dy = float(st.session_state.get("ebc_dt_dy", 0.6))
+        _si_dt_nx = int(st.session_state.get("ebc_dt_nx", 5))
+        _si_dt_ny = int(st.session_state.get("ebc_dt_ny", 5))
+        _si_dt_shift_x = float(st.session_state.get("ebc_dt_shift_x", 98.8))
+        _si_dt_shift_y = float(st.session_state.get("ebc_dt_shift_y", 109.2))
+        _si_fe_cel_x = float(st.session_state.get("ebc_fe_cel_x", 9.7))
+        _si_fe_cel_y = float(st.session_state.get("ebc_fe_cel_y", 9.7))
+        _si_fe_nx = int(st.session_state.get("ebc_fe_nx", 20))
+        _si_fe_ny = int(st.session_state.get("ebc_fe_ny", 20))
+        _si_fe_shift_x = float(st.session_state.get("ebc_fe_shift_x", 94.3))
+        _si_fe_shift_y = float(st.session_state.get("ebc_fe_shift_y", 104.7))
+        _si_sa_cel_x = float(st.session_state.get("ebc_sa_sap_cel_x", 9.7))
+        _si_sa_cel_y = float(st.session_state.get("ebc_sa_sap_cel_y", 9.7))
+        _si_sa_nx = int(st.session_state.get("ebc_sa_sap_nx", 20))
+        _si_sa_ny = int(st.session_state.get("ebc_sa_sap_ny", 20))
+        _si_sa_shift_x = float(st.session_state.get("ebc_sa_o_shift_x", -9.7))
+        _si_sa_shift_y = float(st.session_state.get("ebc_sa_o_shift_y", -9.7))
+
         with st.expander(tr("Setup Instructions", "設定說明"), expanded=False):
             st.caption(tr("Make sure you already have the `.cel` file. In `job1`: ",
                           "請確認已備妥 `.cel` 檔案。在 `job1` 中："))
@@ -461,8 +507,11 @@ def render_page() -> None:
                 "2. 選擇 `.cel` 檔案所在資料夾，通常位於 `Desktop/IOED/hbt/your_folder`。"))
             st.caption(tr("3. Type the chip name, the same name as the `.cel` file.",
                           "3. 輸入晶片名稱，須與 `.cel` 檔案名稱相同。"))
-            st.caption(tr("4. Set chip origin, usualy `10.0,10.0`. Using `0, 0` is difficult to see.",
-                          "4. 設定晶片原點，通常為 `10.0,10.0`。使用 `0, 0` 較難以辨識。"))
+            st.caption(tr(
+                f"4. Set chip origin, usually {_colored_num(_si_origin_x, 10.0)}, "
+                f"{_colored_num(_si_origin_y, 10.0)}. Using `0, 0` is difficult to see.",
+                f"4. 設定晶片原點，通常為 {_colored_num(_si_origin_x, 10.0)}, "
+                f"{_colored_num(_si_origin_y, 10.0)}。使用 `0, 0` 較難以辨識。"))
             st.caption(tr("5. Click `Ax: chip dot` (white), it will be changed to `Ax: stage (mm)` (green).",
                           "5. 點擊 `Ax: chip dot`（白色），會變為 `Ax: stage (mm)`（綠色）。"))
             st.caption(tr("6. Type `0.0001g` to set grid spacing to 100 nm.",
@@ -470,7 +519,31 @@ def render_page() -> None:
             with st.expander(tr("Dose Time Testing", "劑量時間測試"), expanded=False):
                 st.caption(tr("7. Click File -> Load CEL. Enter cel name.",
                               "7. 點擊 File -> Load CEL，輸入 cel 名稱。"))
-                st.caption(tr("8. Origin: `9.7,9.7`.", "8. 原點：`9.7,9.7`。"))
+                st.caption(tr(
+                    f"8. Origin: {_colored_num(_si_dt_cel_x, 9.7)}, "
+                    f"{_colored_num(_si_dt_cel_y, 9.7)}.",
+                    f"8. 原點：{_colored_num(_si_dt_cel_x, 9.7)}, "
+                    f"{_colored_num(_si_dt_cel_y, 9.7)}。"))
+                st.caption(f"**{tr('Values used:', '使用數值：')}**")
+                st.caption(
+                    f"{tr('Job 1', 'Job 1')} — "
+                    f"{tr('chip origin x, y', '晶片原點 x, y')}: "
+                    f"{_colored_num(_si_origin_x, 10.0)}, {_colored_num(_si_origin_y, 10.0)}; "
+                    f"{tr('cel origin x, y', 'cel 原點 x, y')}: "
+                    f"{_colored_num(_si_dt_cel_x, 9.7)}, {_colored_num(_si_dt_cel_y, 9.7)}")
+                st.caption(
+                    f"{tr('Job 2', 'Job 2')} — "
+                    f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
+                    f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
+                    f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
+                st.caption(
+                    f"{tr('Job 3', 'Job 3')} — "
+                    f"dx, dy: {_colored_num(_si_dt_dx, 0.6)}, {_colored_num(_si_dt_dy, 0.6)}; "
+                    f"Nx, Ny: {_colored_num(_si_dt_nx, 5, '%.0f')}, "
+                    f"{_colored_num(_si_dt_ny, 5, '%.0f')}; "
+                    f"{tr('initial shift x, y', '初始位移 x, y')}: "
+                    f"{_colored_num(_si_dt_shift_x, 98.8)}, "
+                    f"{_colored_num(_si_dt_shift_y, 109.2)}")
             with st.expander(tr("First Exposure", "首次曝光"), expanded=False):
                 st.caption(tr("7. Type `mc` to create grid points.",
                               "7. 輸入 `mc` 建立網格點。"))
@@ -479,16 +552,44 @@ def render_page() -> None:
                     "8. 點擊方形網格（可按 `i` 放大、`o` 縮小，需要時再用滑鼠點擊畫面）。"))
                 st.caption(tr("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.",
                               "9. 確定嗎？-> `Y`，全部 `cel_name`？-> `N`。"))
-                st.caption(tr("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.",
-                              "10. dx, dy：`0.6,0.6`。這是網格之間的間距。"))
                 st.caption(tr(
-                    "11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.",
-                    "11. Nx, Ny -> `18,18` 或 `17,17`，依圖案大小而定。"))
+                    f"10. dx, dy: {_colored_num(_si_dxdy, 0.6)}, "
+                    f"{_colored_num(_si_dxdy, 0.6)}. This is the grid distance from each other.",
+                    f"10. dx, dy：{_colored_num(_si_dxdy, 0.6)}, "
+                    f"{_colored_num(_si_dxdy, 0.6)}。這是網格之間的間距。"))
+                st.caption(tr(
+                    f"11. Nx, Ny -> {_colored_num(_si_fe_nx, 20, '%.0f')}, "
+                    f"{_colored_num(_si_fe_ny, 20, '%.0f')}, depending on the size of the pattern.",
+                    f"11. Nx, Ny -> {_colored_num(_si_fe_nx, 20, '%.0f')}, "
+                    f"{_colored_num(_si_fe_ny, 20, '%.0f')}，依圖案大小而定。"))
                 st.caption(tr("12. X direction? `Y` -> Auto reverse? `N`",
                               "12. X 方向？`Y` -> 自動反轉？`N`"))
                 st.caption(tr("13. Click File -> Load CEL. Enter cel name.",
                               "13. 點擊 File -> Load CEL，輸入 cel 名稱。"))
-                st.caption(tr("14. Origin: `9.7,9.7`.", "14. 原點：`9.7,9.7`。"))
+                st.caption(tr(
+                    f"14. Origin: {_colored_num(_si_fe_cel_x, 9.7)}, "
+                    f"{_colored_num(_si_fe_cel_y, 9.7)}.",
+                    f"14. 原點：{_colored_num(_si_fe_cel_x, 9.7)}, "
+                    f"{_colored_num(_si_fe_cel_y, 9.7)}。"))
+                st.caption(f"**{tr('Values used:', '使用數值：')}**")
+                st.caption(
+                    f"{tr('Job 1', 'Job 1')} — "
+                    f"{tr('chip origin x, y', '晶片原點 x, y')}: "
+                    f"{_colored_num(_si_origin_x, 10.0)}, {_colored_num(_si_origin_y, 10.0)}; "
+                    f"{tr('cel origin x, y', 'cel 原點 x, y')}: "
+                    f"{_colored_num(_si_fe_cel_x, 9.7)}, {_colored_num(_si_fe_cel_y, 9.7)}; "
+                    f"Nx, Ny: {_colored_num(_si_fe_nx, 20, '%.0f')}, "
+                    f"{_colored_num(_si_fe_ny, 20, '%.0f')}")
+                st.caption(
+                    f"{tr('Job 2', 'Job 2')} — "
+                    f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
+                    f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
+                    f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
+                st.caption(
+                    f"{tr('Job 3', 'Job 3')} — "
+                    f"{tr('shift x, y', '位移 x, y')}: "
+                    f"{_colored_num(_si_fe_shift_x, 94.3)}, "
+                    f"{_colored_num(_si_fe_shift_y, 104.7)}")
             with st.expander(tr("Second Alignment", "二次對準"), expanded=False):
                 st.caption(tr("7. Type `mc` to create grid points.",
                               "7. 輸入 `mc` 建立網格點。"))
@@ -497,19 +598,47 @@ def render_page() -> None:
                     "8. 點擊方形網格（可按 `i` 放大、`o` 縮小，需要時再用滑鼠點擊畫面）。"))
                 st.caption(tr("9. Are you sure? -> `Y`, All `cel_name`? -> `N`.",
                               "9. 確定嗎？-> `Y`，全部 `cel_name`？-> `N`。"))
-                st.caption(tr("10. dx, dy: `0.6,0.6`. This is the grid distance from each other.",
-                              "10. dx, dy：`0.6,0.6`。這是網格之間的間距。"))
                 st.caption(tr(
-                    "11. Nx, Ny -> `18,18`, or `17,17` depending on the size of the pattern.",
-                    "11. Nx, Ny -> `18,18` 或 `17,17`，依圖案大小而定。"))
+                    f"10. dx, dy: {_colored_num(_si_dxdy, 0.6)}, "
+                    f"{_colored_num(_si_dxdy, 0.6)}. This is the grid distance from each other.",
+                    f"10. dx, dy：{_colored_num(_si_dxdy, 0.6)}, "
+                    f"{_colored_num(_si_dxdy, 0.6)}。這是網格之間的間距。"))
+                st.caption(tr(
+                    f"11. Nx, Ny -> {_colored_num(_si_sa_nx, 20, '%.0f')}, "
+                    f"{_colored_num(_si_sa_ny, 20, '%.0f')}, depending on the size of the pattern.",
+                    f"11. Nx, Ny -> {_colored_num(_si_sa_nx, 20, '%.0f')}, "
+                    f"{_colored_num(_si_sa_ny, 20, '%.0f')}，依圖案大小而定。"))
                 st.caption(tr("12. X direction? `Y` -> Auto reverse? `N`",
                               "12. X 方向？`Y` -> 自動反轉？`N`"))
                 st.caption(tr("13. Click File -> Load CEL. Enter cel name.",
                               "13. 點擊 File -> Load CEL，輸入 cel 名稱。"))
-                st.caption(tr("14. Origin: `9.7,9.7`.", "14. 原點：`9.7,9.7`。"))
+                st.caption(tr(
+                    f"14. Origin: {_colored_num(_si_sa_cel_x, 9.7)}, "
+                    f"{_colored_num(_si_sa_cel_y, 9.7)}.",
+                    f"14. 原點：{_colored_num(_si_sa_cel_x, 9.7)}, "
+                    f"{_colored_num(_si_sa_cel_y, 9.7)}。"))
                 st.caption(tr(
                     "15. Click Menu -> Chip -> Reg-2 Mark (R2). Input the positions for the 2 marks.",
                     "15. 點擊 Menu -> Chip -> Reg-2 Mark (R2)，輸入 2 個標記的位置。"))
+                st.caption(f"**{tr('Values used:', '使用數值：')}**")
+                st.caption(
+                    f"{tr('Job 1', 'Job 1')} — "
+                    f"{tr('chip origin x, y', '晶片原點 x, y')}: "
+                    f"{_colored_num(_si_origin_x, 10.0)}, {_colored_num(_si_origin_y, 10.0)}; "
+                    f"{tr('cel origin x, y', 'cel 原點 x, y')}: "
+                    f"{_colored_num(_si_sa_cel_x, 9.7)}, {_colored_num(_si_sa_cel_y, 9.7)}; "
+                    f"Nx, Ny: {_colored_num(_si_sa_nx, 20, '%.0f')}, "
+                    f"{_colored_num(_si_sa_ny, 20, '%.0f')}")
+                st.caption(
+                    f"{tr('Job 2', 'Job 2')} — "
+                    f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
+                    f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
+                    f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
+                st.caption(
+                    f"{tr('Job 3', 'Job 3')} — "
+                    f"{tr('shift x, y', '位移 x, y')}: "
+                    f"{_colored_num(_si_sa_shift_x, -9.7)}, "
+                    f"{_colored_num(_si_sa_shift_y, -9.7)}")
             st.caption(tr(
                 "Click File -> save -> press enter. Type the file `.con` name, the same as the `.cel` file.",
                 "點擊 File -> save -> 按 Enter。輸入 `.con` 檔名，須與 `.cel` 檔案名稱相同。"))
