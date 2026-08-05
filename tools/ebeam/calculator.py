@@ -528,18 +528,18 @@ def render_page() -> None:
                     f"{_colored_num(_si_dt_cel_y, 9.7)}.",
                     f"8. 原點：{_colored_num(_si_dt_cel_x, 9.7)}, "
                     f"{_colored_num(_si_dt_cel_y, 9.7)}。"))
-                st.caption(f"**{tr('Values used:', '使用數值：')}**")
-                st.caption(
-                    f"{tr('Job 1', 'Job 1')} — "
-                    f"{tr('chip origin x, y', '晶片原點 x, y')}: "
-                    f"{_colored_num(_si_origin_x, 10.0)}, {_colored_num(_si_origin_y, 10.0)}; "
-                    f"{tr('cel origin x, y', 'cel 原點 x, y')}: "
-                    f"{_colored_num(_si_dt_cel_x, 9.7)}, {_colored_num(_si_dt_cel_y, 9.7)}")
-                st.caption(
-                    f"{tr('Job 2', 'Job 2')} — "
-                    f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
-                    f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
-                    f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
+                # st.caption(f"**{tr('Values used:', '使用數值：')}**")
+                # st.caption(
+                #     f"{tr('Job 1', 'Job 1')} — "
+                #     f"{tr('chip origin x, y', '晶片原點 x, y')}: "
+                #     f"{_colored_num(_si_origin_x, 10.0)}, {_colored_num(_si_origin_y, 10.0)}; "
+                #     f"{tr('cel origin x, y', 'cel 原點 x, y')}: "
+                #     f"{_colored_num(_si_dt_cel_x, 9.7)}, {_colored_num(_si_dt_cel_y, 9.7)}")
+                # st.caption(
+                #     f"{tr('Job 2', 'Job 2')} — "
+                #     f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
+                #     f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
+                #     f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
 
             with st.expander(tr("First Exposure", "首次曝光"), expanded=False):
                 st.caption(tr("7. Type `mc` to create grid points.",
@@ -568,20 +568,20 @@ def render_page() -> None:
                     f"{_colored_num(_si_fe_cel_y, 9.7)}.",
                     f"14. 原點：{_colored_num(_si_fe_cel_x, 9.7)}, "
                     f"{_colored_num(_si_fe_cel_y, 9.7)}。"))
-                st.caption(f"**{tr('Values used:', '使用數值：')}**")
-                st.caption(
-                    f"{tr('Job 1', 'Job 1')} — "
-                    f"{tr('chip origin x, y', '晶片原點 x, y')}: "
-                    f"{_colored_num(_si_origin_x, 10.0)}, {_colored_num(_si_origin_y, 10.0)}; "
-                    f"{tr('cel origin x, y', 'cel 原點 x, y')}: "
-                    f"{_colored_num(_si_fe_cel_x, 9.7)}, {_colored_num(_si_fe_cel_y, 9.7)}; "
-                    f"Nx, Ny: {_colored_num(_si_fe_nx, 20, '%.0f')}, "
-                    f"{_colored_num(_si_fe_ny, 20, '%.0f')}")
-                st.caption(
-                    f"{tr('Job 2', 'Job 2')} — "
-                    f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
-                    f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
-                    f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
+                # st.caption(f"**{tr('Values used:', '使用數值：')}**")
+                # st.caption(
+                #     f"{tr('Job 1', 'Job 1')} — "
+                #     f"{tr('chip origin x, y', '晶片原點 x, y')}: "
+                #     f"{_colored_num(_si_origin_x, 10.0)}, {_colored_num(_si_origin_y, 10.0)}; "
+                #     f"{tr('cel origin x, y', 'cel 原點 x, y')}: "
+                #     f"{_colored_num(_si_fe_cel_x, 9.7)}, {_colored_num(_si_fe_cel_y, 9.7)}; "
+                #     f"Nx, Ny: {_colored_num(_si_fe_nx, 20, '%.0f')}, "
+                #     f"{_colored_num(_si_fe_ny, 20, '%.0f')}")
+                # st.caption(
+                #     f"{tr('Job 2', 'Job 2')} — "
+                #     f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
+                #     f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
+                #     f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
 
             with st.expander(tr("Second Alignment", "二次對準"), expanded=False):
                 st.caption(tr("7. Type `mc` to create grid points.",
@@ -613,20 +613,20 @@ def render_page() -> None:
                 st.caption(tr(
                     "15. Click Menu -> Chip -> Reg-2 Mark (R2). Input the positions for the 2 marks.",
                     "15. 點擊 Menu -> Chip -> Reg-2 Mark (R2)，輸入 2 個標記的位置。"))
-                st.caption(f"**{tr('Values used:', '使用數值：')}**")
-                st.caption(
-                    f"{tr('Job 1', 'Job 1')} — "
-                    f"{tr('chip origin x, y', '晶片原點 x, y')}: "
-                    f"{_colored_num(_si_origin_x, 10.0)}, {_colored_num(_si_origin_y, 10.0)}; "
-                    f"{tr('cel origin x, y', 'cel 原點 x, y')}: "
-                    f"{_colored_num(_si_sa_cel_x, 9.7)}, {_colored_num(_si_sa_cel_y, 9.7)}; "
-                    f"Nx, Ny: {_colored_num(_si_sa_nx, 20, '%.0f')}, "
-                    f"{_colored_num(_si_sa_ny, 20, '%.0f')}")
-                st.caption(
-                    f"{tr('Job 2', 'Job 2')} — "
-                    f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
-                    f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
-                    f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
+                # st.caption(f"**{tr('Values used:', '使用數值：')}**")
+                # st.caption(
+                #     f"{tr('Job 1', 'Job 1')} — "
+                #     f"{tr('chip origin x, y', '晶片原點 x, y')}: "
+                #     f"{_colored_num(_si_origin_x, 10.0)}, {_colored_num(_si_origin_y, 10.0)}; "
+                #     f"{tr('cel origin x, y', 'cel 原點 x, y')}: "
+                #     f"{_colored_num(_si_sa_cel_x, 9.7)}, {_colored_num(_si_sa_cel_y, 9.7)}; "
+                #     f"Nx, Ny: {_colored_num(_si_sa_nx, 20, '%.0f')}, "
+                #     f"{_colored_num(_si_sa_ny, 20, '%.0f')}")
+                # st.caption(
+                #     f"{tr('Job 2', 'Job 2')} — "
+                #     f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
+                #     f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
+                #     f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
                 # st.caption(
                 #     f"{tr('Job 3', 'Job 3')} — "
                 #     f"{tr('shift x, y', '位移 x, y')}: "
@@ -654,7 +654,7 @@ def render_page() -> None:
                 st.caption(tr("9. Schedule file name: (same as your file name). Then click enter.", "9. Schedule file name: (你的檔案名稱)。然後按 Enter。"))
                 st.caption(tr("10. Modify the schedule file as needed with `i`. You can change the dose time on each grid, or move the grid position.", "10. 根據需要使用 `i` 修改 schedule 檔案。可以變更每個 grid 上的 dose time，或移動 grid 的位置。"))
                 st.caption(tr("11. Click `e` (Exposure Execution) to check your pattern.","11. 點擊 `e` (Exposure Execution) 檢查您的模式。"))
-                st.caption(tr("12. In the window, click `esc` button to open menu, then click `Disp Pat` to display the pattern. Make sure they are positioned correctly. Close the window after finished checking.", "12. 在視窗中，按 Esc 鍵開啟選單，然後點選`Disp Pat`顯示圖案。確保圖案位置正確。檢查完畢後關閉視窗。"))
+                st.caption(tr("12. In the window, click `esc` button to open menu, then click `Disp Pat` (or click `f`) to display the pattern. Make sure they are positioned correctly. Close the window after finished checking.", "12. 在視窗中，按 Esc 鍵開啟選單，然後點選`Disp Pat`（按`f`）顯示圖案。確保圖案位置正確。檢查完畢後關閉視窗。"))
                 st.caption(tr("13. Set up the exposure condition by clicking `c`. Go to `Z Move with Height Sensor`, click enter and fill the z-height from the laser. Usually the position of the center of the chip is `110,120`.","13. 點選`c`設定曝光條件。進入`Z Move with Height Sensor`選項，點選回車鍵並輸入雷射測量所得的Z軸高度值。晶片中心位置通常為`110,120`。"))
                 st.caption(tr("14. Click `h` to toggle the height sensor off. Click `f` to do field correction.","14. 點擊 `h` 關閉高度感應器。點擊 `f` 進行 field correction。"))
 
@@ -671,7 +671,7 @@ def render_page() -> None:
                     f"1. 輸入 `i`。輸入檔案名稱。按鍵盤右箭頭 →，輸入 Position Shift (DX, DY): {_colored_num(_si_sa_shift_x, -9.7)}, {_colored_num(_si_sa_shift_y, -9.7)}. 按鍵盤右箭頭 → 再次，然後輸入 dose shift。按 esc 完成。"))
                 st.caption(tr("2. Click `c` to set the exposure conditions. Go to `Z Move with Height Sensor`, click Enter and fill the z-height from the laser. Usually the position of the center of the chip is `110,120`. Set `Registration Control` to ON.","13. 點選`c`設定曝光條件。進入`Z Move with Height Sensor`選項，按Enter並輸入雷射測量所得的Z軸高度值。晶片中心位置通常為`110,120`。將 `Registration Control` 設為 ON。"))
                 st.caption(tr("3. Click `f` to do field correction.","14. 點擊 `f` 進行 field correction。"))
-            st.caption(tr("After field correction is finished, click `e` to go to exposure execution. In the window, click `esc` button to open menu, then click `Disp Pat` to display the pattern. Click `esc` button, and find `Exposure` to start exposure. Exposure start?: `y`.", "Field correction完成後，點擊 `e` 進行 exposure execution。在視窗中，按 Esc 鍵開啟選單，然後點選`Disp Pat`顯示圖案。按 Esc 鍵，然後找到`Exposure`開始曝光。Exposure start?: `y`."))
+            st.caption(tr("After field correction is finished, click `e` to go to exposure execution. In the window, click `esc` button to open menu, then click `Disp Pat` (or click `f`) to display the pattern. Click `esc` button, and find `Exposure` to start exposure. Exposure start?: `y`.", "Field correction完成後，點擊 `e` 進行 exposure execution。在視窗中，按 Esc 鍵開啟選單，然後點選`Disp Pat`（按`f`）顯示圖案。按 Esc 鍵，然後找到`Exposure`開始曝光。Exposure start?: `y`."))
         c_oxy, c_csdm = st.columns(2)
         with c_oxy:
             with st.container(border=True):
