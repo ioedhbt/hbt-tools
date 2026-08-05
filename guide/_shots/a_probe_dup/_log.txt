@@ -1,0 +1,12 @@
+[02:43:42] scenario=/tmp/app/guide/_harness/scenarios/a_probe_dup.py
+[02:43:43] server up on 59827
+[02:43:50] shot 00
+[02:43:50] done
+[02:44:07] scenario=/tmp/app/guide/_harness/scenarios/a_probe_dup.py
+[02:44:08] server up on 44281
+[02:44:15] shot 00
+[02:44:20] shot 01
+[02:44:21] done
+[02:45:13] scenario=/tmp/app/guide/_harness/scenarios/a_probe_dup.py
+[02:45:14] server up on 43207
+[02:45:21] shot 00

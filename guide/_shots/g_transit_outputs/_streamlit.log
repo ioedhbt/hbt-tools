@@ -1,0 +1,10 @@
+2026-08-04 22:30:02.153 Uvicorn server started on :::43937
+2026-08-04 22:30:02.194 Did not auto detect external IP.
+Please go to https://docs.streamlit.io/ for debugging hints.
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:43937
+  Network URL: http://127.0.0.1:43937
+
+  Stopping...

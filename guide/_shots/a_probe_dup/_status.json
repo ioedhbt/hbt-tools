@@ -1,0 +1,8 @@
+{
+  "scenario": "a_probe_dup.py",
+  "ts": 1785523521.9540806,
+  "state": "running",
+  "shots": [
+    "00"
+  ]
+}

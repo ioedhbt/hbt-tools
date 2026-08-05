@@ -1,0 +1,8 @@
+{
+  "scenario": "b_setup_sidebar2.py",
+  "ts": 1785523086.5621607,
+  "state": "done",
+  "shots": [
+    "00_sidebar_tall"
+  ]
+}

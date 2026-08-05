@@ -1,0 +1,9 @@
+{
+  "scenario": "b_accessr_probe.py",
+  "ts": 1785523314.7332876,
+  "state": "done",
+  "shots": [
+    "00_after_run",
+    "01_zparam_expanded"
+  ]
+}

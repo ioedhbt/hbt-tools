@@ -1,0 +1,12 @@
+{
+  "scenario": "e_index.py",
+  "ts": 1785549913.6782475,
+  "state": "done",
+  "shots": [
+    "00_standalone_header",
+    "01_upload_empty",
+    "02_loaded_line",
+    "03_viewer",
+    "04_mode_selector"
+  ]
+}

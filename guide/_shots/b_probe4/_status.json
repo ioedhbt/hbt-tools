@@ -1,0 +1,8 @@
+{
+  "scenario": "b_probe4.py",
+  "ts": 1785522529.9129684,
+  "state": "done",
+  "shots": [
+    "00_open_caps_clip"
+  ]
+}

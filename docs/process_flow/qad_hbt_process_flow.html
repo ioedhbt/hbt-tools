@@ -1,0 +1,2637 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InP HBT QAD Process Flow</title>
+<style>
+/* ============================================================================
+   Tokens.  Indigo-biased neutrals (the substrate's own hue), one accent taken
+   from the emitter metal.  Material colours live only inside the viewport.
+   ========================================================================== */
+:root{
+  --ink:#f2f3f7; --panel:#ffffff; --panel-2:#eaecf3;
+  --rule:#d5d9e6; --rule-2:#e7eaf1;
+  --text:#151a2b; --text-2:#4a5268; --muted:#727b93;
+  --accent:#a8700c; --accent-soft:#f4e3bf;
+  --viewport:#e8eaf1;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono","PingFang TC","Microsoft JhengHei","Noto Sans TC","Heiti TC",monospace;
+  --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Microsoft JhengHei","Noto Sans TC","Heiti TC",sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --ink:#0b0e18; --panel:#141829; --panel-2:#1b2135;
+    --rule:#282f49; --rule-2:#1e2439;
+    --text:#dfe3f0; --text-2:#aab2c8; --muted:#7c85a0;
+    --accent:#f0b429; --accent-soft:#3a2f14;
+    --viewport:#080a12;
+  }
+}
+:root[data-theme="light"]{
+  --ink:#f2f3f7; --panel:#ffffff; --panel-2:#eaecf3;
+  --rule:#d5d9e6; --rule-2:#e7eaf1;
+  --text:#151a2b; --text-2:#4a5268; --muted:#727b93;
+  --accent:#a8700c; --accent-soft:#f4e3bf;
+  --viewport:#e8eaf1;
+}
+:root[data-theme="dark"]{
+  --ink:#0b0e18; --panel:#141829; --panel-2:#1b2135;
+  --rule:#282f49; --rule-2:#1e2439;
+  --text:#dfe3f0; --text-2:#aab2c8; --muted:#7c85a0;
+  --accent:#f0b429; --accent-soft:#3a2f14;
+  --viewport:#080a12;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--ink); color:var(--text);
+  font-family:var(--sans); font-size:14px; line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+
+/* ---- shell --------------------------------------------------------------- */
+.app{
+  display:grid; height:100vh; min-height:560px;
+  grid-template-columns:250px minmax(0,1fr) 310px;
+  grid-template-rows:auto minmax(0,1fr);
+  gap:0;
+}
+.masthead{
+  grid-column:1/-1; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;
+  padding:12px 18px; border-bottom:1px solid var(--rule); background:var(--panel);
+}
+.masthead h1{
+  margin:0; font-size:15px; font-weight:650; letter-spacing:.055em;
+  text-transform:uppercase;
+}
+.masthead .sub{color:var(--muted); font-size:12.5px}
+.masthead .spacer{flex:1}
+.chip{
+  font-family:var(--mono); font-size:11px; letter-spacing:.04em;
+  color:var(--text-2); border:1px solid var(--rule); border-radius:2px;
+  padding:2px 7px; background:var(--panel-2);
+}
+
+/* ---- left rail ----------------------------------------------------------- */
+.rail{
+  border-right:1px solid var(--rule); background:var(--panel);
+  overflow-y:auto; padding:14px 0 22px;
+}
+.railnote{
+  margin:16px 16px 0; padding-top:12px; border-top:1px solid var(--rule);
+  font-size:11.5px; color:var(--muted); line-height:1.45;
+}
+.rail h2{
+  margin:0 0 10px; padding:0 16px; font-size:10.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--muted); font-weight:650;
+}
+.flow{list-style:none;margin:0;padding:0 10px 0 16px}
+.frow{display:grid;grid-template-columns:20px 1fr;align-items:center;position:relative}
+.frow.seg{height:30px}
+.frow.dot{min-height:32px}
+
+.frow>.hit{
+  position:absolute; inset:0 0 0 -6px; border-radius:4px; cursor:pointer;
+  background:none; border:0; z-index:2;
+}
+.frow>.hit:hover~.gfx .stem{background:var(--accent);opacity:.55}
+.frow>.hit:hover~.txt{color:var(--text)}
+.gfx{display:flex;justify-content:center;align-items:center;height:100%;position:relative}
+.seg .stem{
+  width:2px; height:100%; background:var(--rule); position:relative; border-radius:1px;
+}
+.seg .stem::after{
+  content:""; position:absolute; left:0; top:0; width:100%; height:var(--fill,0%);
+  background:var(--accent); border-radius:1px;
+}
+.seg .txt{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.03em;
+  color:var(--muted); padding-left:10px; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis;
+}
+.dot .mark{
+  width:15px;height:15px;border-radius:50%; border:2px solid var(--rule);
+  background:var(--panel); font-family:var(--mono); font-size:9px;
+  display:flex;align-items:center;justify-content:center; color:transparent;
+  transition:background .18s, border-color .18s;
+}
+.dot .txt{
+  padding-left:10px; font-size:13px; color:var(--text-2); font-weight:500;
+}
+.dot .txt .num{
+  font-family:var(--mono); font-size:10.5px; color:var(--muted);
+  margin-right:7px; font-variant-numeric:tabular-nums;
+}
+.frow.done .mark{background:var(--rule);border-color:var(--rule)}
+.frow.done.seg .stem{background:var(--rule)}
+.frow.done .stem::after{height:100%}
+.frow.here .mark{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.frow.here .txt{color:var(--text);font-weight:650}
+.frow.active .stem::after{background:var(--accent)}
+
+/* ---- viewport ------------------------------------------------------------ */
+.stage{display:flex;flex-direction:column;min-width:0;background:var(--viewport)}
+.view{position:relative;flex:1;min-height:0}
+.view canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+#hud{pointer-events:none}
+.badge{
+  position:absolute; left:14px; top:12px; z-index:3; display:flex; gap:6px; flex-wrap:wrap;
+  pointer-events:none;
+}
+.badge span{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;
+  background:var(--panel); border:1px solid var(--rule); color:var(--text-2);
+  padding:2px 7px;border-radius:2px;
+}
+.caption{
+  border-top:1px solid var(--rule); background:var(--panel);
+  padding:9px 16px; display:flex; align-items:center; gap:14px; min-height:42px;
+}
+.caption .stagetxt{
+  font-family:var(--mono); font-size:12px; color:var(--text-2);
+  flex:1; min-width:0;
+}
+.caption .stagetxt b{color:var(--accent);font-weight:600}
+.transport{
+  display:flex;gap:6px;align-items:center;border-top:1px solid var(--rule);
+  background:var(--panel-2); padding:8px 16px; flex-wrap:wrap;
+}
+.btn{
+  border:1px solid var(--rule); background:var(--panel); color:var(--text-2);
+  padding:5px 11px; border-radius:3px; font-size:12px; letter-spacing:.02em;
+  display:inline-flex;align-items:center;gap:6px; white-space:nowrap;
+}
+.btn[hidden]{display:none}
+.btn:hover{color:var(--text);border-color:var(--muted)}
+.btn:disabled{opacity:.34}
+.btn:disabled:hover{color:var(--text-2);border-color:var(--rule)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--ink);font-weight:600}
+.btn.primary:hover{color:var(--ink);filter:brightness(1.08)}
+.btn.on{border-color:var(--accent);color:var(--accent)}
+.btn kbd{font-family:var(--mono);font-size:10px;opacity:.65}
+
+/* ---- right dossier ------------------------------------------------------- */
+.info{
+  border-left:1px solid var(--rule); background:var(--panel);
+  overflow-y:auto; padding:16px 18px 28px;
+}
+.info .eyebrow{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--muted);
+}
+.info h3{margin:4px 0 8px;font-size:19px;line-height:1.2;letter-spacing:-.01em;text-wrap:balance}
+.info p{margin:0 0 14px;color:var(--text-2);font-size:13.2px;max-width:62ch}
+.facts{
+  border-top:1px solid var(--rule); margin:0 0 18px; padding-top:10px;
+  display:grid; gap:6px;
+}
+.facts div{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:baseline}
+.facts dt{font-size:12px;color:var(--muted)}
+.facts dd{
+  margin:0;font-family:var(--mono);font-size:11.5px;color:var(--text);
+  font-variant-numeric:tabular-nums;text-align:right;
+}
+.info h4{
+  margin:18px 0 8px; font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--muted); font-weight:650;
+}
+.stack{width:100%;border-collapse:collapse;font-size:11px;font-family:var(--mono);table-layout:auto}
+.stack th{
+  text-align:left;font-weight:600;color:var(--muted);font-size:10px;
+  letter-spacing:.08em;text-transform:uppercase;padding:0 0 5px;border-bottom:1px solid var(--rule);
+}
+.stack th.r,.stack td.r{text-align:right;padding-left:6px}
+.stack td{padding:2.5px 0;border-bottom:1px solid var(--rule-2);
+  font-variant-numeric:tabular-nums;color:var(--text-2)}
+.stack td.nm{color:var(--text)}
+.stack th:first-child,.stack td:first-child{padding-right:9px}
+.stack .nchip{
+  display:inline-block;min-width:14px;padding:1px 3px;border-radius:2px;
+  text-align:center;font-weight:700;font-size:10px;line-height:1.4;
+  border:1px solid rgba(128,128,128,.3);
+}
+.stack tr.gone td{opacity:.34}
+.note{font-size:11.5px;color:var(--muted);margin-top:12px;max-width:60ch}
+
+@media (max-width:1120px){
+  .app{grid-template-columns:210px minmax(0,1fr) 260px}
+}
+@media (max-width:900px){
+  .app{grid-template-columns:1fr; grid-template-rows:auto auto minmax(320px,58vh) auto; height:auto}
+  .rail{border-right:0;border-bottom:1px solid var(--rule);max-height:210px}
+  .info{border-left:0;border-top:1px solid var(--rule)}
+  .stage{min-height:60vh}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms !important}
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="masthead">
+    <h1 data-i18n>InP HBT QAD Process Flow</h1>
+    <span class="sub" data-i18n>Interactive process flow</span>
+    <span class="spacer"></span>
+    <span class="chip" id="zoomchip">device view</span>
+    <button class="btn" id="langbtn" data-i18n-title title="Switch language">中文</button>
+    <button class="btn" id="themebtn" data-i18n data-i18n-title title="Toggle light / dark">◐ Theme</button>
+  </header>
+
+  <nav class="rail" data-i18n-aria aria-label="Process steps">
+    <h2 data-i18n>Sequence</h2>
+    <ol class="flow" id="flow"></ol>
+    <p class="railnote" id="railnote"></p>
+  </nav>
+
+  <main class="stage">
+    <div class="view" id="view">
+      <canvas id="gl"></canvas>
+      <canvas id="hud"></canvas>
+      <div class="badge" id="badge"></div>
+    </div>
+    <div class="caption">
+      <div class="stagetxt" id="stagetxt"></div>
+    </div>
+    <div class="transport">
+      <button class="btn primary" id="playall" data-i18n>▶ From start</button>
+      <button class="btn" id="playhere" data-i18n>▶ From here</button>
+      <button class="btn" id="playpause">▶ Play</button>
+      <span style="flex:1"></span>
+      <button class="btn" id="xsec" data-i18n>Cross-section</button>
+      <button class="btn" id="speed">1.0×</button>
+      <button class="btn" id="resetview" data-i18n>Reset view</button>
+    </div>
+  </main>
+
+  <aside class="info">
+    <div class="eyebrow" id="i-eyebrow">Step 1 of 7</div>
+    <h3 id="i-title">Wafer cut</h3>
+    <p id="i-body"></p>
+    <dl class="facts" id="i-facts"></dl>
+    <h4 data-i18n>Epitaxial stack</h4>
+    <table class="stack" id="i-stack">
+      <thead><tr><th>#</th><th data-i18n>Layer</th><th class="r">nm</th><th class="r" data-i18n>type</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </aside>
+</div>
+
+<script>
+"use strict";
+/* ===========================================================================
+ * InP HBT QAD process flow — interactive 3-D illustration.
+ *
+ * A "quick and dirty" variant of the formal e-beam InP HBT flow (see
+ * inp_hbt_process_flow.html): the same 12-layer epitaxy, but every mask is
+ * printed by MA6 contact UV lithography and every device feature — the
+ * emitter mesa, the base-collector mesa, the emitter/collector/base metals,
+ * the six probe pads, the isolation island — is a plain rectangle or a
+ * rectilinear U.  That means the whole scene is built from axis-aligned
+ * box()/slab() frustums; the polygon triangulator, stripe/point geometry and
+ * e-beam write machinery the formal flow needed for its tapered stripe and
+ * ring shapes are not needed here at all, so this file does not carry them.
+ *
+ * Rendering is the same small hand-written WebGL pipeline as the formal
+ * flow: every frame the scene is re-emitted as world-space triangles into
+ * one vertex array, split into opaque / alpha-blended / additive chunks,
+ * uploaded once and drawn.
+ *
+ * Units: nanometres, at device scale.  x = across, z = along, y = up, +y
+ * from SUBTOP = 0.  Same wafer, same die, same crystal frame as the formal
+ * flow — this is a different mask set on the same starting material.
+ * ======================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 0.  Language
+ *
+ * English is the source of truth: every string is written in English where
+ * it belongs and passed through TR() on its way to the DOM or the HUD.  ZH
+ * holds only the strings that have a Traditional-Chinese form, so anything
+ * missing falls straight through.  Many chemistry / wafer / epitaxy strings
+ * below are written to match the formal flow's English exactly, so they pick
+ * up its ZH translations for free.
+ * ------------------------------------------------------------------------ */
+const HOST = {lang:null, embed:false};
+
+const ZH = {
+  'InP HBT QAD Process Flow': 'InP HBT 快速製程流程',
+  'Interactive process flow': '互動式製程流程',
+  '◐ Theme': '◐ 主題',
+  'Toggle light / dark': '切換亮 / 暗色',
+  'Switch language': '切換語言',
+  'Sequence': '製程順序',
+  'Process steps': '製程步驟',
+  'device view': '元件視角',
+  'wafer view': '晶圓視角',
+  'This illustration needs WebGL.': '此圖解需要瀏覽器支援 WebGL。',
+  '▶ From start': '▶ 從頭播放',
+  '▶ From here': '▶ 從此播放',
+  '▶ Play': '▶ 播放',
+  '❚❚ Pause': '❚❚ 暫停',
+  'Cross-section': '剖面視圖',
+  'Reset view': '重設視角',
+  'start ▸': '開始 ▸',
+  '▸ animate': '▸ 播放動畫',
+  'Play step {n}': '播放第 {n} 步',
+  'Show state after step {n}': '顯示第 {n} 步完成後的狀態',
+  'Step {n} of {t}': '第 {n} 步 / 共 {t} 步',
+  'Steps {a}–{b} ({name} onward) are hidden while these are verified.':
+    '第 {a}–{b} 步（{name} 之後）在驗證完成前先隱藏。',
+  'Epitaxial stack': '磊晶結構',
+  'Layer': '層',
+  'type': '型別',
+  'Substrate': '基板',
+  'drag to orbit': '拖曳旋轉',
+  'scroll to zoom in/out': '滾輪縮放',
+  'primary flat': '主平邊',
+  'secondary flat': '副平邊',
+  '12 × 12 mm² die': '12 × 12 mm² 晶粒',
+  'B · port 1': 'B · 埠 1',
+  'C · port 2': 'C · 埠 2',
+  'Etch stop': '蝕刻停止層',
+  'Sub-collector': '次集極',
+  'Collector': '集極',
+  'Base': '基極',
+  'Emitter': '射極',
+  'Emitter cap': '射極覆蓋層',
+  '76 mm (3 inch) S.I. InP — primary flat front, secondary flat +90° right':
+    '76 mm（3 吋）半絕緣 InP — 主平邊朝前，副平邊在右側 +90°',
+  'Scribe lanes on a 12 mm pitch': '以 12 mm 間距劃出切割道',
+  'Lift one 12 × 12 mm² die out of the wafer': '自晶圓取出一顆 12 × 12 mm² 晶粒',
+  'Wafer': '晶圓',
+  '3" S.I. InP': '3" 半絕緣 InP',
+  'Flats': '平邊',
+  'primary front · secondary +90°': '主平邊朝前 · 副平邊 +90°',
+  'Die': '晶粒',
+  'Epi total': '磊晶總厚',
+  '747.5 nm / 12 layers': '747.5 nm / 12 層',
+  'A semi-insulating InP wafer arrives with the full HBT epitaxy, 747.5 nm. It is scribed on a 12 mm pitch and cleaved into 12 × 12 mm² dies.':
+    '半絕緣 InP 晶圓出廠時已長好完整 HBT 磊晶，共 747.5 nm。以 12 mm 間距劃線後裂片成 12 × 12 mm² 晶粒。',
+  'C₆H₈O₇:H₂O₂ takes the GaAsSb base': 'C₆H₈O₇:H₂O₂ 蝕去 GaAsSb 基極',
+  'Stop layer': '停止層',
+  'Stops on': '停在',
+  'L3 InGaAs sub-collector': 'L3 InGaAs 次集極',
+  'S.I. InP substrate': '半絕緣 InP 基板',
+  'Spin on: the liquid wets the topography and follows it': '旋塗：液體潤濕表面起伏並隨之覆蓋',
+  'Slow cure ramp — it reflows and the humps come down': '緩慢升溫固化 — 材料回流，隆起被壓平',
+  'Crosslinked and planar': '交聯完成且平坦',
+  'As spun': '旋塗後',
+  'follows the contour': '順著表面起伏',
+  'After cure': '固化後',
+  'planar': '平坦',
+  'Role': '作用',
+  'Planar dielectric': '平坦化介電層',
+  'Next': '下一步',
+  'via open': '開導通孔',
+  'pad metal deposition': '墊金屬蒸鍍',
+  'MA6 contact UV, flood exposure': 'MA6 接觸式 UV，全面曝光',
+  'Mask': '光罩',
+  'Window': '開窗',
+  'Written by': '曝寫方式',
+  'Gap to emitter': '與射極間距',
+  'Ground': '接地',
+  'Port 1 · 2': '埠 1 · 2',
+  'base pad · collector pad': '基極墊 · 集極墊',
+  'Zoom in on the die: the emitter and base–collector mesas will grow here':
+    '拉近看晶粒：射極與基極–集極台面將在此形成',
+  'Spin a single layer of photoresist over the flat epi': '在平整磊晶上旋塗單層光阻',
+  'MA6 flood UV through a chrome mask — a plain 5 × 12 µm² window':
+    'MA6 全面 UV 曝光，鉻光罩上僅開一個 5 × 12 µm² 窗口',
+  'Develop: one rectangular resist island remains': '顯影：留下一塊矩形光阻島',
+  'C₆H₈O₇:H₂O₂ takes the two InGaAs cap layers': 'C₆H₈O₇:H₂O₂ 蝕去兩層 InGaAs 覆蓋層',
+  'HCl:H₃PO₄ takes the InP and AlInP, undercutting as it goes':
+    'HCl:H₃PO₄ 蝕去 InP 與 AlInP，並同時側向內縮',
+  'Strip — the emitter mesa stands proud of the base': '去膜 — 射極台面高出基極表面',
+  'A single layer of photoresist, patterned by MA6 contact lithography, defines the emitter mesa. Citric acid takes the InGaAs cap, then HCl:H₃PO₄ takes the InP and AlInP down to the base, undercutting as it goes.':
+    '單層光阻經 MA6 接觸式微影定義出射極台面。檸檬酸先蝕去 InGaAs 覆蓋層，HCl:H₃PO₄ 再蝕去 InP 與 AlInP 直到基極，並同時側向內縮。',
+  'Spin photoresist — it drapes over the emitter mesa, humping up and thinning on the shoulders':
+    '旋塗光阻 — 光阻披覆射極台面，於台面上方隆起，並在肩部變薄',
+  'MA6 flood UV through a chrome mask — a 19 × 20 µm² window over the mesa':
+    'MA6 全面 UV 曝光，鉻光罩在台面上方開一個 19 × 20 µm² 窗口',
+  'Develop: one resist island covers the whole base–collector mesa':
+    '顯影：一塊光阻島覆蓋整個基極–集極台面',
+  'HCl:H₃PO₄ takes the collector and sub-collector InP, undercutting again':
+    'HCl:H₃PO₄ 蝕去集極與次集極 InP，再次側向內縮',
+  'Strip — the emitter mesa still stands on its shelf': '去膜 — 射極台面仍立於其平台之上',
+  'A second resist coat drapes conformally over the emitter mesa before MA6 exposure defines the 19 × 20 µm² base–collector mesa. Citric takes the base, HCl:H₃PO₄ the collector and sub-collector InP, stopping on the L3 sub-collector.':
+    '第二層光阻順應披覆於射極台面之上，再經 MA6 曝光定義出 19 × 20 µm² 的基極–集極台面。檸檬酸蝕去基極，HCl:H₃PO₄ 蝕去集極與次集極 InP，停在 L3 次集極上。',
+  'Coat two resist layers, conformal over both mesas': '塗佈雙層光阻，順應披覆於兩個台面之上',
+  'MA6 UV through the emitter, collector and pad mask': 'MA6 UV 曝光，光罩含射極、集極與探針墊圖案',
+  'Develop the top layer': '顯影上層',
+  'DUV flood — the top layer as its own mask, the bottom clears wider':
+    '深紫外全面曝光 — 以上層自身為遮罩，下層開得更寬',
+  'Evaporate: emitter metal, collector metal and all six probe pads, one run':
+    '蒸鍍：射極金屬、集極金屬與六個探針墊，一次蒸鍍完成',
+  'Lift-off': '剝離',
+  'A double-layer lift-off resist, coated conformally over both mesas, is patterned by MA6 UV and a DUV flood that undercuts the bottom layer. One evaporation run deposits the emitter metal, the U-shaped collector metal and all six probe pads.':
+    '雙層剝離光阻順應披覆於兩個台面之上，經 MA6 UV 與深紫外全面曝光後，下層側向內縮形成倒錐。一次蒸鍍即完成射極金屬、U 形集極金屬與六個探針墊。',
+  'Coat two resist layers again': '再次塗佈雙層光阻',
+  'MA6 UV through the base contact mask': 'MA6 UV 曝光，光罩為基極接觸圖案',
+  'DUV flood — the bottom layer clears wider': '深紫外全面曝光 — 下層開得更寬',
+  'Evaporate the base contact': '蒸鍍基極接觸金屬',
+  'The same double-layer lift-off scheme lands the U-shaped base contact on the exposed GaAsSb, 1 µm clear of the emitter mesa on the inside and 1 µm inside the mesa edge on the outside.':
+    '以相同的雙層剝離製程，將 U 形基極接觸金屬鍍在裸露的 GaAsSb 上，內側與射極台面間距 1 µm，外側則位於台面邊緣內側 1 µm。',
+  'Spin resist — it humps over both mesas and the metal': '旋塗光阻 — 隆起覆蓋兩個台面與金屬',
+  'MA6 flood UV through the isolation mask': 'MA6 全面 UV 曝光，光罩為隔離圖案',
+  'Develop: one island covers the device; the pads stand proud as their own mask':
+    '顯影：一塊光阻島覆蓋元件；探針墊本身凸出並作為自身的遮罩',
+  'C₆H₈O₇:H₂O₂ takes the L3 InGaAs sub-collector': 'C₆H₈O₇:H₂O₂ 蝕去 L3 InGaAs 次集極',
+  'HCl:H₃PO₄ takes the L2 InP, undercutting': 'HCl:H₃PO₄ 蝕去 L2 InP，並側向內縮',
+  'C₆H₈O₇:H₂O₂ removes the L1 etch stop, down to the S.I. substrate':
+    'C₆H₈O₇:H₂O₂ 蝕去 L1 蝕刻停止層，直達半絕緣基板',
+  'Strip — the device stands on one island, the six pads on their own':
+    '去膜 — 元件立於一座島上，六個探針墊則各自獨立',
+  'One resist island, grown 1 µm past the collector metal outline, covers the device; the six probe pads mask themselves. The field etches to the semi-insulating substrate, isolating the device and each pad.':
+    '一塊光阻島（由集極金屬外框向外長 1 µm 而成）覆蓋整個元件；六個探針墊則以自身金屬為遮罩。場區蝕刻至半絕緣基板，將元件與各探針墊彼此隔離。',
+  'BCB spins on as a liquid and drapes over the topography, then reflows flat during the slow cure.':
+    'BCB 以液態旋塗並披覆表面起伏，在緩慢固化過程中回流成平面。',
+  'Spin a single layer of photoresist over the cured BCB — flat, no drape: that flatness is the point of the cure':
+    '在固化後的 BCB 上旋塗單層光阻——平坦、無需披覆，這正是固化的目的',
+  'MA6 flood UV through the via mask': 'MA6 全面 UV 曝光，光罩為導通孔圖案',
+  'Develop: nine rectangular openings': '顯影：九個矩形開孔',
+  'CF₄/O₂ RIE thins the BCB inside each opening, stopping on the metal underneath':
+    'CF₄/O₂ 反應離子蝕刻使各開孔內的 BCB 減薄，停在下方金屬上',
+  'Strip — nine vias down to metal': '去膜 — 九個導通孔直達金屬',
+  'Vias': '導通孔',
+  'Reach': '接觸',
+  'emitter · base · collector · pads': '射極 · 基極 · 集極 · 探針墊',
+  'Chemistry': '化學藥劑',
+  'CF₄/O₂ RIE': 'CF₄/O₂ 反應離子蝕刻',
+  'Etch stops on': '蝕刻停在',
+  'metal, not semiconductor': '金屬上，而非半導體',
+  'A single resist layer, spun flat onto the already-planar cured BCB, is patterned by MA6 UV to open nine rectangular vias. CF₄/O₂ RIE thins the BCB inside each one and stops on the metal beneath it — the emitter and base contacts, the collector crossbar, and all six probe pads. M1 pad metal lands next.':
+    '單層光阻平整旋塗於已固化平坦的 BCB 上，經 MA6 UV 微影定義出九個矩形導通孔。CF₄/O₂ 反應離子蝕刻使各孔內的 BCB 減薄，並停在其下方金屬上——射極與基極接觸、集極橫桿，以及六個探針墊。M1 墊金屬製程接續進行。',
+  'Spin two resist layers on the via-opened BCB': '在已開孔的 BCB 上旋塗雙層光阻',
+  'MA6 flood UV through the M1 mask': 'MA6 全面 UV 曝光，光罩為 M1 圖案',
+  'Develop the top layer to the M1 pattern': '顯影上層至 M1 圖案',
+  'DUV flood — the top layer as its own mask, the bottom clears wider and undercuts':
+    '深紫外全面曝光 — 以上層自身為遮罩，下層開得更寬並側向內縮',
+  'Evaporate thick gold — the vias fill, the resist carries the overburden':
+    '蒸鍍厚金 — 導通孔隨之填滿，光阻承載多餘覆蓋層',
+  'Lift-off — the GSG launch is finished': '剝離 — GSG 饋入結構完成',
+  'bridge over the emitter via': '跨接於射極導通孔上方',
+  'base via · collector via': '基極導通孔 · 集極導通孔',
+  'via-connected, not via-free': '經導通孔連接，而非無孔式',
+  'Thick gold forms the GSG launch on the via-opened BCB: two ground plates and a bridge tie four corner pads to the emitter via, one signal finger lands on the base via for port 1, the other on the collector via for port 2. A two-layer lift-off resist, patterned by MA6 UV and a DUV flood, defines the five rectangles; the vias fill as the gold evaporates, so the launch is via-connected rather than via-free.':
+    '厚金構成 GSG 饋入結構，鍍在已開孔的 BCB 上：兩塊接地板與橋接金屬將四個角落探針墊接至射極導通孔；一支訊號指狀電極落在基極導通孔上作為埠 1，另一支落在集極導通孔上作為埠 2。雙層剝離光阻經 MA6 UV 與深紫外全面曝光定義出這五個矩形；導通孔隨金屬蒸鍍而填滿，因此此饋入結構為導通孔連接式，而非無孔式。',
+  'A second resist coat drapes conformally over the emitter mesa before MA6 exposure defines the 19 × 20 µm² base–collector mesa. Citric takes the base, HCl:H₃PO₄ the collector and sub-collector InP, stopping on the L3 sub-collector. The emitter mesa sits 1 µm in from one 20 µm edge and centred on the 19 µm one — asymmetric on purpose, leaving room for the base metal crossbar on the far side.':
+    '第二層光阻順應披覆於射極台面之上，再經 MA6 曝光定義出 19 × 20 µm² 的基極–集極台面。檸檬酸蝕去基極，HCl:H₃PO₄ 蝕去集極與次集極 InP，停在 L3 次集極上。射極台面在其中一個 20 µm 邊上內縮 1 µm，並置中於 19 µm 的一邊——此不對稱為刻意設計，為另一側的基極金屬橫桿預留空間。',
+};
+
+let LANG = (function(){
+  if (HOST.lang) return HOST.lang === 'zh' ? 'zh' : 'en';
+  try {
+    const q = new URLSearchParams(location.search).get('lang');
+    if (q) return q.toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+    const stored = localStorage.getItem('hbtflow.lang');
+    if (stored === 'zh' || stored === 'en') return stored;
+  } catch (e) { /* no query string, or storage blocked: English */ }
+  return 'en';
+})();
+
+const MISSING = new Set();
+function TR(s){
+  if (LANG !== 'zh' || !s) return s;
+  const v = ZH[s];
+  if (typeof v !== 'string'){ MISSING.add(s); return s; }   // also blocks Object.prototype
+  return v;
+}
+window.i18nMissing = () => Array.from(MISSING).sort();
+/** Fill {name} placeholders after translation, so word order can move. */
+const TRF = (s, m) => s.replace(/\{(\w+)\}/g, (all, k) => m[k]);
+
+function setLang(v){
+  LANG = v === 'zh' ? 'zh' : 'en';
+  if (!HOST.embed){ try { localStorage.setItem('hbtflow.lang', LANG); } catch (e) {} }
+  applyLang();
+}
+
+/** Re-translate the static markup.  The English in the file is the key. */
+function applyStatic(){
+  for (const n of document.querySelectorAll('[data-i18n]')){
+    if (n.dataset.en === undefined) n.dataset.en = n.textContent;
+    n.textContent = TR(n.dataset.en);
+  }
+  for (const n of document.querySelectorAll('[data-i18n-title]')){
+    if (n.dataset.enTitle === undefined) n.dataset.enTitle = n.title;
+    n.title = TR(n.dataset.enTitle);
+  }
+  for (const n of document.querySelectorAll('[data-i18n-aria]')){
+    const a = n.getAttribute('aria-label');
+    if (n.dataset.enAria === undefined) n.dataset.enAria = a;
+    n.setAttribute('aria-label', TR(n.dataset.enAria));
+  }
+  document.title = TR('InP HBT QAD Process Flow');
+}
+
+/** Everything that holds text, rebuilt in the active language. */
+function applyLang(){
+  document.documentElement.lang = LANG === 'zh' ? 'zh-Hant-TW' : 'en';
+  applyStatic();
+  langBtn.textContent = LANG === 'zh' ? 'EN' : '中文';
+  buildRail();
+  railNote();
+  fillStack();
+  syncPanel();
+  lastStage = ''; lastBadge = '';        // force the stage line and badges out
+}
+
+/* ---------------------------------------------------------------------------
+ * 1.  Geometry constants
+ *
+ * A QAD (quick-and-dirty) variant of the same InP HBT epitaxy: every mask is
+ * printed by MA6 contact UV, not e-beam, and every feature is a plain
+ * rectangle or a rectilinear U — no stripes, no tapered points, no posts, no
+ * airbridge.  That means every mesa and every metal is a slab() frustum or a
+ * handful of non-overlapping box()es; the polygon/triangulation machinery
+ * the formal flow needed for its pointed stripe and ring shapes is not
+ * needed here at all.
+ * ------------------------------------------------------------------------ */
+const BX = 33000;            // half-width  (x) of the whole drawing field
+const BZ = 41000;            // half-length (z) -- wide enough to clear the
+                              // -z probe pad row, which now reaches z -37500
+let CUTAWAY = false;         // true: keep z <= CUT_Z and expose the emitter profile
+let CUT_Z = -3000;           // the cut lands through the emitter mesa centre
+const zF = () => CUTAWAY ? CUT_Z : BZ;
+/** Every footprint goes through here, so the cross-section is one switch. */
+const fp = (x0, x1, z0, z1) => ({x0, x1, z0, z1: Math.min(z1, zF())});
+const FP_FULL = () => fp(-BX, BX, -BZ, BZ);
+
+const SUBTOP = 0;            // top of the S.I. substrate = origin of the epi
+const SUBBOT = -700;         // how much substrate we bother to draw
+
+// Wafer, true scale: 3 inch = 76 mm diameter = 3.81e7 nm radius.  Identical
+// to the formal flow — same boule, same cut, same die.
+const WR   = 38.1e6;
+const WTH  = 1.75e6;
+const WPRI = 36.4775e6;
+const WSEC = 37.7009e6;
+const DIE  = 12e6;
+const WGRID = 20000;
+
+// --- E-mesa (emitter mesa), litho step 2: 5 x 12 um^2 ---------------------
+const EMESA = {x0:-2500, x1:2500, z0:-9000, z1:3000};
+
+// --- BC mesa (base-collector mesa), litho step 3: 19 x 20 um^2 ------------
+const BCMESA = {x0:-9500, x1:9500, z0:-10000, z1:10000};
+
+// --- EM, emitter metal on the E-mesa top: 3 x 10 um^2 ---------------------
+const EM_R = {x0:-1500, x1:1500, z0:-8000, z1:2000};
+
+// --- CM, U-shaped collector metal on the L3 sub-collector: 5 um arms ------
+// inner edge 1 um outside the BC mesa on all three sides; opens toward +z,
+// toward the port-2 pad.  Built as three non-overlapping rectangles (the
+// two arms, full length, plus the crossbar filling the gap between them) so
+// no two opaque fills ever land on the same plane.
+const CM_ARM_L = {x0:-15500, x1:-10500, z0:-16000, z1:11000};
+const CM_ARM_R = {x0: 10500, x1: 15500, z0:-16000, z1:11000};
+const CM_BAR   = {x0:-10500, x1: 10500, z0:-16000, z1:-11000};
+const CM_PARTS = [CM_ARM_L, CM_ARM_R, CM_BAR];
+
+// --- BM, U-shaped base metal on the exposed GaAsSb shelf: 5 um arms -------
+// 1 um gap from the E-mesa on the inside, 1 um inside the BC mesa edge on
+// the outside; opens toward -z, toward the port-1 pad.
+const BM_ARM_L = {x0:-8500, x1:-3500, z0:-9000, z1:9000};
+const BM_ARM_R = {x0: 3500, x1: 8500, z0:-9000, z1:9000};
+const BM_BAR   = {x0:-8500, x1: 8500, z0: 4000, z1: 9000};
+const BM_PARTS = [BM_ARM_L, BM_ARM_R, BM_BAR];
+
+// --- Probe pads: 10 x 15 um^2, six of them, laid out for a GSG launch on
+// the sub-collector.  Deposited in the same run as EM + CM.  ISO is
+// asymmetric in z (the collector U's crossbar runs to z -16000, the base
+// side only to +11000), so the two pad rows sit at different distances from
+// centre -- 25000 and -30000 -- chosen so each row clears ISO by the same
+// 5500 nm (+z: 17500 - 12000; -z: -17000 - (-22500)).
+const PAD_HX = 5000, PAD_HZ = 7500;
+const PAD_XC = [-26000, 0, 26000], PAD_ZC = [25000, -30000];
+const PADS = [];
+for (const zc of PAD_ZC) for (const xc of PAD_XC)
+  PADS.push({x0:xc-PAD_HX, x1:xc+PAD_HX, z0:zc-PAD_HZ, z1:zc+PAD_HZ,
+             role: zc>0 ? (xc===0?'B':'G') : (xc===0?'C':'G')});
+
+// --- Vias through the cured BCB, litho step 8: nine plain rectangles, each
+// sized off the metal rectangle it must land on so it cannot drift out from
+// under it.  `land` tags which metal group drawBCB()'s viaFloorY() should
+// bottom it out on.
+const EM_VIA = {x0:EM_R.x0+750, x1:EM_R.x1-750, z0:EM_R.z0+1000, z1:EM_R.z1-1000,
+                land:'EM', id:'EM via'};                       // 1.5 x 8 um^2, centred on EM_R
+const BM_VIA = {x0:-4000, x1:4000, z0:BM_BAR.z0+1000, z1:BM_BAR.z1-1000,
+                land:'BM', id:'BM via'};                        // 8 x 3 um^2, on the base crossbar
+const CM_VIA = {x0:-4000, x1:4000, z0:CM_BAR.z0+1000, z1:CM_BAR.z1-1000,
+                land:'CM', id:'CM via'};                        // 8 x 3 um^2, on the collector crossbar
+// One per probe pad, each pad's rectangle inset 1 um all round -- 8 x 13 um^2.
+const PAD_VIAS = PADS.map(p => ({x0:p.x0+1000, x1:p.x1-1000, z0:p.z0+1000, z1:p.z1-1000,
+                                  land:'PAD', id:'pad via', role:p.role}));
+const VIAS = [EM_VIA, BM_VIA, CM_VIA, ...PAD_VIAS];
+
+// --- Isolation island: the CM outline grown 1 um and squared off ----------
+const ISO = {x0:-16500, x1:16500, z0:-17000, z1:12000};
+
+// Undercut per side, worst at the layer boundary where HCl takes over — the
+// same per-nanometre law as the formal flow, because it is the same epi and
+// the same wet chemistry.  Anisotropy along/across the two <011> directions
+// is not modelled here: every QAD mesa is a plain rectangle, so a single
+// isotropic inset per side is close enough to be a fair illustration without
+// pretending to know which crystal facet keys off which mask edge.
+const UC_MAX = 60;           // emitter mesa: worst-case undercut, at the AlInP
+const BC_UC  = 90;           // base–collector mesa: HCl undercut into the InP
+const ISO_UC = 110;          // isolation: HCl undercut through the L2 InP
+
+// Metal thicknesses.  Set once, used everywhere metal is drawn; never quoted
+// in the on-screen text, because the process spec does not give a number.
+const EM_H = 250, CM_H = 250, BM_H = 250, M1_H = 1000;
+const SINK = 3;               // a film starts this far inside what it sits on,
+                               // so its underside is never coplanar with it
+const BI_UC = 250;            // lift-off: how much wider the bottom resist
+                               // layer clears than the top, per side
+
+// Dielectric.  BCB goes on as a liquid that wets the topography and the slow
+// cure ramp reflows it flat, exactly as in the formal flow's step 8 — just a
+// shallower stack, because nothing here reaches the formal flow's emitter
+// post height.
+const BCB_CONF = 800;        // thickness of the liquid where it sits, as spun
+const BCB_TOP  = 1350;       // planar top after the cure
+
+// --- M1, thick gold pad metal on the via-opened BCB: five rectangles, each
+// derived off the pad/metal anchors above so nothing drifts.  Two side
+// plates plus the bridge between them form one connected ground conductor
+// that lands on the emitter via; the two signal fingers run from the base
+// and collector pads down onto their own via -- one probe row per port, and
+// every via lands under exactly one M1 rectangle, unlike the formal flow's
+// via-free etch-back launch.
+const M1_GND_L  = {x0: PAD_XC[0]-PAD_HX, x1: PAD_XC[0]+PAD_HX,
+                    z0: PAD_ZC[1]-PAD_HZ, z1: PAD_ZC[0]+PAD_HZ};
+const M1_GND_R  = {x0: PAD_XC[2]-PAD_HX, x1: PAD_XC[2]+PAD_HX,
+                    z0: PAD_ZC[1]-PAD_HZ, z1: PAD_ZC[0]+PAD_HZ};
+const M1_BRIDGE = {x0: M1_GND_L.x1, x1: M1_GND_R.x0, z0: EM_R.z0, z1: EM_R.z1};
+const M1_SIG_B  = {x0: PAD_XC[1]-PAD_HX, x1: PAD_XC[1]+PAD_HX,
+                    z0: BM_BAR.z0, z1: PAD_ZC[0]+PAD_HZ};          // port 1, base
+const M1_SIG_C  = {x0: PAD_XC[1]-PAD_HX, x1: PAD_XC[1]+PAD_HX,
+                    z0: PAD_ZC[1]-PAD_HZ, z1: CM_BAR.z1};          // port 2, collector
+const M1_PARTS  = [M1_GND_L, M1_GND_R, M1_BRIDGE, M1_SIG_B, M1_SIG_C];
+
+/* The scene axes, in the crystal frame — the same (100) InP, the same two
+ * <011> flats, as the formal flow. */
+const AXES = [
+  {v:[1,0,0], lab:'[01̅1]', note:'along the primary flat'},
+  {v:[0,1,0], lab:'[100]',        note:'growth · surface normal'},
+  {v:[0,0,1], lab:'[011]',        note:'out of the primary flat'},
+];
+
+/* ---------------------------------------------------------------------------
+ * 2.  Epitaxy.  Identical to the formal flow: same 12 layers, same
+ * thicknesses (Å from the grower's sheet, kept in nm here), same colours,
+ * same 747.5 nm total.  This is the same starting wafer; only the masks
+ * differ downstream.
+ * ------------------------------------------------------------------------ */
+const C = {
+  sub:     '#2b2f4e',
+  igaas_i: '#86d9d2',
+  inp_np:  '#5a6bd0',
+  igaas:   '#23a89c',
+  inp_n:   '#8b97e0',
+  gaassb:  '#e88b3c',
+  alinp:   '#a874e0',
+  igaas_g: '#37c49b',
+  metal:   '#e6c25c',        // every metal in this flow is gold
+  r1:      '#6fae7a',
+  r2:      '#7fa6de',
+  r3:      '#cf9ede',
+  rThick:  '#7fb27a',
+  rExp:    '#ffd97a',
+  rGen:    '#7fa6de',
+  bcb:     '#c39257',
+  bcbCure: '#8d6238',
+  beam:    '#9ad9ff',
+  uv:      '#a855f7',       // the exposure wavelength, near enough
+  etchant: '#2f7fe0',       // wet chemistry, as a running film
+  chrome:  '#20243a',
+  flux:    '#ffe9a8',
+  plasma:  '#8effd8',
+  wafer:   '#464d75',
+  scribe:  '#9aa6cc',
+};
+
+// bottom -> top
+const EPI = [
+  {i:1,  name:'Etch stop',     mat:'In₀.₅₃Ga₀.₄₇As', A:100,  type:'i',  col:C.igaas_i, grp:'sc'},
+  {i:2,  name:'Sub-collector', mat:'InP',             A:3500, type:'N+', col:C.inp_np,  grp:'sc'},
+  {i:3,  name:'Sub-collector', mat:'In₀.₅₃Ga₀.₄₇As', A:350,  type:'N+', col:C.igaas,   grp:'sc'},
+  {i:4,  name:'Sub-collector', mat:'InP',             A:500,  type:'N+', col:C.inp_np,  grp:'bc'},
+  {i:5,  name:'Collector',     mat:'InP',             A:1200, type:'N',  col:C.inp_n,   grp:'bc'},
+  {i:6,  name:'Base',          mat:'GaAs₀.₅Sb₀.₅',   A:200,  type:'P+', col:C.gaassb,  grp:'bc'},
+  {i:7,  name:'Emitter',       mat:'Al₀.₁→₀InP',     A:175,  type:'N-', col:C.alinp,   grp:'em'},
+  {i:8,  name:'Emitter',       mat:'InP',             A:200,  type:'N',  col:C.inp_n,   grp:'em'},
+  {i:9,  name:'Emitter',       mat:'InP',             A:100,  type:'N',  col:C.inp_n,   grp:'em'},
+  {i:10, name:'Emitter',       mat:'InP',             A:700,  type:'N+', col:C.inp_np,  grp:'em'},
+  {i:11, name:'Emitter cap',   mat:'In₀.₅₃Ga₀.₄₇As', A:100,  type:'N+', col:C.igaas,   grp:'em'},
+  {i:12, name:'Emitter cap',   mat:'InₓGa₁₋ₓAs 0.53→1', A:350, type:'N+', col:C.igaas, grp:'em'},
+];
+(function stackUp(){
+  let y = SUBTOP;
+  for (const L of EPI){ L.t = L.A/10; L.y0 = y; y += L.t; L.y1 = y; }
+})();
+const EPI_TOP    = EPI[EPI.length-1].y1;              // 747.5 nm
+const Y_BASE_TOP = EPI.find(l=>l.i===6).y1;           // 585   — emitter etch stop
+const Y_SC_TOP   = EPI.find(l=>l.i===3).y1;           // 395   — B–C etch stops on the InGaAs
+const Y_INP_TOP  = EPI.find(l=>l.i===10).y1;          // 702.5 — where HCl takes over
+const Y_BC_INP   = EPI.find(l=>l.i===6).y0;           // 565   — where HCl takes over again
+
+/* ---------------------------------------------------------------------------
+ * 3.  Maths helpers
+ * ------------------------------------------------------------------------ */
+const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
+const lerp = (a,b,t) => a + (b-a)*t;
+const seg  = (t,a,b) => clamp01((t-a)/(b-a));
+const ease = x => x < .5 ? 2*x*x : 1 - Math.pow(-2*x+2, 2)/2;
+const easeOut = x => 1 - Math.pow(1-x, 3);
+const logLerp = (a,b,t) => Math.exp(lerp(Math.log(a), Math.log(b), t));
+
+function hex(h){
+  const n = parseInt(h.slice(1), 16);
+  return [((n>>16)&255)/255, ((n>>8)&255)/255, (n&255)/255];
+}
+function mul(m,n,o){                       // column-major 4x4
+  o = o || new Float32Array(16);
+  for (let c=0;c<4;c++) for (let r=0;r<4;r++){
+    let s=0; for(let k=0;k<4;k++) s += m[k*4+r]*n[c*4+k];
+    o[c*4+r]=s;
+  }
+  return o;
+}
+function perspective(fovy, asp, near, far){
+  const f = 1/Math.tan(fovy/2), nf = 1/(near-far);
+  return new Float32Array([f/asp,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0]);
+}
+function lookAt(eye, ctr, up){
+  let z0=eye[0]-ctr[0], z1=eye[1]-ctr[1], z2=eye[2]-ctr[2];
+  let l = Math.hypot(z0,z1,z2); z0/=l; z1/=l; z2/=l;
+  let x0 = up[1]*z2-up[2]*z1, x1 = up[2]*z0-up[0]*z2, x2 = up[0]*z1-up[1]*z0;
+  l = Math.hypot(x0,x1,x2)||1; x0/=l; x1/=l; x2/=l;
+  const y0 = z1*x2-z2*x1, y1 = z2*x0-z0*x2, y2 = z0*x1-z1*x0;
+  return new Float32Array([
+    x0,y0,z0,0, x1,y1,z1,0, x2,y2,z2,0,
+    -(x0*eye[0]+x1*eye[1]+x2*eye[2]),
+    -(y0*eye[0]+y1*eye[1]+y2*eye[2]),
+    -(z0*eye[0]+z1*eye[1]+z2*eye[2]), 1]);
+}
+// deterministic noise so particles do not jitter between frames
+function rnd(i){ const s = Math.sin(i*127.1+311.7)*43758.5453; return s - Math.floor(s); }
+function mixCol(a, b, t){
+  const x = typeof a === 'string' ? hex(a) : a, y = typeof b === 'string' ? hex(b) : b;
+  return [lerp(x[0],y[0],t), lerp(x[1],y[1],t), lerp(x[2],y[2],t)];
+}
+
+/* ---------------------------------------------------------------------------
+ * 4.  WebGL
+ * ------------------------------------------------------------------------ */
+const glCanvas = document.getElementById('gl');
+const gl = glCanvas.getContext('webgl', {antialias:true, alpha:false, depth:true});
+if (!gl) { document.getElementById('view').innerHTML =
+  '<p style="padding:24px;color:var(--muted)">'
+  + TR('This illustration needs WebGL.') + '</p>'; }
+
+const VS = `
+attribute vec3 aPos; attribute vec3 aNrm; attribute vec4 aCol;
+uniform mat4 uVP;
+varying vec3 vN; varying vec4 vC;
+void main(){ vN = aNrm; vC = aCol; gl_Position = uVP * vec4(aPos,1.0); }`;
+const FS = `
+precision mediump float;
+varying vec3 vN; varying vec4 vC;
+uniform vec3 uL1, uL2; uniform float uAmb, uUnlit;
+void main(){
+  if (uUnlit > .5){ gl_FragColor = vC; return; }
+  vec3 n = normalize(vN);
+  if (!gl_FrontFacing) n = -n;
+  float d = uAmb + 0.56*max(dot(n,uL1),0.0) + 0.20*max(dot(n,uL2),0.0);
+  gl_FragColor = vec4(vC.rgb*d, vC.a);
+}`;
+
+function shader(type, src){
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+let prog, loc, vbo, lbo;
+if (gl){
+  prog = gl.createProgram();
+  gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  loc = {
+    aPos: gl.getAttribLocation(prog,'aPos'),
+    aNrm: gl.getAttribLocation(prog,'aNrm'),
+    aCol: gl.getAttribLocation(prog,'aCol'),
+    uVP:  gl.getUniformLocation(prog,'uVP'),
+    uL1:  gl.getUniformLocation(prog,'uL1'),
+    uL2:  gl.getUniformLocation(prog,'uL2'),
+    uAmb: gl.getUniformLocation(prog,'uAmb'),
+    uUnlit: gl.getUniformLocation(prog,'uUnlit'),
+  };
+  vbo = gl.createBuffer(); lbo = gl.createBuffer();
+  gl.enable(gl.DEPTH_TEST);
+  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+}
+
+/* ---------------------------------------------------------------------------
+ * 5.  Immediate-mode geometry emitter
+ * ------------------------------------------------------------------------ */
+const V = [];        // pos3 + nrm3 + col4
+const LV = [];       // pos3 + col4   (edges, unlit)
+let chunks = [];     // {s,n,mode,cx,cy,cz}
+let cStart = 0, cMode = 'opaque', cAx = 0, cAy = 0, cAz = 0, cAn = 0;
+
+function resetGeom(){ V.length = 0; LV.length = 0; chunks = []; }
+function begin(mode){ cStart = V.length/10; cMode = mode || 'opaque'; cAx=cAy=cAz=cAn=0; }
+function end(){
+  const n = V.length/10 - cStart;
+  if (n > 0) chunks.push({s:cStart, n, mode:cMode, c:[cAx/cAn, cAy/cAn, cAz/cAn]});
+}
+function vert(x,y,z, nx,ny,nz, c, a){
+  V.push(x,y,z, nx,ny,nz, c[0],c[1],c[2], a);
+  cAx+=x; cAy+=y; cAz+=z; cAn++;
+}
+function tri(p,q,r,c,a){
+  const ux=q[0]-p[0], uy=q[1]-p[1], uz=q[2]-p[2];
+  const vx=r[0]-p[0], vy=r[1]-p[1], vz=r[2]-p[2];
+  let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+  const l = Math.hypot(nx,ny,nz)||1; nx/=l; ny/=l; nz/=l;
+  vert(p[0],p[1],p[2], nx,ny,nz, c,a);
+  vert(q[0],q[1],q[2], nx,ny,nz, c,a);
+  vert(r[0],r[1],r[2], nx,ny,nz, c,a);
+}
+function quad(p,q,r,s,c,a){ tri(p,q,r,c,a); tri(p,r,s,c,a); }
+function line(p,q,c,a){ LV.push(p[0],p[1],p[2],c[0],c[1],c[2],a, q[0],q[1],q[2],c[0],c[1],c[2],a); }
+
+let EDGE = [0,0,0], EDGE_A = 0.32;
+
+/** Box / frustum with independent bottom and top rectangles — every mesa,
+ *  metal and resist block in this flow is one of these. */
+function slab(b, t, y0, y1, col, o){
+  o = o || {};
+  const a = o.a === undefined ? 1 : o.a;
+  if (y1 - y0 <= 0.0001) return;
+  if (b.x1 - b.x0 <= 0.0001 || b.z1 - b.z0 <= 0.0001) return;
+  const c = typeof col === 'string' ? hex(col) : col;
+  begin(o.mode || (a < 1 ? 'blend' : 'opaque'));
+  const B = [[b.x0,y0,b.z0],[b.x1,y0,b.z0],[b.x1,y0,b.z1],[b.x0,y0,b.z1]];
+  const T = [[t.x0,y1,t.z0],[t.x1,y1,t.z0],[t.x1,y1,t.z1],[t.x0,y1,t.z1]];
+  quad(T[0],T[1],T[2],T[3], c,a);                    // top
+  quad(B[3],B[2],B[1],B[0], c,a);                    // bottom
+  for (let i=0;i<4;i++){
+    const j = (i+1)%4;
+    quad(B[i],B[j],T[j],T[i], c,a);
+  }
+  end();
+  if (o.edges){
+    const ec = o.edgeCol ? hex(o.edgeCol) : EDGE, ea = o.edgeA===undefined?EDGE_A:o.edgeA;
+    for (let i=0;i<4;i++){
+      const j=(i+1)%4;
+      line(B[i],B[j],ec,ea); line(T[i],T[j],ec,ea); line(B[i],T[i],ec,ea);
+    }
+  }
+}
+const box = (r, y0, y1, col, o) => slab(r, r, y0, y1, col, o);
+
+/** Camera-facing additive streak — UV exposure, evaporation flux, wet etch. */
+let camRight = [1,0,0], camUp = [0,1,0], camFwd = [0,0,-1];
+let camFit = null, camTgt = null, camEl = 0, camAz = 0;   // the eased camera
+/** Effect streaks are drawn to read the same whatever the camera is framing. */
+const fxScale = () => Math.max(0.22, Math.min(3, viewFit / 15000));
+function streak(x, yTop, yBot, z, hw, col, a, mode){
+  const c = typeof col === 'string' ? hex(col) : col;
+  const rx = camRight[0]*hw, rz = camRight[2]*hw;
+  begin(mode || 'add');
+  quad([x-rx,yBot,z-rz],[x+rx,yBot,z+rz],[x+rx,yTop,z+rz],[x-rx,yTop,z-rz], c, a);
+  end();
+}
+
+/* ---------------------------------------------------------------------------
+ * 6.  Rectangle-only composite geometry
+ *
+ * Every mask in this flow prints a plain rectangle or a union of them, so a
+ * shape with holes is just "the field, minus a few rectangles" — a small
+ * rectilinear partition rather than a real polygon boolean.  `rectCells`
+ * walks the grid of x/z breakpoints every hole's edges add to the field and
+ * keeps the cells whose centre is not inside any hole.
+ * ------------------------------------------------------------------------ */
+function rectCells(f, holes){
+  const xs = new Set([f.x0, f.x1]), zs = new Set([f.z0, f.z1]);
+  for (const h of holes){
+    if (h.x1 - h.x0 < 1 || h.z1 - h.z0 < 1) continue;
+    if (h.x0 > f.x0 && h.x0 < f.x1) xs.add(h.x0);
+    if (h.x1 > f.x0 && h.x1 < f.x1) xs.add(h.x1);
+    if (h.z0 > f.z0 && h.z0 < f.z1) zs.add(h.z0);
+    if (h.z1 > f.z0 && h.z1 < f.z1) zs.add(h.z1);
+  }
+  const X = Array.from(xs).sort((a,b)=>a-b), Z = Array.from(zs).sort((a,b)=>a-b);
+  const out = [];
+  for (let i=0;i<X.length-1;i++){
+    if (X[i+1]-X[i] < 1) continue;
+    const cx = (X[i]+X[i+1])/2;
+    for (let j=0;j<Z.length-1;j++){
+      if (Z[j+1]-Z[j] < 1) continue;
+      const cz = (Z[j]+Z[j+1])/2;
+      let hole = false;
+      for (const h of holes)
+        if (cx > h.x0 && cx < h.x1 && cz > h.z0 && cz < h.z1){ hole = true; break; }
+      if (!hole) out.push({x0:X[i], x1:X[i+1], z0:Z[j], z1:Z[j+1]});
+    }
+  }
+  return out;
+}
+/** A slab spanning `field` with rectangular `holes` punched through it,
+ *  emitted as ONE continuous surface: the top and bottom faces are
+ *  partitioned into cells, but only the outer perimeter and the hole
+ *  walls get side quads.  Internal cell boundaries emit nothing, so a
+ *  translucent film blends exactly once everywhere.
+ *
+ *  Every hole goes through fp() and is then clipped to `field`, exactly
+ *  like a plain footprint; a hole fp() clips away (or that is degenerate
+ *  after clipping) is dropped rather than leaving a dangling wall.  Walls
+ *  are found with a grid sweep over the x/z breakpoints the (clipped)
+ *  holes add to `field` -- the same breakpoints rectCells() uses for the
+ *  top/bottom partition -- tagging every cell solid or hole and emitting
+ *  a wall only where two grid-adjacent cells disagree.  That makes the
+ *  *union* of the holes what matters: touching or overlapping holes
+ *  (e.g. a U-shaped metal's arms and crossbar) never get a spurious
+ *  internal wall, because both sides of a shared edge test the same way.
+ *  Matches slab()'s option surface: {a, mode, edges, edgeCol, edgeA}. */
+function hollowSlab(field, holes, y0, y1, col, o){
+  o = o || {};
+  const a = o.a === undefined ? 1 : o.a;
+  if (y1 - y0 <= 0.0001) return;
+  if (field.x1 - field.x0 <= 0.0001 || field.z1 - field.z0 <= 0.0001) return;
+  const c = typeof col === 'string' ? hex(col) : col;
+
+  // Clip every hole through fp() (so CUTAWAY treats it exactly like a
+  // footprint), then to `field`; drop it if that leaves nothing.
+  const H = [];
+  for (const h0 of holes){
+    const h = fp(h0.x0, h0.x1, h0.z0, h0.z1);
+    const x0 = Math.max(h.x0, field.x0), x1 = Math.min(h.x1, field.x1);
+    const z0 = Math.max(h.z0, field.z0), z1 = Math.min(h.z1, field.z1);
+    if (x1 - x0 < 1 || z1 - z0 < 1) continue;
+    H.push({x0, x1, z0, z1});
+  }
+
+  begin(o.mode || (a < 1 ? 'blend' : 'opaque'));
+
+  // Top & bottom faces: rectCells() already partitions `field` around the
+  // union of H correctly -- that is exactly what it is for.
+  for (const cell of rectCells(field, H)){
+    const B=[[cell.x0,y0,cell.z0],[cell.x1,y0,cell.z0],[cell.x1,y0,cell.z1],[cell.x0,y0,cell.z1]];
+    const T=[[cell.x0,y1,cell.z0],[cell.x1,y1,cell.z0],[cell.x1,y1,cell.z1],[cell.x0,y1,cell.z1]];
+    quad(T[0],T[1],T[2],T[3], c,a);           // top
+    quad(B[3],B[2],B[1],B[0], c,a);           // bottom
+  }
+
+  // Side walls: sweep the same x/z breakpoint grid, tag each cell solid
+  // (inside `field`, not inside any hole) or not, and wall off every
+  // disagreement between grid-adjacent cells.  Off-field cells always
+  // count as "not solid", so the field's own outer boundary falls out of
+  // the same sweep as the hole walls -- no separate perimeter pass needed.
+  const xs = new Set([field.x0, field.x1]), zs = new Set([field.z0, field.z1]);
+  for (const h of H){ xs.add(h.x0); xs.add(h.x1); zs.add(h.z0); zs.add(h.z1); }
+  const X = Array.from(xs).sort((p,q)=>p-q), Z = Array.from(zs).sort((p,q)=>p-q);
+  const inAnyHole = (cx, cz) => {
+    for (const h of H) if (cx > h.x0 && cx < h.x1 && cz > h.z0 && cz < h.z1) return true;
+    return false;
+  };
+  const solid = (i, j) => {
+    if (i < 0 || i >= X.length-1 || j < 0 || j >= Z.length-1) return false;
+    if (X[i+1]-X[i] < 1 || Z[j+1]-Z[j] < 1) return false;
+    return !inAnyHole((X[i]+X[i+1])/2, (Z[j]+Z[j+1])/2);
+  };
+  const segs = [];   // wall corners, collected for the optional edge overlay
+  for (let i=0;i<X.length;i++){                  // walls in the x = X[i] plane
+    const x = X[i];
+    let j = 0;
+    while (j < Z.length-1){
+      const left = solid(i-1, j), right = solid(i, j);
+      if (left === right){ j++; continue; }
+      let j2 = j;
+      while (j2 < Z.length-1 && solid(i-1,j2) === left && solid(i,j2) === right) j2++;
+      const p0=[x,y0,Z[j]], p1=[x,y0,Z[j2]], p2=[x,y1,Z[j2]], p3=[x,y1,Z[j]];
+      if (left) quad(p1,p0,p3,p2, c,a); else quad(p0,p1,p2,p3, c,a);
+      segs.push([p0,p1,p2,p3]);
+      j = j2;
+    }
+  }
+  for (let j=0;j<Z.length;j++){                   // walls in the z = Z[j] plane
+    const z = Z[j];
+    let i = 0;
+    while (i < X.length-1){
+      const near = solid(i, j-1), far = solid(i, j);
+      if (near === far){ i++; continue; }
+      let i2 = i;
+      while (i2 < X.length-1 && solid(i2,j-1) === near && solid(i2,j) === far) i2++;
+      const p0=[X[i],y0,z], p1=[X[i2],y0,z], p2=[X[i2],y1,z], p3=[X[i],y1,z];
+      if (near) quad(p0,p1,p2,p3, c,a); else quad(p1,p0,p3,p2, c,a);
+      segs.push([p0,p1,p2,p3]);
+      i = i2;
+    }
+  }
+  end();
+
+  if (o.edges){
+    const ec = o.edgeCol ? hex(o.edgeCol) : EDGE, ea = o.edgeA===undefined?EDGE_A:o.edgeA;
+    for (const [p0,p1,p2,p3] of segs){
+      line(p0,p1,ec,ea); line(p3,p2,ec,ea); line(p0,p3,ec,ea); line(p1,p2,ec,ea);
+    }
+  }
+}
+/** Grow a rectangle by `w` on every side (negative shrinks it). */
+const growRect = (r, w) => ({x0:r.x0-w, x1:r.x1+w, z0:r.z0-w, z1:r.z1+w});
+/** Sample points a via's [a,b] span on one axis must contribute to
+ *  drapedShell's grid: the span itself, subdivided finely enough that even
+ *  a via narrow on this axis still leaves several equal-height interior
+ *  samples for heightField()'s blur to hold onto (a via only a couple of
+ *  grid cells wide gets blurred flat otherwise), plus one step of ramp
+ *  just outside each edge for the shoulder. */
+const M1_SHOULDER = 650, M1_STRIDE = 6000;
+function viaAxisPts(a, b){
+  const step = Math.min(M1_SHOULDER, (b - a) / 6);
+  const n = Math.max(1, Math.round((b - a) / step));
+  const pts = [a - step, b + step];
+  for (let k = 0; k <= n; k++) pts.push(lerp(a, b, k / n));
+  return pts;
+}
+/** Adaptive per-axis sample coordinates for drapedShell's o.xLines/zLines:
+ *  the field's own two edges, every `mandatory` point (a via's own
+ *  viaAxisPts()), and a few evenly spaced points across any run left wider
+ *  than M1_STRIDE so a large empty stretch still gets a couple of quads
+ *  rather than one that spans it whole. */
+function adaptiveLines(lo, hi, mandatory){
+  const pts = new Set([lo, hi]);
+  for (const v of mandatory) if (v > lo && v < hi) pts.add(v);
+  const s = Array.from(pts).sort((p, q) => p - q);
+  const out = [s[0]];
+  for (let i = 1; i < s.length; i++){
+    const gap = s[i] - s[i-1];
+    if (gap > M1_STRIDE){
+      const n = Math.ceil(gap / M1_STRIDE);
+      for (let k = 1; k < n; k++) out.push(lerp(s[i-1], s[i], k/n));
+    }
+    out.push(s[i]);
+  }
+  return out;
+}
+/** Scale a rectangle about its own centre — how a developing aperture opens
+ *  from nothing up to its nominal mask size. */
+const scaleRect = (r, s) => {
+  const cx=(r.x0+r.x1)/2, cz=(r.z0+r.z1)/2, hx=(r.x1-r.x0)/2*s, hz=(r.z1-r.z0)/2*s;
+  return {x0:cx-hx, x1:cx+hx, z0:cz-hz, z1:cz+hz};
+};
+
+/* --- conformal films: a liquid or a resist does not step over topography,
+ * it drapes over it.  The surface is the device profile sampled on a grid
+ * and blurred a few passes — surface tension, in effect — then extruded
+ * down to that same profile: a shell of near-uniform thickness, humping up
+ * over a mesa and thinning on its shoulders exactly the way a real spun
+ * film does. ---------------------------------------------------------------*/
+const FILM_NX = 40, FILM_NZ = 40, FILM_BLUR = 3;
+/** Sample hFn on an nx*nz grid -- a uniform lerp of f by default, or the
+ *  explicit (possibly irregular) coordinates xs/zs when given -- then blur
+ *  it a few passes.  The blur is index-space, so on an irregular grid its
+ *  reach in real nm follows the local sample spacing: tight where samples
+ *  are packed (a via's shoulders), wide where they are sparse (open field),
+ *  which is exactly the softening a draped film wants at a step edge. */
+function heightField(hFn, f, nx, nz, xs, zs){
+  const g = new Float32Array(nx*nz);
+  for (let j=0;j<nz;j++){
+    const z = zs ? zs[j] : lerp(f.z0, f.z1, nz>1 ? j/(nz-1) : 0);
+    for (let i=0;i<nx;i++){
+      const x = xs ? xs[i] : lerp(f.x0, f.x1, nx>1 ? i/(nx-1) : 0);
+      g[j*nx+i] = hFn(x, z);
+    }
+  }
+  const t = new Float32Array(g.length);
+  for (let pass=0; pass<FILM_BLUR; pass++){
+    for (let j=0;j<nz;j++) for (let i=0;i<nx;i++){
+      let s=0, n=0;
+      for (let dj=-1;dj<=1;dj++) for (let di=-1;di<=1;di++){
+        const jj=j+dj, ii=i+di;
+        if (jj<0||jj>=nz||ii<0||ii>=nx) continue;
+        s += g[jj*nx+ii]; n++;
+      }
+      t[j*nx+i] = s/n;
+    }
+    g.set(t);
+  }
+  return g;
+}
+/**
+ * Drape a shell of thickness `thk` over the blurred height field inside
+ * footprint `f`: top = h(x,z) + thk, bottom = h(x,z).  Respects the
+ * cross-section the same way box()/slab() do, because it goes through fp().
+ * Alpha < 1 goes down the blend path like every other draped film; alpha
+ * >= 1 (or an explicit o.mode) goes down the opaque path instead, for a
+ * shell like M1 that is not translucent.
+ *
+ * The grid is a uniform (nx, nz) lerp of `f` by default.  o.xLines/o.zLines
+ * lets a caller hand in explicit, irregularly-spaced sample coordinates
+ * instead -- for a feature (a via) much narrower than the uniform grid
+ * spacing would resolve, packed into a footprint much larger than it.
+ */
+function drapedShell(f, hFn, thk, col, alpha, o){
+  o = o || {};
+  const r = fp(f.x0, f.x1, f.z0, f.z1);
+  if (r.x1 - r.x0 <= 1 || r.z1 - r.z0 <= 1 || thk <= 0.05 || alpha <= 0.003) return;
+  let nx, nz, xs, zs;
+  if (o.xLines && o.zLines){
+    xs = o.xLines; zs = o.zLines; nx = xs.length; nz = zs.length;
+  } else {
+    nx = Math.max(2, Math.min(FILM_NX, Math.round((r.x1-r.x0)/900)+2));
+    nz = Math.max(2, Math.min(FILM_NZ, Math.round((r.z1-r.z0)/900)+2));
+  }
+  const g = heightField(hFn, r, nx, nz, xs, zs);
+  const c = typeof col === 'string' ? hex(col) : col;
+  const X = i => xs ? xs[i] : lerp(r.x0, r.x1, nx>1?i/(nx-1):0);
+  const Z = j => zs ? zs[j] : lerp(r.z0, r.z1, nz>1?j/(nz-1):0);
+  const H = (i,j) => g[j*nx+i];
+  const T = (i,j) => g[j*nx+i] + thk;
+  begin(o.mode || (alpha < 1 ? 'blend' : 'opaque'));
+  for (let j=0;j<nz-1;j++) for (let i=0;i<nx-1;i++){
+    const x0=X(i), x1=X(i+1), z0=Z(j), z1=Z(j+1);
+    quad([x0,T(i,j),z0],[x1,T(i+1,j),z0],[x1,T(i+1,j+1),z1],[x0,T(i,j+1),z1], c, alpha);
+  }
+  for (let i=0;i<nx-1;i++){
+    const x0=X(i), x1=X(i+1);
+    quad([x0,H(i,0),r.z0],[x1,H(i+1,0),r.z0],[x1,T(i+1,0),r.z0],[x0,T(i,0),r.z0], c, alpha);
+    quad([x0,H(i,nz-1),r.z1],[x1,H(i+1,nz-1),r.z1],[x1,T(i+1,nz-1),r.z1],[x0,T(i,nz-1),r.z1], c, alpha);
+  }
+  for (let j=0;j<nz-1;j++){
+    const z0=Z(j), z1=Z(j+1);
+    quad([r.x0,H(0,j),z0],[r.x0,H(0,j+1),z1],[r.x0,T(0,j+1),z1],[r.x0,T(0,j),z0], c, alpha);
+    quad([r.x1,H(nx-1,j),z0],[r.x1,H(nx-1,j+1),z1],[r.x1,T(nx-1,j+1),z1],[r.x1,T(nx-1,j),z0], c, alpha);
+  }
+  end();
+  if (o.edges){
+    const ec = EDGE, ea = o.edgeA===undefined?EDGE_A:o.edgeA;
+    for (let i=0;i<nx-1;i++){
+      line([X(i),T(i,0),r.z0],[X(i+1),T(i+1,0),r.z0], ec, ea);
+      line([X(i),T(i,nz-1),r.z1],[X(i+1),T(i+1,nz-1),r.z1], ec, ea);
+    }
+  }
+}
+
+/* --- topography: what is on top at (x,z), given a fixed prior device state.
+ * Resist and BCB always coat right at the start of a step, before that
+ * step's own etch or deposition changes anything, so one snapshot of the
+ * previous step's end state is all a coat ever needs to drape over. -------*/
+function inR(r,x,z){ return x>=r.x0 && x<=r.x1 && z>=r.z0 && z<=r.z1; }
+function inCM(x,z){ return inR(CM_ARM_L,x,z)||inR(CM_ARM_R,x,z)||inR(CM_BAR,x,z); }
+function inBM(x,z){ return inR(BM_ARM_L,x,z)||inR(BM_ARM_R,x,z)||inR(BM_BAR,x,z); }
+function inPad(x,z){ for (const p of PADS) if (inR(p,x,z)) return true; return false; }
+function inIso(x,z){ return inR(ISO,x,z) || inPad(x,z); }
+
+function topoHeight(x, z, P0){
+  const emDone = P0.emUC >= 1, bcDone = P0.bcUC >= 1, isoDone = P0.isoUC >= 1;
+  let h;
+  if (inR(EMESA,x,z)){
+    h = EPI_TOP + (P0.emH||0);
+  } else if (inR(BCMESA,x,z)){
+    h = (emDone ? Y_BASE_TOP : EPI_TOP) + (P0.bmH||0);
+  } else {
+    h = bcDone ? Y_SC_TOP : (emDone ? Y_BASE_TOP : EPI_TOP);
+    if (isoDone) h = inIso(x,z) ? Y_SC_TOP : SUBTOP;
+    if (inCM(x,z) || inPad(x,z)) h += (P0.cmH||0);
+  }
+  return h;
+}
+
+/* ---------------------------------------------------------------------------
+ * 7.  Device state
+ *
+ * One plain object describes everything the device can be part-way through.
+ * buildScene() fills it from the step index and the step's own time, and
+ * drawDevice() reads it and nothing else — so a frozen end-of-step state and
+ * a mid-animation state go down the same path.
+ *
+ *   emEtchY   nm   top of the field outside the E-mesa: EPI_TOP -> Y_BASE_TOP
+ *   emUC      0..1 how far the HCl has undercut the E-mesa (>=1 means done)
+ *   bcEtchY   nm   top of the field outside the BC mesa: Y_BASE_TOP -> Y_SC_TOP
+ *   bcUC      0..1 undercut of the BC mesa
+ *   emH       nm   emitter metal grown on the E-mesa top          (0 -> EM_H)
+ *   cmH       nm   collector metal + the six probe pads           (0 -> CM_H)
+ *   bmH       nm   base metal on the exposed GaAsSb shelf         (0 -> BM_H)
+ *   isoEtchY  nm   top of the field outside the iso island: Y_SC_TOP -> SUBTOP
+ *   isoUC     0..1 undercut through the L2 InP
+ *   bcbTop    nm   top of the BCB film, 0 when there is none
+ *   bcbConf   0..1 1 while the film still follows the topography, 0 once cured
+ *   bcbCure   0..1 colour ramp from as-spun to crosslinked
+ *   via       0..1 how far the CF₄/O₂ RIE has opened the nine BCB vias
+ *                  (>=1 means all nine are open down to their metal)
+ *   padH      nm   M1 pad metal on the via-opened BCB               (0 -> M1_H)
+ *   resist    obj  this step's resist, or null   (see drawResist)
+ *   fx        obj  this step's effect streaks, or null
+ *   ghost     0..1 fade used only while the camera hands over from the die
+ * ------------------------------------------------------------------------ */
+function blankP(){
+  return {
+    emEtchY: EPI_TOP, emUC: 0,
+    bcEtchY: Y_BASE_TOP, bcUC: 0,
+    emH: 0, cmH: 0, bmH: 0,
+    isoEtchY: Y_SC_TOP, isoUC: 0,
+    bcbTop: 0, bcbConf: 0, bcbCure: 0, via: 0,
+    padH: 0,
+    resist: null, fx: null, ghost: 0,
+  };
+}
+/** The settled state after step k — the state step k+1 starts from. */
+function stepEndP(k){
+  const P = blankP();
+  if (k >= 2){ P.emEtchY = Y_BASE_TOP; P.emUC = 1; }
+  if (k >= 3){ P.bcEtchY = Y_SC_TOP;   P.bcUC = 1; }
+  if (k >= 4){ P.emH = EM_H; P.cmH = CM_H; }
+  if (k >= 5){ P.bmH = BM_H; }
+  if (k >= 6){ P.isoEtchY = SUBTOP; P.isoUC = 1; }
+  if (k >= 7){ P.bcbTop = BCB_TOP; P.bcbCure = 1; P.bcbConf = 0; }
+  if (k >= 8){ P.via = 1; }
+  if (k >= 9){ P.padH = M1_H; }
+  return P;
+}
+
+/* ---------------------------------------------------------------------------
+ * 8.  Device geometry
+ *
+ * Every QAD mesa, metal run and resist block is an axis-aligned rectangle or
+ * a small union of them, so the whole device comes out of slab()/box() and
+ * the rectCells() partition from section 6 — no polygons anywhere.
+ * ------------------------------------------------------------------------ */
+
+/** Every static footprint (EMESA, BCMESA, a pad, ...) goes through fp() the
+ *  same way FP_FULL() does, so CUTAWAY clips it too. */
+const fpR = r => fp(r.x0, r.x1, r.z0, r.z1);
+
+/** Linear undercut profile along one wet-etched band: 0 at its top (the
+ *  citric interface above it), the full inset at its bottom.  Held flat past
+ *  either end so a straight-walled citric layer inherits whichever edge of
+ *  the band it sits against — same shape as the reference's isoInset() /
+ *  emInset(), just parameterised so one function covers all three bands. */
+function ucInset(y, yTop, yBot, ucMax, uc){
+  if (!uc) return 0;
+  return ucMax * uc * clamp01((yTop - y) / (yTop - yBot));
+}
+
+/** The isolation island: the ISO rectangle plus the six pads, each already
+ *  its own island once the field around it is gone — inset by `a` a side. */
+function isoRects(a){
+  const out = [fpR(growRect(ISO, -a))];
+  for (const p of PADS) out.push(fpR(growRect(p, -a)));
+  return out;
+}
+
+/** Layers 1–3.  L3 (i:3, InGaAs) and L1 (i:1, the etch stop) are citric and
+ *  etch straight; L2 (i:2, InP) is HCl and undercuts — so only L2's own
+ *  bounds feed ucInset(), and the layers above/below it inherit whichever
+ *  edge they sit against. */
+function drawIsoLayer(L, P, alpha){
+  const o = {edges:true, edgeA:0.34, a:alpha};
+  const etchY = P.isoEtchY;
+  if (etchY >= L.y1 - 1e-6){ box(FP_FULL(), L.y0, L.y1, L.col, o); return; }
+  if (etchY > L.y0 + 1e-6) box(FP_FULL(), L.y0, etchY, L.col, o);
+  const y0 = Math.max(L.y0, Math.min(etchY, L.y1));
+  const L2 = EPI.find(l => l.i === 2);
+  const a = ucInset(y0,   L2.y1, L2.y0, ISO_UC, P.isoUC);
+  const b = ucInset(L.y1, L2.y1, L2.y0, ISO_UC, P.isoUC);
+  const B = isoRects(a), T = isoRects(b);
+  for (let k = 0; k < B.length; k++) slab(B[k], T[k], y0, L.y1, L.col, o);
+}
+
+/** Layers 4–6.  The base (i:6, GaAsSb) is citric and etches straight; the
+ *  two InP layers below it (i:5, i:4) are HCl and undercut as one band. */
+function drawBCLayer(L, P, alpha){
+  const o = {edges:true, edgeA:0.34, a:alpha};
+  const etchY = P.bcEtchY;
+  if (etchY >= L.y1 - 1e-6){ box(FP_FULL(), L.y0, L.y1, L.col, o); return; }
+  if (etchY > L.y0 + 1e-6) box(FP_FULL(), L.y0, etchY, L.col, o);
+  const y0 = Math.max(L.y0, Math.min(etchY, L.y1));
+  const a = ucInset(y0,   Y_BC_INP, Y_SC_TOP, BC_UC, P.bcUC);
+  const b = ucInset(L.y1, Y_BC_INP, Y_SC_TOP, BC_UC, P.bcUC);
+  slab(fpR(growRect(BCMESA, -a)), fpR(growRect(BCMESA, -b)), y0, L.y1, L.col, o);
+}
+
+/** Layers 7–12.  The two InGaAs caps (i:12, i:11) are citric and etch
+ *  straight; the InP/AlInP below (i:10..i:7) are HCl and undercut as one
+ *  band, worst at i:7 (the AlInP), which is why UC_MAX sits at its foot. */
+function drawEmLayer(L, P, alpha){
+  const o = {edges:true, edgeA:0.34, a:alpha};
+  const etchY = P.emEtchY;
+  if (etchY >= L.y1 - 1e-6){ box(FP_FULL(), L.y0, L.y1, L.col, o); return; }
+  if (etchY > L.y0 + 1e-6) box(FP_FULL(), L.y0, etchY, L.col, o);
+  const y0 = Math.max(L.y0, Math.min(etchY, L.y1));
+  const a = ucInset(y0,   Y_INP_TOP, Y_BASE_TOP, UC_MAX, P.emUC);
+  const b = ucInset(L.y1, Y_INP_TOP, Y_BASE_TOP, UC_MAX, P.emUC);
+  slab(fpR(growRect(EMESA, -a)), fpR(growRect(EMESA, -b)), y0, L.y1, L.col, o);
+}
+
+/**
+ * Draws the whole device for one state P: substrate and epitaxy, then
+ * metals, then resist, then BCB, then process effects.  This function and
+ * the three layer helpers above are the only code that reads P's *EtchY and
+ * *UC fields; everything downstream just reads the slabs they leave behind.
+ */
+function drawDevice(P){
+  const A = 1 - (P.ghost || 0);
+  if (A <= 0.01) return;
+  const o = {edges:true, edgeA:0.34, a:A};
+
+  box(FP_FULL(), SUBBOT, SUBTOP, C.sub, o);
+  for (const L of EPI){
+    if (L.grp === 'sc')      drawIsoLayer(L, P, A);
+    else if (L.grp === 'bc') drawBCLayer(L, P, A);
+    else                     drawEmLayer(L, P, A);
+  }
+
+  // after the isolation etch, CM and the pads still sit at Y_SC_TOP — only
+  // what is underneath them changed, so no special case is needed here
+  const mo = {edges:true, edgeA:0.34, a:A};
+  if (P.emH > 0) box(fpR(EM_R), EPI_TOP - SINK, EPI_TOP + P.emH, C.metal, mo);
+  if (P.cmH > 0){
+    for (const r of CM_PARTS) box(fpR(r), Y_SC_TOP - SINK, Y_SC_TOP + P.cmH, C.metal, mo);
+    for (const p of PADS)     box(fpR(p), Y_SC_TOP - SINK, Y_SC_TOP + P.cmH, C.metal, mo);
+  }
+  if (P.bmH > 0)
+    for (const r of BM_PARTS) box(fpR(r), Y_BASE_TOP - SINK, Y_BASE_TOP + P.bmH, C.metal, mo);
+  if (P.padH > 0){
+    // M1 is thicker than any via is deep (see the header's via-depth table),
+    // so it does not planarise over one: it drapes, filling the hole solid
+    // and carrying the dip in its own top surface out to the field, the same
+    // conformal-shell treatment a resist or the BCB gets, just on an
+    // adaptive grid -- a uniform one would either miss a via a few hundred
+    // nm wide or explode chasing it across a footprint tens of microns long.
+    // One shell per part also replaces the old separate via "plug": the
+    // drape already carries the metal down into the hole and back out.
+    for (const part of M1_PARTS){
+      const r = fp(part.x0, part.x1, part.z0, part.z1);
+      if (r.x1 - r.x0 <= 1 || r.z1 - r.z0 <= 1) continue;
+      const vias = VIAS.filter(v => v.x0 >= part.x0 && v.x1 <= part.x1 &&
+                                      v.z0 >= part.z0 && v.z1 <= part.z1);
+      // inset SINK inside each via -- the same "start this far inside what
+      // it sits on" margin every other metal uses -- so the dip's footprint
+      // never shares a plane with drawBCB()'s own via hole walls.
+      const ins = vias.map(v => growRect(v, -SINK));
+      const xs = adaptiveLines(r.x0, r.x1, vias.flatMap(v => viaAxisPts(v.x0, v.x1)));
+      const zs = adaptiveLines(r.z0, r.z1, vias.flatMap(v => viaAxisPts(v.z0, v.z1)));
+      const hFn = (x, z) => {
+        for (let i = 0; i < ins.length; i++){
+          const iv = ins[i];
+          if (x > iv.x0 && x < iv.x1 && z > iv.z0 && z < iv.z1) return viaFloorY(vias[i]);
+        }
+        return BCB_TOP;
+      };
+      drapedShell(part, hFn, P.padH, C.metal, mo.a, {mode:'opaque', xLines:xs, zLines:zs});
+      // every via sits >= 1 um inside the part it lands under, so the rim
+      // is flat -- the same wireframe box() would have drawn.
+      if (mo.edges){
+        const ec = mo.edgeCol ? hex(mo.edgeCol) : EDGE, ea = mo.edgeA===undefined?EDGE_A:mo.edgeA;
+        const B=[[r.x0,BCB_TOP,r.z0],[r.x1,BCB_TOP,r.z0],[r.x1,BCB_TOP,r.z1],[r.x0,BCB_TOP,r.z1]];
+        const T=[[r.x0,BCB_TOP+P.padH,r.z0],[r.x1,BCB_TOP+P.padH,r.z0],
+                 [r.x1,BCB_TOP+P.padH,r.z1],[r.x0,BCB_TOP+P.padH,r.z1]];
+        for (let i=0;i<4;i++){
+          const j=(i+1)%4;
+          line(B[i],B[j],ec,ea); line(T[i],T[j],ec,ea); line(B[i],T[i],ec,ea);
+        }
+      }
+    }
+  }
+
+  drawResist(P);
+  drawBCB(P);
+  drawFx(P);
+}
+
+/* ---------------------------------------------------------------------------
+ * Resist.  P.resist is one of:
+ *
+ *   {kind:'single', y0, thk, coat, latent, dev, fade, keep, holes, flat}
+ *     One photoresist layer (steps 2, 3, 6, 8): y0 the surface it is spun on,
+ *     thk its nominal thickness, coat 0..1 the spin-on progress, latent
+ *     0..1 how strongly the exposed field is tinted C.rExp before develop,
+ *     dev 0..1 develop progress (1 = field gone, only the mask islands
+ *     remain), fade 0..1 the strip, keep an array of rectangles the mask
+ *     protects (steps 2/3/6: a single island) OR holes an array of
+ *     apertures cut from the whole field (step 8: the nine vias) — the
+ *     two are mutually exclusive, holes goes through hollowSlab().  flat
+ *     true skips the topography drape while coating (step 8 only: the
+ *     cured BCB it spins onto is already planar).  Colour C.rThick.
+ *
+ *   {kind:'bi', y0, t1, t2, grow1, grow2, devT, devB, open, over, fade, lift, flat}
+ *     The two-layer lift-off stack (steps 4, 5, 9): y0 the surface it is
+ *     spun on, t1/t2 the bottom/top layer thickness, grow1/grow2 0..1 the
+ *     two spins, devT 0..1 the top layer developing to `open`, devB 0..1 the
+ *     DUV flood clearing the bottom layer wider (open grown by BI_UC per
+ *     side), over the metal overburden thickness once evaporation runs,
+ *     fade 0..1 the strip, lift the nm the whole stack rises on lift-off.
+ *     flat true skips the topography drape while coating (step 9 only: it
+ *     spins onto the already-planar cured, via-opened BCB) -- same
+ *     convention as kind:'single'.  Bottom layer C.r1, top layer C.r2.
+ *
+ *   {kind:'bcb', ...}  not drawn here — see drawBCB().
+ *
+ * Everything here is semi-transparent (alpha ~0.62 while present, times
+ * `fade`), so it all goes down the 'blend' path.
+ * ------------------------------------------------------------------------ */
+function drawResist(P){
+  const R = P.resist;
+  if (!R) return;
+  const A = 1 - (P.ghost || 0);
+  const fade = R.fade === undefined ? 1 : R.fade;
+  if (A <= 0.01 || fade <= 0.003) return;
+  const a = 0.62 * fade * A;
+
+  if (R.kind === 'single'){
+    const fieldCol = mixCol(C.rThick, C.rExp, clamp01(R.latent || 0));
+    if (R.coat < 1 || R.dev < 1){
+      const thk = R.thk * clamp01(R.coat);
+      if (R.flat) box(FP_FULL(), R.y0, R.y0 + thk, fieldCol, {a, edges:true});
+      else drapedShell(FP_FULL(), (x,z) => topoHeight(x,z,P), thk, fieldCol, a, {edges:true});
+    } else if (R.holes){
+      hollowSlab(FP_FULL(), R.holes, R.y0, R.y0 + R.thk, C.rThick, {a, edges:true});
+    } else {
+      for (const r of R.keep) box(fpR(r), R.y0, R.y0 + R.thk, C.rThick, {a, edges:true});
+    }
+
+  } else if (R.kind === 'bi'){
+    const y0 = R.y0, t1 = R.t1, t2 = R.t2, lift = R.lift || 0;
+    if (R.grow1 < 1 || R.grow2 < 1){
+      const h1 = t1 * clamp01(R.grow1);
+      if (R.flat){
+        box(FP_FULL(), y0, y0 + h1, C.r1, {a, edges:true});
+        if (R.grow2 > 0){
+          const h2 = t2 * clamp01(R.grow2);
+          box(FP_FULL(), y0 + h1, y0 + h1 + h2, C.r2, {a, edges:true});
+        }
+      } else {
+        drapedShell(FP_FULL(), (x,z) => topoHeight(x,z,P), h1, C.r1, a, {edges:true});
+        if (R.grow2 > 0){
+          const h2 = t2 * clamp01(R.grow2);
+          drapedShell(FP_FULL(), (x,z) => topoHeight(x,z,P) + h1, h2, C.r2, a, {edges:true});
+        }
+      }
+    } else {
+      // developed: the field minus the apertures — the bottom layer's own
+      // aperture is the top layer's grown by BI_UC, which is what reads as
+      // the lift-off undercut
+      const devB = clamp01(R.devB || 0), devT = clamp01(R.devT || 0);
+      const apB = R.open.map(r => scaleRect(growRect(r, BI_UC), devB));
+      const apT = R.open.map(r => scaleRect(r, devT));
+      const yy0 = y0 + lift, y1a = yy0 + t1, y1b = y1a + t2;
+      hollowSlab(FP_FULL(), apB, yy0, y1a, C.r1, {a, edges:true});
+      hollowSlab(FP_FULL(), apT, y1a, y1b, C.r2, {a, edges:true});
+      if (R.over > 0)
+        hollowSlab(FP_FULL(), apT, y1b, y1b + R.over, C.metal, {a: fade * A, edges:true});
+    }
+  }
+}
+
+/** Where a via bottoms out — the top of the metal underneath it, which the
+ *  CF₄/O₂ RIE stops on. */
+function viaFloorY(v){
+  if (v.land === 'EM') return EPI_TOP + EM_H;
+  if (v.land === 'BM') return Y_BASE_TOP + BM_H;
+  return Y_SC_TOP + CM_H;                // the CM via and all six pad vias
+}
+
+/* ---------------------------------------------------------------------------
+ * BCB.  Spun on as a liquid, it drapes over the topography; the slow cure
+ * ramp then reflows it flat — the same story as the formal flow's step 8,
+ * just a shallower stack, since nothing here reaches an emitter post.  Once
+ * the RIE (step 8) starts opening vias, the cured slab is the field minus
+ * the nine via rectangles, drawn with hollowSlab() as one continuous sheet.
+ * ------------------------------------------------------------------------ */
+function drawBCB(P){
+  if (P.bcbTop <= 0) return;
+  const A = 1 - (P.ghost || 0);
+  if (A <= 0.01) return;
+  const col = mixCol(C.bcb, C.bcbCure, clamp01(P.bcbCure));
+  const aTot = 0.55 * A, conf = clamp01(P.bcbConf);
+  if (conf > 0.002){
+    const thk = lerp(P.bcbTop - SUBTOP, BCB_CONF, conf);
+    drapedShell(FP_FULL(), (x,z) => topoHeight(x,z,P), thk, col, aTot * conf, {edges:true});
+  }
+  if (conf < 0.998){
+    const a = aTot * (1 - conf), o = {a, edges:true};
+    if (P.via > 0){
+      hollowSlab(FP_FULL(), VIAS, SUBTOP, P.bcbTop, col, o);
+      // mid-etch: a plug of the still-unetched BCB above each via's metal,
+      // its top dropping from the cured plane toward the metal as P.via
+      // goes 0 -> 1 -- so each hole visibly deepens rather than popping open
+      for (const v of VIAS){
+        const top = lerp(P.bcbTop, viaFloorY(v), P.via);
+        box(fpR(v), SUBTOP, top, col, o);
+      }
+    } else {
+      box(FP_FULL(), SUBTOP, P.bcbTop, col, o);
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Process effects.  P.fx is one of:
+ *
+ *   {kind:'uv',  y0, t, open}   MA6 flood exposure through a chrome mask
+ *     plate floating at y0, its openings `open` cut out via hollowSlab();
+ *     downward violet streaks fall only through those rectangles.  This
+ *     flow never carries kind:'ebeam' — every mask here is MA6 contact UV.
+ *   {kind:'duv', y0, t, open}   the DUV flood: the same falling streaks,
+ *     but no plate — the developed top resist, already drawn, is its own
+ *     mask, so the streaks fall everywhere and read against it.
+ *   {kind:'flux', y0, t}        evaporation: warm streaks falling straight
+ *     down onto the wafer.
+ *   {kind:'wet', y, yTop, t}    the running wet-etch film: a thin
+ *     translucent sheet at the current etch front `y`, plus streaks falling
+ *     from `yTop`.
+ * ------------------------------------------------------------------------ */
+function drawFx(P){
+  const F = P.fx;
+  if (!F) return;
+  const A = 1 - (P.ghost || 0);
+  if (A <= 0.01) return;
+  const sc = fxScale();
+
+  if (F.kind === 'uv' || F.kind === 'duv'){
+    if (F.kind === 'uv'){
+      box(FP_FULL(), F.y0, F.y0 + 250, C.uv, {a: 0.16 * A, mode:'blend'});
+      hollowSlab(FP_FULL(), F.open, F.y0 - 140, F.y0, C.chrome, {a: A, edges:true, edgeA:0.4});
+    }
+    for (let i = 0; i < 70; i++){
+      const x = (rnd(i) * 2 - 1) * BX * 0.97;
+      const z = -BZ + rnd(i + 90) * (zF() + BZ);
+      if (F.kind === 'uv'){
+        let open = false;
+        for (const r of F.open) if (inR(r, x, z)) { open = true; break; }
+        if (!open) continue;
+      }
+      const ph = (F.t * 1.6 + rnd(i + 400)) % 1;
+      const yTop = lerp(F.y0, F.y0 - 900, ph);
+      streak(x, yTop, yTop - 260 * sc, z, 46 * sc, C.uv, 0.30 * A);
+    }
+
+  } else if (F.kind === 'flux'){
+    const hw = 95 * sc, len = 2300 * sc;
+    for (let i = 0; i < 46; i++){
+      const x = (rnd(i) * 2 - 1) * BX * 0.97;
+      const z = -BZ + rnd(i + 90) * (zF() + BZ);
+      const ph = (F.t * 1.7 + rnd(i + 400)) % 1;
+      const yTop = lerp(F.y0 + 2400, F.y0 + 260, ph);
+      streak(x, yTop, yTop - len, z, hw, C.flux, 0.40 * (1 - ph * 0.35) * A, 'blend');
+    }
+
+  } else if (F.kind === 'wet'){
+    box(FP_FULL(), F.y - 40, F.y + 40, C.etchant, {a: 0.30 * A, mode:'blend'});
+    for (let i = 0; i < 40; i++){
+      const x = (rnd(i + 3) * 2 - 1) * BX * 0.97;
+      const z = -BZ + rnd(i + 51) * (zF() + BZ);
+      const ph = (F.t * 2.1 + rnd(i + 55)) % 1;
+      const yTop = lerp(F.yTop + 1200, F.y + 100, ph);
+      streak(x, yTop, yTop - 2200 * sc, z, 100 * sc, C.etchant, 0.40 * A, 'blend');
+    }
+  }
+}
+
+/** Highest point of anything currently drawn — the camera framing uses it. */
+function deviceTop(P){
+  let top = EPI_TOP;
+  if (P.emH > 0) top = Math.max(top, EPI_TOP + P.emH);
+  if (P.cmH > 0) top = Math.max(top, Y_SC_TOP + P.cmH);
+  if (P.bmH > 0) top = Math.max(top, Y_BASE_TOP + P.bmH);
+  if (P.bcbTop > 0) top = Math.max(top, P.bcbTop, SUBTOP + BCB_CONF);
+  const R = P.resist;
+  if (R){
+    if (R.kind === 'single') top = Math.max(top, (R.y0 || 0) + (R.thk || 0));
+    else if (R.kind === 'bi')
+      top = Math.max(top, (R.y0||0) + (R.t1||0) + (R.t2||0) + (R.over||0) + (R.lift||0));
+  }
+  return top;
+}
+
+/* ---------------------------------------------------------------------------
+ * 9.  Wafer + die (step 1)
+ *
+ * The one shape in this whole flow that is not an axis-aligned rectangle:
+ * the 3" disc with its two flats.  A circle cut by two half-planes is still
+ * convex, so a plain fan triangulation is enough — this file carries none of
+ * the formal flow's ear-clipping triangulator, which exists only to join a
+ * hole to its outer boundary for non-convex shapes, and nothing here needs
+ * that.  The die socket is cut into four convex strips (top, bottom, left,
+ * right of the square) instead of one polygon with a hole; their shared
+ * edges can seam very faintly while the plate fades, which the formal
+ * flow's keyhole() avoids, but is an acceptable trade for not carrying that
+ * machinery just for this one shape.
+ * ------------------------------------------------------------------------ */
+/** Sutherland–Hodgman against one half-plane; keeps everything with fn <= 0. */
+function clipPoly(poly, fn){
+  const out = [];
+  for (let i=0;i<poly.length;i++){
+    const a = poly[i], b = poly[(i+1)%poly.length];
+    const da = fn(a), db = fn(b);
+    if (da <= 0) out.push(a);
+    if ((da < 0) !== (db < 0)){
+      const t = da/(da-db);
+      out.push([lerp(a[0],b[0],t), lerp(a[1],b[1],t)]);
+    }
+  }
+  return out;
+}
+
+/** Extrude a CONVEX x/z polygon into a slab from y0 to y1, fanned from
+ *  vertex 0 — valid because every polygon this file ever builds is convex. */
+function prismConvex(poly, y0, y1, col, o){
+  o = o || {};
+  const a = o.a === undefined ? 1 : o.a;
+  if (poly.length < 3) return;
+  const c = typeof col === 'string' ? hex(col) : col;
+  begin(o.mode || (a < 1 ? 'blend' : 'opaque'));
+  for (let i=1;i<poly.length-1;i++){
+    tri([poly[0][0],y1,poly[0][1]], [poly[i][0],y1,poly[i][1]],
+        [poly[i+1][0],y1,poly[i+1][1]], c, a);
+    tri([poly[0][0],y0,poly[0][1]], [poly[i+1][0],y0,poly[i+1][1]],
+        [poly[i][0],y0,poly[i][1]], c, a);
+  }
+  for (let i=0;i<poly.length;i++){
+    const j = (i+1)%poly.length;
+    quad([poly[i][0],y0,poly[i][1]], [poly[j][0],y0,poly[j][1]],
+         [poly[j][0],y1,poly[j][1]], [poly[i][0],y1,poly[i][1]], c, a);
+  }
+  end();
+  if (o.edges){
+    const ec = o.edgeCol ? hex(o.edgeCol) : EDGE, ea = o.edgeA===undefined?EDGE_A:o.edgeA;
+    for (let i=0;i<poly.length;i++){
+      const j = (i+1)%poly.length;
+      line([poly[i][0],y0,poly[i][1]],[poly[j][0],y0,poly[j][1]], ec, ea);
+      line([poly[i][0],y1,poly[i][1]],[poly[j][0],y1,poly[j][1]], ec, ea);
+      line([poly[i][0],y0,poly[i][1]],[poly[i][0],y1,poly[i][1]], ec, ea);
+    }
+  }
+}
+
+let WAFER_POLY = null, WAFER_SOCKET = null;
+function waferPoly(){
+  if (WAFER_POLY) return WAFER_POLY;
+  let p = [];
+  for (let i=0;i<192;i++){
+    const a = i/192*Math.PI*2;
+    p.push([WR*Math.sin(a), WR*Math.cos(a)]);
+  }
+  p = clipPoly(p, q => q[1] - WPRI);           // primary flat, toward the viewer
+  p = clipPoly(p, q => q[0] - WSEC);           // secondary flat, +90° to the right
+  WAFER_POLY = p;
+  return p;
+}
+
+/** The wafer minus the die socket, as four convex strips — top, bottom,
+ *  left and right of the DIE x DIE square — rather than one polygon cut by
+ *  a hole (see the section comment for why). */
+function waferSocket(){
+  if (WAFER_SOCKET) return WAFER_SOCKET;
+  const half = DIE/2, P = waferPoly();
+  const mid = clipPoly(clipPoly(P, q => q[1]-half), q => -half-q[1]);
+  WAFER_SOCKET = [
+    clipPoly(P, q => half - q[1]),       // z >= half
+    clipPoly(P, q => q[1] + half),       // z <= -half
+    clipPoly(mid, q => q[0] + half),     // x <= -half
+    clipPoly(mid, q => half - q[0]),     // x >= half
+  ].filter(p => p.length >= 3);
+  return WAFER_SOCKET;
+}
+
+function drawWafer(alpha, gridA, dieLift, cutDie){
+  if (alpha <= 0.01) return;
+  const o = {a:alpha, edges:true, edgeA:0.5*alpha};
+  if (cutDie){
+    for (const piece of waferSocket()) prismConvex(piece, -WTH, 0, C.wafer, o);
+  } else {
+    prismConvex(waferPoly(), -WTH, 0, C.wafer, o);
+  }
+  if (gridA > 0.01){
+    const c = hex(C.scribe), n = Math.ceil(WR/DIE) + 1;
+    for (let i=-n;i<=n+1;i++){
+      const v = (i-0.5)*DIE;
+      if (Math.abs(v) > WR) continue;
+      const h = Math.sqrt(Math.max(0, WR*WR - v*v));
+      line([v,WGRID,-h],[v,WGRID,Math.min(h,WPRI)], c, 0.7*gridA);
+      line([Math.max(-h,-WR),WGRID,v],[Math.min(h,WSEC),WGRID,v], c, 0.7*gridA);
+    }
+  }
+  if (cutDie){
+    const y = dieLift;
+    box({x0:-DIE/2,x1:DIE/2,z0:-DIE/2,z1:DIE/2}, y-WTH, y, C.wafer,
+        {a:alpha, edges:true, edgeA:0.85*alpha, edgeCol:C.metal});
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 10.  The seven steps
+ *
+ *  buildScene(k, t) renders the transition INTO step k, so buildScene(k,1) is
+ *  the resting state at dot k and equals buildScene(k+1, 0).  Every mask in
+ *  this flow is Karl Suss MA6 contact UV — no other lithography appears.
+ * ------------------------------------------------------------------------ */
+let waferHUD = null;         // {lift, cut, a, flats} while the wafer is on screen — read by the HUD
+
+const STEPS_SHOWN = 9;
+const STEPS = [
+{
+  n:1, title:'Wafer cut', dur:5,
+  stages:[[0.28,'76 mm (3 inch) S.I. InP — primary flat front, secondary flat +90° right'],
+          [0.48,'Scribe lanes on a 12 mm pitch'],
+          [1.00,'Lift one 12 × 12 mm² die out of the wafer']],
+  facts:[['Wafer','3" S.I. InP'],['Flats','primary front · secondary +90°'],
+         ['Die','12 × 12 mm²'],['Epi total','747.5 nm / 12 layers']],
+  body:'A semi-insulating InP wafer arrives with the full HBT epitaxy, 747.5 nm. It is scribed on a 12 mm pitch and cleaved into 12 × 12 mm² dies.'
+},
+{
+  n:2, title:'Emitter etch', dur:20,
+  stages:[[0.12,'Zoom in on the die: the emitter and base–collector mesas will grow here'],
+          [0.30,'Spin a single layer of photoresist over the flat epi'],
+          [0.44,'MA6 flood UV through a chrome mask — a plain 5 × 12 µm² window'],
+          [0.58,'Develop: one rectangular resist island remains'],
+          [0.70,'C₆H₈O₇:H₂O₂ takes the two InGaAs cap layers'],
+          [0.94,'HCl:H₃PO₄ takes the InP and AlInP, undercutting as it goes'],
+          [1.00,'Strip — the emitter mesa stands proud of the base']],
+  facts:[['Emitter mesa','5 × 12 µm²'],['Mask','one rectangle'],
+         ['InGaAs (12,11)','C₆H₈O₇:H₂O₂'],['InP + AlInP (10→7)','HCl:H₃PO₄'],
+         ['Exposure','MA6 contact UV, flood exposure']],
+  body:'A single layer of photoresist, patterned by MA6 contact lithography, defines the emitter mesa. Citric acid takes the InGaAs cap, then HCl:H₃PO₄ takes the InP and AlInP down to the base, undercutting as it goes.'
+},
+{
+  n:3, title:'Base–collector etch', dur:20,
+  stages:[[0.24,'Spin photoresist — it drapes over the emitter mesa, humping up and thinning on the shoulders'],
+          [0.40,'MA6 flood UV through a chrome mask — a 19 × 20 µm² window over the mesa'],
+          [0.54,'Develop: one resist island covers the whole base–collector mesa'],
+          [0.66,'C₆H₈O₇:H₂O₂ takes the GaAsSb base'],
+          [0.92,'HCl:H₃PO₄ takes the collector and sub-collector InP, undercutting again'],
+          [1.00,'Strip — the emitter mesa still stands on its shelf']],
+  facts:[['B–C mesa','19 × 20 µm²'],['GaAsSb (6)','C₆H₈O₇:H₂O₂'],
+         ['InP (5,4)','HCl:H₃PO₄'],['Stop layer','L3 InGaAs sub-collector']],
+  body:'A second resist coat drapes conformally over the emitter mesa before MA6 exposure defines the 19 × 20 µm² base–collector mesa. Citric takes the base, HCl:H₃PO₄ the collector and sub-collector InP, stopping on the L3 sub-collector. The emitter mesa sits 1 µm in from one 20 µm edge and centred on the 19 µm one — asymmetric on purpose, leaving room for the base metal crossbar on the far side.'
+},
+{
+  n:4, title:'Emitter / collector metal deposition', dur:22,
+  stages:[[0.22,'Coat two resist layers, conformal over both mesas'],
+          [0.36,'MA6 UV through the emitter, collector and pad mask'],
+          [0.48,'Develop the top layer'],
+          [0.68,'DUV flood — the top layer as its own mask, the bottom clears wider'],
+          [0.90,'Evaporate: emitter metal, collector metal and all six probe pads, one run'],
+          [1.00,'Lift-off']],
+  facts:[['Emitter metal','3 × 10 µm² (1 µm inset)'],
+         ['Collector metal','5 µm U · 1 µm from mesa'],
+         ['Probe pads','10 × 15 µm² × 6'],
+         ['Exposure','MA6 contact UV, two-layer lift-off'],
+         ['Ground','4 pads'],['Port 1 · 2','base pad · collector pad']],
+  body:'A double-layer lift-off resist, coated conformally over both mesas, is patterned by MA6 UV and a DUV flood that undercuts the bottom layer. One evaporation run deposits the emitter metal, the U-shaped collector metal and all six probe pads.'
+},
+{
+  n:5, title:'Base metal deposition', dur:20,
+  stages:[[0.22,'Coat two resist layers again'],
+          [0.36,'MA6 UV through the base contact mask'],
+          [0.48,'Develop the top layer'],
+          [0.68,'DUV flood — the bottom layer clears wider'],
+          [0.90,'Evaporate the base contact'],
+          [1.00,'Lift-off']],
+  facts:[['Written by','MA6 contact UV, two-layer lift-off'],
+         ['Gap to emitter','1 µm'],['Base contact','5 µm U on GaAsSb shelf']],
+  body:'The same double-layer lift-off scheme lands the U-shaped base contact on the exposed GaAsSb, 1 µm clear of the emitter mesa on the inside and 1 µm inside the mesa edge on the outside.'
+},
+{
+  n:6, title:'Isolation etch', dur:20,
+  stages:[[0.22,'Spin resist — it humps over both mesas and the metal'],
+          [0.38,'MA6 flood UV through the isolation mask'],
+          [0.52,'Develop: one island covers the device; the pads stand proud as their own mask'],
+          [0.64,'C₆H₈O₇:H₂O₂ takes the L3 InGaAs sub-collector'],
+          [0.86,'HCl:H₃PO₄ takes the L2 InP, undercutting'],
+          [0.94,'C₆H₈O₇:H₂O₂ removes the L1 etch stop, down to the S.I. substrate'],
+          [1.00,'Strip — the device stands on one island, the six pads on their own']],
+  facts:[['InGaAs (3)','C₆H₈O₇:H₂O₂'],['InP (2)','HCl:H₃PO₄'],
+         ['InGaAs (1)','C₆H₈O₇:H₂O₂'],['Stops on','S.I. InP substrate'],
+         ['Pads','self-masked']],
+  body:'One resist island, grown 1 µm past the collector metal outline, covers the device; the six probe pads mask themselves. The field etches to the semi-insulating substrate, isolating the device and each pad.'
+},
+{
+  n:7, title:'BCB coating and cure', dur:10,
+  stages:[[0.44,'Spin on: the liquid wets the topography and follows it'],
+          [0.85,'Slow cure ramp — it reflows and the humps come down'],
+          [1.00,'Crosslinked and planar']],
+  facts:[['As spun','follows the contour'],['After cure','planar'],
+         ['εᵣ','2.65'],['Role','Planar dielectric'],
+         ['Next','via open']],
+  body:'BCB spins on as a liquid and drapes over the topography, then reflows flat during the slow cure.'
+},
+{
+  n:8, title:'Via open', dur:12,
+  stages:[[0.24,'Spin a single layer of photoresist over the cured BCB — flat, no drape: that flatness is the point of the cure'],
+          [0.44,'MA6 flood UV through the via mask'],
+          [0.58,'Develop: nine rectangular openings'],
+          [0.90,'CF₄/O₂ RIE thins the BCB inside each opening, stopping on the metal underneath'],
+          [1.00,'Strip — nine vias down to metal']],
+  facts:[['Vias','9'],['Reach','emitter · base · collector · pads'],
+         ['Chemistry','CF₄/O₂ RIE'],['Etch stops on','metal, not semiconductor'],
+         ['Next','pad metal deposition']],
+  body:'A single resist layer, spun flat onto the already-planar cured BCB, is patterned by MA6 UV to open nine rectangular vias. CF₄/O₂ RIE thins the BCB inside each one and stops on the metal beneath it — the emitter and base contacts, the collector crossbar, and all six probe pads. M1 pad metal lands next.'
+},
+{
+  n:9, title:'Pad metal deposition', dur:14,
+  stages:[[0.22,'Spin two resist layers on the via-opened BCB'],
+          [0.36,'MA6 flood UV through the M1 mask'],
+          [0.50,'Develop the top layer to the M1 pattern'],
+          [0.68,'DUV flood — the top layer as its own mask, the bottom clears wider and undercuts'],
+          [0.90,'Evaporate thick gold — the vias fill, the resist carries the overburden'],
+          [1.00,'Lift-off — the GSG launch is finished']],
+  facts:[['Ground','bridge over the emitter via'],
+         ['Port 1 · 2','base via · collector via'],
+         ['Reach','emitter · base · collector · pads'],
+         ['Exposure','MA6 contact UV, two-layer lift-off'],
+         ['Launch','via-connected, not via-free']],
+  body:'Thick gold forms the GSG launch on the via-opened BCB: two ground plates and a bridge tie four corner pads to the emitter via, one signal finger lands on the base via for port 1, the other on the collector via for port 2. A two-layer lift-off resist, patterned by MA6 UV and a DUV flood, defines the five rectangles; the vias fill as the gold evaporates, so the launch is via-connected rather than via-free.'
+},
+];
+
+/* --- per-step scene construction ---------------------------------------- */
+function buildScene(k, t){
+  waferHUD = null;
+  const P = stepEndP(k-1);
+
+  if (k === 1){
+    // wafer -> scribe lanes -> lift one die out of its socket
+    const spin = ease(seg(t,0,0.24));
+    const grid = seg(t,0.30,0.46);
+    const cut  = seg(t,0.42,0.86);
+    const lift = easeOut(cut)*DIE*2.0;               // clear of the socket it left
+    // once it is clear of the socket the camera leaves the wafer behind and
+    // closes on the die, which is all the rest of the flow happens on
+    const zoom = ease(seg(t,0.58,1.0));
+    blendView(VIEW_WAFER, dieView(lift), zoom);
+    autoAzim = lerp(-0.62, DEF_AZ, spin);
+    drawWafer(1, grid, lift, cut > 0.004);
+    waferHUD = {lift, cut, a:1, flats:1-zoom};
+    return;
+  }
+
+  if (k === 2){
+    const z1 = ease(seg(t,0.00,0.12));
+    const wa = 1 - clamp01(z1*2.4);                   // wafer hands over to device
+    const lift = DIE*2.0*(1-z1);
+    blendView(dieView(lift), devView(k), z1);
+    drawWafer(wa, wa, lift, wa > 0.004);
+    if (wa > 0.25) waferHUD = {lift, cut:1, a:wa, flats:0};
+    P.ghost = 1 - clamp01((z1-0.42)/0.30);
+  } else {
+    setView(devView(k));
+  }
+
+  switch(k){
+  case 2: {
+    // single resist over the flat epi; the mask's only chrome is the E-mesa
+    // rectangle, so the field around it is what is clear and gets exposed
+    const co = ease(seg(t,0.14,0.28));                // spin the resist
+    const la = ease(seg(t,0.34,0.42));                // latent image, once exposed
+    const dv = ease(seg(t,0.46,0.56));                // develop to the E-mesa island
+    const e1 = ease(seg(t,0.58,0.68));                // citric: two InGaAs caps
+    const e2 = ease(seg(t,0.68,0.90));                // HCl: InP + AlInP
+    const st = ease(seg(t,0.94,1.0));                 // strip
+    const RT = 1300;
+    P.emEtchY = e2 > 0 ? lerp(Y_INP_TOP, Y_BASE_TOP, e2)
+                       : lerp(EPI_TOP, Y_INP_TOP, e1);
+    P.emUC = ease(seg(t,0.70,0.92));
+    if (co > 0)
+      P.resist = {kind:'single', y0:EPI_TOP, thk:RT, coat:co, latent:la, dev:dv,
+                  fade:1-st, keep:[EMESA]};
+    if (t > 0.30 && t < 0.44)
+      P.fx = {kind:'uv', y0:EPI_TOP + RT, t:t*6, open: rectCells(FP_FULL(), [EMESA])};
+    else if ((e1 > 0 && e1 < 1) || (e2 > 0 && e2 < 1))
+      P.fx = {kind:'wet', y:P.emEtchY, yTop:EPI_TOP + RT, t:t*6};
+    break;
+  }
+  case 3: {
+    // resist drapes over the already-standing E-mesa for free (drapedShell
+    // reads topoHeight); the mask's chrome is the BC-mesa rectangle
+    const co = ease(seg(t,0.06,0.22));                // resist drapes over the E-mesa
+    const la = ease(seg(t,0.30,0.38));                // latent image, once exposed
+    const dv = ease(seg(t,0.42,0.52));                // develop to the BC-mesa island
+    const e1 = ease(seg(t,0.54,0.64));                // citric: GaAsSb base
+    const e2 = ease(seg(t,0.64,0.88));                // HCl: collector + sub-collector InP
+    const st = ease(seg(t,0.93,1.0));                 // strip
+    const RT = 1300;
+    P.bcEtchY = e2 > 0 ? lerp(Y_BC_INP, Y_SC_TOP, e2)
+                       : lerp(Y_BASE_TOP, Y_BC_INP, e1);
+    P.bcUC = ease(seg(t,0.66,0.90));
+    if (co > 0)
+      P.resist = {kind:'single', y0:Y_BASE_TOP, thk:RT, coat:co, latent:la, dev:dv,
+                  fade:1-st, keep:[BCMESA]};
+    if (t > 0.26 && t < 0.40)
+      P.fx = {kind:'uv', y0:Y_BASE_TOP + RT, t:t*6, open: rectCells(FP_FULL(), [BCMESA])};
+    else if ((e1 > 0 && e1 < 1) || (e2 > 0 && e2 < 1))
+      P.fx = {kind:'wet', y:P.bcEtchY, yTop:EPI_TOP, t:t*6};
+    break;
+  }
+  case 4: {
+    // two-layer lift-off: EM, CM and all six pads open in the same mask
+    const g1 = ease(seg(t,0.05,0.13)), g2 = ease(seg(t,0.13,0.20));
+    const la = ease(seg(t,0.26,0.34));                // latent image, once exposed
+    const dT = ease(seg(t,0.38,0.46));                // develop the top layer
+    const dB = ease(seg(t,0.54,0.64));                // DUV -> bottom clears wider
+    const ev = ease(seg(t,0.70,0.88));                // evaporate
+    const lo = ease(seg(t,0.93,1.0));                 // lift-off
+    const T1 = 1400, T2 = 500;
+    const OPEN = [EM_R, ...CM_PARTS, ...PADS];
+    P.emH = EM_H * ev; P.cmH = CM_H * ev;
+    if (t >= 0.05)
+      P.resist = {kind:'bi', y0:Y_SC_TOP, t1:T1, t2:T2, grow1:g1, grow2:g2,
+                  devT:dT, devB:dB, open:OPEN, over:EM_H*ev, fade:1-lo, lift:900*lo*lo};
+    if (t > 0.22 && t < 0.36)
+      P.fx = {kind:'uv', y0:Y_SC_TOP + T1 + T2, t:t*6, open:OPEN};
+    else if (t > 0.48 && t < 0.58)
+      P.fx = {kind:'duv', y0:Y_SC_TOP + T1 + T2, t:t*6};
+    else if (ev > 0 && ev < 1)
+      P.fx = {kind:'flux', y0:Y_SC_TOP + T1 + T2 + 500, t:t*6};
+    break;
+  }
+  case 5: {
+    // same lift-off scheme, this time opening only the base-metal U
+    const g1 = ease(seg(t,0.05,0.13)), g2 = ease(seg(t,0.13,0.20));
+    const la = ease(seg(t,0.26,0.34));                // latent image, once exposed
+    const dT = ease(seg(t,0.38,0.46));                // develop the top layer
+    const dB = ease(seg(t,0.54,0.64));                // DUV -> bottom clears wider
+    const ev = ease(seg(t,0.70,0.88));                // evaporate
+    const lo = ease(seg(t,0.93,1.0));                 // lift-off
+    const T1 = 1400, T2 = 500;
+    P.bmH = BM_H * ev;
+    if (t >= 0.05)
+      P.resist = {kind:'bi', y0:Y_BASE_TOP, t1:T1, t2:T2, grow1:g1, grow2:g2,
+                  devT:dT, devB:dB, open:BM_PARTS, over:BM_H*ev, fade:1-lo, lift:900*lo*lo};
+    if (t > 0.22 && t < 0.36)
+      P.fx = {kind:'uv', y0:Y_BASE_TOP + T1 + T2, t:t*6, open:BM_PARTS};
+    else if (t > 0.48 && t < 0.58)
+      P.fx = {kind:'duv', y0:Y_BASE_TOP + T1 + T2, t:t*6};
+    else if (ev > 0 && ev < 1)
+      P.fx = {kind:'flux', y0:Y_BASE_TOP + T1 + T2 + 500, t:t*6};
+    break;
+  }
+  case 6: {
+    // conformal resist over the whole raised topography; the six pads need
+    // none of it, since the metal itself masks the etch underneath them
+    const co = ease(seg(t,0.04,0.20));                // resist humps over everything
+    const la = ease(seg(t,0.28,0.36));                // latent image, once exposed
+    const dv = ease(seg(t,0.40,0.50));                // develop: island + self-masked pads
+    const e1 = ease(seg(t,0.52,0.62));                // citric: L3 InGaAs
+    const e2 = ease(seg(t,0.62,0.84));                // HCl: L2 InP, undercutting
+    const e3 = ease(seg(t,0.84,0.92));                // citric: L1 etch stop
+    const st = ease(seg(t,0.95,1.0));                 // strip
+    const RT = 1400, yL3 = EPI.find(l=>l.i===3).y0, yL2 = EPI.find(l=>l.i===2).y0;
+    P.isoEtchY = e3 > 0 ? lerp(yL2, SUBTOP, e3)
+               : e2 > 0 ? lerp(yL3, yL2, e2)
+                        : lerp(Y_SC_TOP, yL3, e1);
+    P.isoUC = ease(seg(t,0.64,0.90));
+    if (co > 0)
+      P.resist = {kind:'single', y0:Y_SC_TOP, thk:RT, coat:co, latent:la, dev:dv,
+                  fade:1-st, keep:[ISO]};
+    if (t > 0.24 && t < 0.38)
+      P.fx = {kind:'uv', y0:Y_SC_TOP + RT, t:t*6, open: rectCells(FP_FULL(), [ISO])};
+    else if (e1 > 0 && e3 < 1)
+      P.fx = {kind:'wet', y:P.isoEtchY, yTop:EPI_TOP + EM_H, t:t*6};
+    break;
+  }
+  case 7: {
+    // spin -> conformal liquid; cure -> planar.  Nothing here needs a
+    // strip/etch beat to time against — that comes next, in step 8.
+    const flow = ease(seg(t,0.06,0.42));              // spin: the liquid wets it
+    const cure = ease(seg(t,0.54,1.0));               // slow ramp: it reflows flat
+    P.bcbTop  = lerp(0, BCB_CONF, flow) + (BCB_TOP - BCB_CONF) * cure;
+    P.bcbConf = flow * (1 - cure);
+    P.bcbCure = cure;
+    break;
+  }
+  case 8: {
+    // resist spins onto the already-planar cured BCB, so it goes on flat --
+    // no drape, unlike every earlier resist coat in this flow.  The mask's
+    // only chrome is the field itself: the nine vias are its windows, so
+    // they are what is clear and gets exposed (same convention as the
+    // lift-off masks in steps 4/5, where `open` is the small exposed shapes
+    // rather than the field rectCells() leaves once the big protected shape
+    // is cut out, as in steps 2/3/6).
+    const co = ease(seg(t,0.06,0.24));                // spin, flat
+    const la = ease(seg(t,0.32,0.40));                // latent image, once exposed
+    const dv = ease(seg(t,0.44,0.58));                // develop: nine openings
+    const et = ease(seg(t,0.62,0.90));                // CF4/O2 RIE: BCB thins to metal
+    const st = ease(seg(t,0.94,1.0));                 // strip
+    const RT = 1300;
+    P.via = et;
+    if (co > 0)
+      P.resist = {kind:'single', y0:P.bcbTop, thk:RT, coat:co, latent:la, dev:dv,
+                  fade:1-st, flat:true, holes: VIAS};
+    if (t > 0.28 && t < 0.42)
+      P.fx = {kind:'uv', y0:P.bcbTop + RT, t:t*6, open: VIAS};
+    else if (et > 0 && et < 1)
+      P.fx = {kind:'wet', y:lerp(P.bcbTop, Y_SC_TOP + CM_H, et), yTop:P.bcbTop + RT, t:t*6};
+    break;
+  }
+  case 9: {
+    // same two-layer lift-off scheme as steps 4/5, but spun flat onto the
+    // already-planar, via-opened BCB (kind:'bi' with flat:true) rather than
+    // draping over a raised mesa; the five M1 rectangles are its opening
+    const g1 = ease(seg(t,0.05,0.13)), g2 = ease(seg(t,0.13,0.20));
+    const la = ease(seg(t,0.26,0.34));                // latent image, once exposed
+    const dT = ease(seg(t,0.38,0.46));                // develop the top layer
+    const dB = ease(seg(t,0.54,0.64));                // DUV -> bottom clears wider
+    const ev = ease(seg(t,0.70,0.88));                // evaporate
+    const lo = ease(seg(t,0.93,1.0));                 // lift-off
+    const T1 = 1400, T2 = 500;
+    P.padH = M1_H * ev;
+    if (t >= 0.05)
+      P.resist = {kind:'bi', y0:BCB_TOP, t1:T1, t2:T2, grow1:g1, grow2:g2,
+                  devT:dT, devB:dB, open:M1_PARTS, over:M1_H*ev, fade:1-lo,
+                  lift:900*lo*lo, flat:true};
+    if (t > 0.22 && t < 0.36)
+      P.fx = {kind:'uv', y0:BCB_TOP + T1 + T2, t:t*6, open:M1_PARTS};
+    else if (t > 0.48 && t < 0.58)
+      P.fx = {kind:'duv', y0:BCB_TOP + T1 + T2, t:t*6};
+    else if (ev > 0 && ev < 1)
+      P.fx = {kind:'flux', y0:BCB_TOP + T1 + T2 + 500, t:t*6};
+    break;
+  }}
+  drawDevice(P);
+}
+
+/* ---------------------------------------------------------------------------
+ * 11.  Camera
+ *
+ * Every step asks for its own framing: VIEW_WAFER while the wafer is still
+ * whole, dieView() for the freed die, VIEW_FULL once the BC mesa and the
+ * collector U are the whole story, VIEW_PAD from the isolation etch on, once
+ * the six probe pads and the island are what the step is about, and VIEW_XS
+ * for the cross-section close-up.  There are no posts and no airbridge in
+ * this flow, so — unlike the formal flow — there is nothing else to focus on.
+ * ------------------------------------------------------------------------ */
+const VIEW_WAFER = {fit:4.5e7, target:[0, 2e6, 0], el:0.86};
+// the freed die, framed on its own — where step 1 ends and step 2 starts
+const dieView = lift => ({fit:1.16e7, target:[0, lift, 0], el:0.55});
+// through step 5: BC mesa + collector U, outer edge x +-15500, z -16000..11000
+const VIEW_FULL = {fit:40000, target:[0, 400, -2500], el:0.50, az:0.55};
+// step 6 on: the whole GSG, pads reach x +-31000, z -37500..+32500
+const VIEW_PAD  = {fit:86000, target:[0, 300, -2500],  el:0.46, az:0.55};
+// cross-section close-up; CUT_Z = -3000 cuts through the emitter mesa centre
+const VIEW_XS   = {fit:9000,  target:[0, 500, -3000], el:0.26, az:0.34};
+
+const devView = k => CUTAWAY ? VIEW_XS : (k >= 6 ? VIEW_PAD : VIEW_FULL);
+
+const DEF_AZ = 0.55, DEF_EL = 0.42;
+let azim = DEF_AZ, elev = DEF_EL, zoomMul = 1, autoAzim = null, userTouched = false;
+let viewProj = new Float32Array(16), eye = [0,0,0];
+
+let viewFit = VIEW_FULL.fit, viewTarget = VIEW_FULL.target.slice();
+let autoElev = VIEW_FULL.el;
+function setView(v){
+  viewFit = v.fit; viewTarget = v.target.slice(); autoElev = v.el;
+  if (v.az !== undefined) autoAzim = v.az;
+}
+function blendView(a, b, t){
+  viewFit = logLerp(a.fit, b.fit, t);
+  viewTarget = [lerp(a.target[0],b.target[0],t), lerp(a.target[1],b.target[1],t),
+                lerp(a.target[2],b.target[2],t)];
+  autoElev = lerp(a.el, b.el, t);
+  const az0 = a.az === undefined ? DEF_AZ : a.az, az1 = b.az === undefined ? DEF_AZ : b.az;
+  autoAzim = lerp(az0, az1, t);
+}
+
+const view = document.getElementById('view');
+let dragging = false, lx = 0, ly = 0;
+view.addEventListener('pointerdown', e => {
+  if (!userTouched){                       // adopt the automatic camera first
+    if (autoAzim !== null) azim = autoAzim;
+    if (autoElev !== null) elev = autoElev;
+  }
+  dragging = true; userTouched = true; lx = e.clientX; ly = e.clientY;
+  view.setPointerCapture(e.pointerId);
+});
+view.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  azim -= (e.clientX - lx) * 0.007;
+  elev = Math.max(-0.25, Math.min(1.42, elev + (e.clientY - ly) * 0.006));
+  lx = e.clientX; ly = e.clientY;
+});
+const stopDrag = () => { dragging = false; };
+view.addEventListener('pointerup', stopDrag);
+view.addEventListener('pointercancel', stopDrag);
+view.addEventListener('wheel', e => {
+  e.preventDefault(); userTouched = true;
+  zoomMul = Math.max(0.28, Math.min(3.2, zoomMul * Math.exp(e.deltaY * 0.0012)));
+}, {passive:false});
+
+function resetView(){ azim = DEF_AZ; elev = DEF_EL; zoomMul = 1; userTouched = false; }
+document.getElementById('resetview').addEventListener('click', resetView);
+
+const xsecBtn = document.getElementById('xsec');
+xsecBtn.addEventListener('click', () => {
+  CUTAWAY = !CUTAWAY;
+  xsecBtn.classList.toggle('on', CUTAWAY);
+  userTouched = false;                      // let the view swing to the new framing
+});
+
+/**
+ * Chase the requested framing rather than cutting to it — smooths the
+ * deliberate blends in step 1 and keeps drag-orbit from feeling abrupt.
+ * Reads viewFit/viewTarget/autoElev/autoAzim (written by setView/blendView
+ * and the pointer handlers above) and leaves the eased result in
+ * camFit/camTgt/camEl/camAz plus the derived eye/viewProj/camRight/camUp/
+ * camFwd that section 12's render pass and the HUD both read.
+ */
+function updateCamera(){
+  const azT = (autoAzim !== null && !userTouched) ? autoAzim : azim;
+  const elT = (autoElev !== null && !userTouched) ? autoElev : elev;
+  if (camFit === null){
+    camFit = viewFit; camTgt = viewTarget.slice(); camEl = elT; camAz = azT;
+  } else {
+    const k = 0.22;
+    camFit = Math.exp(lerp(Math.log(camFit), Math.log(viewFit), k));
+    for (let i=0;i<3;i++) camTgt[i] = lerp(camTgt[i], viewTarget[i], k);
+    camEl = lerp(camEl, elT, k);
+    camAz = lerp(camAz, azT, k);
+  }
+  const az = camAz, el = camEl;
+  const dist = (camFit * zoomMul) / Math.tan(0.26);
+  const ce = Math.cos(el), se = Math.sin(el);
+  eye = [camTgt[0] + dist*ce*Math.sin(az),
+         camTgt[1] + dist*se,
+         camTgt[2] + dist*ce*Math.cos(az)];
+  const Vm = lookAt(eye, camTgt, [0,1,0]);
+  const Pm = perspective(0.52, W/H, dist*0.02, dist*9);
+  viewProj = mul(Pm, Vm);
+  camRight = [Math.cos(az), 0, -Math.sin(az)];
+  camFwd   = [-ce*Math.sin(az), -se, -ce*Math.cos(az)];
+  camUp    = [-se*Math.sin(az),  ce, -se*Math.cos(az)];
+}
+
+/* ---------------------------------------------------------------------------
+ * 12.  Draw
+ * ------------------------------------------------------------------------ */
+const hudCanvas = document.getElementById('hud');
+const hud = hudCanvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const r = view.getBoundingClientRect();
+  W = Math.max(1, Math.round(r.width)); H = Math.max(1, Math.round(r.height));
+  for (const c of [glCanvas, hudCanvas]){ c.width = W*DPR; c.height = H*DPR; }
+  if (gl) gl.viewport(0, 0, W*DPR, H*DPR);
+  hud.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', resize);
+
+/* Theme lookups touch layout, so they are cached and invalidated by hand. */
+let themeCache = null;
+function themeDirty(){ themeCache = null; }
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', themeDirty);
+function theme(){
+  if (themeCache) return themeCache;
+  const cs = getComputedStyle(document.body);
+  const get = n => cs.getPropertyValue(n).trim();
+  const rgb = n => { const v = get(n);
+    if (v.startsWith('#')) return hex(v);
+    const m = v.match(/[\d.]+/g); return m ? [m[0]/255, m[1]/255, m[2]/255] : [0,0,0]; };
+  themeCache = {
+    bg: rgb('--viewport'), edge: rgb('--text'),
+    text: get('--text'), muted: get('--muted'), rule: get('--rule'),
+    panel: get('--panel'), accent: get('--accent'),
+  };
+  return themeCache;
+}
+const HUD_FONT = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang TC","Microsoft JhengHei","Noto Sans TC","Heiti TC", monospace';
+
+/** One GL pass: opaque chunks depth-written, then blend chunks sorted
+ *  back-to-front by eye distance with depth write off, then additive
+ *  chunks, then the unlit edge lines from LV. */
+function drawFrame(){
+  if (!gl) return;
+  const TH = theme();
+  const bg = TH.bg;
+  EDGE = TH.edge; EDGE_A = 0.3;
+
+  updateCamera();
+
+  gl.clearColor(bg[0], bg[1], bg[2], 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.useProgram(prog);
+  gl.uniformMatrix4fv(loc.uVP, false, viewProj);
+  const l1 = [0.42, 0.80, 0.43], l2 = [-0.55, 0.30, -0.42];
+  gl.uniform3fv(loc.uL1, l1); gl.uniform3fv(loc.uL2, l2);
+  gl.uniform1f(loc.uAmb, 0.34);
+
+  // ---- triangles
+  const arr = new Float32Array(V);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, arr, gl.DYNAMIC_DRAW);
+  const stride = 40;
+  gl.enableVertexAttribArray(loc.aPos); gl.vertexAttribPointer(loc.aPos,3,gl.FLOAT,false,stride,0);
+  gl.enableVertexAttribArray(loc.aNrm); gl.vertexAttribPointer(loc.aNrm,3,gl.FLOAT,false,stride,12);
+  gl.enableVertexAttribArray(loc.aCol); gl.vertexAttribPointer(loc.aCol,4,gl.FLOAT,false,stride,24);
+  gl.uniform1f(loc.uUnlit, 0);
+
+  // fills are nudged away from the eye so the wireframe edges win the depth test
+  gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.2, 1.2);
+  gl.disable(gl.BLEND); gl.depthMask(true);
+  for (const c of chunks) if (c.mode === 'opaque') gl.drawArrays(gl.TRIANGLES, c.s, c.n);
+
+  // ---- edges
+  if (LV.length){
+    const la = new Float32Array(LV);
+    gl.bindBuffer(gl.ARRAY_BUFFER, lbo);
+    gl.bufferData(gl.ARRAY_BUFFER, la, gl.DYNAMIC_DRAW);
+    gl.vertexAttribPointer(loc.aPos,3,gl.FLOAT,false,28,0);
+    gl.disableVertexAttribArray(loc.aNrm);
+    gl.vertexAttribPointer(loc.aCol,4,gl.FLOAT,false,28,12);
+    gl.uniform1f(loc.uUnlit, 1);
+    gl.enable(gl.BLEND); gl.depthMask(false);
+    gl.drawArrays(gl.LINES, 0, LV.length/7);
+    gl.enableVertexAttribArray(loc.aNrm);
+    gl.uniform1f(loc.uUnlit, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.vertexAttribPointer(loc.aPos,3,gl.FLOAT,false,stride,0);
+    gl.vertexAttribPointer(loc.aNrm,3,gl.FLOAT,false,stride,12);
+    gl.vertexAttribPointer(loc.aCol,4,gl.FLOAT,false,stride,24);
+  }
+
+  // ---- alpha, back to front
+  const blend = chunks.filter(c => c.mode === 'blend');
+  for (const c of blend){
+    const dx=c.c[0]-eye[0], dy=c.c[1]-eye[1], dz=c.c[2]-eye[2];
+    c.d = dx*dx+dy*dy+dz*dz;
+  }
+  blend.sort((a,b) => b.d - a.d);
+  // Resist and BCB are drawn as solid blocks that swallow the device, so on
+  // the cut face their walls are coplanar with every device wall.  Pushing the
+  // transparent pass further back in depth makes the solid underneath win that
+  // tie outright, instead of the two speckling against each other.
+  gl.polygonOffset(6.0, 6.0);
+  gl.enable(gl.BLEND); gl.depthMask(false);
+  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  for (const c of blend) gl.drawArrays(gl.TRIANGLES, c.s, c.n);
+
+  // ---- additive
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+  for (const c of chunks) if (c.mode === 'add') gl.drawArrays(gl.TRIANGLES, c.s, c.n);
+  gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.depthMask(true);
+  gl.polygonOffset(1.2, 1.2);
+  gl.disable(gl.POLYGON_OFFSET_FILL);
+}
+
+/** resetGeom() + buildScene(k,t) + the GL pass, in the order a frame needs
+ *  them.  The loop (section 15) calls this once per frame, then the HUD
+ *  pass (section 13) on top of it. */
+function scene(k, t){
+  resetGeom();
+  buildScene(k, t);
+  drawFrame();
+}
+
+/* ---------------------------------------------------------------------------
+ * 13.  HUD — layer callouts, scale bar
+ *
+ * No write-pattern inset here: every mask in this flow is MA6 contact UV, so
+ * there is no e-beam field to preview, unlike the formal flow's section 12.
+ * ------------------------------------------------------------------------ */
+function project(p){
+  const m = viewProj;
+  const x = m[0]*p[0]+m[4]*p[1]+m[8]*p[2]+m[12];
+  const y = m[1]*p[0]+m[5]*p[1]+m[9]*p[2]+m[13];
+  const w = m[3]*p[0]+m[7]*p[1]+m[11]*p[2]+m[15];
+  if (w <= 0) return null;
+  return [(x/w*0.5+0.5)*W, (1-(y/w*0.5+0.5))*H];
+}
+
+function drawHUD(k, t){
+  hud.clearRect(0,0,W,H);
+  const TH = theme();
+  const textC = TH.text, mutedC = TH.muted, ruleC = TH.rule;
+  hud.font = HUD_FONT;
+
+  // ---- scale bar --------------------------------------------------------
+  const pxPerUnit = (H*0.5) / ((camFit || viewFit)*zoomMul);   // px per nm at the target
+  const targetPx = 118;
+  let len = targetPx / pxPerUnit;                      // in nm
+  const pow = Math.pow(10, Math.floor(Math.log10(len)));
+  const nice = [1,2,5,10].find(n => n*pow >= len*0.55) || 10;
+  len = nice*pow;
+  const px = len * pxPerUnit;
+  const bx = W - px - 24, by = H - 26;
+  hud.strokeStyle = mutedC; hud.lineWidth = 1;
+  hud.beginPath();
+  hud.moveTo(bx, by-4); hud.lineTo(bx, by+4); hud.moveTo(bx, by); hud.lineTo(bx+px, by);
+  hud.moveTo(bx+px, by-4); hud.lineTo(bx+px, by+4);
+  hud.stroke();
+  const lab = len >= 1e6 ? (len/1e6)+' mm' : len >= 1e3 ? (len/1e3)+' µm' : len+' nm';
+  hud.fillStyle = mutedC; hud.textAlign = 'center';
+  hud.fillText(lab, bx+px/2, by-9);
+  hud.textAlign = 'left';
+
+  // ---- crystal orientation triad ---------------------------------------
+  {
+    const ox = W - 82, oy = 62, L = 22;
+    hud.fillStyle = TH.panel; hud.globalAlpha = 0.90;      // legible over any scene
+    hud.fillRect(ox-66, oy-38, 132, 96); hud.globalAlpha = 1;
+    hud.strokeStyle = ruleC; hud.lineWidth = 1;
+    hud.strokeRect(ox-65.5, oy-37.5, 131, 95);
+    const scr = v => [ v[0]*camRight[0] + v[1]*camRight[1] + v[2]*camRight[2],
+                     -(v[0]*camUp[0]    + v[1]*camUp[1]    + v[2]*camUp[2]) ];
+    const away = v => v[0]*camFwd[0] + v[1]*camFwd[1] + v[2]*camFwd[2];
+    const arms = AXES.map(a => ({lab:a.lab, s:scr(a.v), d:away(a.v), up:a.v[1] === 1}))
+                     .sort((p,q) => q.d - p.d);          // the one going away, first
+    for (const a of arms){
+      const m = Math.hypot(a.s[0], a.s[1]);
+      const tx = ox + a.s[0]*L, ty = oy + a.s[1]*L;
+      hud.globalAlpha = 0.32 + 0.68*m;
+      hud.strokeStyle = a.up ? TH.accent : mutedC;
+      hud.lineWidth = a.up ? 1.5 : 1.15;
+      hud.beginPath(); hud.moveTo(ox, oy); hud.lineTo(tx, ty); hud.stroke();
+      hud.beginPath(); hud.arc(tx, ty, 1.7, 0, 6.2832);
+      hud.fillStyle = a.up ? TH.accent : mutedC; hud.fill();
+      hud.fillStyle = a.up ? TH.accent : textC;
+      hud.textAlign = a.s[0] > 0.2 ? 'left' : a.s[0] < -0.2 ? 'right' : 'center';
+      hud.fillText(a.lab, tx + a.s[0]*7, ty + a.s[1]*7 + 3.5);
+    }
+    hud.globalAlpha = 1;
+    hud.fillStyle = mutedC; hud.textAlign = 'center';
+    hud.fillText('(100) InP', ox, oy + 48);
+    hud.textAlign = 'left';
+  }
+
+  const tag = (p3, text, dx, dy, align) => {
+    const p = project(p3); if (!p) return;
+    hud.strokeStyle = mutedC; hud.lineWidth = 1;
+    hud.beginPath(); hud.moveTo(p[0], p[1]); hud.lineTo(p[0]+dx, p[1]+dy); hud.stroke();
+    hud.fillStyle = textC; hud.textAlign = align;
+    hud.fillText(text, p[0]+dx + (align === 'right' ? -6 : 6), p[1]+dy + 3.5);
+    hud.textAlign = 'left';
+    hud.beginPath(); hud.arc(p[0], p[1], 2, 0, 6.2832); hud.fillStyle = mutedC; hud.fill();
+  };
+  // ---- device labels: each fades in as its feature settles, then holds --
+  const mesaA = k > 2 ? 1 : k === 2 ? clamp01((t-0.94)/0.06) : 0;
+  if (mesaA > 0.01){
+    hud.globalAlpha = mesaA;
+    tag([0, EPI_TOP, EMESA.z1], TR('emitter mesa'), 28, -26, 'left');
+    hud.globalAlpha = 1;
+  }
+  const bcA = k > 3 ? 1 : k === 3 ? clamp01((t-0.93)/0.07) : 0;
+  if (bcA > 0.01){
+    hud.globalAlpha = bcA;
+    tag([0, Y_BASE_TOP, BCMESA.z1], TR('base–collector mesa'), -28, 30, 'right');
+    hud.globalAlpha = 1;
+  }
+  // emitter metal, collector metal and the six pads all land in one run (step 4)
+  const cmA = k > 4 ? 1 : k === 4 ? clamp01((t-0.92)/0.08) : 0;
+  if (cmA > 0.01){
+    hud.globalAlpha = cmA;
+    tag([0, EPI_TOP + EM_H, (EM_R.z0+EM_R.z1)/2], 'E', 22, -20, 'left');
+    tag([0, Y_SC_TOP + CM_H, (CM_BAR.z0+CM_BAR.z1)/2], 'C', -22, 24, 'right');
+    // once M1 lands (step 9) the probe pads are what a probe actually lands
+    // on, so the role labels lift off the buried CM/pad metal onto the M1
+    // pad above it -- before that, padA is 0 and this is a no-op
+    const padA = k > 9 ? 1 : k === 9 ? clamp01((t-0.90)/0.10) : 0;
+    const padY = Y_SC_TOP + CM_H + M1_H * padA;
+    for (const p of PADS){
+      const cx = (p.x0+p.x1)/2, cz = (p.z0+p.z1)/2;
+      const label = p.role === 'B' ? TR('B · port 1')
+                   : p.role === 'C' ? TR('C · port 2') : TR('Ground');
+      tag([cx, padY, cz], label,
+          cx < 0 ? -24 : 24, cz > 0 ? -22 : 22, cx < 0 ? 'right' : 'left');
+    }
+    hud.globalAlpha = 1;
+  }
+  const bmA = k > 5 ? 1 : k === 5 ? clamp01((t-0.92)/0.08) : 0;
+  if (bmA > 0.01){
+    hud.globalAlpha = bmA;
+    tag([0, Y_BASE_TOP + BM_H, (BM_BAR.z0+BM_BAR.z1)/2], 'B', 22, 20, 'left');
+    hud.globalAlpha = 1;
+  }
+
+  // ---- wafer callouts: the flats are what set the crystal orientation ----
+  if (waferHUD){
+    const fa = waferHUD.flats === undefined ? 1 : waferHUD.flats;
+    if (fa > 0.01){                        // they go as the camera leaves the wafer
+      hud.globalAlpha = waferHUD.a * fa;
+      tag([0, WGRID, WPRI],   TR('primary flat'),   -26,  40, 'right');
+      tag([WSEC, WGRID, 0],   TR('secondary flat'),  46,  22, 'left');
+      tag([-WR*0.80, WGRID, -WR*0.60], '⌀ 76 mm', -30, -22, 'right');
+    }
+    hud.globalAlpha = waferHUD.a;
+    if (waferHUD.cut > 0.05)
+      tag([DIE/2, waferHUD.lift, -DIE/2], TR('12 × 12 mm² die'), 40, -30, 'left');
+    hud.globalAlpha = 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 14.  Flow rail, dossier, transport
+ * ------------------------------------------------------------------------ */
+let cur = 1, tt = 0, playing = false, playAll = false, speed = 1;
+
+const flowEl = document.getElementById('flow');
+const rows = [];
+function buildRail(){
+  flowEl.innerHTML = '';
+  rows.length = 0;
+  for (const S of STEPS.slice(0, STEPS_SHOWN)){
+    const segRow = document.createElement('li');
+    segRow.className = 'frow seg';
+    segRow.innerHTML =
+      '<button class="hit" aria-label="' + TRF(TR('Play step {n}'), {n:S.n})
+        + ': ' + S.title + '"></button>' +
+      '<span class="gfx"><span class="stem"></span></span>' +
+      '<span class="txt">' + (S.n === 1 ? TR('start ▸') : TR('▸ animate')) + '</span>';
+    segRow.querySelector('.hit').addEventListener('click', () => play(S.n));
+    flowEl.appendChild(segRow);
+
+    const dotRow = document.createElement('li');
+    dotRow.className = 'frow dot';
+    dotRow.innerHTML =
+      '<button class="hit" aria-label="'
+        + TRF(TR('Show state after step {n}'), {n:S.n}) + '"></button>' +
+      '<span class="gfx"><span class="mark"></span></span>' +
+      '<span class="txt"><span class="num">' + String(S.n).padStart(2,'0') + '</span>' + S.title + '</span>';
+    dotRow.querySelector('.hit').addEventListener('click', () => jump(S.n));
+    flowEl.appendChild(dotRow);
+    rows.push({seg:segRow, dot:dotRow, stem:segRow.querySelector('.stem')});
+  }
+}
+
+const el = {
+  eyebrow: document.getElementById('i-eyebrow'),
+  title:   document.getElementById('i-title'),
+  body:    document.getElementById('i-body'),
+  facts:   document.getElementById('i-facts'),
+  stackBody: document.querySelector('#i-stack tbody'),
+  stage:   document.getElementById('stagetxt'),
+  badge:   document.getElementById('badge'),
+  zoomchip:document.getElementById('zoomchip'),
+};
+
+/** STEPS_SHOWN === STEPS.length in this file, so `hidden` is always 0 and the
+ *  note stays empty — the code path is kept for when a later step needs to
+ *  be held back for verification, exactly as in the formal flow. */
+function railNote(){
+  const hidden = STEPS.length - STEPS_SHOWN;
+  document.getElementById('railnote').textContent = hidden > 0
+    ? TRF(TR('Steps {a}–{b} ({name} onward) are hidden while these are verified.'),
+          {a:STEPS_SHOWN+1, b:STEPS.length,
+           name:STEPS[STEPS_SHOWN].title.toLowerCase()})
+    : '';
+}
+
+function fillStack(){
+  // the layer number lives inside its own colour, so the two read as one thing
+  const chip = (col, txt) => {
+    const c = hex(col), lum = c[0]*0.299 + c[1]*0.587 + c[2]*0.114;
+    return '<span class="nchip" style="background:' + col + ';color:'
+         + (lum > 0.6 ? '#12141f' : '#f4f6ff') + '">' + txt + '</span>';
+  };
+  const nm = t => (t % 1 ? t.toFixed(1) : t);
+  const rowsHtml = [];
+  for (let i = EPI.length-1; i >= 0; i--){
+    const L = EPI[i];
+    rowsHtml.push(
+      '<tr data-i="'+L.i+'"><td>'+chip(L.col, L.i)+'</td><td class="nm">'
+      + TR(L.name) + ' <span style="color:var(--muted)">' + L.mat + '</span></td>'
+      + '<td class="r">'+nm(L.t)+'</td><td class="r">'+L.type+'</td></tr>');
+  }
+  rowsHtml.push('<tr data-i="0"><td>'+chip(C.sub,'&nbsp;')
+    +'</td><td class="nm">' + TR('Substrate')
+    +' <span style="color:var(--muted)">S.I. InP</span></td>'
+    +'<td class="r">—</td><td class="r">—</td></tr>');
+  el.stackBody.innerHTML = rowsHtml.join('');
+}
+
+function syncPanel(){
+  const S = STEPS[cur-1];
+  el.eyebrow.textContent = TRF(TR('Step {n} of {t}'), {n:S.n, t:STEPS_SHOWN});
+  el.title.textContent = S.title;                  // step names stay English
+  el.body.textContent = TR(S.body);
+  el.facts.innerHTML = S.facts.map(f =>
+    '<div><dt>'+TR(f[0])+'</dt><dd>'+TR(f[1])+'</dd></div>').join('');
+
+  // grey out a layer once it stops being a blanket film: emitter etch (step
+  // 2) leaves 12->7 standing only on the E-mesa; base-collector etch (step
+  // 3) leaves 6->4 standing only on the BC mesa; isolation (step 6) leaves
+  // 3->1 standing only on the island.
+  const goneFrom = {2:[7,8,9,10,11,12], 3:[4,5,6], 6:[1,2,3]};
+  const gone = new Set();
+  for (const step of Object.keys(goneFrom))
+    if (cur >= +step) for (const i of goneFrom[step]) gone.add(i);
+  for (const tr of el.stackBody.children){
+    tr.classList.toggle('gone', gone.has(+tr.dataset.i));
+  }
+
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i], n = i+1;
+    r.dot.classList.toggle('done', n < cur);
+    r.dot.classList.toggle('here', n === cur);
+    r.seg.classList.toggle('done', n < cur);
+    r.seg.classList.toggle('active', n === cur);
+  }
+}
+
+let lastStage = '', lastBadge = '';
+function syncStage(){
+  const S = STEPS[cur-1];
+  let label = S.stages[S.stages.length-1][1];
+  for (const st of S.stages){ if (tt <= st[0] + 1e-9){ label = st[1]; break; } }
+  if (label !== lastStage){
+    lastStage = label;
+    el.stage.innerHTML = '<b>' + String(S.n).padStart(2,'0') + '</b> &nbsp;' + TR(label);
+  }
+  for (let i=0;i<rows.length;i++){
+    const fill = i+1 < cur ? 100 : i+1 === cur ? tt*100 : 0;
+    rows[i].stem.style.setProperty('--fill', fill.toFixed(1)+'%');
+  }
+  const wafer = viewFit > 2e6;
+  const badges = [TR('drag to orbit'), TR('scroll to zoom in/out')];
+  const bstr = badges.join('|') + wafer;
+  if (bstr !== lastBadge){
+    lastBadge = bstr;
+    el.badge.innerHTML = badges.map(b => '<span>'+b+'</span>').join('');
+    el.zoomchip.textContent = TR(wafer ? 'wafer view' : 'device view');
+  }
+  const pp = TR(playing ? '❚❚ Pause' : '▶ Play');
+  if (ppBtn.textContent !== pp) ppBtn.textContent = pp;
+  hereBtn.disabled = cur >= STEPS_SHOWN;   // nothing comes after the last step
+}
+
+function jump(n){ cur = n; tt = 1; playing = false; playAll = false; autoAzim = null; syncPanel(); }
+function play(n){ cur = n; tt = 0; playing = true; syncPanel(); }
+
+document.getElementById('playall').addEventListener('click', () => {
+  playAll = true; play(1);
+});
+const hereBtn = document.getElementById('playhere');
+hereBtn.addEventListener('click', () => {
+  // "here" is the state on screen, which is the end of `cur` — so carry on with
+  // the step that comes after it rather than replaying the one already done
+  if (cur >= STEPS_SHOWN) return;
+  playAll = true; play(cur + 1);
+});
+const ppBtn = document.getElementById('playpause');
+ppBtn.addEventListener('click', () => {
+  if (playing) playing = false;
+  else { if (tt >= 1) tt = 0; playing = true; }
+  syncPanel();
+});
+const speedBtn = document.getElementById('speed');
+speedBtn.addEventListener('click', () => {
+  speed = speed === 1 ? 2 : speed === 2 ? 0.5 : 1;
+  speedBtn.textContent = speed.toFixed(1) + '×';
+});
+const langBtn = document.getElementById('langbtn');
+langBtn.hidden = HOST.embed;         // embedded: the portal's toggle is the only one
+langBtn.addEventListener('click', () => setLang(LANG === 'zh' ? 'en' : 'zh'));
+document.getElementById('themebtn').addEventListener('click', () => {
+  const r = document.documentElement;
+  const dark = r.dataset.theme
+    ? r.dataset.theme === 'dark'
+    : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+  themeDirty();
+});
+// #xsec and #resetview are wired in section 11; nothing more to bind here.
+
+/* ---------------------------------------------------------------------------
+ * 15.  Loop
+ * ------------------------------------------------------------------------ */
+window.addEventListener('keydown', e => {
+  if (e.key === ' '){ e.preventDefault(); ppBtn.click(); }
+  else if (e.key === 'ArrowRight') jump(Math.min(STEPS_SHOWN, cur+1));
+  else if (e.key === 'ArrowLeft')  jump(Math.max(1, cur-1));
+});
+
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(0.05, (now - last)/1000); last = now;
+  if (playing){
+    tt += dt * speed / STEPS[cur-1].dur;
+    if (tt >= 1){
+      tt = 1;
+      if (playAll && cur < STEPS_SHOWN){ cur += 1; tt = 0; syncPanel(); }
+      else { playing = false; playAll = false; }
+    }
+  }
+  autoAzim = null;
+  scene(cur, tt);
+  drawHUD(cur, tt);
+  syncStage();
+  requestAnimationFrame(frame);
+}
+
+resize();
+applyLang();          // builds the rail, the epi table and the dossier — step 1 at t=0
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

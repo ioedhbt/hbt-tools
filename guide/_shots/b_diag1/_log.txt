@@ -1,0 +1,57 @@
+[10:50:16] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[10:50:17] server up on 42957
+[10:50:31] shot 00_after_run
+[10:50:37] shot 01_after_expand
+[10:50:37] done
+[10:54:21] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[10:54:22] server up on 52159
+[10:54:37] shot 00_after_run
+[10:54:42] shot 01_after_expand
+[10:54:45] shot 02_after_force_open
+[10:54:45] done
+[10:57:07] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[10:57:08] server up on 56585
+[10:57:29] shot 00_after_run
+[10:57:33] shot 01_after_expand
+[10:57:36] shot 02_after_real_click
+[10:57:36] done
+[10:58:56] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[10:58:57] server up on 46103
+[10:59:17] shot 00_after_run
+[10:59:20] shot 01_after_expand
+[10:59:23] shot 02_after_real_click
+[10:59:23] done
+[11:02:45] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[11:02:46] server up on 46029
+[11:03:01] shot 00_after_run
+[11:03:10] shot 01_after_expand
+[11:03:15] shot 02_after_real_click
+[11:03:15] done
+[11:06:57] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[11:06:59] server up on 43315
+[11:07:12] shot 00_after_run
+[11:07:25] shot 01_after_expand
+[11:07:29] done
+[11:09:46] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[11:09:47] server up on 59031
+[11:10:06] shot 00_after_run
+[11:10:10] shot 01_after_expand
+[11:10:16] shot 02_after_real_click
+[11:10:16] done
+[11:29:50] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[11:29:51] server up on 33909
+[11:30:11] shot 00_after_run
+[11:30:14] shot 01_after_expand
+[11:30:20] shot 02_after_real_click
+[11:32:56] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[11:32:57] server up on 58447
+[11:35:34] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[11:35:35] server up on 50217
+[11:39:00] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[11:39:01] server up on 52875
+[11:39:24] shot 00_final
+[11:39:24] done
+[11:41:25] scenario=/tmp/app/guide/_harness/scenarios/b_diag1.py
+[11:41:26] server up on 50027
+[11:41:54] shot 00_final
+[11:41:54] done

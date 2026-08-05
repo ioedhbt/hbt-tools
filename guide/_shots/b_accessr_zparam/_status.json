@@ -1,0 +1,10 @@
+{
+  "scenario": "b_accessr_zparam.py",
+  "ts": 1785524778.4724178,
+  "state": "done",
+  "shots": [
+    "00_zparam_table_plot",
+    "01_zparam_chart",
+    "02_zparam_metrics"
+  ]
+}

@@ -1,0 +1,5 @@
+[10:09:11] scenario=/tmp/app/guide/_harness/scenarios/d_simfit_2.py
+[10:09:12] server up on 44163
+[10:09:25] shot 00_uploaded
+[10:09:28] shot 01_fit_result
+[10:09:28] done

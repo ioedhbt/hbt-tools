@@ -1,0 +1,10 @@
+{
+  "scenario": "a_deembed_setup.py",
+  "ts": 1785524129.0574481,
+  "state": "done",
+  "shots": [
+    "00_sidebar_calibration",
+    "01_batch_top",
+    "02_overrides"
+  ]
+}

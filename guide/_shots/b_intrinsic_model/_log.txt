@@ -1,0 +1,5 @@
+[10:05:14] scenario=/tmp/app/guide/_harness/scenarios/b_intrinsic_model.py
+[10:05:15] server up on 40451
+[10:05:42] shot 00_model_selection
+[10:05:49] shot 01_cbex_cbcx
+[10:05:54] shot 02_intrinsic_top

@@ -1,0 +1,7 @@
+[02:31:22] scenario=/tmp/app/guide/_harness/scenarios/b_setup_upload.py
+[02:31:23] server up on 34075
+[02:31:30] shot 00_main_upload
+[02:31:32] shot 01_sidebar_off
+[02:31:39] shot 02_sidebar_files
+[02:31:43] shot 03_ready_to_run
+[02:31:43] done

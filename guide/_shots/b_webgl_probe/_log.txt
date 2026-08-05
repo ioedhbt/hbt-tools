@@ -1,0 +1,4 @@
+[02:53:20] scenario=/tmp/app/guide/_harness/scenarios/b_webgl_probe.py
+[02:53:21] server up on 57553
+[02:53:31] shot 00_overlay
+[02:53:31] done

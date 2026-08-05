@@ -1,0 +1,10 @@
+{
+  "scenario": "b_setup_tables.py",
+  "ts": 1785522792.2930784,
+  "state": "done",
+  "shots": [
+    "00_open_caps",
+    "01_short_leads",
+    "02_preoverride"
+  ]
+}

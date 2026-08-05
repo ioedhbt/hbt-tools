@@ -1,0 +1,5 @@
+[10:11:17] scenario=/tmp/app/guide/_harness/scenarios/d_simfit_3.py
+[10:11:19] server up on 48545
+[10:11:41] shot 00_cache_chip
+[10:11:45] shot 01_tau_total
+[10:11:45] done

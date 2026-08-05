@@ -194,7 +194,7 @@ def _render_time_calculator(prefix: str, polys_mm: list, cells: list,
         f"{prefix}_dose_us": 2.0,
         f"{prefix}_dose_init_us": 2.0,
         f"{prefix}_dose_step_us": 0.2,
-        f"{prefix}_stage_s": 15.0,
+        f"{prefix}_stage_s": 10.0,
     }
     for _k, _v in _TC_DEFAULTS.items():
         st.session_state.setdefault(_k, _v)

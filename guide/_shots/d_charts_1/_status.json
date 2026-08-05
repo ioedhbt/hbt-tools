@@ -1,0 +1,10 @@
+{
+  "scenario": "d_charts_1.py",
+  "ts": 1785561042.120056,
+  "state": "done",
+  "shots": [
+    "00_scale",
+    "01_export",
+    "02_extrap"
+  ]
+}

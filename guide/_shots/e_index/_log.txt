@@ -1,0 +1,25 @@
+[10:00:41] scenario=/tmp/app/guide/_harness/scenarios/e_index.py
+[10:00:43] server up on 36459
+[10:00:48] shot 00_standalone_header
+[10:00:50] shot 01_upload_empty
+[10:00:54] shot 02_loaded_line
+[10:01:00] shot 03_cell_layer
+[10:01:02] shot 04_viewer
+[10:01:06] shot 05_mode_selector
+[10:01:06] done
+[10:02:15] scenario=/tmp/app/guide/_harness/scenarios/e_index.py
+[10:02:16] server up on 48843
+[10:02:21] shot 00_standalone_header
+[10:02:23] shot 01_upload_empty
+[10:02:32] shot 02_loaded_line
+[10:02:34] shot 03_viewer
+[10:02:37] shot 04_mode_selector
+[10:02:37] done
+[10:04:50] scenario=/tmp/app/guide/_harness/scenarios/e_index.py
+[10:04:51] server up on 48451
+[10:04:57] shot 00_standalone_header
+[10:04:59] shot 01_upload_empty
+[10:05:07] shot 02_loaded_line
+[10:05:09] shot 03_viewer
+[10:05:13] shot 04_mode_selector
+[10:05:13] done

@@ -1,0 +1,8 @@
+{
+  "scenario": "b_webgl_probe3.py",
+  "ts": 1785524465.2053838,
+  "state": "done",
+  "shots": [
+    "00_short_plot"
+  ]
+}

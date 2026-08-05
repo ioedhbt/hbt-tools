@@ -1,0 +1,4 @@
+[01:57:26] scenario=/tmp/app/guide/_harness/scenarios/smoke_ebl.py
+[01:57:27] server up on 54957
+[01:57:34] shot 00_ebl
+[01:57:34] done

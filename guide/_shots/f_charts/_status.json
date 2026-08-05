@@ -1,0 +1,10 @@
+{
+  "scenario": "f_charts.py",
+  "ts": 1785849471.398059,
+  "state": "done",
+  "shots": [
+    "00_panel_top",
+    "01_panel_mid",
+    "02_panel_low"
+  ]
+}

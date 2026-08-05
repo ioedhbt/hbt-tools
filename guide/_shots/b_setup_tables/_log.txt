@@ -1,0 +1,6 @@
+[02:32:35] scenario=/tmp/app/guide/_harness/scenarios/b_setup_tables.py
+[02:32:36] server up on 37663
+[02:33:02] shot 00_open_caps
+[02:33:06] shot 01_short_leads
+[02:33:12] shot 02_preoverride
+[02:33:12] done

@@ -1,0 +1,13 @@
+{
+  "scenario": "e_first.py",
+  "ts": 1785551078.3634658,
+  "state": "done",
+  "shots": [
+    "00_corners",
+    "01_layer",
+    "02_fe_inputs",
+    "03_plot",
+    "04_time_in",
+    "05_result"
+  ]
+}

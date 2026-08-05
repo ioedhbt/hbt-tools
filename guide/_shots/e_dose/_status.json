@@ -1,0 +1,13 @@
+{
+  "scenario": "e_dose.py",
+  "ts": 1785550740.099808,
+  "state": "done",
+  "shots": [
+    "00_layer",
+    "01_cel",
+    "02_grids",
+    "03_dose_in",
+    "04_result",
+    "05_result_full"
+  ]
+}

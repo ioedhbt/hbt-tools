@@ -1,0 +1,7 @@
+[02:46:29] scenario=/tmp/app/guide/_harness/scenarios/c_b1500a_family.py
+[02:46:30] server up on 47909
+[02:46:42] shot 01_family_outreg
+[02:46:44] shot 02_family_plot
+[02:46:46] shot 03_family_offset
+[02:46:48] shot 04_family_gm
+[02:46:48] done

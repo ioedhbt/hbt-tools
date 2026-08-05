@@ -1,0 +1,27 @@
+2026-08-01 01:58:46.452 Uvicorn server started on :::37619
+2026-08-01 01:58:46.485 Did not auto detect external IP.
+Please go to https://docs.streamlit.io/ for debugging hints.
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:37619
+  Network URL: http://127.0.0.1:37619
+
+2026-08-01 01:58:52.765 Uncaught app execution
+Traceback (most recent call last):
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 807, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+  File "/tmp/app/IOED_Tool_Web.py", line 183, in <module>
+    pg.run()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/navigation/page.py", line 490, in run
+    exec(code, module.__dict__)  # noqa: S102
+  File "/tmp/app/tools/rf/at_a_glance.py", line 967, in <module>
+    _sum_evt=st.dataframe(sum_df.style.format(fmt,na_rep="—"),
+  File "/usr/local/lib/python3.10/dist-packages/pandas/core/generic.py", line 6321, in __getattr__
+    return object.__getattribute__(self, name)
+  File "/usr/local/lib/python3.10/dist-packages/pandas/core/frame.py", line 1449, in style
+    raise AttributeError("The '.style' accessor requires jinja2")
+AttributeError: The '.style' accessor requires jinja2. Did you mean: 'astype'?
+  Stopping...

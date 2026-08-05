@@ -1,0 +1,10 @@
+{
+  "scenario": "a_ataglance_overlay.py",
+  "ts": 1785523891.7332666,
+  "state": "done",
+  "shots": [
+    "00_before_upload",
+    "01_overlay_bode",
+    "02_overlay_plateau"
+  ]
+}

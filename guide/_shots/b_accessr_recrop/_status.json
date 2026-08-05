@@ -1,0 +1,9 @@
+{
+  "scenario": "b_accessr_recrop.py",
+  "ts": 1785549698.3456206,
+  "state": "done",
+  "shots": [
+    "00_cold_source_tight",
+    "01_cold_fit_verify"
+  ]
+}

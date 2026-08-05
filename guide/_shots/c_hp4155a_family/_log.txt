@@ -1,0 +1,36 @@
+[02:57:29] scenario=/tmp/app/guide/_harness/scenarios/c_hp4155a_family.py
+[02:57:30] server up on 38979
+[02:57:44] Traceback (most recent call last):
+  File "/tmp/app/guide/_harness/session.py", line 147, in main
+    scenario.run(page, shot)
+  File "/tmp/app/guide/_harness/scenarios/c_hp4155a_family.py", line 55, in run
+    select(page, "Data type", "Family Ic-Vc")
+  File "/tmp/app/guide/_harness/scenarios/c_hp4155a_family.py", line 24, in select
+    page.get_by_role("option", name=option, exact=False).first.click(timeout=4000)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/sync_api/_generated.py", line 17876, in click
+    self._sync(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_sync_base.py", line 115, in _sync
+    return task.result()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_locator.py", line 165, in click
+    return await self._frame._click(self._selector, strict=True, **params)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_frame.py", line 593, in _click
+    await self._channel.send("click", self._timeout, locals_to_params(locals()))
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Locator.click: Timeout 4000ms exceeded.
+Call log:
+  - waiting for get_by_role("option", name="Family Ic-Vc").first
+
+
+[02:58:43] scenario=/tmp/app/guide/_harness/scenarios/c_hp4155a_family.py
+[02:58:44] server up on 45485
+[02:59:00] shot 01_family_plot
+[02:59:02] shot 02_axis_controls
+[02:59:02] done
+[03:00:10] scenario=/tmp/app/guide/_harness/scenarios/c_hp4155a_family.py
+[03:00:11] server up on 51795
+[03:00:27] shot 01_family_plot
+[03:00:29] shot 02_settings_viewport
+[03:00:29] done

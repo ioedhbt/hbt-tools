@@ -1,0 +1,40 @@
+[10:17:59] scenario=/tmp/app/guide/_harness/scenarios/d_custom_2.py
+[10:18:00] server up on 39809
+[10:18:19] shot 00_emitter_empty
+[10:18:25] shot 01_emitter_added
+[10:18:25] done
+[10:19:26] scenario=/tmp/app/guide/_harness/scenarios/d_custom_2.py
+[10:19:27] server up on 45123
+[10:19:47] shot 00_emitter_empty
+[10:19:54] shot 01_emitter_added
+[10:19:54] done
+[10:20:40] scenario=/tmp/app/guide/_harness/scenarios/d_custom_2.py
+[10:20:41] server up on 39453
+[10:21:00] shot 00_emitter_empty
+[10:21:09] shot 01_emitter_added
+[10:21:09] done
+[10:22:02] scenario=/tmp/app/guide/_harness/scenarios/d_custom_2.py
+[10:22:03] server up on 43385
+[10:22:23] shot 00_emitter_empty
+[10:22:32] shot 01_emitter_added
+[10:22:32] done
+[10:23:31] scenario=/tmp/app/guide/_harness/scenarios/d_custom_2.py
+[10:23:32] server up on 58321
+[10:23:51] shot 00_emitter_empty
+[10:24:01] shot 01_emitter_added
+[10:24:01] done
+[10:25:19] scenario=/tmp/app/guide/_harness/scenarios/d_custom_2.py
+[10:25:20] server up on 40529
+[10:25:40] shot 00_emitter_empty
+[10:25:50] shot 01_emitter_added
+[10:25:50] done
+[10:26:55] scenario=/tmp/app/guide/_harness/scenarios/d_custom_2.py
+[10:26:56] server up on 46075
+[10:27:14] shot 00_emitter_empty
+[10:27:27] shot 01_emitter_added
+[10:27:27] done
+[10:32:48] scenario=/tmp/app/guide/_harness/scenarios/d_custom_2.py
+[10:32:49] server up on 60959
+[10:33:08] shot 00_emitter_empty
+[10:33:24] shot 01_emitter_added
+[10:33:24] done

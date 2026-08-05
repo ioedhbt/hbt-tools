@@ -1,0 +1,9 @@
+{
+  "scenario": "d_simfit_3.py",
+  "ts": 1785550305.751367,
+  "state": "done",
+  "shots": [
+    "00_cache_chip",
+    "01_tau_total"
+  ]
+}

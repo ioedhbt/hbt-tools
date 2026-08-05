@@ -1,0 +1,8 @@
+{
+  "scenario": "g_cex_only.py",
+  "ts": 1785866874.9488041,
+  "state": "done",
+  "shots": [
+    "01_cex_median"
+  ]
+}

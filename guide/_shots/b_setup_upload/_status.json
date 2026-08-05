@@ -1,0 +1,11 @@
+{
+  "scenario": "b_setup_upload.py",
+  "ts": 1785522703.176336,
+  "state": "done",
+  "shots": [
+    "00_main_upload",
+    "01_sidebar_off",
+    "02_sidebar_files",
+    "03_ready_to_run"
+  ]
+}

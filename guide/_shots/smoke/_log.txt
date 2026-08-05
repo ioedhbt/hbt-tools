@@ -1,0 +1,15 @@
+[01:42:06] scenario=/sessions/eloquent-stoic-turing/mnt/hbt-tools/guide/_harness/scenarios/smoke.py
+[01:42:07] server up on 53731
+[01:42:13] shot 00_home
+[01:42:15] shot 01_at_a_glance
+[01:42:15] done
+[01:47:38] scenario=/tmp/app/guide/_harness/scenarios/smoke.py
+[01:47:39] server up on 46415
+[01:47:45] shot 00_home
+[01:47:47] shot 01_at_a_glance
+[01:47:47] done
+[01:48:42] scenario=/tmp/app/guide/_harness/scenarios/smoke.py
+[01:48:43] server up on 36667
+[01:48:49] shot 00_home
+[01:48:52] shot 01_at_a_glance
+[01:48:52] done

@@ -1,0 +1,5 @@
+[10:39:40] scenario=/tmp/app/guide/_harness/scenarios/d_custom_3.py
+[10:39:41] server up on 41039
+[10:40:09] shot 00_values_panel
+[10:40:12] shot 01_sim_result
+[10:40:12] done

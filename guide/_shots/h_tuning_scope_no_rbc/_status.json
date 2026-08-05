@@ -1,0 +1,8 @@
+{
+  "scenario": "h_tuning_scope_no_rbc.py",
+  "ts": 1785893146.7175848,
+  "state": "done",
+  "shots": [
+    "00_scope_no_rbc_raw"
+  ]
+}

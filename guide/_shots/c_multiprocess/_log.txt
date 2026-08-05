@@ -1,0 +1,10 @@
+[02:24:12] scenario=/tmp/app/guide/_harness/scenarios/c_multiprocess.py
+[02:24:13] server up on 39281
+[02:24:20] shot 01_landing
+[02:24:24] shot 02_processed
+[02:24:24] done
+[02:25:35] scenario=/tmp/app/guide/_harness/scenarios/c_multiprocess.py
+[02:25:36] server up on 46731
+[02:25:43] shot 01_landing
+[02:25:47] shot 02_processed
+[02:25:47] done

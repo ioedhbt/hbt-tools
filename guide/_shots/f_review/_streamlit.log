@@ -1,0 +1,48 @@
+2026-08-04 21:12:44.194 Uvicorn server started on :::52299
+2026-08-04 21:12:44.234 Did not auto detect external IP.
+Please go to https://docs.streamlit.io/ for debugging hints.
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:52299
+  Network URL: http://127.0.0.1:52299
+
+2026-08-04 21:12:53.718 The widget with key "cold_pfp_sl_Cex_cold_deemb_preext_vce3.5_ib200u.s2p" was created with a default value but also had its value set via the Session State API.
+Stack (most recent call last):
+  File "/usr/lib/python3.10/threading.py", line 973, in _bootstrap
+    self._bootstrap_inner()
+  File "/usr/lib/python3.10/threading.py", line 1016, in _bootstrap_inner
+    self.run()
+  File "/usr/lib/python3.10/threading.py", line 953, in run
+    self._target(*self._args, **self._kwargs)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 418, in _run_script_thread
+    self._run_script(request.rerun_data)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 832, in _run_script
+    ) = exec_func_with_error_handling(code_to_exec, ctx)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 807, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+  File "/tmp/app/IOED_Tool_Web.py", line 183, in <module>
+    pg.run()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/navigation/page.py", line 490, in run
+    exec(code, module.__dict__)  # noqa: S102
+  File "/tmp/app/tools/rf/extraction.py", line 232, in <module>
+    render_ssm_tab(n, d["S_raw"], d["freq"], d["z0"],
+  File "/tmp/app/tools/rf/ssm/main_ssm_extraction.py", line 512, in render_ssm_tab
+    cold_res = _render_cold_hbt(fname, open_data, para_step1, do_measured, freq,
+  File "/tmp/app/tools/rf/ssm/ssm_access_resistance.py", line 711, in _render_cold_hbt
+    Cex_scalar = _cold_plot(col_cex, Cex_arr, "Cex_cold", "Cex", 1e15, "fF", [
+  File "/tmp/app/tools/rf/ssm/ssm_access_resistance.py", line 630, in _cold_plot
+    f_lo, f_hi = col_w.slider(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/runtime/metrics_util.py", line 568, in wrapped_func
+    result = non_optional_func(*args, **kwargs)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/elements/widgets/slider.py", line 748, in slider
+    return self._slider(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/elements/widgets/slider.py", line 791, in _slider
+    check_widget_policies(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/elements/lib/policies.py", line 143, in check_widget_policies
+    check_session_state_rules(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/streamlit/elements/lib/policies.py", line 89, in check_session_state_rules
+    _LOGGER.warning(
+  Stopping...

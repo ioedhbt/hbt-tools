@@ -1,0 +1,12 @@
+{
+  "scenario": "d_tuning_gif_rbc_b.py",
+  "ts": 1785555677.3842313,
+  "state": "done",
+  "shots": [
+    "frame_06",
+    "frame_07",
+    "frame_08",
+    "frame_09",
+    "frame_10"
+  ]
+}

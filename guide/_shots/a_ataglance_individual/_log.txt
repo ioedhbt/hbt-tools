@@ -1,0 +1,8 @@
+[02:30:41] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_individual.py
+[02:30:42] server up on 51969
+[02:32:03] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_individual.py
+[02:32:04] server up on 59931
+[02:32:27] shot 01_individual_cards
+[02:32:30] shot 02_bode_export
+[02:32:33] shot 03_smith_tab
+[02:32:33] done

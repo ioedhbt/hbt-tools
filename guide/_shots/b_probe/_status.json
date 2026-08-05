@@ -1,0 +1,11 @@
+{
+  "scenario": "b_probe.py",
+  "ts": 1785522244.524805,
+  "state": "done",
+  "shots": [
+    "00_landed",
+    "01_sidebar_toggled",
+    "02_sidebar_files",
+    "03_main_uploaded"
+  ]
+}

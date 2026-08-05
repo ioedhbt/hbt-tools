@@ -1,0 +1,14 @@
+[03:10:06] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_cold.py
+[03:10:07] server up on 59613
+[03:10:28] shot 00_cold_source
+[03:10:55] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_cold.py
+[03:10:56] server up on 60603
+[03:11:17] shot 00_cold_source
+[03:12:00] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_cold.py
+[03:12:01] server up on 40277
+[03:12:21] shot 00_cold_source
+[03:12:21] done
+[03:19:54] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_cold.py
+[03:19:55] server up on 37947
+[03:20:16] shot 00_cold_source
+[03:20:16] done

@@ -1,0 +1,104 @@
+site_name: HBT Tools Guide
+docs_dir: docs
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+
+extra_css:
+  - assets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - toc:
+      permalink: true
+      # MkDocs' default slugifier strips non-ASCII, so every Chinese heading
+      # collapses to an opaque "_1", "_2" anchor and cross-page links break the
+      # moment a heading is added above them. pymdownx's Unicode slugifier keeps
+      # the characters, so 其他批次模式 anchors as #其他批次模式.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+
+plugins:
+  - search:
+      lang: [en]
+  - i18n:
+      docs_structure: suffix
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          name: English
+          default: true
+          build: true
+          nav_translations:
+            Home: Home
+            Getting started: Getting started
+            RF measurement: RF measurement
+            DC measurement: DC measurement
+            E-beam lithography: E-beam lithography
+        - locale: zh-TW
+          name: 繁體中文
+          default: false
+          build: true
+          nav_translations:
+            Home: 首頁
+            Getting started: 入門
+            RF measurement: RF 量測
+            DC measurement: DC 量測
+            E-beam lithography: 電子束微影
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - The portal: basics/portal.md
+  - RF measurement:
+      - RF at a glance: rf/at-a-glance.md
+      - Open/short de-embedding: rf/deembedding.md
+      - Batch de-embedding: rf/batch-deembed.md
+      - "Model extraction: setup": rf/ssm-setup.md
+      - "Model extraction: access resistance": rf/ssm-access-r.md
+      - "Model extraction: intrinsic model": rf/ssm-intrinsic.md
+      - "Model extraction: transit time": rf/ssm-transit-time.md
+      - "Model extraction: fine tune & check": rf/ssm-finetune.md
+      - Simulation & fitting: rf/sim-fit.md
+      - Custom models: rf/custom-model.md
+      - Visual & auto tuning: rf/tuning.md
+      - Chart controls: rf/charts.md
+  - DC measurement:
+      - Measurement data multi-process: dc/multi-process.md
+      - B1500A viewer: dc/b1500a.md
+      - TLM analysis: dc/tlm.md
+      - HP4155A quick plot: dc/hp4155a.md
+  - E-beam lithography:
+      - EBL calculator basics: ebl/index.md
+      - Dose-time test: ebl/dose-test.md
+      - First exposure: ebl/first-exposure.md
+      - Second exposure: ebl/second-exposure.md
+      - Job number sheet: ebl/job-sheet.md

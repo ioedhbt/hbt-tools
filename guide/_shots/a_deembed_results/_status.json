@@ -1,0 +1,10 @@
+{
+  "scenario": "a_deembed_results.py",
+  "ts": 1785524207.813832,
+  "state": "done",
+  "shots": [
+    "01_override_fields",
+    "02_per_file_result",
+    "03_download_handoff"
+  ]
+}

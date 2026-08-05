@@ -1,0 +1,12 @@
+[22:24:18] scenario=/tmp/app/guide/_harness/scenarios/g_accessr_cold_fixed.py
+[22:24:19] server up on 58191
+[22:24:50] shot 00_re_from_zparam
+[22:25:15] scenario=/tmp/app/guide/_harness/scenarios/g_accessr_cold_fixed.py
+[22:25:16] server up on 41679
+[22:25:52] shot 01_cex_median
+[22:25:55] shot 02_rb_rc
+[22:25:55] done
+[22:36:21] scenario=/tmp/app/guide/_harness/scenarios/g_accessr_cold_fixed.py
+[22:36:22] server up on 60623
+[22:37:17] scenario=/tmp/app/guide/_harness/scenarios/g_accessr_cold_fixed.py
+[22:37:18] server up on 54207

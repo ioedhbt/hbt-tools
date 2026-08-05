@@ -1,0 +1,4 @@
+[09:25:29] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_scope_no_rbc.py
+[09:25:30] server up on 56431
+[09:25:46] shot 00_scope_no_rbc_raw
+[09:25:46] done

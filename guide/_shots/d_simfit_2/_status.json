@@ -1,0 +1,9 @@
+{
+  "scenario": "d_simfit_2.py",
+  "ts": 1785550168.4474308,
+  "state": "done",
+  "shots": [
+    "00_uploaded",
+    "01_fit_result"
+  ]
+}

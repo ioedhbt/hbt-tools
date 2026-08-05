@@ -1,0 +1,7 @@
+[09:57:22] scenario=/tmp/app/guide/_harness/scenarios/d_probe1.py
+[09:57:24] server up on 33463
+[09:57:35] shot 00_landed
+[09:58:17] scenario=/tmp/app/guide/_harness/scenarios/d_probe1.py
+[09:58:18] server up on 34173
+[09:58:26] shot 00_landed
+[09:58:26] done

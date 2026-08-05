@@ -1,0 +1,10 @@
+{
+  "scenario": "g_tuning_auto.py",
+  "ts": 1785891658.5994663,
+  "state": "done",
+  "shots": [
+    "01_before_residual",
+    "00_scope",
+    "02_after_results"
+  ]
+}

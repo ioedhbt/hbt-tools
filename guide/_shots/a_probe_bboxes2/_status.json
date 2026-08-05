@@ -1,0 +1,8 @@
+{
+  "scenario": "a_probe_bboxes2.py",
+  "ts": 1785524678.6744487,
+  "state": "done",
+  "shots": [
+    "00_state"
+  ]
+}

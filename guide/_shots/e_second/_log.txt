@@ -1,0 +1,28 @@
+[10:28:23] scenario=/tmp/app/guide/_harness/scenarios/e_second.py
+[10:28:24] server up on 40061
+[10:28:35] shot 00_layer
+[10:28:45] shot 01_custom
+[10:28:53] shot 02_existing
+[10:28:57] shot 03_sap
+[10:29:00] shot 04_overlay
+[10:34:33] scenario=/tmp/app/guide/_harness/scenarios/e_second.py
+[10:34:34] server up on 39821
+[10:34:46] shot 00_layer
+[10:34:56] shot 01_custom
+[10:35:03] shot 02_existing
+[10:35:07] shot 03_sap
+[10:35:11] shot 04_overlay
+[10:37:53] scenario=/tmp/app/guide/_harness/scenarios/e_second.py
+[10:37:54] server up on 37345
+[10:38:05] shot 00_layer
+[10:38:15] shot 01_custom
+[10:38:23] shot 02_existing
+[10:38:27] shot 03_sap
+[10:38:31] shot 04_overlay
+[10:40:30] scenario=/tmp/app/guide/_harness/scenarios/e_second.py
+[10:40:31] server up on 39441
+[10:40:42] shot 00_layer
+[10:40:51] shot 01_custom
+[10:40:59] shot 02_existing
+[10:41:03] shot 03_sap
+[10:41:06] shot 04_overlay

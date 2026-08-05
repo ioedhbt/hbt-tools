@@ -1,0 +1,15 @@
+[22:18:46] scenario=/tmp/app/guide/_harness/scenarios/g_cold_after_zparam.py
+[22:18:48] server up on 50919
+[22:20:02] scenario=/tmp/app/guide/_harness/scenarios/g_cold_after_zparam.py
+[22:20:03] server up on 58593
+[22:20:27] done
+[22:20:44] scenario=/tmp/app/guide/_harness/scenarios/g_cold_after_zparam.py
+[22:20:45] server up on 52855
+[22:21:16] done
+[22:21:36] scenario=/tmp/app/guide/_harness/scenarios/g_cold_after_zparam.py
+[22:21:37] server up on 42557
+[22:22:12] done
+[22:22:30] scenario=/tmp/app/guide/_harness/scenarios/g_cold_after_zparam.py
+[22:22:31] server up on 43105
+[22:23:02] shot 00_after_median
+[22:23:03] done

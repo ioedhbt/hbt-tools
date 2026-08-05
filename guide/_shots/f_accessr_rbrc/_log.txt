@@ -1,0 +1,4 @@
+[21:02:23] scenario=/tmp/app/guide/_harness/scenarios/f_accessr_rbrc.py
+[21:02:24] server up on 51207
+[21:02:50] shot 00_rbrc
+[21:02:50] done

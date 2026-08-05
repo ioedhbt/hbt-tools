@@ -1,0 +1,12 @@
+[22:31:16] scenario=/tmp/app/guide/_harness/scenarios/g_transit_fixed.py
+[22:31:17] server up on 49747
+[22:31:49] shot 02_inputs_outputs
+[22:31:49] done
+[22:32:18] scenario=/tmp/app/guide/_harness/scenarios/g_transit_fixed.py
+[22:32:19] server up on 40963
+[22:32:51] shot 02_inputs_outputs
+[22:32:51] done
+[22:33:16] scenario=/tmp/app/guide/_harness/scenarios/g_transit_fixed.py
+[22:33:17] server up on 42785
+[22:33:55] shot 02_inputs_outputs
+[22:33:56] done

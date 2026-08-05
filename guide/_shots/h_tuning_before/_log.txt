@@ -1,0 +1,45 @@
+[09:14:01] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:14:02] server up on 60781
+[09:14:06] Traceback (most recent call last):
+  File "/tmp/app/guide/_harness/session.py", line 147, in main
+    scenario.run(page, shot)
+  File "/tmp/app/guide/_harness/scenarios/h_tuning_before.py", line 31, in run
+    from b_chartfix import revive_visible_charts
+ModuleNotFoundError: No module named 'b_chartfix'
+
+[09:14:19] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:14:20] server up on 45395
+[09:14:34] shot 01_before_charts
+[09:14:35] done
+[09:15:08] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:15:09] server up on 45871
+[09:15:24] shot 01_before_charts
+[09:15:24] done
+[09:16:01] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:16:02] server up on 37347
+[09:16:17] shot 01_before_charts
+[09:16:17] done
+[09:16:40] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:16:41] server up on 60673
+[09:16:56] shot 01_before_charts
+[09:16:56] done
+[09:17:14] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:17:15] server up on 33801
+[09:17:34] shot 01_before_charts
+[09:17:34] done
+[09:17:56] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:17:57] server up on 56115
+[09:18:14] shot 01_before_charts
+[09:18:14] done
+[09:18:34] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:18:35] server up on 60103
+[09:18:51] shot 01_before_charts
+[09:18:51] done
+[09:19:34] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:19:35] server up on 45063
+[09:19:51] shot 01_before_charts
+[09:19:51] done
+[09:20:07] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_before.py
+[09:20:08] server up on 44865
+[09:20:23] shot 01_before_charts
+[09:20:24] done

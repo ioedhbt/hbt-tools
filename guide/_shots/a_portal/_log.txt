@@ -1,0 +1,9 @@
+[02:20:51] scenario=/tmp/app/guide/_harness/scenarios/a_portal.py
+[02:20:52] server up on 44741
+[02:20:57] shot 00_home
+[02:21:01] shot 01_sidebar_collapsed
+[02:22:10] scenario=/tmp/app/guide/_harness/scenarios/a_portal.py
+[02:22:11] server up on 42751
+[02:22:16] shot 00_home
+[02:22:19] shot 01_sidebar_collapsed
+[02:22:25] done

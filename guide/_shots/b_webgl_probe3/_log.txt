@@ -1,0 +1,4 @@
+[03:00:43] scenario=/tmp/app/guide/_harness/scenarios/b_webgl_probe3.py
+[03:00:44] server up on 42065
+[03:01:05] shot 00_short_plot
+[03:01:05] done

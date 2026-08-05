@@ -1,0 +1,9 @@
+{
+  "scenario": "smoke.py",
+  "ts": 1785520132.5707865,
+  "state": "done",
+  "shots": [
+    "00_home",
+    "01_at_a_glance"
+  ]
+}

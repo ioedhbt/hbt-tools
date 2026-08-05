@@ -1,0 +1,14 @@
+[02:48:56] scenario=/tmp/app/guide/_harness/scenarios/c_b1500a_tlm.py
+[02:48:57] server up on 35845
+[02:50:32] scenario=/tmp/app/guide/_harness/scenarios/c_b1500a_tlm.py
+[02:50:33] server up on 57197
+[02:51:39] scenario=/tmp/app/guide/_harness/scenarios/c_b1500a_tlm.py
+[02:51:40] server up on 56255
+[02:53:32] scenario=/tmp/app/guide/_harness/scenarios/c_b1500a_tlm.py
+[02:53:33] server up on 55761
+[02:53:42] shot 01_tlm_blank
+[02:53:42] done
+[03:02:16] scenario=/tmp/app/guide/_harness/scenarios/c_b1500a_tlm.py
+[03:02:17] server up on 42055
+[03:02:26] shot 01_tlm_blank
+[03:02:26] done

@@ -1,0 +1,8 @@
+{
+  "scenario": "g_cold_after_zparam.py",
+  "ts": 1785853383.7079966,
+  "state": "done",
+  "shots": [
+    "00_after_median"
+  ]
+}

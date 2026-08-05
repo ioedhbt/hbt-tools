@@ -1,0 +1,8 @@
+{
+  "scenario": "b_webgl_probe.py",
+  "ts": 1785524011.666265,
+  "state": "done",
+  "shots": [
+    "00_overlay"
+  ]
+}

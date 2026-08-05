@@ -1,0 +1,6 @@
+[13:10:17] scenario=/tmp/app/guide/_harness/scenarios/d_charts_1.py
+[13:10:18] server up on 35181
+[13:10:36] shot 00_scale
+[13:10:39] shot 01_export
+[13:10:42] shot 02_extrap
+[13:10:42] done

@@ -1,0 +1,8 @@
+{
+  "scenario": "b_webgl_probe4.py",
+  "ts": 1785524657.6670523,
+  "state": "done",
+  "shots": [
+    "00_purged_revived"
+  ]
+}

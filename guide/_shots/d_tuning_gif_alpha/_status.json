@@ -1,0 +1,11 @@
+{
+  "scenario": "d_tuning_gif_alpha_c.py",
+  "ts": 1785559772.9160151,
+  "state": "done",
+  "shots": [
+    "frame_05",
+    "frame_06",
+    "frame_07",
+    "frame_08"
+  ]
+}

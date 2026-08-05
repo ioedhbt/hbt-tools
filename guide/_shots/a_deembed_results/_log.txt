@@ -1,0 +1,6 @@
+[02:56:21] scenario=/tmp/app/guide/_harness/scenarios/a_deembed_results.py
+[02:56:22] server up on 34391
+[02:56:42] shot 01_override_fields
+[02:56:45] shot 02_per_file_result
+[02:56:47] shot 03_download_handoff
+[02:56:47] done

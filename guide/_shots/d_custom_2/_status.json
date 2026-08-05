@@ -1,0 +1,9 @@
+{
+  "scenario": "d_custom_2.py",
+  "ts": 1785551604.5289118,
+  "state": "done",
+  "shots": [
+    "00_emitter_empty",
+    "01_emitter_added"
+  ]
+}

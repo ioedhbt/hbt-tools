@@ -1,0 +1,8 @@
+[11:07:41] scenario=/tmp/app/guide/_harness/scenarios/d_tuning_probe.py
+[11:07:42] server up on 47521
+[11:08:04] shot 00_dropdown_open
+[11:08:04] done
+[11:11:49] scenario=/tmp/app/guide/_harness/scenarios/d_tuning_probe.py
+[11:11:51] server up on 39937
+[11:12:10] shot 00_dropdown_open
+[11:12:10] done

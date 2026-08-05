@@ -1,0 +1,10 @@
+[02:52:40] scenario=/tmp/app/guide/_harness/scenarios/a_deembed_setup.py
+[02:52:41] server up on 38305
+[02:52:54] shot 00_sidebar_calibration
+[02:53:01] shot 01_batch_top
+[02:55:02] scenario=/tmp/app/guide/_harness/scenarios/a_deembed_setup.py
+[02:55:03] server up on 37233
+[02:55:17] shot 00_sidebar_calibration
+[02:55:26] shot 01_batch_top
+[02:55:28] shot 02_overrides
+[02:55:29] done

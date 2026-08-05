@@ -1,0 +1,3 @@
+[03:03:34] scenario=/tmp/app/guide/_harness/scenarios/a_probe_bboxes.py
+[03:03:35] server up on 50109
+[03:03:41] done

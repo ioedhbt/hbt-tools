@@ -1,0 +1,11 @@
+{
+  "scenario": "a_ataglance_summary.py",
+  "ts": 1785522562.832702,
+  "state": "done",
+  "shots": [
+    "01_summary_table",
+    "02_sorted_by_ft_desc",
+    "03_row_selected",
+    "04_open_in_individual"
+  ]
+}

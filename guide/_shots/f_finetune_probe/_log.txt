@@ -1,0 +1,15 @@
+[21:07:48] scenario=/tmp/app/guide/_harness/scenarios/f_finetune_probe.py
+[21:07:49] server up on 57355
+[21:08:03] done
+[21:08:22] scenario=/tmp/app/guide/_harness/scenarios/f_finetune_probe.py
+[21:08:23] server up on 35605
+[21:08:32] done
+[21:08:46] scenario=/tmp/app/guide/_harness/scenarios/f_finetune_probe.py
+[21:08:47] server up on 49869
+[21:09:31] scenario=/tmp/app/guide/_harness/scenarios/f_finetune_probe.py
+[21:09:32] server up on 38267
+[21:10:54] scenario=/tmp/app/guide/_harness/scenarios/f_finetune_probe.py
+[21:10:55] server up on 46211
+[21:11:05] done
+[21:11:14] scenario=/tmp/app/guide/_harness/scenarios/f_finetune_probe.py
+[21:11:15] server up on 39897

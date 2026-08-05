@@ -1,0 +1,8 @@
+{
+  "scenario": "f_accessr_rbrc.py",
+  "ts": 1785848570.1149583,
+  "state": "done",
+  "shots": [
+    "00_rbrc"
+  ]
+}

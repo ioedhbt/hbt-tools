@@ -1,0 +1,5 @@
+[02:57:45] scenario=/tmp/app/guide/_harness/scenarios/a_batchdeembed_many.py
+[02:57:46] server up on 45075
+[02:58:12] shot 01_per_file_tabs
+[02:58:15] shot 02_zip_download
+[02:58:15] done

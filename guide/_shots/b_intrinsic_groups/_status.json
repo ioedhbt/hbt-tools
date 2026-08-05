@@ -1,0 +1,10 @@
+{
+  "scenario": "b_intrinsic_groups.py",
+  "ts": 1785550543.1783564,
+  "state": "done",
+  "shots": [
+    "01_cbex",
+    "02_cbcx",
+    "03_intrinsic_cbc"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "scenario": "d_simfit_1.py",
+  "ts": 1785550099.4007914,
+  "state": "done",
+  "shots": [
+    "00_model_bar",
+    "01_fit_expander",
+    "02_forward_charts"
+  ]
+}

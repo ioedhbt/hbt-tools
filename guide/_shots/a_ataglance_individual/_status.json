@@ -1,0 +1,10 @@
+{
+  "scenario": "a_ataglance_individual.py",
+  "ts": 1785522753.828681,
+  "state": "done",
+  "shots": [
+    "01_individual_cards",
+    "02_bode_export",
+    "03_smith_tab"
+  ]
+}

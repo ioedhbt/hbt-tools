@@ -1,0 +1,24 @@
+[10:01:40] scenario=/tmp/app/guide/_harness/scenarios/d_simfit_1.py
+[10:01:41] server up on 46285
+[10:01:50] shot 00_model_bar
+[10:01:52] shot 01_fit_expander
+[10:01:56] shot 02_forward_charts
+[10:01:56] done
+[10:02:38] scenario=/tmp/app/guide/_harness/scenarios/d_simfit_1.py
+[10:02:39] server up on 41075
+[10:02:47] shot 00_model_bar
+[10:02:49] shot 01_fit_expander
+[10:02:55] shot 02_forward_charts
+[10:02:55] done
+[10:06:30] scenario=/tmp/app/guide/_harness/scenarios/d_simfit_1.py
+[10:06:31] server up on 50413
+[10:06:39] shot 00_model_bar
+[10:06:41] shot 01_fit_expander
+[10:06:44] shot 02_forward_charts
+[10:06:44] done
+[10:08:04] scenario=/tmp/app/guide/_harness/scenarios/d_simfit_1.py
+[10:08:05] server up on 51489
+[10:08:14] shot 00_model_bar
+[10:08:16] shot 01_fit_expander
+[10:08:19] shot 02_forward_charts
+[10:08:19] done

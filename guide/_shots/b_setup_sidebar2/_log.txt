@@ -1,0 +1,8 @@
+[02:36:30] scenario=/tmp/app/guide/_harness/scenarios/b_setup_sidebar2.py
+[02:36:31] server up on 37743
+[02:36:45] shot 00_sidebar_scrolled
+[02:36:45] done
+[02:37:52] scenario=/tmp/app/guide/_harness/scenarios/b_setup_sidebar2.py
+[02:37:53] server up on 55221
+[02:38:06] shot 00_sidebar_tall
+[02:38:06] done

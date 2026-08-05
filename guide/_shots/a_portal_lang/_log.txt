@@ -1,0 +1,4 @@
+[02:59:03] scenario=/tmp/app/guide/_harness/scenarios/a_portal_lang.py
+[02:59:04] server up on 36723
+[02:59:11] shot 00_zh
+[02:59:11] done

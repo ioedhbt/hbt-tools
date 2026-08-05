@@ -1,0 +1,9 @@
+{
+  "scenario": "a_portal.py",
+  "ts": 1785522145.9817722,
+  "state": "done",
+  "shots": [
+    "00_home",
+    "01_sidebar_collapsed"
+  ]
+}

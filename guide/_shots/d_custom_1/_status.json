@@ -1,0 +1,9 @@
+{
+  "scenario": "d_custom_1.py",
+  "ts": 1785550614.3399882,
+  "state": "done",
+  "shots": [
+    "00_build_landed",
+    "01_loaded_schematic"
+  ]
+}

@@ -1,0 +1,4 @@
+[02:28:23] scenario=/tmp/app/guide/_harness/scenarios/b_probe4.py
+[02:28:24] server up on 52035
+[02:28:49] shot 00_open_caps_clip
+[02:28:49] done

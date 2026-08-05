@@ -1,0 +1,12 @@
+[10:13:01] scenario=/tmp/app/guide/_harness/scenarios/b_intrinsic_groups.py
+[10:13:02] server up on 34267
+[10:13:33] shot 01_cbex
+[10:13:36] shot 02_cbcx
+[10:13:40] shot 03_intrinsic_cbc
+[10:13:40] done
+[10:15:03] scenario=/tmp/app/guide/_harness/scenarios/b_intrinsic_groups.py
+[10:15:04] server up on 50381
+[10:15:35] shot 01_cbex
+[10:15:39] shot 02_cbcx
+[10:15:43] shot 03_intrinsic_cbc
+[10:15:43] done

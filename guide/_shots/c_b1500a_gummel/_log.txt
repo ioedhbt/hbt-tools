@@ -1,0 +1,12 @@
+[02:43:23] scenario=/tmp/app/guide/_harness/scenarios/c_b1500a_gummel.py
+[02:43:24] server up on 54245
+[02:43:38] shot 01_gummel_eta
+[02:43:39] shot 02_gummel_beta
+[02:43:41] shot 03_gummel_plot
+[02:43:41] done
+[02:44:54] scenario=/tmp/app/guide/_harness/scenarios/c_b1500a_gummel.py
+[02:44:55] server up on 55453
+[02:45:09] shot 01_gummel_eta
+[02:45:11] shot 02_gummel_beta
+[02:45:12] shot 03_gummel_plot
+[02:45:12] done

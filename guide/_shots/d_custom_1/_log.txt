@@ -1,0 +1,10 @@
+[10:15:44] scenario=/tmp/app/guide/_harness/scenarios/d_custom_1.py
+[10:15:45] server up on 38073
+[10:15:59] shot 00_build_landed
+[10:16:05] shot 01_loaded_schematic
+[10:16:05] done
+[10:16:31] scenario=/tmp/app/guide/_harness/scenarios/d_custom_1.py
+[10:16:32] server up on 33891
+[10:16:47] shot 00_build_landed
+[10:16:54] shot 01_loaded_schematic
+[10:16:54] done

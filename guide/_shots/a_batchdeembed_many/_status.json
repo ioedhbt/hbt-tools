@@ -1,0 +1,9 @@
+{
+  "scenario": "a_batchdeembed_many.py",
+  "ts": 1785524295.1324124,
+  "state": "done",
+  "shots": [
+    "01_per_file_tabs",
+    "02_zip_download"
+  ]
+}

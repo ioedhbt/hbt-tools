@@ -1,0 +1,10 @@
+{
+  "scenario": "b_intrinsic_model.py",
+  "ts": 1785549954.174336,
+  "state": "running",
+  "shots": [
+    "00_model_selection",
+    "01_cbex_cbcx",
+    "02_intrinsic_top"
+  ]
+}

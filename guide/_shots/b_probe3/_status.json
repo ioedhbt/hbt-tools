@@ -1,0 +1,9 @@
+{
+  "scenario": "b_probe3.py",
+  "ts": 1785522437.9847014,
+  "state": "done",
+  "shots": [
+    "00_open_caps",
+    "01_short_leads"
+  ]
+}

@@ -1,0 +1,4 @@
+[09:58:41] scenario=/tmp/app/guide/_harness/scenarios/d_probe2.py
+[09:58:42] server up on 47603
+[09:58:51] shot 00_top
+[09:58:51] done

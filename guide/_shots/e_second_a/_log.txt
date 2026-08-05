@@ -1,0 +1,6 @@
+[10:43:50] scenario=/tmp/app/guide/_harness/scenarios/e_second_a.py
+[10:43:51] server up on 53839
+[10:44:01] shot 00_layer
+[10:44:08] shot 01_custom
+[10:44:14] shot 02_existing
+[10:44:14] done

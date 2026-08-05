@@ -1,0 +1,7 @@
+[13:11:49] scenario=/tmp/app/guide/_harness/scenarios/d_charts_2.py
+[13:11:50] server up on 58131
+[13:12:06] shot 00_drag_toggle
+[13:12:09] shot 00b_appearance
+[13:12:12] shot 01_trace_table
+[13:12:14] shot 02_sparam_table
+[13:12:15] done

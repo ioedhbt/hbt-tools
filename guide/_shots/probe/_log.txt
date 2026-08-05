@@ -1,0 +1,5 @@
+[01:58:46] scenario=guide/_harness/scenarios/timing_probe.py
+[01:58:47] server up on 37619
+[01:59:00] shot 01_uploaded
+[01:59:04] shot 02_summary
+[01:59:04] done

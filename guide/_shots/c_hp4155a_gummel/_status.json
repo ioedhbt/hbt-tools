@@ -1,0 +1,13 @@
+{
+  "scenario": "c_hp4155a_gummel.py",
+  "ts": 1785524613.4630651,
+  "state": "done",
+  "shots": [
+    "00_landed",
+    "01_smu_assigned",
+    "02_file_loaded",
+    "03_gummel_result",
+    "04_gummel_plot",
+    "05_gummel_export"
+  ]
+}

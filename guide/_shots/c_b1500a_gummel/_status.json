@@ -1,0 +1,10 @@
+{
+  "scenario": "c_b1500a_gummel.py",
+  "ts": 1785523512.9594913,
+  "state": "done",
+  "shots": [
+    "01_gummel_eta",
+    "02_gummel_beta",
+    "03_gummel_plot"
+  ]
+}

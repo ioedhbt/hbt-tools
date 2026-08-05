@@ -1,0 +1,180 @@
+[10:21:21] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[10:21:22] server up on 53549
+[10:21:59] shot 00_ic_table
+[10:24:39] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[10:24:40] server up on 37475
+[10:26:14] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[10:26:15] server up on 48311
+[10:27:42] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[10:27:43] server up on 43107
+[10:29:30] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[10:29:31] server up on 33459
+[10:35:51] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[10:35:52] server up on 39581
+[10:45:18] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[10:45:19] server up on 47627
+[11:13:53] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[11:13:54] server up on 42941
+[11:18:07] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[11:18:08] server up on 49629
+[11:22:38] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[11:22:39] server up on 45515
+[11:44:36] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[11:44:37] server up on 51003
+[11:45:08] Traceback (most recent call last):
+  File "/tmp/app/guide/_harness/session.py", line 147, in main
+    scenario.run(page, shot)
+  File "/tmp/app/guide/_harness/scenarios/b_transit_taufit.py", line 109, in run
+    ic_hdr.wait_for(timeout=10000)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/sync_api/_generated.py", line 20539, in wait_for
+    self._sync(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_sync_base.py", line 115, in _sync
+    return task.result()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_locator.py", line 748, in wait_for
+    await self._frame.wait_for_selector(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_frame.py", line 394, in wait_for_selector
+    await self._channel.send(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Locator.wait_for: Timeout 10000ms exceeded.
+Call log:
+  - waiting for get_by_text("IC (mA)", exact=True).first to be visible
+    22 × locator resolved to hidden <b>IC (mA)</b>
+
+
+[11:46:39] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[11:46:41] server up on 38921
+[11:47:11] Traceback (most recent call last):
+  File "/tmp/app/guide/_harness/session.py", line 147, in main
+    scenario.run(page, shot)
+  File "/tmp/app/guide/_harness/scenarios/b_transit_taufit.py", line 109, in run
+    ic_hdr.wait_for(timeout=10000)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/sync_api/_generated.py", line 20539, in wait_for
+    self._sync(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_sync_base.py", line 115, in _sync
+    return task.result()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_locator.py", line 748, in wait_for
+    await self._frame.wait_for_selector(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_frame.py", line 394, in wait_for_selector
+    await self._channel.send(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Locator.wait_for: Timeout 10000ms exceeded.
+Call log:
+  - waiting for get_by_text("IC (mA)", exact=True).first to be visible
+    22 × locator resolved to hidden <b>IC (mA)</b>
+
+
+[11:51:51] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[11:51:52] server up on 48597
+[11:52:18] shot 00_ic_table
+[11:52:28] Traceback (most recent call last):
+  File "/tmp/app/guide/_harness/session.py", line 147, in main
+    scenario.run(page, shot)
+  File "/tmp/app/guide/_harness/scenarios/b_transit_taufit.py", line 140, in run
+    fit_hdr.wait_for(timeout=10000)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/sync_api/_generated.py", line 20539, in wait_for
+    self._sync(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_sync_base.py", line 115, in _sync
+    return task.result()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_locator.py", line 748, in wait_for
+    await self._frame.wait_for_selector(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_frame.py", line 394, in wait_for_selector
+    await self._channel.send(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Locator.wait_for: Timeout 10000ms exceeded.
+Call log:
+  - waiting for get_by_text("Inputs (defaults from this file's extraction)").first to be visible
+
+
+[11:56:46] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[11:56:47] server up on 36847
+[11:57:21] shot 00_ic_table
+[12:02:25] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:02:26] server up on 42681
+[12:03:01] shot 00_ic_table
+[12:07:58] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:08:00] server up on 33773
+[12:08:30] Traceback (most recent call last):
+  File "/tmp/app/guide/_harness/session.py", line 147, in main
+    scenario.run(page, shot)
+  File "/tmp/app/guide/_harness/scenarios/b_transit_taufit.py", line 82, in run
+    exp.wait_for(timeout=15000)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/sync_api/_generated.py", line 20539, in wait_for
+    self._sync(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_sync_base.py", line 115, in _sync
+    return task.result()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_locator.py", line 748, in wait_for
+    await self._frame.wait_for_selector(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_frame.py", line 394, in wait_for_selector
+    await self._channel.send(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.TimeoutError: Locator.wait_for: Timeout 15000ms exceeded.
+Call log:
+  - waiting for get_by_text("📊 Interactive Parameter Extraction", exact=True).last to be visible
+    - locator resolved to visible <p>📊 Interactive Parameter Extraction</p>
+
+
+[12:10:18] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:10:21] server up on 34545
+[12:10:51] shot 00_ic_table
+[12:16:24] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:16:26] server up on 50277
+[12:19:54] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:19:56] server up on 36509
+[12:22:46] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:22:47] server up on 38885
+[12:27:27] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:27:28] server up on 56815
+[12:37:58] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:37:59] server up on 49291
+[12:40:20] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:40:21] server up on 33921
+[12:40:46] Traceback (most recent call last):
+  File "/tmp/app/guide/_harness/session.py", line 147, in main
+    scenario.run(page, shot)
+  File "/tmp/app/guide/_harness/scenarios/b_transit_taufit.py", line 112, in run
+    inp.fill(str(ie), force=True)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/sync_api/_generated.py", line 18242, in fill
+    self._sync(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_sync_base.py", line 115, in _sync
+    return task.result()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_locator.py", line 219, in fill
+    return await self._frame.fill(self._selector, strict=True, **params)
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_frame.py", line 636, in fill
+    await self._fill(**locals_to_params(locals()))
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_frame.py", line 648, in _fill
+    await self._channel.send("fill", self._timeout, locals_to_params(locals()))
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.Error: Locator.fill: Error: Input of type "checkbox" cannot be filled
+Call log:
+  - waiting for locator("input[aria-label*=\"deemb_preext_vce3.5_ib80u\"]").first
+    - locator resolved to <input checked title="" tabindex="0" type="checkbox" data-react-aria-pressable="true" aria-label="Use deemb_preext_vce3.5_ib80u in Z₁₂ fit"/>
+    - fill("1.68")
+  - attempting fill action
+
+
+[12:44:23] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:44:24] server up on 33997
+[12:45:01] shot 00_ic_table
+[12:51:18] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:51:19] server up on 56971
+[12:51:52] shot 00_ic_table
+[12:54:16] scenario=/tmp/app/guide/_harness/scenarios/b_transit_taufit.py
+[12:54:17] server up on 59469
+[12:54:49] shot 00_ic_table
+[12:54:55] shot 01_tau_fit
+[12:54:56] done

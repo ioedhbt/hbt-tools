@@ -1,0 +1,11 @@
+{
+  "scenario": "c_b1500a_family.py",
+  "ts": 1785523608.4978511,
+  "state": "done",
+  "shots": [
+    "01_family_outreg",
+    "02_family_plot",
+    "03_family_offset",
+    "04_family_gm"
+  ]
+}

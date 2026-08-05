@@ -1,0 +1,7 @@
+[10:03:26] scenario=/tmp/app/guide/_harness/scenarios/d_probe3.py
+[10:03:27] server up on 52107
+[10:04:09] scenario=/tmp/app/guide/_harness/scenarios/d_probe3.py
+[10:04:10] server up on 59741
+[10:05:54] scenario=/tmp/app/guide/_harness/scenarios/d_probe3.py
+[10:05:56] server up on 45081
+[10:06:05] done

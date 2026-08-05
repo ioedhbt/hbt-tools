@@ -1,0 +1,9 @@
+{
+  "scenario": "b_transit_taufit.py",
+  "ts": 1785560096.203274,
+  "state": "done",
+  "shots": [
+    "00_ic_table",
+    "01_tau_fit"
+  ]
+}

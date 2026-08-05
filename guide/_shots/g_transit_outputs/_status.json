@@ -1,0 +1,8 @@
+{
+  "scenario": "g_transit_outputs.py",
+  "ts": 1785853840.8571174,
+  "state": "done",
+  "shots": [
+    "02_inputs_outputs"
+  ]
+}

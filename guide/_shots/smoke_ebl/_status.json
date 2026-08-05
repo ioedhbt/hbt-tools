@@ -1,0 +1,8 @@
+{
+  "scenario": "smoke_ebl.py",
+  "ts": 1785520654.6188333,
+  "state": "done",
+  "shots": [
+    "00_ebl"
+  ]
+}

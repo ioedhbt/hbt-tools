@@ -1,0 +1,94 @@
+[02:33:31] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:33:32] server up on 43689
+[02:33:40] shot 00_before_upload
+[02:33:50] shot 01_overlay
+[02:33:53] shot 02_overlay_plateau
+[02:33:53] done
+[02:34:17] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:34:18] server up on 47819
+[02:34:26] shot 00_before_upload
+[02:34:38] shot 01_overlay
+[02:34:40] shot 02_overlay_plateau
+[02:34:41] done
+[02:35:16] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:35:17] server up on 44101
+[02:35:25] shot 00_before_upload
+[02:35:36] shot 01_overlay
+[02:35:38] Traceback (most recent call last):
+  File "/tmp/app/guide/_harness/session.py", line 147, in main
+    scenario.run(page, shot)
+  File "/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py", line 40, in run
+    last.scroll_into_view_if_needed()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/sync_api/_generated.py", line 19985, in scroll_into_view_if_needed
+    self._sync(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_sync_base.py", line 115, in _sync
+    return task.result()
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_locator.py", line 617, in scroll_into_view_if_needed
+    return await self._with_element(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_locator.py", line 118, in _with_element
+    return await task(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_element_handle.py", line 112, in scroll_into_view_if_needed
+    await self._channel.send(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+  File "/sessions/eloquent-stoic-turing/.local/lib/python3.10/site-packages/playwright/_impl/_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.Error: Locator.scroll_into_view_if_needed: Element is not attached to the DOM
+Call log:
+  - attempting scroll into view action
+    - waiting for element to be stable
+
+
+[02:37:26] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:37:27] server up on 39039
+[02:37:35] shot 00_before_upload
+[02:37:47] shot 01_overlay
+[02:37:51] shot 01b_overlay_retry
+[02:37:51] done
+[02:38:33] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:38:34] server up on 50695
+[02:38:43] shot 00_before_upload
+[02:38:54] shot 01_overlay
+[02:38:54] done
+[02:39:19] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:39:21] server up on 60597
+[02:39:29] shot 00_before_upload
+[02:39:41] shot 01_overlay
+[02:39:41] done
+[02:40:10] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:40:11] server up on 53909
+[02:40:19] shot 00_before_upload
+[02:40:27] shot 01_overlay
+[02:40:28] done
+[02:41:08] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:41:09] server up on 42837
+[02:41:18] shot 00_before_upload
+[02:41:25] shot 01_overlay
+[02:41:25] done
+[02:42:18] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:42:19] server up on 48509
+[02:42:27] shot 00_before_upload
+[02:42:40] shot 01_overlay
+[02:42:40] done
+[02:46:49] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:46:50] server up on 45185
+[02:46:59] shot 00_before_upload
+[02:47:11] shot 01_overlay
+[02:47:11] done
+[02:47:53] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:47:54] server up on 55247
+[02:48:02] shot 00_before_upload
+[02:48:14] shot 01_overlay
+[02:48:14] done
+[02:49:36] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:49:37] server up on 47723
+[02:49:45] shot 00_before_upload
+[02:49:52] shot 01_overlay_bode
+[02:49:54] shot 02_overlay_plateau
+[02:49:55] done
+[02:51:12] scenario=/tmp/app/guide/_harness/scenarios/a_ataglance_overlay.py
+[02:51:13] server up on 44983
+[02:51:22] shot 00_before_upload
+[02:51:28] shot 01_overlay_bode
+[02:51:31] shot 02_overlay_plateau
+[02:51:31] done

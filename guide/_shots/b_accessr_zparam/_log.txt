@@ -1,0 +1,41 @@
+[02:42:43] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_zparam.py
+[02:42:44] server up on 46787
+[02:44:22] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_zparam.py
+[02:44:23] server up on 43211
+[02:44:53] shot 00_zparam_table_plot
+[02:44:53] done
+[02:45:54] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_zparam.py
+[02:45:55] server up on 53807
+[02:46:24] shot 00_zparam_table_plot
+[02:46:27] shot 01_zparam_plot_metrics
+[02:46:28] done
+[02:47:12] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_zparam.py
+[02:47:13] server up on 54839
+[02:47:40] shot 00_zparam_table_plot
+[02:48:15] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_zparam.py
+[02:48:16] server up on 60625
+[02:48:43] shot 00_zparam_table_plot
+[02:49:56] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_zparam.py
+[02:49:57] server up on 53749
+[02:50:25] shot 00_zparam_table_plot
+[02:50:27] shot 01_zparam_chart
+[02:50:30] shot 02_zparam_metrics
+[02:50:31] done
+[02:54:01] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_zparam.py
+[02:54:03] server up on 38587
+[02:54:30] shot 00_zparam_table_plot
+[02:54:33] shot 01_zparam_chart
+[02:54:36] shot 02_zparam_metrics
+[02:54:36] done
+[02:56:48] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_zparam.py
+[02:56:49] server up on 58183
+[02:57:21] shot 00_zparam_table_plot
+[02:57:24] shot 01_zparam_chart
+[02:57:27] shot 02_zparam_metrics
+[02:57:28] done
+[03:05:39] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_zparam.py
+[03:05:40] server up on 44223
+[03:06:09] shot 00_zparam_table_plot
+[03:06:15] shot 01_zparam_chart
+[03:06:18] shot 02_zparam_metrics
+[03:06:18] done

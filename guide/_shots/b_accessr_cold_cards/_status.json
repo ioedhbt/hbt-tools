@@ -1,0 +1,9 @@
+{
+  "scenario": "b_accessr_cold_cards.py",
+  "ts": 1785525681.4367592,
+  "state": "done",
+  "shots": [
+    "00_cold_cex",
+    "01_cold_rb_rc"
+  ]
+}

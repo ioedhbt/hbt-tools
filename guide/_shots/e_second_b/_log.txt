@@ -1,0 +1,8 @@
+[10:49:46] scenario=/tmp/app/guide/_harness/scenarios/e_second_b.py
+[10:49:47] server up on 47261
+[10:50:02] shot 00_sap_warn
+[10:50:04] shot 01_sap_fixed
+[10:50:07] shot 02_overlay
+[10:50:10] shot 03_time_in
+[10:50:14] shot 04_result
+[10:50:14] done

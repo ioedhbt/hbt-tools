@@ -1,0 +1,5 @@
+[02:41:26] scenario=/tmp/app/guide/_harness/scenarios/b_accessr_probe.py
+[02:41:27] server up on 57261
+[02:41:48] shot 00_after_run
+[02:41:54] shot 01_zparam_expanded
+[02:41:54] done

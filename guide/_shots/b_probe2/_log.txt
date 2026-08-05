@@ -1,0 +1,5 @@
+[02:24:45] scenario=/tmp/app/guide/_harness/scenarios/b_probe2.py
+[02:24:46] server up on 41035
+[02:25:09] shot 00_after_run
+[02:25:13] shot 01_open_short_expanded
+[02:25:13] done

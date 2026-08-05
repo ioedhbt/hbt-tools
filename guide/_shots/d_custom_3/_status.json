@@ -1,0 +1,9 @@
+{
+  "scenario": "d_custom_3.py",
+  "ts": 1785552012.3899603,
+  "state": "done",
+  "shots": [
+    "00_values_panel",
+    "01_sim_result"
+  ]
+}

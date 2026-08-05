@@ -1,0 +1,4 @@
+[02:07:22] scenario=/tmp/app/guide/_harness/scenarios/g_cex_only.py
+[02:07:23] server up on 58655
+[02:07:54] shot 01_cex_median
+[02:07:54] done

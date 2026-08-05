@@ -1,0 +1,12 @@
+[09:21:06] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_after.py
+[09:21:07] server up on 40743
+[09:21:36] shot 02_after_charts
+[09:21:36] done
+[09:23:03] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_after.py
+[09:23:04] server up on 46263
+[09:23:37] shot 02_after_charts
+[09:23:37] done
+[09:24:23] scenario=/tmp/app/guide/_harness/scenarios/h_tuning_after.py
+[09:24:24] server up on 35977
+[09:24:54] shot 02_after_charts
+[09:24:54] done

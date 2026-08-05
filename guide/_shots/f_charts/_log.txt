@@ -1,0 +1,6 @@
+[21:17:31] scenario=/tmp/app/guide/_harness/scenarios/f_charts.py
+[21:17:32] server up on 46605
+[21:17:45] shot 00_panel_top
+[21:17:48] shot 01_panel_mid
+[21:17:51] shot 02_panel_low
+[21:17:51] done

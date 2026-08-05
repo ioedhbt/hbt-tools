@@ -1,0 +1,9 @@
+{
+  "scenario": "b_probe2.py",
+  "ts": 1785522313.4732897,
+  "state": "done",
+  "shots": [
+    "00_after_run",
+    "01_open_short_expanded"
+  ]
+}

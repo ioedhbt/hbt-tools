@@ -1,0 +1,7 @@
+[02:23:43] scenario=/tmp/app/guide/_harness/scenarios/b_probe.py
+[02:23:44] server up on 47891
+[02:23:51] shot 00_landed
+[02:23:55] shot 01_sidebar_toggled
+[02:24:00] shot 02_sidebar_files
+[02:24:04] shot 03_main_uploaded
+[02:24:04] done

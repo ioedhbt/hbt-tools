@@ -1,0 +1,6 @@
+[09:00:30] scenario=/tmp/app/guide/_harness/scenarios/g_tuning_auto.py
+[09:00:31] server up on 34311
+[09:00:44] shot 01_before_residual
+[09:00:47] shot 00_scope
+[09:00:58] shot 02_after_results
+[09:00:58] done

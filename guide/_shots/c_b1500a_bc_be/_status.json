@@ -1,0 +1,12 @@
+{
+  "scenario": "c_b1500a_bc_be.py",
+  "ts": 1785524701.2437983,
+  "state": "done",
+  "shots": [
+    "00_landed",
+    "01_bc_params",
+    "02_bc_plot",
+    "03_be_params",
+    "04_be_plot"
+  ]
+}

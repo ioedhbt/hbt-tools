@@ -1,0 +1,6 @@
+[21:12:43] scenario=/tmp/app/guide/_harness/scenarios/f_review.py
+[21:12:44] server up on 52299
+[21:13:09] shot 00_review_top
+[21:13:14] shot 01_review_mid
+[21:13:19] shot 02_review_low
+[21:13:19] done

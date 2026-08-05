@@ -1,0 +1,9 @@
+{
+  "scenario": "c_multiprocess.py",
+  "ts": 1785522347.127181,
+  "state": "done",
+  "shots": [
+    "01_landing",
+    "02_processed"
+  ]
+}

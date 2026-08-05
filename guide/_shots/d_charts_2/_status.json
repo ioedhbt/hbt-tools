@@ -1,0 +1,11 @@
+{
+  "scenario": "d_charts_2.py",
+  "ts": 1785561135.1273665,
+  "state": "done",
+  "shots": [
+    "00_drag_toggle",
+    "00b_appearance",
+    "01_trace_table",
+    "02_sparam_table"
+  ]
+}
