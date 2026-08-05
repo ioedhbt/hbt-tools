@@ -10,8 +10,9 @@ Run with any system Python 3.9+:
     python launch_ebl_calculator.py
 
 The launcher finds the app at ``ebeam_calculator.py`` beside this file, or
-at ``tools/ebeam/calculator.py`` inside the repo — so it works whether you
-copy the two files out on their own or run it from the full checkout.
+at ``tools/process/ebeam/calculator.py`` inside the repo — so it works
+whether you copy the two files out on their own or run it from the full
+checkout.
 
 Auto-update from GitHub is scaffolded below but DISABLED (no canonical
 repository is wired up yet — see AUTOUPDATE_ENABLED / REPO_* constants).
@@ -35,6 +36,7 @@ def _find_app_file():
     """
     for candidate in (ROOT / "calculator.py",
                       ROOT / "ebeam_calculator.py",
+                      ROOT / "tools" / "process" / "ebeam" / "calculator.py",
                       ROOT / "tools" / "ebeam" / "calculator.py",
                       ROOT / "tools" / "ebeam_calculator.py"):
         if candidate.exists():
@@ -63,7 +65,7 @@ VENV_STREAMLIT = VENV_DIR / ("Scripts/streamlit.exe" if _win else "bin/streamlit
 # `.streamlit/config.toml` caps uploads at 300 MB because that is what the
 # deployed 3 GB container can survive. A workstation is not that container,
 # so when launched locally the cap is raised to match the RAM actually
-# present — the app's own budgets (tools/ebeam/calculator.py, `_limits_for`)
+# present — the app's own budgets (tools/process/ebeam/calculator.py, `_limits_for`)
 # then track free memory at parse time, and anything too big is refused with
 # a message rather than crashing.
 _UPLOAD_MB_MIN = 350         # never below the deployed cap (config.toml)
@@ -208,7 +210,7 @@ def main():
     if not APP_FILE.exists():
         print(f"ERROR: Cannot find ebeam_calculator.py near {ROOT}")
         print("Place launch_ebl_calculator.py beside ebeam_calculator.py, "
-              "or run it from the repo root (tools/ebeam/calculator.py).")
+              "or run it from the repo root (tools/process/ebeam/calculator.py).")
         _pause_if_interactive()
         sys.exit(1)
 

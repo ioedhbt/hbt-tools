@@ -1,6 +1,6 @@
 """
 guide/_data/_gen/verify_gds_demo.py — loads the three hand-written GDS demo
-files through the app's own parser, tools.ebeam.gdsii.parser._parse_gds, and
+files through the app's own parser, tools.process.ebeam.gdsii.parser._parse_gds, and
 checks cell names, layers, polygon counts and bounding boxes match what was
 intended.
 
@@ -9,7 +9,7 @@ Run from /tmp/app:
 """
 import os
 
-from tools.ebeam.gdsii.parser import _parse_gds, _DEFAULT_LIMITS
+from tools.process.ebeam.gdsii.parser import _parse_gds, _DEFAULT_LIMITS
 
 REPO = "/tmp/app"
 GDS_DIR = os.path.join(REPO, "guide/_data/gds")
@@ -37,7 +37,7 @@ def describe(path):
 
 def main():
     all_lines = ["# GDS demo files — parser verification\n",
-                 "Loaded with the app's own `tools.ebeam.gdsii.parser._parse_gds` "
+                 "Loaded with the app's own `tools.process.ebeam.gdsii.parser._parse_gds` "
                  "(the function `gdsii/stream.py` itself calls to decode an "
                  "upload).\n"]
     ok = True

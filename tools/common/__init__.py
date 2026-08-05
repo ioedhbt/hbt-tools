@@ -3,7 +3,7 @@ tools.common — infrastructure shared by every tool group.
 
 Layer:       ui-helper / io  (no domain math lives here)
 Imported by: the portal entry point and every page, RF and DC alike
-Gotchas:     nothing here may import from tools.rf / tools.dc / tools.ebeam —
+Gotchas:     nothing here may import from tools.rf / tools.dc / tools.process —
              that is the whole point of the package.
 
 Why this package exists

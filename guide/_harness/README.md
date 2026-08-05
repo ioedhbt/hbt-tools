@@ -41,7 +41,7 @@ bash guide/_harness/run.sh <scenario>     # -> guide/_shots/<scenario>/
 A scenario is `guide/_harness/scenarios/<name>.py` exposing `run(page, shot)`:
 
 ```python
-ENTRY = "IOED_Tool_Web.py"          # or tools/ebeam/calculator.py for standalone
+ENTRY = "IOED_Tool_Web.py"          # or tools/process/ebeam/calculator.py for standalone
 
 def run(page, shot):
     page.get_by_role("link", name="RF At a Glance").first.click()

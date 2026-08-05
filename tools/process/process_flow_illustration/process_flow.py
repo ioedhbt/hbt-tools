@@ -2,24 +2,26 @@
 process_flow.py — the "HBT Process Flow Illustration" page.
 
 Layer:       page (Streamlit script, executed top-to-bottom on every interaction)
-Renders:     docs/process_flow/inp_hbt_process_flow.html, verbatim, in an iframe.
+Renders:     one of _VARIANTS' HTML files, verbatim, in an iframe, picked by a
+             Formal / QAD segmented radio.
 
 Why this file lives here
 -----------------------
 A tool's folder must equal its i18n group key (MAP.md invariant 1), and this
-page belongs to the ``ebeam`` group — the one the sidebar labels "Process".
-It is **not** part of the EBL calculator.  ``tools/ebeam/AGENTS.md``'s "imports
+page belongs to the ``process`` group — the one the sidebar labels "Process".
+It is **not** part of the EBL calculator, which lives in the sibling
+``tools/process/ebeam/`` folder.  ``tools/process/ebeam/AGENTS.md``'s "imports
 nothing from the rest of the repo" rule exists so ``launch_ebl_calculator.py``
 can ship ``calculator.py`` and its ``gdsii/`` subtree standalone; this page is
 portal-only and is not in that set, so it uses ``tools.common`` like every
 other page.
 
-The illustration is a hand-written, dependency-free WebGL document owned by
-``docs/process_flow/``.  Nothing here parses or regenerates it — the file is
-read as text and handed straight to the iframe, so changing the illustration
+Each illustration is a hand-written, dependency-free WebGL document owned by
+this folder.  Nothing here parses or regenerates either one — the chosen file
+is read as text and handed straight to the iframe, so changing an illustration
 means editing that one file and nothing else.
 
-The one exception is language.  The illustration carries its own English /
+The one exception is language.  Each illustration carries its own English /
 繁體中文 layer and its own toggle, so that the standalone file works on its
 own; embedded in the portal there must be exactly one language control, the
 sidebar's 🌐.  So this page rewrites a single handshake line in the document,
@@ -35,19 +37,29 @@ import streamlit as st
 
 from tools.common import i18n
 from tools.common.paths import REPO_ROOT
+from tools.common.widgets import segmented_radio
 
-FLOW_HTML = REPO_ROOT / "docs" / "process_flow" / "inp_hbt_process_flow.html"
+_HERE = REPO_ROOT / "tools" / "process" / "process_flow_illustration"
 
-# The document sizes its own shell with `height:100vh; min-height:560px`, which
-# inside an iframe means "however tall the iframe is" — so the slider below
-# genuinely resizes the illustration rather than scrolling it, and 560 is the
-# floor at which its three-column layout still fits.
+# option value -> (file, English label, Chinese label)
+_VARIANTS = {
+    "formal": (_HERE / "inp_hbt_process_flow.html",
+               "Formal", "正式版"),
+    "qad":    (_HERE / "qad_hbt_process_flow.html",
+               "QAD", "簡易版"),
+}
+
+# The documents size their own shell with `height:100vh; min-height:560px`,
+# which inside an iframe means "however tall the iframe is" — so the slider
+# below genuinely resizes the illustration rather than scrolling it, and 560
+# is the floor at which their three-column layout still fits.
 _MIN_HEIGHT = 560
 _DEFAULT_HEIGHT = 900
 
-# The illustration's language handshake, verbatim.  Its default — no language
-# imposed, not embedded — is what makes the standalone file self-governing:
-# it reads ?lang=, then localStorage, and shows its own toggle.
+# The illustrations' language handshake, verbatim — both files carry the same
+# line. Its default — no language imposed, not embedded — is what makes the
+# standalone file self-governing: it reads ?lang=, then localStorage, and
+# shows its own toggle.
 _HOST_LINE = "const HOST = {lang:null, embed:false};"
 
 
@@ -75,6 +87,15 @@ def _hosted(html: str, lang: str) -> str | None:
 
 st.title(i18n.title("process_flow"))
 st.caption(i18n.tool_desc("process_flow"))
+
+variant = segmented_radio(
+    i18n.tr("Variant", "版本"),
+    list(_VARIANTS),
+    index=0,
+    key="process_flow_variant",
+    format_func=lambda k: _VARIANTS[k][2] if i18n.is_zh() else _VARIANTS[k][1],
+)
+FLOW_HTML, _, _ = _VARIANTS[variant]
 
 if not FLOW_HTML.is_file():
     rel = FLOW_HTML.relative_to(REPO_ROOT)

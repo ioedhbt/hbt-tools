@@ -10,7 +10,7 @@
 **電子束微影計算機 (EBL Calculator)** 位於平台側邊欄的 **製程
 (Process)** 底下。它也可以獨立執行，不需要平台：`python
 launch_ebl_calculator.py` 會在自己旁邊建立一個本機虛擬環境，安裝頁面所需的
-套件，並直接啟動 `tools/ebeam/calculator.py`。獨立模式沒有密碼關卡，側邊欄
+套件，並直接啟動 `tools/process/ebeam/calculator.py`。獨立模式沒有密碼關卡，側邊欄
 也沒有其他工具，只有這一頁。
 
 ![電子束微影計算機頁首，獨立啟動，沒有平台外框，沒有密碼關卡](../assets/ebl/index_header.png)

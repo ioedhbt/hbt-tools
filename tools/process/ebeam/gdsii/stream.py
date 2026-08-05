@@ -4,10 +4,10 @@ scan/window path for GDS masks too big to fully parse (``_load_gds`` /
 ``_load_gds_layers`` for the ordinary path, ``_stream_scan`` /
 ``_stream_window`` for the large-mask fallback).
 
-Split out of ``tools/ebeam/calculator.py`` (mechanical refactor: moved
+Split out of ``tools/process/ebeam/calculator.py`` (mechanical refactor: moved
 as-is, no behaviour change, no numbers changed). Self-contained like the
-rest of the EBL calculator (see ``tools/ebeam/AGENTS.md``): imports nothing
-outside ``tools/ebeam`` itself.
+rest of the EBL calculator (see ``tools/process/ebeam/AGENTS.md``): imports nothing
+outside ``tools/process/ebeam`` itself.
 
 ``_bin_points``/``_INSTANCE_CHUNK`` live here rather than in
 ``plotting.py`` (where they were originally read as one seam) because
@@ -31,11 +31,11 @@ import zlib
 import numpy as np
 import streamlit as st
 
-from tools.ebeam.gdsii.limits import (
+from tools.process.ebeam.gdsii.limits import (
     _Limits, _DEFAULT_LIMITS, _UPLOAD_BUFFER_FACTOR, _BUDGET_BUCKET_MB,
     _POLY_LIMIT, _limits_for, tr,
 )
-from tools.ebeam.gdsii.parser import (
+from tools.process.ebeam.gdsii.parser import (
     _REC, _T_UNITS, _T_ENDLIB, _T_STRNAME, _T_ENDSTR,
     _T_BOUNDARY, _T_SREF, _T_AREF, _T_LAYER, _T_DATATYPE,
     _T_XY, _T_ENDEL, _T_SNAME, _T_COLROW, _T_STRANS,

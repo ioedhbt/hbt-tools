@@ -7,10 +7,10 @@ first exposure, second alignment).
 
 This is the page script Streamlit runs. The GDSII parsing/streaming
 pipeline, plotting/coverage-raster helpers and the Time Calculator live in
-``tools/ebeam/gdsii/``, ``tools/ebeam/plotting.py`` and
-``tools/ebeam/exposure.py`` respectively — split out of what used to be one
-6200-line file. See ``tools/ebeam/AGENTS.md`` for the one rule that survives
-the split unchanged: this page (and everything under ``tools/ebeam/``)
+``tools/process/ebeam/gdsii/``, ``tools/process/ebeam/plotting.py`` and
+``tools/process/ebeam/exposure.py`` respectively — split out of what used to be one
+6200-line file. See ``tools/process/ebeam/AGENTS.md`` for the one rule that survives
+the split unchanged: this page (and everything under ``tools/process/ebeam/``)
 imports nothing from the rest of the repo.
 
 Version is tracked in ``__version__`` below and in ``CHANGELOG.md`` at the
@@ -23,8 +23,8 @@ __version__ = "1.5"
 import sys as _sys
 from pathlib import Path as _Path
 
-# Bootstrap sys.path so `streamlit run tools/ebeam/calculator.py` finds the
-# `tools.ebeam.*` submodules below both through the portal (IOED_Tool_Web.py
+# Bootstrap sys.path so `streamlit run tools/process/ebeam/calculator.py` finds the
+# `tools.process.ebeam.*` submodules below both through the portal (IOED_Tool_Web.py
 # puts the repo root on sys.path already) and standalone
 # (launch_ebl_calculator.py does not). Streamlit always executes this file
 # as a script (module name "__main__"), so relative imports don't work here
@@ -34,7 +34,7 @@ from pathlib import Path as _Path
 _REPO_ROOT = next(
     (parent for parent in _Path(__file__).resolve().parents
      if (parent / "tools" / "__init__.py").exists()),
-    _Path(__file__).resolve().parents[2])
+    _Path(__file__).resolve().parents[3])
 if str(_REPO_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_REPO_ROOT))
 
@@ -48,20 +48,20 @@ try:
 except ImportError:  # pragma: no cover
     gdstk = None
 
-from tools.ebeam.gdsii.limits import _mask_budget_mb, _limits_for, _POLY_LIMIT
-from tools.ebeam.gdsii.parser import _InstancedLayer
-from tools.ebeam.gdsii.stream import (
+from tools.process.ebeam.gdsii.limits import _mask_budget_mb, _limits_for, _POLY_LIMIT
+from tools.process.ebeam.gdsii.parser import _InstancedLayer
+from tools.process.ebeam.gdsii.stream import (
     _compress_upload, _store_ratio, _load_gds, _load_gds_layers,
     _stream_scan, _stream_window,
 )
-from tools.ebeam.plotting import (
+from tools.process.ebeam.plotting import (
     _PALETTE, _StreamLayer, _layer_bbox_mm, _placed_bbox_mm, _layer_trace,
     _cell_areas_binned, _rasterize_coverage, _stream_coverage_grid,
     _unit_pattern_traces, _decimated_centers, _instances_in_window,
     _nan_xy_from_flat, _mask_overlay_traces, _dense_layer_note,
     _MAX_REGION_POLYS,
 )
-from tools.ebeam.exposure import (
+from tools.process.ebeam.exposure import (
     _render_time_calculator, _polygon_clip_per_cell_mm,
     _show_outside_pattern_notice, _round_up_even,
 )

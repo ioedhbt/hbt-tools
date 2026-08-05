@@ -1,6 +1,6 @@
 # GDS demo files — parser verification
 
-Loaded with the app's own `tools.ebeam.gdsii.parser._parse_gds` (the function `gdsii/stream.py` itself calls to decode an upload).
+Loaded with the app's own `tools.process.ebeam.gdsii.parser._parse_gds` (the function `gdsii/stream.py` itself calls to decode an upload).
 
 ### first_exposure.gds
 

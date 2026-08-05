@@ -33,8 +33,8 @@ IOED_Tool_Web.py                    (the ONLY st.set_page_config in the repo)
   `st.switch_page` paths (in `i18n.TOOLS` and `tools/rf/ssm/handoff.py`) are
   written **relative to the root** — i.e. with a `tools/` prefix.
 - `launch_ebl_calculator.py` is a second, independent launcher that runs
-  **only** `tools/ebeam/calculator.py` (own venv `.ebl_venv/`, no portal,
-  no password). That page therefore imports **no repo modules**.
+  **only** `tools/process/ebeam/calculator.py` (own venv `.ebl_venv/`, no
+  portal, no password). That page therefore imports **no repo modules**.
 
 ## 2. Anatomy of a portal page (`tools/<group>/*.py`)
 
@@ -131,15 +131,20 @@ off host RAM was getting SIGKILLed by the cgroup OOM-killer before any
 live RAM-usage bar (`tools/common/ui_theme.py::render_ram_badge`) built on the
 same probe.
 
-## 6. EBL calculator (`tools/ebeam/`)
+## 6. The "Process" sidebar group (`tools/process/`)
+
+Two unrelated tools sharing only the `process` i18n group (folder == group
+key, invariant in §7) — they never import each other.
+
+### 6a. EBL calculator (`tools/process/ebeam/`)
 
 Deliberately self-contained (see §1). `calculator.py` is the page script
 (header/i18n, `st.set_page_config`, and `render_page()` called once at the
 bottom); the GDSII pipeline, plotting and Time Calculator are split into
 `gdsii/{limits,parser,stream}.py`, `plotting.py` and `exposure.py` — see
-`tools/ebeam/AGENTS.md` for the exact seams and why the dependency chain
-between them is one-way (`limits` -> `parser` -> `stream` -> `plotting` ->
-`exposure` -> `calculator.py`, never back up). Page sections:
+`tools/process/ebeam/AGENTS.md` for the exact seams and why the dependency
+chain between them is one-way (`limits` -> `parser` -> `stream` -> `plotting`
+-> `exposure` -> `calculator.py`, never back up). Page sections:
 holder-position calculator → left-computer origin → **GDS mask viewer**
 (own single-pass streaming GDSII parser with instanced layers and
 RAM-adaptive budgets: `_limits_for()` sizes the parse guards per upload
@@ -154,24 +159,25 @@ test / first exposure / second alignment), each with an exposure Time
 Calculator (vectorized per-cell area binning; exact polygon clipping for
 small N).
 
-`tools/ebeam/process_flow.py` also lives in this folder but is a different
-tool: the **HBT Process Flow Illustration** page, which reads
-`docs/process_flow/inp_hbt_process_flow.html` and drops it into an iframe
-(`st.iframe`, which routes both a local `.html` path and a raw HTML string
-through `srcdoc`), alongside a download button for the standalone file. It is
-here only because a page's folder must match its i18n group key and `ebeam` is
-the group the sidebar labels "Process"; it is never launched standalone, so the
-§1 self-containment rule does not apply to it — it imports `tools.common` like
-every other page.
+### 6b. Process Flow Illustration (`tools/process/process_flow_illustration/`)
 
-The page rewrites exactly one line of the document and nothing else: the
-illustration carries its own English / 繁體中文 layer *and its own toggle*, so
-that the downloaded file governs itself, but embedded in the portal there must
-be a single language control. So `process_flow.py` substitutes
-`const HOST = {lang:null, embed:false};` with the active `i18n` language and
-`embed:true`, which makes the document follow the sidebar's 🌐 and hide its own
-button. If that line ever moves the page says so and embeds the file untouched,
-so the worst case is two toggles, not a broken page.
+A different tool: `process_flow.py` embeds one of two standalone HTML
+documents — `inp_hbt_process_flow.html` ("Formal") and
+`qad_hbt_process_flow.html` ("QAD") — in an iframe (`st.iframe`, which routes
+both a local `.html` path and a raw HTML string through `srcdoc`), picked by
+a Formal/QAD `segmented_radio`, alongside a download button for whichever
+standalone file is currently shown. It is portal-only, never launched
+standalone, so the §1 self-containment rule does not apply to it — it imports
+`tools.common` like every other page.
+
+The page rewrites exactly one line of whichever document is selected, and
+nothing else: each illustration carries its own English / 繁體中文 layer *and
+its own toggle*, so that the downloaded file governs itself, but embedded in
+the portal there must be a single language control. So `process_flow.py`
+substitutes `const HOST = {lang:null, embed:false};` with the active `i18n`
+language and `embed:true`, which makes the document follow the sidebar's 🌐
+and hide its own button. If that line ever moves the page says so and embeds
+the file untouched, so the worst case is two toggles, not a broken page.
 
 ## 7. Where to look — task → file
 
@@ -191,17 +197,18 @@ so the worst case is two toggles, not a broken page.
 | Custom model builder | `tools/rf/ssm/custom_model/` |
 | Rust kernels / dispatch / fallbacks | `tools/rf/ssm/helpers/rust_kernels.py` + `tools/rf/ssm/rust_kernels/` |
 | Fit-cache location or format | `tools/rf/ssm/helpers/fit_cache.py` |
-| GDS parsing / EBL exposure times | `tools/ebeam/calculator.py` (page) + `tools/ebeam/gdsii/`, `plotting.py`, `exposure.py` |
-| The 3-D process-flow illustration itself | `docs/process_flow/inp_hbt_process_flow.html` (the page `tools/ebeam/process_flow.py` only embeds it) |
+| GDS parsing / EBL exposure times | `tools/process/ebeam/calculator.py` (page) + `tools/process/ebeam/gdsii/`, `plotting.py`, `exposure.py` |
+| The 3-D process-flow illustrations themselves | `tools/process/process_flow_illustration/{inp_hbt,qad_hbt}_process_flow.html` (the page `process_flow.py` only embeds them) |
 | Performance investigation | `dev/profile_*.py`, `tools/rf/ssm/rust_kernels/benchmark.py` |
 
 **Layering rules** (enforced by convention, checked by review):
 
 - `tools/common/` may not import any tool group — that is why it exists.
-- The EBL calculator (`tools/ebeam/calculator.py` + `gdsii/`, `plotting.py`,
-  `exposure.py`) imports nothing from the repo at all — that is the set the
-  standalone launcher ships. `tools/ebeam/process_flow.py` is a separate
-  portal page in the same folder and is exempt.
+- The EBL calculator (`tools/process/ebeam/calculator.py` + `gdsii/`,
+  `plotting.py`, `exposure.py`) imports nothing from the repo at all — that is
+  the set the standalone launcher ships.
+  `tools/process/process_flow_illustration/process_flow.py` is a separate
+  portal page in the sibling folder and is exempt.
 - Cross-package imports are **absolute**; relatives only within a package.
 - The repo root comes from `tools.common.paths.REPO_ROOT`, never `parents[N]`.
 - `tools/<folder>` matches the `i18n` group key one-for-one.

@@ -2,14 +2,14 @@
 plotting.py — Plotly trace builders, coverage-raster generation and
 per-cell area binning for the EBL calculator's GDS mask viewer.
 
-Split out of ``tools/ebeam/calculator.py`` (mechanical refactor: moved
+Split out of ``tools/process/ebeam/calculator.py`` (mechanical refactor: moved
 as-is, no behaviour change, no numbers changed). Self-contained like the
-rest of the EBL calculator (see ``tools/ebeam/AGENTS.md``): imports
-nothing outside ``tools/ebeam`` itself.
+rest of the EBL calculator (see ``tools/process/ebeam/AGENTS.md``): imports
+nothing outside ``tools/process/ebeam`` itself.
 
 ``_PALETTE`` and ``_hex_to_rgba`` moved here from ``calculator.py``
 alongside the trace builders that are their main users.
-``tools/ebeam/calculator.py`` keeps its own separate copy of
+``tools/process/ebeam/calculator.py`` keeps its own separate copy of
 ``_hex_to_rgba`` for its own module-level UI script (see that file's
 docstring for why it cannot just import this one back — the short version:
 ``calculator.py`` is always the Streamlit entry script, never importable
@@ -22,11 +22,11 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 
-from tools.ebeam.gdsii.limits import _POLY_LIMIT, tr
-from tools.ebeam.gdsii.parser import (
+from tools.process.ebeam.gdsii.limits import _POLY_LIMIT, tr
+from tools.process.ebeam.gdsii.parser import (
     _PolyLayer, _InstancedLayer, _expand_groups_to_flat, _FLAT_RASTER_CHUNK,
 )
-from tools.ebeam.gdsii.stream import _RASTER_N, _INSTANCE_CHUNK, _bin_points
+from tools.process.ebeam.gdsii.stream import _RASTER_N, _INSTANCE_CHUNK, _bin_points
 
 
 _PALETTE = [

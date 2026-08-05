@@ -108,7 +108,7 @@ def run_worker(path: str, rlimit_mb: float | None = None,
     if rlimit_mb:
         out["rlimit"] = _cap_address_space(rlimit_mb)
     t_imports = time.perf_counter()
-    import tools.ebeam.calculator as m       # noqa: E402  (timed on purpose)
+    import tools.process.ebeam.calculator as m  # noqa: E402  (timed on purpose)
     out["t_import_s"] = time.perf_counter() - t_imports
     out["rss_baseline_mb"] = _rss_mb()
     out["peak_baseline_mb"] = _peak_mb()
@@ -225,14 +225,14 @@ def app_constant(name: str) -> int:
     genuinely constant values — the memory budgets are *not* constants
     any more (see ``app_limits``).
     """
-    # The EBL page is split across tools/ebeam/**; the constants this
+    # The EBL page is split across tools/process/ebeam/**; the constants this
     # scrapes live in gdsii/limits.py, but search the whole subtree so a
     # future move doesn't silently break the scrape.
     src = "\n".join(p.read_text(encoding="utf-8")
-                    for p in sorted((ROOT / "tools" / "ebeam").rglob("*.py")))
+                    for p in sorted((ROOT / "tools" / "process" / "ebeam").rglob("*.py")))
     hit = re.search(rf"^{name}\s*=\s*([\d_]+)", src, re.M)
     if not hit:
-        raise SystemExit(f"could not find {name} under tools/ebeam/")
+        raise SystemExit(f"could not find {name} under tools/process/ebeam/")
     return int(hit.group(1).replace("_", ""))
 
 
@@ -246,7 +246,7 @@ def app_limits(file_mb: float) -> dict:
     memory it would hold.
     """
     code = ("import json,sys;sys.path.insert(0,%r);"
-            "import tools.ebeam.calculator as m;"
+            "import tools.process.ebeam.calculator as m;"
             "print('__LIMITS__'+json.dumps(m._limits_for(%f)._asdict()))"
             % (str(ROOT), file_mb))
     proc = subprocess.run([sys.executable, "-c", code],

@@ -3,7 +3,7 @@ guide/_data/_gen/gdswrite.py — minimal hand-rolled GDSII stream writer.
 
 No gdstk in this sandbox (see guide/_harness/README.md), so this writes raw
 GDSII records with `struct`, matching exactly what
-tools/ebeam/gdsii/parser.py decodes (see its _T_* tag constants — HEADER /
+tools/process/ebeam/gdsii/parser.py decodes (see its _T_* tag constants — HEADER /
 BGNLIB / LIBNAME / UNITS / BGNSTR / STRNAME / BOUNDARY / ENDSTR / ENDLIB).
 
 Units: 1 user unit = 1 um, 1 database unit = 1 nm (UNITS record = 1e-3,
@@ -66,7 +66,7 @@ def _units(tag: int, a: float, b: float) -> bytes:
     return _rec(tag, _real8(a) + _real8(b))
 
 
-# ─── Record tags (must match tools/ebeam/gdsii/parser.py) ───────────────────
+# ─── Record tags (must match tools/process/ebeam/gdsii/parser.py) ───────────────────
 T_HEADER = 0x0002
 T_BGNLIB = 0x0102
 T_LIBNAME = 0x0206

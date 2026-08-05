@@ -1,7 +1,12 @@
-# tools/ebeam/
+# tools/process/ebeam/
 
 The JEOL ELS-7000 e-beam lithography calculator: holder positions, a GDS mask
 viewer, and exposure-time workflow modes.
+
+Sibling folder [`tools/process/process_flow_illustration/`](../process_flow_illustration/AGENTS.md)
+holds the unrelated HBT Process Flow Illustration page — see its own AGENTS.md.
+The two share only the `process` i18n group (the sidebar's "Process" section),
+nothing else.
 
 ## Layout
 
@@ -21,8 +26,8 @@ Dependency direction is one-way: `limits` -> `parser` -> `stream` ->
 `plotting` -> `exposure` -> `calculator.py`. Nothing imports back up that
 chain — in particular, no submodule imports `calculator.py`. That is not a
 style preference: Streamlit always executes `calculator.py` as `__main__`
-(never under the dotted name `tools.ebeam.calculator`), so an import of
-`tools.ebeam.calculator` from a module it imports would re-run the whole
+(never under the dotted name `tools.process.ebeam.calculator`), so an import of
+`tools.process.ebeam.calculator` from a module it imports would re-run the whole
 page a second time under that name — a second `st.set_page_config()` call,
 a second render. `calculator.py` and `gdsii/limits.py` each keep their own
 small inline copy of `_is_zh()`/`tr()` for this reason (and `plotting.py`
@@ -40,20 +45,11 @@ launched standalone by `launch_ebl_calculator.py` with its own `.ebl_venv/`,
 no portal and no password. Do **not** "deduplicate" it against `tools/common/`,
 and do not "deduplicate" the split above back into one file either.
 
-The rule covers the files in the table above — the ones the standalone
-launcher ships. It is **not** a rule about the folder. `process_flow.py` also
-lives here, and imports `tools.common` freely: it is a separate portal page
-that shares the directory only because a tool's folder must equal its i18n
-group key, and `ebeam` is the group the sidebar labels "Process". It is never
-launched standalone. Don't "fix" its imports, and don't let it grow a
-dependency on the EBL files (or vice versa) — they are unrelated tools.
-
-Its translations do **not** live in `tools/common/i18n.py`. The illustration is
-one self-contained HTML file that has to work when downloaded, so it carries its
-own `ZH` table and its own toggle; `process_flow.py` only tells it which
-language the portal is on, by rewriting the `HOST` line. Don't move those
-strings into `_UI` — that would break the standalone file, which is the whole
-point of it.
+The rule covers every file in the table above, i.e. everything in this
+folder — the set the standalone launcher ships. Don't add an import out of
+this folder to anything under `tools/common/` or elsewhere in the repo, and
+don't let `process_flow_illustration/` (sibling folder, unrelated tool)
+grow a dependency on these files or vice versa.
 
 Consequence to be aware of: `i18n._UI["ebl_corner_guide"]` and
 `["ebl_corner_note"]` exist but are unreachable from here. Leave them.

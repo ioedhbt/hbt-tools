@@ -14,7 +14,7 @@ to write the file.  Here the records are built as flat numpy byte blocks
 and streamed out in chunks, so a 250 MB file writes in a few seconds
 inside a few hundred MB of RAM.  The bytes are also *byte-identical
 except for the XY payload* between consecutive placements — exactly the
-run structure `_element_run()` in ``tools/ebeam/calculator.py`` bulk
+run structure `_element_run()` in ``tools/process/ebeam/calculator.py`` bulk
 decodes, so the generated files exercise the parser's fast path the same
 way CAD-tool output does.
 

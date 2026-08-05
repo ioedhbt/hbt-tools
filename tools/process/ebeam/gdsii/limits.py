@@ -1,19 +1,19 @@
 """
 gdsii/limits.py — RAM-budget sizing for the GDSII parser/streamer.
 
-Split out of ``tools/ebeam/calculator.py`` (mechanical refactor: moved
+Split out of ``tools/process/ebeam/calculator.py`` (mechanical refactor: moved
 as-is, no behaviour change, no numbers changed).
 
 Self-contained like the rest of the EBL calculator (see
-``tools/ebeam/AGENTS.md``): this module keeps its own inline ``_is_zh()`` /
+``tools/process/ebeam/AGENTS.md``): this module keeps its own inline ``_is_zh()`` /
 ``tr()`` copy instead of importing them back from ``calculator.py``.  That
 is not optional here — Streamlit always executes the page script as
 ``__main__`` (see ``streamlit.runtime.scriptrunner.script_runner``), never
-under the dotted name ``tools.ebeam.calculator``, so an import of
-``tools.ebeam.calculator`` from a module *it* imports would re-run the
+under the dotted name ``tools.process.ebeam.calculator``, so an import of
+``tools.process.ebeam.calculator`` from a module *it* imports would re-run the
 whole page a second time under that dotted name (a second
 ``st.set_page_config()`` call, a second render). ``calculator.py`` keeps
-its own separate copy of the same two functions; the other ``tools/ebeam``
+its own separate copy of the same two functions; the other ``tools/process/ebeam``
 submodules that need ``tr()`` import it from here instead (submodules
 importing each other is fine — only importing back up to ``calculator.py``
 is not).
@@ -33,7 +33,7 @@ def _is_zh() -> bool:
 def tr(en: str, zh: str) -> str:
     """Return ``zh`` when the portal UI language is 中文, else ``en``.
 
-    Inline mirror of ``tools.i18n.tr()`` / ``tools.ebeam.calculator.tr()`` —
+    Inline mirror of ``tools.i18n.tr()`` / ``tools.process.ebeam.calculator.tr()`` —
     kept local (no import of ``calculator.py`` or the repo-wide i18n
     module) so this file stays fully self-contained; see the module
     docstring above for why it cannot simply import ``calculator.py``'s

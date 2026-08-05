@@ -19,7 +19,7 @@ executed top-to-bottom on every interaction.
 
 ## `tools/common/` — shared by every tool group
 
-Nothing here may import `tools.rf` / `tools.dc` / `tools.ebeam`.
+Nothing here may import `tools.rf` / `tools.dc` / `tools.process`.
 
 | path | layer | does | key symbols |
 |---|---|---|---|
@@ -82,7 +82,13 @@ Layered bottom-up; see [docs/SSM_INDEX.md](docs/SSM_INDEX.md) for per-function d
 | [data/csv_process.py](tools/data/csv_process.py) | page | Batch-convert measurement CSV / CITI files; hands results to DC Analysis. |
 | [portal/home.py](tools/portal/home.py) | page | Landing page; cards built from `i18n.TOOLS`. |
 
-## `tools/ebeam/` — E-beam lithography
+## `tools/process/` — the "Process" sidebar group
+
+Two unrelated tools sharing only the `process` i18n group (folder == group
+key, invariant 1) — the EBL calculator and the process-flow illustration.
+They don't import each other.
+
+### `tools/process/ebeam/` — E-beam lithography
 
 **Deliberately self-contained: imports no other repo module.** It keeps its own
 `tr()` and `segmented_radio()` on purpose, so it can be run standalone.
@@ -94,13 +100,26 @@ whole page a second time (and call `st.set_page_config` twice).
 
 | path | layer | does |
 |---|---|---|
-| [calculator.py](tools/ebeam/calculator.py) | page | The page script: header, `set_page_config`, chip-position calc, and `render_page()`. |
-| [process_flow.py](tools/ebeam/process_flow.py) | page | **Not part of the EBL tool** — shares this folder only because folder == group key, and `ebeam` is the group the sidebar labels "Process". Embeds `docs/process_flow/inp_hbt_process_flow.html` in an iframe; imports `tools.common` freely. Rewrites one line of it — the `HOST` language handshake — so the illustration follows the portal's 🌐 and hides its own toggle (`_HOST_LINE`, `_hosted`). |
-| [gdsii/limits.py](tools/ebeam/gdsii/limits.py) | pure | RAM-budget sizing — `_limits_for`, `_Limits`. Also the shared `tr()` for this subtree. |
-| [gdsii/parser.py](tools/ebeam/gdsii/parser.py) | pure | Single-pass GDSII decoder, `_PolyLayer` / `_InstancedLayer`. |
-| [gdsii/stream.py](tools/ebeam/gdsii/stream.py) | io | Compressed upload store + bounded-memory scan/window path for oversized masks. |
-| [plotting.py](tools/ebeam/plotting.py) | ui | Plotly traces, coverage rasters, per-cell area binning. |
-| [exposure.py](tools/ebeam/exposure.py) | ui | The Time Calculator. |
+| [calculator.py](tools/process/ebeam/calculator.py) | page | The page script: header, `set_page_config`, chip-position calc, and `render_page()`. |
+| [gdsii/limits.py](tools/process/ebeam/gdsii/limits.py) | pure | RAM-budget sizing — `_limits_for`, `_Limits`. Also the shared `tr()` for this subtree. |
+| [gdsii/parser.py](tools/process/ebeam/gdsii/parser.py) | pure | Single-pass GDSII decoder, `_PolyLayer` / `_InstancedLayer`. |
+| [gdsii/stream.py](tools/process/ebeam/gdsii/stream.py) | io | Compressed upload store + bounded-memory scan/window path for oversized masks. |
+| [plotting.py](tools/process/ebeam/plotting.py) | ui | Plotly traces, coverage rasters, per-cell area binning. |
+| [exposure.py](tools/process/ebeam/exposure.py) | ui | The Time Calculator. |
+
+### `tools/process/process_flow_illustration/` — HBT Process Flow Illustration
+
+Portal-only page, imports `tools.common` freely (not self-contained, unlike
+its sibling above). Embeds one of two standalone HTML illustrations in an
+iframe, picked by a Formal / QAD `segmented_radio`; rewrites one line of
+whichever is chosen — the `HOST` language handshake — so it follows the
+portal's 🌐 and hides its own toggle (`_HOST_LINE`, `_hosted`).
+
+| path | layer | does |
+|---|---|---|
+| [process_flow.py](tools/process/process_flow_illustration/process_flow.py) | page | The page script — `_VARIANTS` maps the radio's "formal"/"qad" values to the two HTML files below. |
+| [inp_hbt_process_flow.html](tools/process/process_flow_illustration/inp_hbt_process_flow.html) | asset | "Formal" variant — standalone interactive 3-D InP HBT process flow: clickable steps, animated transitions, orbit camera, cross-section toggle for the emitter undercut. All 10 steps are written and exposed; `STEPS_SHOWN` caps how many the rail shows, for verifying a new step in isolation. Bilingual (English / 繁體中文) off a flat `ZH` table keyed by the English string, so materials, chemistries and the step names fall through untranslated and `window.i18nMissing()` lists any drift; standalone it reads `?lang=`, then `localStorage`, and shows its own toggle. Hand-written WebGL in one file, no dependencies. |
+| [qad_hbt_process_flow.html](tools/process/process_flow_illustration/qad_hbt_process_flow.html) | asset | "QAD" (quick-and-dirty) variant — same handshake/toggle contract as the Formal file above, abridged flow. |
 
 ## `dev/` — not imported by the app
 
@@ -110,12 +129,6 @@ whole page a second time (and call `st.set_page_config` twice).
 | [build_rust_kernels.py](dev/build_rust_kernels.py) · [check_rust_status.py](dev/check_rust_status.py) | Build / report the Rust acceleration binaries. |
 | [profile_*.py](dev/) | Hot-path profilers (bulk upload, rust batch, SSM extraction). |
 | [gds/](dev/gds/) | Synthetic GDSII generator + memory/time limits sweep behind the EBL page's budgets. |
-
-## `docs/` — static assets
-
-| path | does |
-|---|---|
-| [process_flow/inp_hbt_process_flow.html](docs/process_flow/inp_hbt_process_flow.html) | Standalone interactive 3-D InP HBT process flow: clickable steps, animated transitions, orbit camera, cross-section toggle for the emitter undercut. All 10 steps are written and exposed; `STEPS_SHOWN` caps how many the rail shows, for verifying a new step in isolation. Bilingual (English / 繁體中文) off a flat `ZH` table keyed by the English string, so materials, chemistries and the step names fall through untranslated and `window.i18nMissing()` lists any drift; standalone it reads `?lang=`, then `localStorage`, and shows its own toggle. Hand-written WebGL in one file, no dependencies — open it in a browser, or view it in the app via [tools/ebeam/process_flow.py](tools/ebeam/process_flow.py), which rewrites only the `HOST` handshake line. |
 
 ---
 
@@ -131,7 +144,8 @@ whole page a second time (and call `st.set_page_config` twice).
    `Path(__file__).parents[N]`, which silently breaks on any move.
 4. **Cross-package imports are absolute** (`from tools.common.i18n import tr`).
    Relative imports only *within* a package.
-5. **`tools/ebeam/` imports nothing from the repo.** Intentional — see above.
+5. **`tools/process/ebeam/` imports nothing from the repo.** Intentional — see
+   above. Its sibling `tools/process/process_flow_illustration/` is exempt.
 6. **`tools/common/` imports nothing from a tool group.** That is the whole
    point of the package.
 
@@ -149,7 +163,8 @@ whole page a second time (and call `st.set_page_config` twice).
 | Add a new SSM model | subclass in `models/<name>.py`, register in `models/__init__.py::REGISTRY` |
 | Tuning sweeps, residuals | `tools/rf/ssm/models/base_ui.py` |
 | Fit programmatically / from a script | `tools/rf/ssm/agent_api.py` |
-| GDS parsing, EBL exposure times | `tools/ebeam/calculator.py` |
+| GDS parsing, EBL exposure times | `tools/process/ebeam/calculator.py` |
+| Process-flow illustration (Formal/QAD HTML) | `tools/process/process_flow_illustration/` |
 | Chart export, clipboard, xlsx | `tools/common/chart_export.py` |
 | Rust kernels | `tools/rf/ssm/helpers/rust_kernels.py` + `dev/build_rust_kernels.py` |
 

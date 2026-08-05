@@ -110,13 +110,14 @@ TOOLS: dict[str, dict] = {
         ],
     },
     "ebl": {
-        "icon": "🧮", "group": "ebeam", "path": "tools/ebeam/calculator.py",
+        "icon": "🧮", "group": "process", "path": "tools/process/ebeam/calculator.py",
         "en": "EBL Calculator", "zh": "電子束微影計算機",
         "desc_en": "Compute JEOL ELS-7000 chip positions and exposure workflow.",
         "desc_zh": "計算 JEOL ELS-7000 晶片位置與曝光流程。",
     },
     "process_flow": {
-        "icon": "🧱", "group": "ebeam", "path": "tools/ebeam/process_flow.py",
+        "icon": "🧱", "group": "process",
+        "path": "tools/process/process_flow_illustration/process_flow.py",
         "en": "HBT Process Flow Illustration", "zh": "HBT 製程流程圖解",
         "desc_en": "Walk through the InP HBT fabrication steps in interactive 3-D.",
         "desc_zh": "以互動 3D 逐步瀏覽 InP HBT 製程步驟。",
@@ -160,10 +161,10 @@ TOOLS: dict[str, dict] = {
 }
 
 # Domain groups, in sidebar display order.
-GROUP_ORDER = ["rf", "ebeam", "tcad", "dc", "data"]
+GROUP_ORDER = ["rf", "process", "tcad", "dc", "data"]
 GROUPS: dict[str, dict] = {
     "rf":      {"en": "RF Measurement",        "zh": "高頻量測"},
-    "ebeam":   {"en": "Process",               "zh": "製程"},
+    "process": {"en": "Process",               "zh": "製程"},
     "tcad":    {"en": "Device Simulation",     "zh": "元件模擬"},
     "dc":      {"en": "DC Measurement",        "zh": "直流量測"},
     "data":    {"en": "Data Processing",       "zh": "資料處理"},

@@ -5,7 +5,7 @@ Infrastructure shared by **every** tool group. No domain maths lives here.
 ## The one rule
 
 **Nothing in this package may import `tools.rf`, `tools.dc`, `tools.tcad`,
-`tools.data` or `tools.ebeam`.** That is the entire reason the package exists:
+`tools.data` or `tools.process`.** That is the entire reason the package exists:
 these modules used to live inside the RF/SSM engine, so a DC bug dragged you
 into the small-signal-model tree. If something here needs a domain concept, it
 belongs in that domain, not here.
@@ -37,6 +37,7 @@ belongs in that domain, not here.
   something here, check that re-export list.
 - `mem_budget` exists because `psutil` reports the *host's* memory, not the
   container's. On Streamlit Cloud that difference is the OOM-killer.
-- `tools/ebeam/` deliberately does NOT use this package — it keeps inline
-  copies of `tr()` and `segmented_radio()` so it can run standalone. Don't
-  "fix" that.
+- `tools/process/ebeam/` deliberately does NOT use this package — it keeps
+  inline copies of `tr()` and `segmented_radio()` so it can run standalone.
+  Don't "fix" that. Its sibling `tools/process/process_flow_illustration/`
+  is a different, portal-only tool and uses this package freely.

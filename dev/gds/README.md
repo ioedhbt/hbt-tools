@@ -1,6 +1,6 @@
 # `gds/` — GDS mask stress tests for the EBL page
 
-Dev-only tooling for [`tools/ebeam_calculator.py`](../tools/ebeam_calculator.py)'s
+Dev-only tooling for [`tools/process/ebeam/calculator.py`](../../tools/process/ebeam/calculator.py)'s
 GDS mask viewer. Nothing here is imported by the app.
 
 | File | Purpose |
@@ -32,7 +32,7 @@ has room for a billion placements. To watch the guards fire on a big
 machine, shrink the budget instead:
 
 ```python
-import tools.ebeam_calculator as m
+import tools.process.ebeam.calculator as m
 m._free_ram_mb = lambda: (250.0, None, "container")   # pretend it's tight
 ```
 

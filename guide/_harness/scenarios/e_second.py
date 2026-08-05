@@ -21,7 +21,7 @@ combined output. This file is kept only so the name doesn't silently
 disappear from the scenarios directory (repo files can't be deleted).
 """
 
-ENTRY = "tools/ebeam/calculator.py"
+ENTRY = "tools/process/ebeam/calculator.py"
 
 
 def run(page, shot):

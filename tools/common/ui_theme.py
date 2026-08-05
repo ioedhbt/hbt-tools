@@ -44,7 +44,7 @@ def inject_css() -> None:
            buttons (theme blue) and segmented-control chips are deliberately
            excluded.  The theme is locked to light mode in .streamlit/config.toml
            so fixed hex grays are safe.
-           Keep in sync with: tools/ebeam/calculator.py (standalone copy)
+           Keep in sync with: tools/process/ebeam/calculator.py (standalone copy)
                               tools/rf/ssm/helpers/chart_export.py (iframe copy-button)
         */
         button[data-testid="stBaseButton-secondary"],

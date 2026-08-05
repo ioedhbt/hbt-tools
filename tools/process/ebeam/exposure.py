@@ -3,10 +3,10 @@ exposure.py — Time Calculator: per-cell mask/grid clipping and the
 dose/stage exposure-time estimate shared by all three workflow modes
 (dose-time test, first exposure, second alignment).
 
-Split out of ``tools/ebeam/calculator.py`` (mechanical refactor: moved
+Split out of ``tools/process/ebeam/calculator.py`` (mechanical refactor: moved
 as-is, no behaviour change, no numbers changed). Self-contained like the
-rest of the EBL calculator (see ``tools/ebeam/AGENTS.md``): imports
-nothing outside ``tools/ebeam`` itself.
+rest of the EBL calculator (see ``tools/process/ebeam/AGENTS.md``): imports
+nothing outside ``tools/process/ebeam`` itself.
 """
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ try:
 except ImportError:  # pragma: no cover
     gdstk = None
 
-from tools.ebeam.gdsii.limits import tr
-from tools.ebeam.plotting import _use_coverage_raster, _coverage_heatmap_trace
+from tools.process.ebeam.gdsii.limits import tr
+from tools.process.ebeam.plotting import _use_coverage_raster, _coverage_heatmap_trace
 
 def _round_up_even(value: float) -> int:
     """Smallest even integer >= value, with a floor of 2."""

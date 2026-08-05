@@ -2,10 +2,10 @@
 gdsii/parser.py — single-pass streaming GDSII decoder and in-memory layer
 objects (``_PolyLayer``, ``_InstancedLayer``).
 
-Split out of ``tools/ebeam/calculator.py`` (mechanical refactor: moved
+Split out of ``tools/process/ebeam/calculator.py`` (mechanical refactor: moved
 as-is, no behaviour change, no numbers changed). Self-contained like the
-rest of the EBL calculator (see ``tools/ebeam/AGENTS.md``): imports nothing
-outside ``tools/ebeam`` itself.
+rest of the EBL calculator (see ``tools/process/ebeam/AGENTS.md``): imports nothing
+outside ``tools/process/ebeam`` itself.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ try:
 except ImportError:  # pragma: no cover
     gdstk = None
 
-from tools.ebeam.gdsii.limits import _Limits, _DEFAULT_LIMITS, _rows_budget_msg, tr
+from tools.process.ebeam.gdsii.limits import _Limits, _DEFAULT_LIMITS, _rows_budget_msg, tr
 
 # Vertices per pass wherever a flat layer is walked whole — _PolyLayer.
 # poly_areas and _flat_coverage_grid. Scaling, binning or cross-multiplying

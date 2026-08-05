@@ -135,7 +135,7 @@ prefix.
 
 | Function | Purpose |
 |---|---|
-| `_inject_button_css()` | Global CSS: light-gray fill on all secondary buttons (st.button / download / form submit / popover / uploader Browse) so they read as buttons. Primary buttons and segmented chips excluded. Kept in sync with the inline copy in `tools/ebeam/calculator.py` (standalone) and the iframe copy-button in `helpers/chart_export.py`. |
+| `_inject_button_css()` | Global CSS: light-gray fill on all secondary buttons (st.button / download / form submit / popover / uploader Browse) so they read as buttons. Primary buttons and segmented chips excluded. Kept in sync with the inline copy in `tools/process/ebeam/calculator.py` (standalone) and the iframe copy-button in `helpers/chart_export.py`. |
 | `check_password()` | Password gate; correct password from `st.secrets["APP_PASSWORD"]` (fallback `"IOED"` for local testing). |
 | `_page(tool_key, *, default=False)` | Build an `st.Page` for a tool key, pulling path/title/icon from the i18n registry so sidebar and in-page titles can't drift. |
 
@@ -171,12 +171,12 @@ launches Streamlit with `HBT_LOCAL_LAUNCH=1`.
 ### `launch_ebl_calculator.py` — standalone launcher for the EBL calculator
 
 Same bootstrap pattern as `LAUNCH_Tool.py` but minimal: venv at
-`.ebl_venv/`, only the packages `tools/ebeam_calculator.py` needs, then
-`streamlit run` on just that page (no portal, no password).
+`.ebl_venv/`, only the packages `tools/process/ebeam/calculator.py` needs,
+then `streamlit run` on just that page (no portal, no password).
 
 | Function | Purpose |
 |---|---|
-| `_find_app_file()` | Locate `ebeam_calculator.py` beside the launcher, else under `tools/`. |
+| `_find_app_file()` | Locate `ebeam_calculator.py`/`calculator.py` beside the launcher, else under `tools/process/ebeam/` (or the pre-restructure `tools/ebeam/`). |
 | `_autoupdate_disabled()` / `auto_update()` | Same best-effort update as the main launcher. |
 | `run` / `pip_works` / `_create_venv(fresh=False)` / `pip_install` / `is_importable` / `check_missing` / `_pause_if_interactive` / `main` | Same roles as their `LAUNCH_Tool.py` counterparts. |
 
@@ -395,12 +395,13 @@ model builder).
 
 ---
 
-## E-beam lithography (`tools/ebeam/`)
+## E-beam lithography (`tools/process/ebeam/`)
 
 Self-contained page (imports no repo modules, so
 `launch_ebl_calculator.py` can run it standalone — a rule that covers
 `calculator.py` and the modules below it, not the unrelated
-`process_flow.py` page documented at the end of this section).
+`process_flow.py` page in the sibling `process_flow_illustration/` folder,
+documented at the end of this section).
 Sections: **1** chip
 position in the e-beam holder, **2** left-computer origin setup,
 **3** GDS mask viewer (streaming GDSII parser with RAM budgets so a big
@@ -419,7 +420,7 @@ group symbols by what they do, but the file each one actually lives in is:
 decoder + layer objects), `gdsii/stream.py` (compressed upload store +
 large-mask streaming scan/window path), `plotting.py` (traces / coverage
 rasters / area binning) and `exposure.py` (Time Calculator). See
-`tools/ebeam/AGENTS.md` for the exact seams and the one-way dependency
+`tools/process/ebeam/AGENTS.md` for the exact seams and the one-way dependency
 chain between them (no submodule imports `calculator.py` back — Streamlit
 always runs it as `__main__`, so that would re-execute the whole page).
 
@@ -492,24 +493,26 @@ Per-cell area binning & exposure Time Calculator:
 | `_polygon_clip_per_cell_mm(polys_mm, cells)` | Exact per-cell polygon clipping (accurate small-N path). |
 | `_render_time_calculator(prefix, polys_mm, cells, chip_size_mm, dotmap, ...)` | The per-mode Time Calculator section (dose, ramp, per-cell times, total HH:MM:SS). |
 
-### `tools/ebeam/process_flow.py` — HBT Process Flow Illustration page
+### `tools/process/process_flow_illustration/process_flow.py` — HBT Process Flow Illustration page
 
-A second, unrelated page sharing this folder because a page's folder must
-match its i18n group key (`ebeam` == the sidebar's "Process" group). It is
-portal-only — never launched standalone — so unlike the EBL files above it
-imports `tools.common` normally. All it does is embed
-`docs/process_flow/inp_hbt_process_flow.html` in an iframe; the illustration is
-owned entirely by that HTML file. The single exception is language: the page
-rewrites one handshake line so the document follows the portal's 🌐 and hides
-its own toggle. Nothing else about the HTML is parsed or touched.
+An unrelated page sharing only the `process` i18n group (`process` == the
+sidebar's "Process" group) with the EBL calculator in the sibling `ebeam/`
+folder. It is portal-only — never launched standalone — so unlike the EBL
+files above it imports `tools.common` normally. It embeds one of two HTML
+files, picked by a Formal/QAD `segmented_radio`, in an iframe; each
+illustration is owned entirely by its own HTML file. The single exception is
+language: the page rewrites one handshake line so the chosen document follows
+the portal's 🌐 and hides its own toggle. Nothing else about the HTML is
+parsed or touched.
 
 | Symbol | Purpose |
 |---|---|
-| `FLOW_HTML` | The illustration's path, off `paths.REPO_ROOT`. Missing file → `st.error` + `st.stop()`, not a traceback. |
+| `_VARIANTS` | `{"formal": (path, en, zh), "qad": (path, en, zh)}` — maps the radio's option value to the HTML file and its bilingual label. |
+| `FLOW_HTML` | The selected variant's path, off `paths.REPO_ROOT`. Missing file → `st.error` + `st.stop()`, not a traceback. |
 | `_load_flow_html(path_str, mtime)` | Cached read. `mtime` is a cache-key argument only, so editing the HTML refreshes the page without clearing the cache. |
-| `_HOST_LINE` | The illustration's language handshake, verbatim: `const HOST = {lang:null, embed:false};`. Its default — no language imposed, not embedded — is what lets the downloaded file read `?lang=`/`localStorage` and show its own toggle. |
+| `_HOST_LINE` | The illustrations' language handshake, verbatim (identical in both files): `const HOST = {lang:null, embed:false};`. Its default — no language imposed, not embedded — is what lets the downloaded file read `?lang=`/`localStorage` and show its own toggle. |
 | `_hosted(html, lang)` | Substitute `_HOST_LINE` with `lang:'en'\|'zh'` and `embed:true`, or return `None` if that line is missing or duplicated. `None` → `st.warning` + embed the file untouched (two toggles, still working). |
-| `_MIN_HEIGHT` / `_DEFAULT_HEIGHT` | Iframe height slider bounds. The document lays itself out with `height:100vh; min-height:560px`, so inside an iframe the slider resizes the illustration rather than scrolling it — hence the 560 floor. |
+| `_MIN_HEIGHT` / `_DEFAULT_HEIGHT` | Iframe height slider bounds. Each document lays itself out with `height:100vh; min-height:560px`, so inside an iframe the slider resizes the illustration rather than scrolling it — hence the 560 floor. |
 
 ---
 

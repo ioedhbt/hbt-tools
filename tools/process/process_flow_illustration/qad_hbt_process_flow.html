@@ -946,29 +946,155 @@ function rectCells(f, holes){
   }
   return out;
 }
+/** Shared grid sweep behind hollowSlab(), unionSlab() and
+ *  unionSteppedSlab(): given sorted x/z breakpoints and a predicate for
+ *  whether a cell centre is inside the shape, emit top/bottom quads for
+ *  every solid cell and a side wall wherever two grid-adjacent cells
+ *  disagree (off-grid counts as not solid).
+ *
+ *  y0/y1 are each either a plain number (every cell gets the same pair,
+ *  the original behaviour, byte-identical) or a (cx,cz) => y function, so
+ *  a caller like M1 can vary a cell's own floor and ceiling.  A wall run
+ *  now merges on the tuple (occupancy, y0, y1) rather than occupancy
+ *  alone, so two solid neighbours at the same height still join with no
+ *  wall between them -- a hole absent from both (hollowSlab), a rect
+ *  present in either (unionSlab), or the same surface height
+ *  (unionSteppedSlab) -- while a genuine height change gets a wall
+ *  spanning only the mismatched portion, wound to face out of whichever
+ *  side is taller there.  Because every run boundary is therefore a real
+ *  transition (an outline turn or a height step starting/stopping), the
+ *  vertical end lines the edge overlay draws below are never mid-run
+ *  filler.
+ *  `segs` collects the wall corners for the optional edge overlay, so
+ *  edge lines trace the same outline the walls do and nothing more.
+ *  Option surface matches slab(): {a, mode, edges, edgeCol, edgeA}. */
+function sweepSlab(X, Z, isSolid, y0, y1, col, o){
+  o = o || {};
+  const a = o.a === undefined ? 1 : o.a;
+  const c = typeof col === 'string' ? hex(col) : col;
+  const Y0 = typeof y0 === 'function' ? y0 : () => y0;
+  const Y1 = typeof y1 === 'function' ? y1 : () => y1;
+  begin(o.mode || (a < 1 ? 'blend' : 'opaque'));
+
+  for (let i=0;i<X.length-1;i++){
+    if (X[i+1]-X[i] < 1) continue;
+    const cx = (X[i]+X[i+1])/2;
+    for (let j=0;j<Z.length-1;j++){
+      if (Z[j+1]-Z[j] < 1) continue;
+      const cz = (Z[j]+Z[j+1])/2;
+      if (!isSolid(cx, cz)) continue;
+      const cy0 = Y0(cx, cz), cy1 = Y1(cx, cz);
+      if (cy1 - cy0 <= 0.0001) continue;
+      const B=[[X[i],cy0,Z[j]],[X[i+1],cy0,Z[j]],[X[i+1],cy0,Z[j+1]],[X[i],cy0,Z[j+1]]];
+      const T=[[X[i],cy1,Z[j]],[X[i+1],cy1,Z[j]],[X[i+1],cy1,Z[j+1]],[X[i],cy1,Z[j+1]]];
+      quad(T[0],T[1],T[2],T[3], c,a);           // top
+      quad(B[3],B[2],B[1],B[0], c,a);           // bottom
+    }
+  }
+
+  // A cell is null off-grid or not solid; otherwise its own {y0,y1} --
+  // for a plain-number caller every solid cell carries the same pair, so
+  // sameCell() below reduces to the old occupancy-only comparison.
+  const cellAt = (i, j) => {
+    if (i < 0 || i >= X.length-1 || j < 0 || j >= Z.length-1) return null;
+    if (X[i+1]-X[i] < 1 || Z[j+1]-Z[j] < 1) return null;
+    const cx = (X[i]+X[i+1])/2, cz = (Z[j]+Z[j+1])/2;
+    if (!isSolid(cx, cz)) return null;
+    const cy0 = Y0(cx, cz), cy1 = Y1(cx, cz);
+    return cy1 - cy0 > 0.0001 ? {y0:cy0, y1:cy1} : null;
+  };
+  const EPS = 1e-4;
+  const sameCell = (p, q) => p === q ||
+    (p && q && Math.abs(p.y0-q.y0) < EPS && Math.abs(p.y1-q.y1) < EPS);
+  /** The wall piece(s) needed between neighbour cells `near` (the i-1 /
+   *  j-1 side) and `far` (the i / j side): none if they match, the solid
+   *  one's full height if only one side is solid, or -- both solid at
+   *  different heights -- just the mismatched slice(s) above and/or
+   *  below the overlap, each tagged with which side owns it. */
+  function wallPieces(near, far){
+    if (sameCell(near, far)) return [];
+    if (!near) return [{y0:far.y0, y1:far.y1, far:true}];
+    if (!far)  return [{y0:near.y0, y1:near.y1, far:false}];
+    const ov0 = Math.max(near.y0, far.y0), ov1 = Math.min(near.y1, far.y1);
+    const out = [];
+    if (near.y0 < ov0 - EPS) out.push({y0:near.y0, y1:ov0, far:false});
+    if (far.y0  < ov0 - EPS) out.push({y0:far.y0,  y1:ov0, far:true});
+    if (near.y1 > ov1 + EPS) out.push({y0:ov1, y1:near.y1, far:false});
+    if (far.y1  > ov1 + EPS) out.push({y0:ov1, y1:far.y1,  far:true});
+    return out;
+  }
+
+  const segs = [];   // wall corners, collected for the optional edge overlay
+  for (let i=0;i<X.length;i++){                  // walls in the x = X[i] plane
+    const x = X[i];
+    let j = 0;
+    while (j < Z.length-1){
+      const near = cellAt(i-1, j), far = cellAt(i, j);
+      const pieces = wallPieces(near, far);
+      if (!pieces.length){ j++; continue; }
+      let j2 = j;
+      while (j2 < Z.length-1 && sameCell(cellAt(i-1,j2), near) && sameCell(cellAt(i,j2), far)) j2++;
+      for (const pc of pieces){
+        const p0=[x,pc.y0,Z[j]], p1=[x,pc.y0,Z[j2]], p2=[x,pc.y1,Z[j2]], p3=[x,pc.y1,Z[j]];
+        if (pc.far) quad(p0,p1,p2,p3, c,a); else quad(p1,p0,p3,p2, c,a);
+        segs.push([p0,p1,p2,p3]);
+      }
+      j = j2;
+    }
+  }
+  for (let j=0;j<Z.length;j++){                   // walls in the z = Z[j] plane
+    const z = Z[j];
+    let i = 0;
+    while (i < X.length-1){
+      const near = cellAt(i, j-1), far = cellAt(i, j);
+      const pieces = wallPieces(near, far);
+      if (!pieces.length){ i++; continue; }
+      let i2 = i;
+      while (i2 < X.length-1 && sameCell(cellAt(i2,j-1), near) && sameCell(cellAt(i2,j), far)) i2++;
+      for (const pc of pieces){
+        const p0=[X[i],pc.y0,z], p1=[X[i2],pc.y0,z], p2=[X[i2],pc.y1,z], p3=[X[i],pc.y1,z];
+        if (pc.far) quad(p1,p0,p3,p2, c,a); else quad(p0,p1,p2,p3, c,a);
+        segs.push([p0,p1,p2,p3]);
+      }
+      i = i2;
+    }
+  }
+  end();
+
+  if (o.edges){
+    const ec = o.edgeCol ? hex(o.edgeCol) : EDGE, ea = o.edgeA===undefined?EDGE_A:o.edgeA;
+    // Every rectangle corner has an x-wall run and a z-wall run ending on
+    // it, so each independently wants to draw the same vertical there --
+    // keep the first, drop the repeat, so a corner gets one line, not two.
+    const seenV = new Set();
+    const vKey = (p, q) => {
+      const y0 = Math.min(p[1], q[1]).toFixed(3), y1 = Math.max(p[1], q[1]).toFixed(3);
+      return p[0].toFixed(3) + ',' + p[2].toFixed(3) + ',' + y0 + ',' + y1;
+    };
+    for (const [p0,p1,p2,p3] of segs){
+      line(p0,p1,ec,ea); line(p3,p2,ec,ea);
+      const k0 = vKey(p0,p3);
+      if (!seenV.has(k0)){ seenV.add(k0); line(p0,p3,ec,ea); }
+      const k1 = vKey(p1,p2);
+      if (!seenV.has(k1)){ seenV.add(k1); line(p1,p2,ec,ea); }
+    }
+  }
+}
+
 /** A slab spanning `field` with rectangular `holes` punched through it,
- *  emitted as ONE continuous surface: the top and bottom faces are
- *  partitioned into cells, but only the outer perimeter and the hole
- *  walls get side quads.  Internal cell boundaries emit nothing, so a
- *  translucent film blends exactly once everywhere.
+ *  emitted as ONE continuous surface via sweepSlab(): a cell is solid
+ *  when it is inside `field` and inside no hole, so the *union* of the
+ *  holes is what matters -- touching or overlapping holes (e.g. a
+ *  U-shaped metal's arms and crossbar) never get a spurious internal
+ *  wall, because both sides of a shared edge test the same way.
  *
  *  Every hole goes through fp() and is then clipped to `field`, exactly
  *  like a plain footprint; a hole fp() clips away (or that is degenerate
- *  after clipping) is dropped rather than leaving a dangling wall.  Walls
- *  are found with a grid sweep over the x/z breakpoints the (clipped)
- *  holes add to `field` -- the same breakpoints rectCells() uses for the
- *  top/bottom partition -- tagging every cell solid or hole and emitting
- *  a wall only where two grid-adjacent cells disagree.  That makes the
- *  *union* of the holes what matters: touching or overlapping holes
- *  (e.g. a U-shaped metal's arms and crossbar) never get a spurious
- *  internal wall, because both sides of a shared edge test the same way.
+ *  after clipping) is dropped rather than leaving a dangling wall.
  *  Matches slab()'s option surface: {a, mode, edges, edgeCol, edgeA}. */
 function hollowSlab(field, holes, y0, y1, col, o){
-  o = o || {};
-  const a = o.a === undefined ? 1 : o.a;
   if (y1 - y0 <= 0.0001) return;
   if (field.x1 - field.x0 <= 0.0001 || field.z1 - field.z0 <= 0.0001) return;
-  const c = typeof col === 'string' ? hex(col) : col;
 
   // Clip every hole through fp() (so CUTAWAY treats it exactly like a
   // footprint), then to `field`; drop it if that leaves nothing.
@@ -981,22 +1107,9 @@ function hollowSlab(field, holes, y0, y1, col, o){
     H.push({x0, x1, z0, z1});
   }
 
-  begin(o.mode || (a < 1 ? 'blend' : 'opaque'));
-
-  // Top & bottom faces: rectCells() already partitions `field` around the
-  // union of H correctly -- that is exactly what it is for.
-  for (const cell of rectCells(field, H)){
-    const B=[[cell.x0,y0,cell.z0],[cell.x1,y0,cell.z0],[cell.x1,y0,cell.z1],[cell.x0,y0,cell.z1]];
-    const T=[[cell.x0,y1,cell.z0],[cell.x1,y1,cell.z0],[cell.x1,y1,cell.z1],[cell.x0,y1,cell.z1]];
-    quad(T[0],T[1],T[2],T[3], c,a);           // top
-    quad(B[3],B[2],B[1],B[0], c,a);           // bottom
-  }
-
-  // Side walls: sweep the same x/z breakpoint grid, tag each cell solid
-  // (inside `field`, not inside any hole) or not, and wall off every
-  // disagreement between grid-adjacent cells.  Off-field cells always
-  // count as "not solid", so the field's own outer boundary falls out of
-  // the same sweep as the hole walls -- no separate perimeter pass needed.
+  // Off-field cells always count as "not solid", so the field's own outer
+  // boundary falls out of the same sweep as the hole walls -- no separate
+  // perimeter pass needed.
   const xs = new Set([field.x0, field.x1]), zs = new Set([field.z0, field.z1]);
   for (const h of H){ xs.add(h.x0); xs.add(h.x1); zs.add(h.z0); zs.add(h.z1); }
   const X = Array.from(xs).sort((p,q)=>p-q), Z = Array.from(zs).sort((p,q)=>p-q);
@@ -1004,85 +1117,75 @@ function hollowSlab(field, holes, y0, y1, col, o){
     for (const h of H) if (cx > h.x0 && cx < h.x1 && cz > h.z0 && cz < h.z1) return true;
     return false;
   };
-  const solid = (i, j) => {
-    if (i < 0 || i >= X.length-1 || j < 0 || j >= Z.length-1) return false;
-    if (X[i+1]-X[i] < 1 || Z[j+1]-Z[j] < 1) return false;
-    return !inAnyHole((X[i]+X[i+1])/2, (Z[j]+Z[j+1])/2);
-  };
-  const segs = [];   // wall corners, collected for the optional edge overlay
-  for (let i=0;i<X.length;i++){                  // walls in the x = X[i] plane
-    const x = X[i];
-    let j = 0;
-    while (j < Z.length-1){
-      const left = solid(i-1, j), right = solid(i, j);
-      if (left === right){ j++; continue; }
-      let j2 = j;
-      while (j2 < Z.length-1 && solid(i-1,j2) === left && solid(i,j2) === right) j2++;
-      const p0=[x,y0,Z[j]], p1=[x,y0,Z[j2]], p2=[x,y1,Z[j2]], p3=[x,y1,Z[j]];
-      if (left) quad(p1,p0,p3,p2, c,a); else quad(p0,p1,p2,p3, c,a);
-      segs.push([p0,p1,p2,p3]);
-      j = j2;
-    }
-  }
-  for (let j=0;j<Z.length;j++){                   // walls in the z = Z[j] plane
-    const z = Z[j];
-    let i = 0;
-    while (i < X.length-1){
-      const near = solid(i, j-1), far = solid(i, j);
-      if (near === far){ i++; continue; }
-      let i2 = i;
-      while (i2 < X.length-1 && solid(i2,j-1) === near && solid(i2,j) === far) i2++;
-      const p0=[X[i],y0,z], p1=[X[i2],y0,z], p2=[X[i2],y1,z], p3=[X[i],y1,z];
-      if (near) quad(p0,p1,p2,p3, c,a); else quad(p1,p0,p3,p2, c,a);
-      segs.push([p0,p1,p2,p3]);
-      i = i2;
-    }
-  }
-  end();
+  sweepSlab(X, Z, (cx, cz) => !inAnyHole(cx, cz), y0, y1, col, o);
+}
 
-  if (o.edges){
-    const ec = o.edgeCol ? hex(o.edgeCol) : EDGE, ea = o.edgeA===undefined?EDGE_A:o.edgeA;
-    for (const [p0,p1,p2,p3] of segs){
-      line(p0,p1,ec,ea); line(p3,p2,ec,ea); line(p0,p3,ec,ea); line(p1,p2,ec,ea);
-    }
+/** A slab whose plan is the UNION of `rects` -- one continuous solid, so a
+ *  conductor described as several overlapping or touching rectangles
+ *  emits no geometry on the joins.  Same sweepSlab() core as hollowSlab(),
+ *  with the occupancy test flipped: a cell is solid when it is inside
+ *  *any* rect, not when it is inside none of the holes.  Each rect goes
+ *  through fp() first, same as a plain footprint, so CUTAWAY clips the
+ *  whole conductor at once rather than per-part. */
+function unionSlab(rects, y0, y1, col, o){
+  if (y1 - y0 <= 0.0001) return;
+
+  const R = [];
+  for (const r0 of rects){
+    const r = fp(r0.x0, r0.x1, r0.z0, r0.z1);
+    if (r.x1 - r.x0 < 1 || r.z1 - r.z0 < 1) continue;
+    R.push(r);
   }
+  if (!R.length) return;
+
+  const xs = new Set(), zs = new Set();
+  for (const r of R){ xs.add(r.x0); xs.add(r.x1); zs.add(r.z0); zs.add(r.z1); }
+  const X = Array.from(xs).sort((p,q)=>p-q), Z = Array.from(zs).sort((p,q)=>p-q);
+  const inAnyRect = (cx, cz) => {
+    for (const r of R) if (cx > r.x0 && cx < r.x1 && cz > r.z0 && cz < r.z1) return true;
+    return false;
+  };
+  sweepSlab(X, Z, inAnyRect, y0, y1, col, o);
+}
+/** M1: a stepped union of `rects`, flat on the BCB and flat again on the
+ *  floor of any via in `vias` it crosses, with a vertical wall at every
+ *  via edge -- evaporation lands with uniform vertical thickness on
+ *  whatever is beneath it and breaks at a step, so the vias just fold
+ *  their own edges into the grid, the same way unionSlab() folds each
+ *  rect's edges in.  No adaptive sampling is needed (contrast
+ *  drapedShell's o.xLines/zLines): a stepped solid only needs the edges
+ *  of its parts and the edges of the vias it steps into, not a grid fine
+ *  enough to resolve a blurred shoulder. */
+function unionSteppedSlab(rects, vias, padH, col, o){
+  if (padH <= 0) return;
+
+  const R = [];
+  for (const r0 of rects){
+    const r = fp(r0.x0, r0.x1, r0.z0, r0.z1);
+    if (r.x1 - r.x0 < 1 || r.z1 - r.z0 < 1) continue;
+    R.push(r);
+  }
+  if (!R.length) return;
+
+  const xs = new Set(), zs = new Set();
+  for (const r of R){ xs.add(r.x0); xs.add(r.x1); zs.add(r.z0); zs.add(r.z1); }
+  for (const v of vias){ xs.add(v.x0); xs.add(v.x1); zs.add(v.z0); zs.add(v.z1); }
+  const X = Array.from(xs).sort((p,q)=>p-q), Z = Array.from(zs).sort((p,q)=>p-q);
+  const inAnyRect = (cx, cz) => {
+    for (const r of R) if (cx > r.x0 && cx < r.x1 && cz > r.z0 && cz < r.z1) return true;
+    return false;
+  };
+  const surface = (cx, cz) => {
+    for (const v of vias) if (cx > v.x0 && cx < v.x1 && cz > v.z0 && cz < v.z1) return viaFloorY(v);
+    return BCB_TOP;
+  };
+  sweepSlab(X, Z, inAnyRect,
+            (cx, cz) => surface(cx, cz) - SINK,
+            (cx, cz) => surface(cx, cz) + padH,
+            col, o);
 }
 /** Grow a rectangle by `w` on every side (negative shrinks it). */
 const growRect = (r, w) => ({x0:r.x0-w, x1:r.x1+w, z0:r.z0-w, z1:r.z1+w});
-/** Sample points a via's [a,b] span on one axis must contribute to
- *  drapedShell's grid: the span itself, subdivided finely enough that even
- *  a via narrow on this axis still leaves several equal-height interior
- *  samples for heightField()'s blur to hold onto (a via only a couple of
- *  grid cells wide gets blurred flat otherwise), plus one step of ramp
- *  just outside each edge for the shoulder. */
-const M1_SHOULDER = 650, M1_STRIDE = 6000;
-function viaAxisPts(a, b){
-  const step = Math.min(M1_SHOULDER, (b - a) / 6);
-  const n = Math.max(1, Math.round((b - a) / step));
-  const pts = [a - step, b + step];
-  for (let k = 0; k <= n; k++) pts.push(lerp(a, b, k / n));
-  return pts;
-}
-/** Adaptive per-axis sample coordinates for drapedShell's o.xLines/zLines:
- *  the field's own two edges, every `mandatory` point (a via's own
- *  viaAxisPts()), and a few evenly spaced points across any run left wider
- *  than M1_STRIDE so a large empty stretch still gets a couple of quads
- *  rather than one that spans it whole. */
-function adaptiveLines(lo, hi, mandatory){
-  const pts = new Set([lo, hi]);
-  for (const v of mandatory) if (v > lo && v < hi) pts.add(v);
-  const s = Array.from(pts).sort((p, q) => p - q);
-  const out = [s[0]];
-  for (let i = 1; i < s.length; i++){
-    const gap = s[i] - s[i-1];
-    if (gap > M1_STRIDE){
-      const n = Math.ceil(gap / M1_STRIDE);
-      for (let k = 1; k < n; k++) out.push(lerp(s[i-1], s[i], k/n));
-    }
-    out.push(s[i]);
-  }
-  return out;
-}
 /** Scale a rectangle about its own centre — how a developing aperture opens
  *  from nothing up to its nominal mask size. */
 const scaleRect = (r, s) => {
@@ -1132,8 +1235,10 @@ function heightField(hFn, f, nx, nz, xs, zs){
  * footprint `f`: top = h(x,z) + thk, bottom = h(x,z).  Respects the
  * cross-section the same way box()/slab() do, because it goes through fp().
  * Alpha < 1 goes down the blend path like every other draped film; alpha
- * >= 1 (or an explicit o.mode) goes down the opaque path instead, for a
- * shell like M1 that is not translucent.
+ * >= 1 (or an explicit o.mode) goes down the opaque path instead, for an
+ * opaque shell that is not translucent.  Only resist and BCB call this --
+ * both are liquids that genuinely drape.  M1 is evaporated, not spun, so
+ * it steps instead: see unionSteppedSlab().
  *
  * The grid is a uniform (nx, nz) lerp of `f` by default.  o.xLines/o.zLines
  * lets a caller hand in explicit, irregularly-spaced sample coordinates
@@ -1175,9 +1280,31 @@ function drapedShell(f, hFn, thk, col, alpha, o){
   end();
   if (o.edges){
     const ec = EDGE, ea = o.edgeA===undefined?EDGE_A:o.edgeA;
-    for (let i=0;i<nx-1;i++){
-      line([X(i),T(i,0),r.z0],[X(i+1),T(i+1,0),r.z0], ec, ea);
-      line([X(i),T(i,nz-1),r.z1],[X(i+1),T(i+1,nz-1),r.z1], ec, ea);
+    // The rim is one continuous curve per side, not nx-1 independent
+    // segments: a flat stretch (most of the field, off any mesa) is one
+    // line, not a chain of collinear ones peppering the boundary; real
+    // curvature (a mesa shoulder) still gets one segment per sample,
+    // because it is genuine shape, not a sweep artefact.
+    rimLine(i => X(i), i => T(i,0),       nx, r.z0, ec, ea);
+    rimLine(i => X(i), i => T(i,nz-1),    nx, r.z1, ec, ea);
+  }
+}
+/** Trace nx samples of a rim at fixed z as the fewest possible straight
+ *  lines: consecutive samples at the same height merge into one run
+ *  (drawn as a single line), a change in height closes the run and
+ *  starts the next one immediately after it -- so a flat stretch is one
+ *  line and a step is exactly one more, never a vertical drawn mid-run. */
+function rimLine(xAt, yAt, n, zc, ec, ea){
+  let i = 0;
+  while (i < n-1){
+    if (yAt(i) === yAt(i+1)){
+      let k = i+1;
+      while (k < n-1 && yAt(k) === yAt(k+1)) k++;
+      line([xAt(i),yAt(i),zc],[xAt(k),yAt(k),zc], ec, ea);
+      i = k;
+    } else {
+      line([xAt(i),yAt(i),zc],[xAt(i+1),yAt(i+1),zc], ec, ea);
+      i++;
     }
   }
 }
@@ -1356,51 +1483,37 @@ function drawDevice(P){
   const mo = {edges:true, edgeA:0.34, a:A};
   if (P.emH > 0) box(fpR(EM_R), EPI_TOP - SINK, EPI_TOP + P.emH, C.metal, mo);
   if (P.cmH > 0){
-    for (const r of CM_PARTS) box(fpR(r), Y_SC_TOP - SINK, Y_SC_TOP + P.cmH, C.metal, mo);
-    for (const p of PADS)     box(fpR(p), Y_SC_TOP - SINK, Y_SC_TOP + P.cmH, C.metal, mo);
+    // one solid, drawn from three touching rectangles -- unionSlab() so the
+    // arm/crossbar joins get no wall, rather than a seam on each one
+    unionSlab(CM_PARTS, Y_SC_TOP - SINK, Y_SC_TOP + P.cmH, C.metal, mo);
+    for (const p of PADS) box(fpR(p), Y_SC_TOP - SINK, Y_SC_TOP + P.cmH, C.metal, mo);
   }
   if (P.bmH > 0)
-    for (const r of BM_PARTS) box(fpR(r), Y_BASE_TOP - SINK, Y_BASE_TOP + P.bmH, C.metal, mo);
+    // the arms genuinely overlap the crossbar here, not just touch it --
+    // unionSlab() again, so the overlap doesn't z-fight with itself
+    unionSlab(BM_PARTS, Y_BASE_TOP - SINK, Y_BASE_TOP + P.bmH, C.metal, mo);
   if (P.padH > 0){
-    // M1 is thicker than any via is deep (see the header's via-depth table),
-    // so it does not planarise over one: it drapes, filling the hole solid
-    // and carrying the dip in its own top surface out to the field, the same
-    // conformal-shell treatment a resist or the BCB gets, just on an
-    // adaptive grid -- a uniform one would either miss a via a few hundred
-    // nm wide or explode chasing it across a footprint tens of microns long.
-    // One shell per part also replaces the old separate via "plug": the
-    // drape already carries the metal down into the hole and back out.
-    for (const part of M1_PARTS){
-      const r = fp(part.x0, part.x1, part.z0, part.z1);
-      if (r.x1 - r.x0 <= 1 || r.z1 - r.z0 <= 1) continue;
+    // Every earlier film in this flow is spun on as a liquid and drapes;
+    // M1 is evaporated, which lands with uniform *vertical* thickness on
+    // whatever is beneath it and breaks at a step rather than flowing
+    // over one.  So M1 is a stepped solid: flat on the BCB, flat again on
+    // each via floor it crosses, with a vertical wall at every via edge
+    // -- never coplanar with the floor (SINK) and never short of it, so
+    // there is no air gap under the metal at the bottom of a via.
+    //
+    // The two ground plates and the bridge between them are one connected
+    // conductor, so they go through one stepped union together -- no wall
+    // on the two joins.  The two signal fingers never touch anything
+    // else, so each gets its own call.
+    const gnd = [M1_GND_L, M1_GND_R, M1_BRIDGE];
+    const inGnd = v => gnd.some(part =>
+      v.x0 >= part.x0 && v.x1 <= part.x1 && v.z0 >= part.z0 && v.z1 <= part.z1);
+    unionSteppedSlab(gnd, VIAS.filter(inGnd), P.padH, C.metal, mo);
+
+    for (const part of [M1_SIG_B, M1_SIG_C]){
       const vias = VIAS.filter(v => v.x0 >= part.x0 && v.x1 <= part.x1 &&
                                       v.z0 >= part.z0 && v.z1 <= part.z1);
-      // inset SINK inside each via -- the same "start this far inside what
-      // it sits on" margin every other metal uses -- so the dip's footprint
-      // never shares a plane with drawBCB()'s own via hole walls.
-      const ins = vias.map(v => growRect(v, -SINK));
-      const xs = adaptiveLines(r.x0, r.x1, vias.flatMap(v => viaAxisPts(v.x0, v.x1)));
-      const zs = adaptiveLines(r.z0, r.z1, vias.flatMap(v => viaAxisPts(v.z0, v.z1)));
-      const hFn = (x, z) => {
-        for (let i = 0; i < ins.length; i++){
-          const iv = ins[i];
-          if (x > iv.x0 && x < iv.x1 && z > iv.z0 && z < iv.z1) return viaFloorY(vias[i]);
-        }
-        return BCB_TOP;
-      };
-      drapedShell(part, hFn, P.padH, C.metal, mo.a, {mode:'opaque', xLines:xs, zLines:zs});
-      // every via sits >= 1 um inside the part it lands under, so the rim
-      // is flat -- the same wireframe box() would have drawn.
-      if (mo.edges){
-        const ec = mo.edgeCol ? hex(mo.edgeCol) : EDGE, ea = mo.edgeA===undefined?EDGE_A:mo.edgeA;
-        const B=[[r.x0,BCB_TOP,r.z0],[r.x1,BCB_TOP,r.z0],[r.x1,BCB_TOP,r.z1],[r.x0,BCB_TOP,r.z1]];
-        const T=[[r.x0,BCB_TOP+P.padH,r.z0],[r.x1,BCB_TOP+P.padH,r.z0],
-                 [r.x1,BCB_TOP+P.padH,r.z1],[r.x0,BCB_TOP+P.padH,r.z1]];
-        for (let i=0;i<4;i++){
-          const j=(i+1)%4;
-          line(B[i],B[j],ec,ea); line(T[i],T[j],ec,ea); line(B[i],T[i],ec,ea);
-        }
-      }
+      unionSteppedSlab([part], vias, P.padH, C.metal, mo);
     }
   }
 

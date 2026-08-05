@@ -13,7 +13,7 @@ Shots:
 """
 from pathlib import Path
 
-ENTRY = "tools/ebeam/calculator.py"
+ENTRY = "tools/process/ebeam/calculator.py"
 DATA = Path("/tmp/app/guide/_data/gds")
 
 

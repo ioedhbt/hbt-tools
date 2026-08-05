@@ -11,7 +11,7 @@ each build on what's here.
 The EBL Calculator lives in the portal sidebar, under **Process**. It also
 runs on its own, outside the portal: `python launch_ebl_calculator.py` builds
 a local virtual environment next to itself, installs the packages the page
-needs, and launches it directly at `tools/ebeam/calculator.py`. Standalone
+needs, and launches it directly at `tools/process/ebeam/calculator.py`. Standalone
 mode has no password gate and no other tools in the sidebar, just this page.
 
 ![EBL Calculator page header, standalone launch — no portal chrome, no password gate](../assets/ebl/index_header.png)
