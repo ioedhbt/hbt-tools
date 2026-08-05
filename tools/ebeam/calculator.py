@@ -497,6 +497,11 @@ def render_page() -> None:
         _si_sa_ny = int(st.session_state.get("ebc_sa_sap_ny", 20))
         _si_sa_shift_x = float(st.session_state.get("ebc_sa_o_shift_x", -9.7))
         _si_sa_shift_y = float(st.session_state.get("ebc_sa_o_shift_y", -9.7))
+        # Dose Time Testing's Time Calculator (prefix "ebc_dt", dose_ramp=True
+        # in _render_time_calculator) exposes these two — defaults match
+        # exposure.py's _TC_DEFAULTS.
+        _si_dt_dose_init = float(st.session_state.get("ebc_dt_dose_init_us", 2.0))
+        _si_dt_dose_step = float(st.session_state.get("ebc_dt_dose_step_us", 0.2))
 
         with st.expander(tr("Setup Instructions", "設定說明"), expanded=False):
             st.caption(tr("Make sure you already have the `.cel` file. In `job1`: ",
@@ -508,17 +513,16 @@ def render_page() -> None:
             st.caption(tr("3. Type the chip name, the same name as the `.cel` file.",
                           "3. 輸入晶片名稱，須與 `.cel` 檔案名稱相同。"))
             st.caption(tr(
-                f"4. Set chip origin, usually {_colored_num(_si_origin_x, 10.0)}, "
+                f"4. Set chip origin, {_colored_num(_si_origin_x, 10.0)}, "
                 f"{_colored_num(_si_origin_y, 10.0)}. Using `0, 0` is difficult to see.",
-                f"4. 設定晶片原點，通常為 {_colored_num(_si_origin_x, 10.0)}, "
+                f"4. 設定 chip origin， {_colored_num(_si_origin_x, 10.0)}, "
                 f"{_colored_num(_si_origin_y, 10.0)}。使用 `0, 0` 較難以辨識。"))
             st.caption(tr("5. Click `Ax: chip dot` (white), it will be changed to `Ax: stage (mm)` (green).",
                           "5. 點擊 `Ax: chip dot`（白色），會變為 `Ax: stage (mm)`（綠色）。"))
             st.caption(tr("6. Type `0.0001g` to set grid spacing to 100 nm.",
                           "6. 輸入 `0.0001g` 將網格間距設為 100 nm。"))
             with st.expander(tr("Dose Time Testing", "劑量時間測試"), expanded=False):
-                st.caption(tr("7. Click File -> Load CEL. Enter cel name.",
-                              "7. 點擊 File -> Load CEL，輸入 cel 名稱。"))
+                st.caption(tr("7. Click esc button to open menu, File -> Load CEL. Enter cel name.", "7. 點擊 esc 按鈕打開選單，然後點擊 File -> Load CEL，輸入 cel 名稱。"))
                 st.caption(tr(
                     f"8. Origin: {_colored_num(_si_dt_cel_x, 9.7)}, "
                     f"{_colored_num(_si_dt_cel_y, 9.7)}.",
@@ -536,14 +540,7 @@ def render_page() -> None:
                     f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
                     f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
                     f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
-                st.caption(
-                    f"{tr('Job 3', 'Job 3')} — "
-                    f"dx, dy: {_colored_num(_si_dt_dx, 0.6)}, {_colored_num(_si_dt_dy, 0.6)}; "
-                    f"Nx, Ny: {_colored_num(_si_dt_nx, 5, '%.0f')}, "
-                    f"{_colored_num(_si_dt_ny, 5, '%.0f')}; "
-                    f"{tr('initial shift x, y', '初始位移 x, y')}: "
-                    f"{_colored_num(_si_dt_shift_x, 98.8)}, "
-                    f"{_colored_num(_si_dt_shift_y, 109.2)}")
+
             with st.expander(tr("First Exposure", "首次曝光"), expanded=False):
                 st.caption(tr("7. Type `mc` to create grid points.",
                               "7. 輸入 `mc` 建立網格點。"))
@@ -564,8 +561,8 @@ def render_page() -> None:
                     f"{_colored_num(_si_fe_ny, 20, '%.0f')}，依圖案大小而定。"))
                 st.caption(tr("12. X direction? `Y` -> Auto reverse? `N`",
                               "12. X 方向？`Y` -> 自動反轉？`N`"))
-                st.caption(tr("13. Click File -> Load CEL. Enter cel name.",
-                              "13. 點擊 File -> Load CEL，輸入 cel 名稱。"))
+                st.caption(tr("13. Click esc button to open menu, click File -> Load CEL. Enter cel name.",
+                              "13. 點擊 esc 按鈕打開選單，然後點擊 File -> Load CEL，輸入 cel 名稱。"))
                 st.caption(tr(
                     f"14. Origin: {_colored_num(_si_fe_cel_x, 9.7)}, "
                     f"{_colored_num(_si_fe_cel_y, 9.7)}.",
@@ -585,11 +582,7 @@ def render_page() -> None:
                     f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
                     f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
                     f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
-                st.caption(
-                    f"{tr('Job 3', 'Job 3')} — "
-                    f"{tr('shift x, y', '位移 x, y')}: "
-                    f"{_colored_num(_si_fe_shift_x, 94.3)}, "
-                    f"{_colored_num(_si_fe_shift_y, 104.7)}")
+
             with st.expander(tr("Second Alignment", "二次對準"), expanded=False):
                 st.caption(tr("7. Type `mc` to create grid points.",
                               "7. 輸入 `mc` 建立網格點。"))
@@ -610,8 +603,8 @@ def render_page() -> None:
                     f"{_colored_num(_si_sa_ny, 20, '%.0f')}，依圖案大小而定。"))
                 st.caption(tr("12. X direction? `Y` -> Auto reverse? `N`",
                               "12. X 方向？`Y` -> 自動反轉？`N`"))
-                st.caption(tr("13. Click File -> Load CEL. Enter cel name.",
-                              "13. 點擊 File -> Load CEL，輸入 cel 名稱。"))
+                st.caption(tr("13. Click esc button to open menu, then click File -> Load CEL. Enter cel name.",
+                              "13. 點擊 esc 按鈕打開選單，然後點擊 File -> Load CEL，輸入 cel 名稱。"))
                 st.caption(tr(
                     f"14. Origin: {_colored_num(_si_sa_cel_x, 9.7)}, "
                     f"{_colored_num(_si_sa_cel_y, 9.7)}.",
@@ -634,18 +627,51 @@ def render_page() -> None:
                     f"{tr('chip size, dotmap', '晶片尺寸、點陣圖')}: "
                     f"{_colored_num(_si_chip_size, 600, '%.0f')}, "
                     f"{_colored_num(_si_dotmap, 60000, '%.0f')}")
-                st.caption(
-                    f"{tr('Job 3', 'Job 3')} — "
-                    f"{tr('shift x, y', '位移 x, y')}: "
-                    f"{_colored_num(_si_sa_shift_x, -9.7)}, "
-                    f"{_colored_num(_si_sa_shift_y, -9.7)}")
+                # st.caption(
+                #     f"{tr('Job 3', 'Job 3')} — "
+                #     f"{tr('shift x, y', '位移 x, y')}: "
+
             st.caption(tr(
-                "Click File -> save -> press enter. Type the file `.con` name, the same as the `.cel` file.",
-                "點擊 File -> save -> 按 Enter。輸入 `.con` 檔名，須與 `.cel` 檔案名稱相同。"))
+                "Click esc button to open menu, then click File -> save -> press enter. Type the file `.con` name, the same as the `.cel` file.",
+                "點擊 esc 按鈕打開選單，然後點擊 File -> save -> 按 Enter。輸入 `.con` 檔名，須與 `.cel` 檔案名稱相同。"))
             st.caption(tr(
                 "If successful, the grids will be green, your folder should have `.ccc, .cbc, .con` files.",
                 "若成功，網格會變為綠色，資料夾中應會有 `.ccc, .cbc, .con` 檔案。"))
+            st.caption(tr("Then, in job3:","然後, 在 job3:"))
+            with st.expander(tr("Dose Time Testing", "劑量時間測試"), expanded=False):
+                st.caption(tr("1. Type `x` (matrix schedule). Then input these values.", "1. 輸入 `x`（matrix schedule）。然後加入這些數值。"))
+                st.caption(tr(
+                    f"2. Init shift x, y, dose: {_colored_num(_si_dt_shift_x, 98.8)}, {_colored_num(_si_dt_shift_y, 109.2)}, {_colored_num(_si_dt_dose_init, 2.0)}",
+                    f"2. Init shift x, y, dose: {_colored_num(_si_dt_shift_x, 98.8)}, {_colored_num(_si_dt_shift_y, 109.2)}, {_colored_num(_si_dt_dose_init, 2.0)}"))
+                st.caption(tr(f"3. Init shift modx, mody: `0,0`", "3. Init shift modx, mody: `0,0`"))
+                st.caption(tr(
+                    f"4. Incremental x, y, dose: {_colored_num(_si_dt_dx, 0.6)}, {_colored_num(_si_dt_dy, 0.6)}, {_colored_num(_si_dt_dose_step, 0.2)}",
+                    f"4. Incremental x, y, dose: {_colored_num(_si_dt_dx, 0.6)}, {_colored_num(_si_dt_dy, 0.6)}, {_colored_num(_si_dt_dose_step, 0.2)}"))
+                st.caption(tr(f"5. Incremental modx, mody: `0,0`", "5. Incremental modx, mody: `0,0`"))
+                st.caption(tr(f"6. Nx, Ny: {_colored_num(_si_dt_nx, 5, '%.0f')}, {_colored_num(_si_dt_ny, 5, '%.0f')}", f"6. Nx, Ny: {_colored_num(_si_dt_nx, 5, '%.0f')}, {_colored_num(_si_dt_ny, 5, '%.0f')}"))
+                st.caption(tr("7. Focus shift value: `0`", "7. Focus shift value: `0`"))
+                st.caption(tr("8. X Direction? (Y): `y`. Auto Reverse (Y): `n`", "8. X Direction? (Y): `y`. Auto Reverse (Y): `n`"))
+                st.caption(tr("9. Schedule file name: (same as your file name). Then click enter.", "9. Schedule file name: (你的檔案名稱)。然後按 Enter。"))
+                st.caption(tr("10. Modify the schedule file as needed with `i`. You can change the dose time on each grid, or move the grid position.", "10. 根據需要使用 `i` 修改 schedule 檔案。可以變更每個 grid 上的 dose time，或移動 grid 的位置。"))
+                st.caption(tr("11. Click `e` (Exposure Execution) to check your pattern.","11. 點擊 `e` (Exposure Execution) 檢查您的模式。"))
+                st.caption(tr("12. In the window, click `esc` button to open menu, then click `Disp Pat` to display the pattern. Make sure they are positioned correctly. Close the window after finished checking.", "12. 在視窗中，按 Esc 鍵開啟選單，然後點選`Disp Pat`顯示圖案。確保圖案位置正確。檢查完畢後關閉視窗。"))
+                st.caption(tr("13. Set up the exposure condition by clicking `c`. Go to `Z Move with Height Sensor`, click enter and fill the z-height from the laser. Usually the position of the center of the chip is `110,120`.","13. 點選`c`設定曝光條件。進入`Z Move with Height Sensor`選項，點選回車鍵並輸入雷射測量所得的Z軸高度值。晶片中心位置通常為`110,120`。"))
+                st.caption(tr("14. Click `h` to toggle the height sensor off. Click `f` to do field correction.","14. 點擊 `h` 關閉高度感應器。點擊 `f` 進行 field correction。"))
 
+                
+            with st.expander(tr("First Exposure", "首次曝光"), expanded=False):
+                st.caption(tr(
+                    f"1. Type `i`. Put in your file name. Click the right arrow button → in your keyboard, type in the Position Shift (DX, DY): {_colored_num(_si_fe_shift_x, 94.3)}, {_colored_num(_si_fe_shift_y, 104.7)}. Click the right arrow button → again, then input your dose shift. Click esc when finished.",
+                    f"1. 輸入 `i`。輸入檔案名稱。按鍵盤右箭頭 →，輸入 Position Shift (DX, DY): {_colored_num(_si_fe_shift_x, 94.3)}, {_colored_num(_si_fe_shift_y, 104.7)}. 按鍵盤右箭頭 → 再次，然後輸入 dose shift。按 esc 完成。"))
+                st.caption(tr("2. Click `c` to set the exposure conditions. Go to `Z Move with Height Sensor`, click Enter and fill the z-height from the laser. Usually the position of the center of the chip is `110,120`.","13. 點選`c`設定曝光條件。進入`Z Move with Height Sensor`選項，按Enter並輸入雷射測量所得的Z軸高度值。晶片中心位置通常為`110,120`。"))
+                st.caption(tr("3. Click `f` to do field correction.","14. 點擊 `f` 進行 field correction。"))
+            with st.expander(tr("Second Alignment", "二次對準"), expanded=False):
+                st.caption(tr(
+                    f"1. Type `i`. Put in your file name. Click the right arrow button → in your keyboard, type in the Position Shift (DX, DY): {_colored_num(_si_sa_shift_x, -9.7)}, {_colored_num(_si_sa_shift_y, -9.7)}. Click the right arrow button → again, then input your dose shift. Click esc when finished.",
+                    f"1. 輸入 `i`。輸入檔案名稱。按鍵盤右箭頭 →，輸入 Position Shift (DX, DY): {_colored_num(_si_sa_shift_x, -9.7)}, {_colored_num(_si_sa_shift_y, -9.7)}. 按鍵盤右箭頭 → 再次，然後輸入 dose shift。按 esc 完成。"))
+                st.caption(tr("2. Click `c` to set the exposure conditions. Go to `Z Move with Height Sensor`, click Enter and fill the z-height from the laser. Usually the position of the center of the chip is `110,120`. Set `Registration Control` to ON.","13. 點選`c`設定曝光條件。進入`Z Move with Height Sensor`選項，按Enter並輸入雷射測量所得的Z軸高度值。晶片中心位置通常為`110,120`。將 `Registration Control` 設為 ON。"))
+                st.caption(tr("3. Click `f` to do field correction.","14. 點擊 `f` 進行 field correction。"))
+            st.caption(tr("After field correction is finished, click `e` to go to exposure execution. In the window, click `esc` button to open menu, then click `Disp Pat` to display the pattern. Click `esc` button, and find `Exposure` to start exposure. Exposure start?: `y`.", "Field correction完成後，點擊 `e` 進行 exposure execution。在視窗中，按 Esc 鍵開啟選單，然後點選`Disp Pat`顯示圖案。按 Esc 鍵，然後找到`Exposure`開始曝光。Exposure start?: `y`."))
         c_oxy, c_csdm = st.columns(2)
         with c_oxy:
             with st.container(border=True):
