@@ -7,7 +7,7 @@
 
 ## 1. 開啟計算機
 
-大部分情況下，[Streamlit 線上網頁](https://ebeaml.streamlit.app/)應用程式就足以處理遮罩檔案。如果你的遮罩檔案大於 350 MB，請改在本機執行應用程式：
+大部分情況下，[Streamlit 線上網頁](https://hbt-tools.streamlit.app/)應用程式就足以處理遮罩檔案。如果你的遮罩檔案大於 350 MB，請改在本機執行應用程式：
 
 1. 在電腦上安裝 python。Windows 上安裝時要勾選「add to PATH」。
 

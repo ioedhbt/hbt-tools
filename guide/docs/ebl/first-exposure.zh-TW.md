@@ -64,3 +64,10 @@ in job1)**（Nx、Ny）與 **job3 中的位移 (mm) (Shift (mm) in job3)** 全�
 
 見[工作編號表](job-sheet.md)依序看本頁與[劑量時間測試](dose-test.md)的
 每個數字各自落在 JEOL 系統的哪個欄位。
+
+## 設定說明
+
+小提示：開啟 **左側電腦設定 (Left Computer Setup)** 區塊中的 **設定說明
+(Setup Instruction)**。它會彙整你的步驟與左側電腦所需的數字。
+
+![設定說明彙整你的步驟與左側電腦所需的數字](../assets/ebl/setup_instruction.png)

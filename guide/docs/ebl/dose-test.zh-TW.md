@@ -54,3 +54,10 @@ grid))** 與 **載台移動時間 (s / grid) (Stage movement time (s / grid))**�
 2.000, 6.800 μs`，也就是 25 個區塊依迭代順序實際用到的最低與最高單區塊劑量。
 底部的 **預估時間 (Estimated Time)**（`00:35:35.000`）顯示曝光所需時間。
 見[工作編號表](job-sheet.md)看這些數字各自對應到 JEOL 系統中的哪個欄位。
+
+## 設定說明
+
+小提示：開啟 **左側電腦設定 (Left Computer Setup)** 區塊中的 **設定說明
+(Setup Instruction)**。它會彙整你的步驟與左側電腦所需的數字。
+
+![設定說明彙整你的步驟與左側電腦所需的數字](../assets/ebl/setup_instruction.png)
