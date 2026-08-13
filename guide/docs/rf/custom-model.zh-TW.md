@@ -8,10 +8,7 @@ model)**。
 ## 功能說明
 
 每一段你畫出的支路，R、L、C，不論任何串並聯組合，都會化簡為兩個具名節點
-之間的雙埠網路，再加上核心處一個本質 π 或 T 受控源。求解器
-（`custom_model/core.py`）將每個支路填入節點導納矩陣，以 Kron 消去法去除
-內部節點，再把得到的 2×2 Y 矩陣轉換為 S 參數，這與 SPICE 類 AC
-求解器所走的 netlist→Y→S 路徑相同，並針對頻率向量化運算。
+之間的雙埠網路，再加上核心處一個本質 π 或 T 受控源。
 
 每次編輯後，控制項上方都會即時重繪一張 SVG 示意圖，讓你在模擬前就能看到
 正在搭建的拓樸。
@@ -26,10 +23,9 @@ Xu T、Kun-Yang HEMT）或先前儲存的 `.json`，該情況下**每個**區段
 ## 實作範例：Cheng's T 加上一段射極延遲支路
 
 從 Cheng's T 拓樸開始，在本質射極與接觸網路的 Re/Le 之間加入一個並聯的
-電阻與電容，這與內建的 Kun-Yang HEMT 模型在其源極腿上使用的
-R_delay∥C_delay 支路屬於同一種手法。
+電阻與電容。
 
-1. 在 **📂 修改既有模型（內建或 .json）** 下，從**從內建模型開始
+在 **📂 修改既有模型（內建或 .json）** 下，從**從內建模型開始
    (Start from a built-in model)** 選擇 **Cheng, T (current-source T
    HBT)**，點選**載入 (Load)**。
 
@@ -40,25 +36,23 @@ Cbe∥Rbe、Cbc∥Rbc、Cbcx、接觸網路，以及三個焊墊電容：
 
 ![已載入 Cheng T 預設模型的即時示意圖](../assets/simfit/custom_schematic_chengt.png)
 
-2. 捲動到 **3 · 延遲 / 埠附加元件 (3 · Delay / port extras)**，點選
+捲動到 **3 · 延遲 / 埠附加元件 (3 · Delay / port extras)**，點選
    **E delay** 晶片，即共用（射極）延遲支路，預設為空。
 
 ![第 3 節，已選取 E delay 晶片，「No components yet」](../assets/simfit/custom_emitter_empty.png)
 
-3. 點選**➕ 新增串聯段 (➕ Add series step)**，再於該段內點選
+點選**➕ 新增串聯段 (➕ Add series step)**，再於該段內點選
    **➕ R（並聯） (➕ R (parallel))** 與 **➕ C（並聯） (➕ C (parallel))**，
    兩者會落在同一個並聯群組中，彼此並聯，並與射極腿其餘部分串聯。
-4. 將兩個 **name（名稱）** 欄位改名為 `r_delay_e` 與 `c_delay_e`。
+將兩個 **name（名稱）** 欄位改名為 `r_delay_e` 與 `c_delay_e`。
 
 示意圖現在會顯示這條新支路，位於本質射極（`Ie` 電流源接點）與
 `Re`/`Le` 之間：
 
 ![示意圖顯示 r_delay_e 並聯 c_delay_e 插入於 Re/Le 之上](../assets/simfit/custom_emitter_added.png)
 
-`r_delay_e` 與 `c_delay_e` 會滾降射極的高頻響應，`c_delay_e` 在其轉角
-頻率以上會將 `r_delay_e` 短路，為射極接觸路徑加入一個獨立於本質
-Cbe/Rbe 接面的極點。這與 Kun-Yang HEMT 模型用來擬合看似頻率相依的源極
-電阻，是同一種手法。
+`r_delay_e` 與 `c_delay_e` 會滾降射極的高頻響應：`c_delay_e` 在其轉角
+頻率以上會將 `r_delay_e` 短路，為射極接觸路徑加入一個極點。
 
 ## 儲存、重複使用與擬合
 
@@ -84,7 +78,6 @@ Cbe/Rbe 接面的極點。這與 Kun-Yang HEMT 模型用來擬合看似頻率相
 
 在**📂 擬合至量測元件（選用） (📂 Fit to a measured device)**（頁面頂端，
 與內建模型共用同一個控制項）上傳量測 `.s2p`，即可疊圖並進行擬合；
-殘差顯示、[視覺化調諧與自動調諧](tuning.md)在自訂模型上運作方式完全相同，
-只是背後由通用的網表求解器取代解析公式。
+殘差顯示、[視覺化調諧與自動調諧](tuning.md)在自訂模型上運作方式完全相同。
 
 下一步：[視覺化與自動調諧](tuning.md) · [圖表控制](charts.md)。

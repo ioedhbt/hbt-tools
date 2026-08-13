@@ -364,6 +364,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1296,438 +1324,91 @@
 
 <h1 id="工作編號表">工作編號表<a class="headerlink" href="#工作編號表" title="Permanent link">&para;</a></h1>
 <p><a href="../dose-test/">劑量時間測試</a>、<a href="../first-exposure/">首次曝光</a>與
-<a href="../second-exposure/">二次曝光</a>裡的每一個數字，依 JEOL ELS-7000 軟體要求的
+<a href="../second-exposure/">二次曝光</a>裡需要的每一個欄位，依 JEOL ELS-7000 軟體要求的
 順序整理：先 <strong>Job 1</strong>，再 <strong>Job 2</strong>，最後 <strong>Job 3</strong>。挑選你要執行的曝光
-對應的章節，每個章節都是獨立完整的。<strong>預設值 (default)</strong> 表示保留計算機
-的原始數值；<strong>量測值 (measured)</strong> 表示由你在機台上實際找到的數值填入；
-<strong>計算值 (computed)</strong> 表示由計算機算出，只需讀出，除了對應的 JEOL 欄位外，
-不要在其他任何地方手動輸入。</p>
+對應的章節，每個章節都是獨立完整的。</p>
 <h2 id="劑量時間測試">劑量時間測試<a class="headerlink" href="#劑量時間測試" title="Permanent link">&para;</a></h2>
-<p>來源：<a href="../dose-test/">dose-test.md</a>，<code>dose_test.gds</code>，圖層 <code>L1/D1</code>。</p>
+<p>在真正元件上曝光之前請先進行劑量測試。它以不同的曝光時間多次繪製同一個
+圖案，讓你能挑出最好的曝光時間：曝光量必須足夠，使圖案能在一定容差內曝光，
+同時維持可接受的良率。</p>
 <p><strong>Job 1</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Origin x (mm)（晶片原點 x）</td>
-<td>10.000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Chip Origin y (mm)（晶片原點 y）</td>
-<td>10.000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Cel Origin x (mm)（Cel 原點 x）</td>
-<td>8.610</td>
-<td>量測值，定位讓遮罩落在寫入場區塊之內</td>
-</tr>
-<tr>
-<td>Cel Origin y (mm)（Cel 原點 y）</td>
-<td>9.710</td>
-<td>量測值，同上</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Chip origin x, y (mm)</code>（晶片原點 x, y）：網格的起點，而不是元件在載台上
+  的位置。</li>
+<li><code>Cel origin x, y (mm)</code>（Cel 原點 x, y）：<code>.cel</code> 檔案放置的位置。</li>
+</ul>
 <p><strong>Job 2</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Size (μm)（晶片尺寸）</td>
-<td>600</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Dotmap（點陣圖）</td>
-<td>60000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Resolution（解析度，唯讀）</td>
-<td>10 nm</td>
-<td>計算值</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Chip size (μm)</code>（晶片尺寸）：網格邊長，通常為 600 μm。測試圖案通常
+  會落在單一網格內，網格在 job3 中再倍增。</li>
+<li><code>Dotmap</code>（點陣圖）：要繪製多少「像素」。</li>
+</ul>
+<p>解析度 (Resolution) = 晶片尺寸 (Chip Size) / 點陣圖 (Dotmap)。範例：晶片尺寸
+= 600 μm，點陣圖 = 60000，解析度 = 10 nm。</p>
 <p><strong>Job 3</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Increment dx (mm)（增量 dx）</td>
-<td>0.600</td>
-<td>預設值（= 晶片尺寸）</td>
-</tr>
-<tr>
-<td>Increment dy (mm)（增量 dy）</td>
-<td>0.600</td>
-<td>預設值（= 晶片尺寸）</td>
-</tr>
-<tr>
-<td>Grid Count Nx（網格數量 Nx）</td>
-<td>5</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Grid Count Ny（網格數量 Ny）</td>
-<td>5</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Initial Shift x (mm)（初始位移 x）</td>
-<td>98.800</td>
-<td>計算值</td>
-</tr>
-<tr>
-<td>Initial Shift y (mm)（初始位移 y）</td>
-<td>109.200</td>
-<td>計算值</td>
-</tr>
-</tbody>
-</table>
-<p><strong>劑量／載台時間</strong>（不是編號的 JEOL 工作欄位，但要在寫入機上設定後才能執行）</p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Initial dose (μs / dot)（初始劑量）</td>
-<td>2.000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Incremental dose (μs / grid)（增量劑量）</td>
-<td>0.200</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Stage movement time (s / grid)（載台移動時間）</td>
-<td>15.00</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Estimated Time（預估時間）</td>
-<td>00:35:35.000</td>
-<td>計算值，僅供規劃參考</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Increment dx, dy (mm)</code>（增量 dx, dy）：每個網格之間的距離，通常為
+  <code>0.6,0.6</code> mm</li>
+<li><code>Grid Count Nx, Ny</code>（網格數量 Nx, Ny）：x 與 y 方向的網格數量。使用
+  <code>5,5</code> 會產生一個 5 乘 5 的網格。</li>
+<li><code>Initial Shift x, y (mm)</code>（初始位移 x, y）：依晶片位置而定的位置位移。</li>
+<li><code>Initial dose</code>（初始劑量）：你想測試的最小劑量（駐留時間，dwell time）。
+  例如 5 µs。</li>
+<li><code>Dose increment</code>（劑量增量）：網格之間的劑量增量。若有 5 個網格，初始
+  劑量為 5 µs，劑量增量為 0.2 µs，EBL 會以 5 µs、5.2 µs、5.4 µs、5.6 µs
+  與 5.8 µs 曝光。</li>
+</ul>
+<p><code>modx, mody</code> 為 <code>0,0</code>，<code>focus shift</code> 為 <code>0</code>。</p>
 <h2 id="首次曝光">首次曝光<a class="headerlink" href="#首次曝光" title="Permanent link">&para;</a></h2>
-<p>來源：<a href="../first-exposure/">first-exposure.md</a>，<code>first_exposure.gds</code>，圖層
-<code>L1/D2</code>（<code>L1/D1</code> 與 <code>L1/D3</code> 用相同的角落與 Cel Origin 重複一次）。</p>
+<p>首次曝光是指不進行對準的一般曝光。請先確認你已有所需的劑量時間。一旦輸入
+你在 SEM 模式下找到的角落（或位置），應用程式就會自動將遮罩圖案置中於
+元件上。</p>
 <p><strong>Job 1</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Origin x (mm)（晶片原點 x）</td>
-<td>10.000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Chip Origin y (mm)（晶片原點 y）</td>
-<td>10.000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Bottom Left (BL) corner x (mm)（左下角落 x）</td>
-<td>105.000</td>
-<td>量測值，在鏡下找到的晶片角落</td>
-</tr>
-<tr>
-<td>Bottom Left (BL) corner y (mm)（左下角落 y）</td>
-<td>115.000</td>
-<td>量測值</td>
-</tr>
-<tr>
-<td>Top Right (TR) corner x (mm)（右上角落 x）</td>
-<td>107.000</td>
-<td>量測值，在鏡下找到的對準標記</td>
-</tr>
-<tr>
-<td>Top Right (TR) corner y (mm)（右上角落 y）</td>
-<td>117.000</td>
-<td>量測值</td>
-</tr>
-<tr>
-<td>Cel Origin x (mm)（Cel 原點 x）</td>
-<td>9.700</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Cel Origin y (mm)（Cel 原點 y）</td>
-<td>9.700</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Grid Count Nx（網格數量 Nx）</td>
-<td>4</td>
-<td>計算值，自動貼合遮罩圖層</td>
-</tr>
-<tr>
-<td>Grid Count Ny（網格數量 Ny）</td>
-<td>2</td>
-<td>計算值，自動貼合遮罩圖層</td>
-</tr>
-</tbody>
-</table>
-<p>左上與右下角落不需要在任何地方輸入，它們由 BL 與 TR 計算而得，並以禁用
-狀態顯示在晶片位置圖上。</p>
+<ul>
+<li><code>Chip origin x, y (mm)</code>（晶片原點 x, y）：網格的起點，而不是元件在載台上
+  的位置。</li>
+<li><code>Cel origin x, y (mm)</code>（Cel 原點 x, y）：<code>.cel</code> 檔案放置的位置。</li>
+<li><code>Grid Count Nx, Ny</code>（網格數量 Nx, Ny）：要容納你遮罩中所有圖案所需的網格
+  數量。</li>
+</ul>
 <p><strong>Job 2</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Size (μm)（晶片尺寸）</td>
-<td>600</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Dotmap（點陣圖）</td>
-<td>60000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Resolution（解析度，唯讀）</td>
-<td>10 nm</td>
-<td>計算值</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Chip size (μm)</code>（晶片尺寸）：網格邊長，通常為 600 μm。</li>
+<li><code>Dotmap</code>（點陣圖）：要繪製多少「像素」。</li>
+</ul>
+<p>解析度 (Resolution) = 晶片尺寸 (Chip Size) / 點陣圖 (Dotmap)。範例：晶片尺寸
+= 600 μm，點陣圖 = 60000，解析度 = 10 nm。</p>
 <p><strong>Job 3</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Shift x (mm)（位移 x）</td>
-<td>95.100</td>
-<td>計算值，將網格置中於晶片上</td>
-</tr>
-<tr>
-<td>Shift y (mm)（位移 y）</td>
-<td>105.700</td>
-<td>計算值</td>
-</tr>
-</tbody>
-</table>
-<p><strong>劑量／載台時間</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Dose time (μs / dot)（劑量時間）</td>
-<td>2.000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Stage movement time (s / grid)（載台移動時間）</td>
-<td>15.00</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Estimated Time（預估時間）</td>
-<td>00:00:35.400</td>
-<td>計算值，僅供規劃參考</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Shift x, y</code> (mm)（位移 x, y）：需要多少位置位移，才能把 <code>job1</code> 中設定的
+  位置對合到 SEM 偵測到的實際元件位置。</li>
+</ul>
 <h2 id="二次曝光">二次曝光<a class="headerlink" href="#二次曝光" title="Permanent link">&para;</a></h2>
-<p>來源：<a href="../second-exposure/">second-exposure.md</a>，<code>second_exposure.gds</code>，
-圖層 <code>L2/D1</code>（<code>L2/D2</code> 用相同的角落、標記與 Cel Origin 重複一次）。</p>
+<p>來源：<a href="../second-exposure/">second-exposure.md</a>，<code>second_exposure.gds</code>，圖層
+<code>L2/D1</code>（<code>L2/D2</code> 用相同的角落、標記與 Cel Origin 重複一次）。</p>
 <p><strong>Job 1</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Origin x (mm)（晶片原點 x）</td>
-<td>10.000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Chip Origin y (mm)（晶片原點 y）</td>
-<td>10.000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Bottom Left (BL) / Top Right (TR) corners（左下／右上角落）</td>
-<td>與首次曝光相同</td>
-<td>量測值，同一片實體晶片，位置沒有變動</td>
-</tr>
-<tr>
-<td>Cel Origin x (mm)（Cel 原點 x）</td>
-<td>9.700</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Cel Origin y (mm)（Cel 原點 y）</td>
-<td>9.700</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Grid Count Nx（網格數量 Nx）</td>
-<td>4</td>
-<td>計算值，自動貼合遮罩圖層</td>
-</tr>
-<tr>
-<td>Grid Count Ny（網格數量 Ny）</td>
-<td>4</td>
-<td><strong>手動修正</strong>，自動貼合算出 2，不夠到達標記，因此調高為 4</td>
-</tr>
-<tr>
-<td>Reg-2 Mark, Mark 1 (M1) x (mm)（標記 1 x）</td>
-<td>9.8000</td>
-<td>計算值，標記設計位置加上 Cel Origin</td>
-</tr>
-<tr>
-<td>Reg-2 Mark, Mark 1 (M1) y (mm)（標記 1 y）</td>
-<td>9.8000</td>
-<td>計算值</td>
-</tr>
-<tr>
-<td>Reg-2 Mark, Mark 2 (M2) x (mm)（標記 2 x）</td>
-<td>11.6000</td>
-<td>計算值</td>
-</tr>
-<tr>
-<td>Reg-2 Mark, Mark 2 (M2) y (mm)（標記 2 y）</td>
-<td>11.6000</td>
-<td>計算值</td>
-</tr>
-</tbody>
-</table>
-<p>Reg-2 Mark 的數值取決於你在 SEM 下量到的標記位置（計算機「既有圖案」步驟
-中的 Target x/y），若要對準到不同的晶片，需在那裡重新計算。</p>
+<ul>
+<li><code>Chip origin x, y (mm)</code>（晶片原點 x, y）：網格的起點，而不是元件在載台上
+  的位置。</li>
+<li><code>Cel origin x, y (mm)</code>（Cel 原點 x, y）：<code>.cel</code> 檔案放置的位置。</li>
+<li><code>Grid Count Nx, Ny</code>（網格數量 Nx, Ny）：要容納你遮罩中所有圖案所需的網格
+  數量。</li>
+<li><code>Reg-2 Mark, Mark 1 (M1) and Mark 2 (M2) x, y (mm)</code>（標記 1 (M1) 與標記 2
+  (M2) x, y）：你原始 <code>.gds</code> 檔案中的標記位置，加上 <code>Cel origin x, y (mm)</code>
+  的數值。</li>
+</ul>
 <p><strong>Job 2</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Size (μm)（晶片尺寸）</td>
-<td>600</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Dotmap（點陣圖）</td>
-<td>60000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Resolution（解析度，唯讀）</td>
-<td>10 nm</td>
-<td>計算值</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Chip size (μm)</code>（晶片尺寸）：網格邊長，通常為 600 μm。</li>
+<li><code>Dotmap</code>（點陣圖）：要繪製多少「像素」。</li>
+</ul>
+<p>解析度 (Resolution) = 晶片尺寸 (Chip Size) / 點陣圖 (Dotmap)。範例：晶片尺寸
+= 600 μm，點陣圖 = 60000，解析度 = 10 nm。</p>
 <p><strong>Job 3</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Shift x (mm)（位移 x）</td>
-<td>0.0010</td>
-<td>計算值</td>
-</tr>
-<tr>
-<td>Shift y (mm)（位移 y）</td>
-<td>−0.0005</td>
-<td>計算值</td>
-</tr>
-</tbody>
-</table>
-<p><strong>劑量／載台時間</strong></p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Dose time (μs / dot)（劑量時間）</td>
-<td>2.000</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Stage movement time (s / grid)（載台移動時間）</td>
-<td>15.00</td>
-<td>預設值</td>
-</tr>
-<tr>
-<td>Estimated Time（預估時間）</td>
-<td>00:03:48.000</td>
-<td>計算值，<strong>不含</strong>尋找對準標記通常需要的 1, 2 小時</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Shift x, y</code> (mm)（位移 x, y）：需要多少位置位移，才能把 <code>job1</code> 中設定的
+  位置對合到 SEM 偵測到的實際元件位置。</li>
+</ul>
 
 
 

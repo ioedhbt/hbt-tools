@@ -7,9 +7,8 @@
 
 當有多個偏壓點要對應同一組 Open/Short 校準時，使用**批次去嵌入 (Batch
 De-embed)** 分頁，這是元件掃描的常見情況（多個 `Ib` 或 `Vce` 點、同一組
-探針焊墊佈局）。它會執行一次
-[開路/短路去嵌入](deembedding.md)頁所述的相同模型化萃取，並一次套用到
-主要上傳區的每個檔案。
+探針焊墊佈局）。它會執行一次[開路/短路去嵌入](deembedding.md)的萃取，並
+一次套用到主要上傳區的每個檔案。
 
 ## 設定
 
@@ -28,16 +27,10 @@ DUT 檔案。載入全部 7 個示範偏壓掃描檔案後，批次去嵌入分�
 
 ## 輸出 ZIP
 
-1. 點選**📥 下載去嵌入後的量測檔案 (📥 Download de-embedded measurement
+點選**📥 下載去嵌入後的量測檔案 (📥 Download de-embedded measurement
    files)**。
 
-    ![下載去嵌入後量測檔案按鈕](../assets/rf/batch_zip_download.png)
-
-ZIP 內每個已上傳檔案各對應一個 `.s2p`，命名為 `<原始檔名>_deemb.s2p`
-（`deemb_preext_vce3.5_ib280u.s2p` → `deemb_preext_vce3.5_ib280u_deemb.s2p`）。
-每個檔案的檔頭都帶有從中扣除的寄生值：Cpbe、Cpce、Cpbc 以 fF 為單位，
-Lb、Lc、Le 以 pH 為單位，Rb、Rc、Re 以 Ω 為單位，因此僅憑檔案本身就能
-追溯它經過的去嵌入處理。
+![下載去嵌入後量測檔案按鈕](../assets/rf/batch_zip_download.png)
 
 ## 將元件批次傳送出去
 
@@ -48,6 +41,3 @@ Lb、Lc、Le 以 pH 為單位，Rb、Rc、Re 以 Ω 為單位，因此僅憑檔�
   去嵌入後的檔案作為額外資料，萃取頁的 Z 參數、冷 HBT 與 τ_total 方法都
   可以使用它們。
 - **→ 模擬與擬合 (→ Simulation & Fitting)** 只傳送主要元件。
-
-這與[單一元件走查](deembedding.md#元件的前後對比)中顯示的去
-嵌入結果是同一個容器，只是背後由每個已上傳檔案而非單一檔案支撐。

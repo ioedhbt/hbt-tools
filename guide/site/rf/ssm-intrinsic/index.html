@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1325,9 +1353,9 @@ and a value you can override.</p>
 <h2 id="pick-the-topology">Pick the topology<a class="headerlink" href="#pick-the-topology" title="Permanent link">&para;</a></h2>
 <p>Open <strong>Model Selection</strong> and tick <strong>T-topology (Cheng 2022)</strong>.</p>
 <p><img alt="Model Selection with T-topology (Cheng 2022) ticked" src="../../assets/ssm/intrinsic_model_select.png" /></p>
-<p>The π topology is the same extraction against a different equivalent circuit.
-Pick one and stay with it. Mixing extracted values between the two is
-meaningless.</p>
+<p>The π topology is the same extraction against a different equivalent
+circuit. Pick one and stay with it; mixing extracted values between the two
+is meaningless.</p>
 <h2 id="work-through-the-steps">Work through the steps<a class="headerlink" href="#work-through-the-steps" title="Permanent link">&para;</a></h2>
 <p>Open <strong>📊 Interactive Parameter Extraction</strong>. Every step follows the same
 pattern:</p>
@@ -1341,73 +1369,37 @@ pattern:</p>
 <li>The value box, and chips that fill it from a statistic.</li>
 </ol>
 <p>Steps that depend on an earlier value say so under the heading
-("Depend on: Cex, Cbc, Rbi"), so when a late step looks wrong, go back to what
-it depends on rather than fighting the number in front of you.</p>
-<p>Some steps add a sweep tool on the right. <strong>Cbex sweep — minimise std(Cbcx)</strong>
-searches a Min/Step/Max range for the Cbex that makes Cbcx flattest. Set the
-range, click <strong>Calculate</strong>, and it fills the box for you.</p>
+("Depend on: Cex, Cbc, Rbi"), so when a late step looks wrong, go back to
+what it depends on rather than fighting the number in front of you.</p>
+<p>Some steps add a sweep tool on the right: <strong>Cbex sweep — minimise
+std(Cbcx)</strong> searches a Min/Step/Max range for the Cbex that makes Cbcx
+flattest. Set the range, click <strong>Calculate</strong>, and it fills the box for you.</p>
 <p><img alt="Step 3 Cbcx extraction" src="../../assets/ssm/intrinsic_cbcx.png" /></p>
 <h2 id="cbc-use-the-median">Cbc: use the median<a class="headerlink" href="#cbc-use-the-median" title="Permanent link">&para;</a></h2>
 <p>Cbc defaults to the low-frequency value. <strong>Click the <code>median</code> chip to use the
 median instead.</strong></p>
 <p><img alt="Cbc value box with the median chip circled and the caption &quot;Click this button to use the median&quot;" src="../../assets/ssm/intrinsic_cbc_median.png" /></p>
-<p>The low-frequency estimate is taken where the measurement is noisiest. For
-this device it reads 484.3 fF, against a median of 481 fF and a high-frequency
-value of 578.9 fF. The median ignores the ringing at both ends of the band and
-is the more repeatable choice across a bias sweep. Set it here before you move
-on; every later step that depends on Cbc inherits whatever is in the box.</p>
+<p>The low-frequency estimate is taken where the measurement is noisiest. The
+median ignores the ringing at both ends of the band and is the more
+repeatable choice across a bias sweep. Set it here before you move on; every
+later step that depends on Cbc inherits whatever is in the box.</p>
 <h2 id="what-you-should-have">What you should have<a class="headerlink" href="#what-you-should-have" title="Permanent link">&para;</a></h2>
 <p>With Re, Rb and Rc from <a href="../ssm-access-r/">the access-resistance step</a> and Cbc
-on its median, the T model comes out at:</p>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>Value</th>
-<th></th>
-<th>Value</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Cbex</td>
-<td>51.2774 fF</td>
-<td>Rbc</td>
-<td>58781.6491 Ω</td>
-</tr>
-<tr>
-<td>Cbcx</td>
-<td>146.7393 fF</td>
-<td>Cbc</td>
-<td>484.2610 fF</td>
-</tr>
-<tr>
-<td>Rbi</td>
-<td>1103.1865 Ω</td>
-<td>alpha0</td>
-<td>0.9901</td>
-</tr>
-<tr>
-<td>Rbe</td>
-<td>138.8055 Ω</td>
-<td>tauB</td>
-<td>10.7654 ps</td>
-</tr>
-<tr>
-<td>Cbe</td>
-<td>121.1760 fF</td>
-<td>tauC</td>
-<td>−6.7695 ps</td>
-</tr>
-</tbody>
-</table>
-<p>That τC is negative, which no real collector does. It is an artefact of
-splitting a single analytic extraction, and it is why the
+on its median, the T model gives:</p>
+<ul>
+<li>Cbex, Cbcx</li>
+<li>Rbi, Rbe, Cbe</li>
+<li>Rbc, Cbc</li>
+<li>alpha0</li>
+<li>tauB, tauC</li>
+</ul>
+<p>If τC comes out negative, no real collector does that: it is an artefact of
+the single analytic extraction, and why the
 <a href="../ssm-transit-time/">transit-time fit</a> is the better source for τB and τC.
 Replace both from there before you ship the model.</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
-<p>The <code>cold = 230.2 fF</code> chip fills the box from the cold measurement instead.
+<p>The <code>cold = …</code> chip fills the box from the cold measurement instead.
 That is the zero-bias junction capacitance, not the biased one, so treat it
 as a sanity check rather than a value to ship.</p>
 </div>

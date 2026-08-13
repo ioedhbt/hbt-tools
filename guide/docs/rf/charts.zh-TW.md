@@ -2,8 +2,8 @@
 
 把應用程式產生的圖直接放進論文，不需要再重畫一次。以下內容都位於
 **小訊號模型模擬與擬合 (SSM Simulation & Fitting)** 的
-**🍩 Smith 圖（Matplotlib） (🍩 Smith Chart (Matplotlib))** 展開區內。
-那是出版用的渲染器，與上方互動式的 Plotly 圖是分開的。
+**🍩 Smith 圖（Matplotlib） (🍩 Smith Chart (Matplotlib))** 展開區內：
+那是出版用的渲染器，與上方互動式圖表是分開的。
 
 ## 從任何圖表匯出
 
@@ -22,8 +22,10 @@
 
 f_T 與 f_max 通常超出量測頻段的上限，因此兩者都需要外插。**−20 dB/dec**
 擬合經典的單一斜率滾降；**單極擬合 (Single-pole)** 則改以極點模型擬合。
-當量測在遠低於 f_T 處就停止時，兩者的答案差異最大。若兩個結果相差很大，
+當量測在遠低於 f_T 處就停止時，兩者的答案差異最大；若兩個結果相差很大，
 務必註明你使用的是哪一種。
+
+![外插範例：左圖為 -20 dB/dec 外插的 Bode 圖；右圖為單極擬合](../assets/simfit/extrapolations.png)
 
 ## 外觀
 

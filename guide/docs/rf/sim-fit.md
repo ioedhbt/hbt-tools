@@ -5,7 +5,7 @@ Forward-simulate any small-signal topology from scratch, or load a measured
 
 ## 1. Pick a model
 
-1. Click a chip in **Model**.
+Click a chip in **Model**.
 
 ![Model selector: Cheng's T, Cheng's π, Xu T, Kun-Yang HEMT, Custom model, Open and Short Pad](../assets/simfit/model_bar.png)
 
@@ -14,7 +14,7 @@ Forward-simulate any small-signal topology from scratch, or load a measured
 - **Cheng's π**: Cheng (2022) hybrid-π HBT model, same pad/access network as
   the T, different intrinsic core.
 - **Xu T**: Xu (2014) T-topology HBT. No extrinsic Cbex; a parallel Rbcx
-  sits across Cbcx (defaults to 285 kΩ, Rbcx is never extracted from a
+  sits across Cbcx (defaults to 285 kΩ, never extracted from a
   measurement, only hand-tuned).
 - **Kun-Yang HEMT**: π-topology HEMT, forward-simulation only (no peeling
   extraction). Adds a source-side R_delay∥C_delay branch and a custom
@@ -34,34 +34,38 @@ schematic) to see a real curve.
 
 ![Cheng's T Smith and fT/fmax charts with every parameter at zero — a degenerate point, fT/fmax n/a](../assets/simfit/forward_default.png)
 
-This is the same forward simulator whichever model chip is selected, type
+This is the same forward simulator whichever model chip is selected: type
 values, read the Smith chart and the fT/fmax Bode plot back. `Start
 Frequency`, `Data Points` and `Final Frequency` above the model inputs set
 the sweep (hidden once a measured file is loaded, see below).
 
 ## 3. Fit to a measured device
 
-1. Open **📂 Fit to a measured device (optional)** and drop a `.s2p` or
+Open **📂 Fit to a measured device (optional)** and drop a `.s2p` or
    `.csv` file.
 
 ![Fit expander after upload: device chip, .s2p download, Clear button, file uploader](../assets/simfit/fit_uploaded.png)
 
 The frequency axis now follows the uploaded file point-for-point, the
-manual `Start/Final Frequency` inputs disappear. Send a **de-embedded**
+manual `Start/Final Frequency` inputs disappear.
+
+Send a **de-embedded**
 device (no Cpxx/Lx left in it) to fit the intrinsic device only; send a
-**raw** device to fit the parasitics too. `→ Simulation & Fitting` from RF
+**raw** device to fit the parasitics too.
+
+`→ Simulation & Fitting` from RF
 At a Glance's Individual tab hands a device over the same way, see
 [handoff](#6-what-arrives-from-a-handoff) below.
 
-2. The page switches to fit mode: a **Fine-tune** expander with one
+The page switches to fit mode: a **Fine-tune** expander with one
    number input per model parameter, then the residual + charts.
 
 ![Fit view: residual row (Total/S11/S12/S21/S22) and Smith + fT/fmax overlay, measured vs modeled](../assets/simfit/fit_result.png)
 
 **Total residual** is the RMS relative error between measured and modeled
-S-parameters, averaged over all four ports; S11/S12/S21/S22 break it down
-per port so a bad fit on one port (here S22 at 160%, the weakest of the
-four) doesn't hide inside a deceptively low total. Minimize it with
+S-parameters, with S11/S12/S21/S22 broken out per port, so a bad fit on one
+port (here S22 at 160%, the weakest of the four) doesn't hide inside a
+deceptively low total. Minimize it with
 [visual or auto tuning](tuning.md).
 
 ## 4. fT/fmax, τ_total and fmax
@@ -81,13 +85,14 @@ Rbi+Rb by default, switch to **Custom** to type your own values instead.
 
 ## 5. The fit cache
 
-Every edit inside **Fine-tune**, typed values, [tuning](tuning.md) commits, auto-saves to a per-(device, model) cache on disk. Reopening the same device
-against the same model picks the cache back up automatically and shows it in
-the header:
+Every edit inside **Fine-tune** — typed values, [tuning](tuning.md) commits
+— auto-saves per (device, model) on disk. Reopening the same device against
+the same model picks it back up automatically and shows it in the header:
 
 ![Fitting pill row with a cache chip: device name, "cache from 10:11", model name](../assets/simfit/fit_cache_chip.png)
 
-The cache applies **unless** a fresh handoff just arrived from Extraction, a new handoff always wins over an older cached fit for the same device.
+The cache applies **unless** a fresh handoff just arrived from Extraction: a
+new handoff always wins over an older cached fit for the same device.
 
 ## 6. What arrives from a handoff
 
@@ -101,8 +106,7 @@ sending a model from SSM Extraction) lands here with:
   auto-guessed defaults an upload gets.
 
 A fresh handoff also clears any leftover seed from a *previous* handoff, so
-switching devices never leaves stale values behind for models you didn't
-just arrive from.
+switching devices never leaves stale values behind.
 
 Next: [building a custom topology](custom-model.md) · [tuning](tuning.md) ·
 [chart controls](charts.md).

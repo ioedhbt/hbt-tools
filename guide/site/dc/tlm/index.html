@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1275,14 +1303,9 @@
 
 
 <h1 id="tlm-analysis">TLM analysis<a class="headerlink" href="#tlm-analysis" title="Permanent link">&para;</a></h1>
-<p>Transfer Length Method fit, contact and sheet resistance from resistance
+<p>Transfer Length Method fit: contact and sheet resistance from resistance
 measured at four fixed contact spacings. Same page as the B1500A viewer,
 page selector at the top set to <strong>TLM Analysis</strong>.</p>
-<p><strong>No TLM sweep ships with this repo's demo data.</strong> Neither the four curated
-files in <code>guide/_data/dc/</code> nor the raw <code>dc_data/</code> export folder contain a
-<code>Tl…</code>-prefixed measurement, every screenshot on this page is the tool's
-blank default state, not a real device. Numbers below are formulas from the
-code, not a worked example.</p>
 <h2 id="data-this-tool-wants">Data this tool wants<a class="headerlink" href="#data-this-tool-wants" title="Permanent link">&para;</a></h2>
 <p>Unlike the B1500A viewer, this tab takes no file upload. Type in one pad
 width and up to four resistance readings by hand:</p>
@@ -1296,7 +1319,7 @@ width and up to four resistance readings by hand:</p>
 <p>If you batch-converted a TLM sweep through
 <a href="../multi-process/#other-batch-modes">Measurement Data Multi-Process</a>
 first, its <strong>TLM Resistance Avg</strong> mode reads a <code>TLM batch output.xlsx</code> and
-averages the resistance column per sheet, those per-spacing averages are
+averages the resistance column per sheet; those per-spacing averages are
 what you'd type into the four fields here.</p>
 <h2 id="the-fit">The fit<a class="headerlink" href="#the-fit" title="Permanent link">&para;</a></h2>
 <p>With two or more of the four R values filled in, the page fits a line
@@ -1310,8 +1333,8 @@ R = slope·spacing + intercept through them and reports:</p>
 <li><strong>Goodness, R²</strong>: squared correlation coefficient of the four points
   against the fit.</li>
 </ul>
-<p>A plot of measured points plus the fitted line (spacing 0, 40 µm) appears
-below the metrics once the fit runs.</p>
+<p>A plot of the measured points plus the fitted line (spacing 0, 40 µm)
+appears below the metrics once the fit runs.</p>
 
 
 

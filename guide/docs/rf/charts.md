@@ -2,8 +2,8 @@
 
 Getting a figure out of the app that you can put in a thesis without redrawing
 it. Everything here lives on **SSM Simulation & Fitting**, in the
-**🍩 Smith Chart (Matplotlib)** expander. That is the publication renderer,
-separate from the interactive Plotly chart above it.
+**🍩 Smith Chart (Matplotlib)** expander: the publication renderer,
+separate from the interactive chart above it.
 
 ## Export from any chart
 
@@ -24,8 +24,10 @@ extraction plots and the DC curves out.
 f_T and f_max are usually past the top of the measured band, so both are
 extrapolated. **−20 dB/dec** fits the classic single-slope roll-off;
 **Single-pole** fits a pole model instead. They disagree most when the
-measurement stops well below f_T. If the two answers are far apart, say which
-one you used.
+measurement stops well below f_T; if the two answers are far apart, say
+which one you used.
+
+![Example extrapolations: left, Bode plot extrapolated at −20 dB/dec; right, the single-pole fit](../assets/simfit/extrapolations.png)
 
 ## Appearance
 

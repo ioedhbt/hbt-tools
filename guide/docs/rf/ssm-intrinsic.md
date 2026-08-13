@@ -10,9 +10,9 @@ Open **Model Selection** and tick **T-topology (Cheng 2022)**.
 
 ![Model Selection with T-topology (Cheng 2022) ticked](../assets/ssm/intrinsic_model_select.png)
 
-The π topology is the same extraction against a different equivalent circuit.
-Pick one and stay with it. Mixing extracted values between the two is
-meaningless.
+The π topology is the same extraction against a different equivalent
+circuit. Pick one and stay with it; mixing extracted values between the two
+is meaningless.
 
 ## Work through the steps
 
@@ -29,12 +29,12 @@ pattern:
 4. The value box, and chips that fill it from a statistic.
 
 Steps that depend on an earlier value say so under the heading
-("Depend on: Cex, Cbc, Rbi"), so when a late step looks wrong, go back to what
-it depends on rather than fighting the number in front of you.
+("Depend on: Cex, Cbc, Rbi"), so when a late step looks wrong, go back to
+what it depends on rather than fighting the number in front of you.
 
-Some steps add a sweep tool on the right. **Cbex sweep — minimise std(Cbcx)**
-searches a Min/Step/Max range for the Cbex that makes Cbcx flattest. Set the
-range, click **Calculate**, and it fills the box for you.
+Some steps add a sweep tool on the right: **Cbex sweep — minimise
+std(Cbcx)** searches a Min/Step/Max range for the Cbex that makes Cbcx
+flattest. Set the range, click **Calculate**, and it fills the box for you.
 
 ![Step 3 Cbcx extraction](../assets/ssm/intrinsic_cbcx.png)
 
@@ -45,32 +45,29 @@ median instead.**
 
 ![Cbc value box with the median chip circled and the caption "Click this button to use the median"](../assets/ssm/intrinsic_cbc_median.png)
 
-The low-frequency estimate is taken where the measurement is noisiest. For
-this device it reads 484.3 fF, against a median of 481 fF and a high-frequency
-value of 578.9 fF. The median ignores the ringing at both ends of the band and
-is the more repeatable choice across a bias sweep. Set it here before you move
-on; every later step that depends on Cbc inherits whatever is in the box.
+The low-frequency estimate is taken where the measurement is noisiest. The
+median ignores the ringing at both ends of the band and is the more
+repeatable choice across a bias sweep. Set it here before you move on; every
+later step that depends on Cbc inherits whatever is in the box.
 
 ## What you should have
 
 With Re, Rb and Rc from [the access-resistance step](ssm-access-r.md) and Cbc
-on its median, the T model comes out at:
+on its median, the T model gives:
 
-| | Value | | Value |
-|---|---|---|---|
-| Cbex | 51.2774 fF | Rbc | 58781.6491 Ω |
-| Cbcx | 146.7393 fF | Cbc | 484.2610 fF |
-| Rbi | 1103.1865 Ω | alpha0 | 0.9901 |
-| Rbe | 138.8055 Ω | tauB | 10.7654 ps |
-| Cbe | 121.1760 fF | tauC | −6.7695 ps |
+- Cbex, Cbcx
+- Rbi, Rbe, Cbe
+- Rbc, Cbc
+- alpha0
+- tauB, tauC
 
-That τC is negative, which no real collector does. It is an artefact of
-splitting a single analytic extraction, and it is why the
+If τC comes out negative, no real collector does that: it is an artefact of
+the single analytic extraction, and why the
 [transit-time fit](ssm-transit-time.md) is the better source for τB and τC.
 Replace both from there before you ship the model.
 
 !!! tip
-    The `cold = 230.2 fF` chip fills the box from the cold measurement instead.
+    The `cold = …` chip fills the box from the cold measurement instead.
     That is the zero-bias junction capacitance, not the biased one, so treat it
     as a sanity check rather than a value to ship.
 

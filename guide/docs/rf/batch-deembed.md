@@ -6,10 +6,9 @@ uploaded DUT file at once, instead of one file at a time.
 ## When to use it
 
 Use the **Batch De-embed** tab whenever you have more than one bias point
-against a single Open/Short calibration pair, the common case for a
-device sweep (several `Ib` or `Vce` points, one probe pad layout). It runs
-the same modeled extraction described on the
-[Open/short de-embedding](deembedding.md) page, once, and applies it to
+against a single Open/Short calibration pair, the common case for a device
+sweep (several `Ib` or `Vce` points, one probe pad layout). It runs the
+[Open/short de-embedding](deembedding.md) extraction once and applies it to
 every file in the main uploader in one pass.
 
 ## Setup
@@ -30,15 +29,9 @@ per device.
 
 ## Output ZIP
 
-1. Click **📥 Download de-embedded measurement files**.
+Click **📥 Download de-embedded measurement files**.
 
-    ![Download de-embedded measurement files button](../assets/rf/batch_zip_download.png)
-
-The ZIP contains one `.s2p` per uploaded file, named `<original stem>_deemb.s2p`
-(`deemb_preext_vce3.5_ib280u.s2p` → `deemb_preext_vce3.5_ib280u_deemb.s2p`).
-Each file's header carries the parasitic values that were subtracted from
-it, Cpbe, Cpce, Cpbc in fF, Lb, Lc, Le in pH, Rb, Rc, Re in Ω, so the
-de-embedding a given file went through stays traceable from the file alone.
+![Download de-embedded measurement files button](../assets/rf/batch_zip_download.png)
 
 ## Handing devices onward
 
@@ -46,10 +39,6 @@ The same container offers a handoff to the SSM pages, but batched: pick one
 **Primary device** from a dropdown, then
 
 - **→ SSM Extraction** sends the primary device *and* every other
-  de-embedded file as extras, Extraction's Z-parameter, Cold-HBT and
-  τ_total methods can use them.
+  de-embedded file as extras, which Extraction's Z-parameter, Cold-HBT and
+  τ_total methods can use.
 - **→ Simulation & Fitting** sends only the primary device.
-
-This is the same container shown de-embedded on the
-[single-device walkthrough](deembedding.md#before--after-on-the-device),
-just backed by every uploaded file instead of one.

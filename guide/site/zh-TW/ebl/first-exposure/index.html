@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1343,70 +1371,47 @@
 <h1 id="首次曝光">首次曝光<a class="headerlink" href="#首次曝光" title="Permanent link">&para;</a></h1>
 <p>在裸晶片上寫下第一個圖案：沒有標記，不對準任何已存在的東西，寫入場只是鋪滿
 晶片尺寸的網格並置中於晶片上。本頁走一遍 <strong>首次曝光 (First Exposure)</strong> 模式，
-使用 <code>first_exposure.gds</code>（六個元件，基極焊墊／射極指狀電極／集極焊墊各自
-在自己的 datatype 上，另外還有四個對準標記，留給接下來的
-<a href="../second-exposure/">二次曝光</a>使用）。</p>
-<p>如果這是你第一次來這一頁，請先讀<a href="../">電子束微影計算機基礎</a>。
-<strong>下面每個欄位都維持預設值，除了要你輸入的那兩個位置</strong>，其他一律由遮罩
-自動算出或不用理會；每張截圖都會註明是哪一種。</p>
+使用 <code>first_exposure.gds</code>（中央有圖案，另外還有四個對準標記，留給接下來要
+做的<a href="../second-exposure/">二次曝光</a>使用）。</p>
+<p>如果這是你第一次來這一頁，請先讀<a href="../">電子束微影計算機基礎</a>。</p>
 <h2 id="1-輸入你實際找到的晶片角落">1. 輸入你實際找到的晶片角落<a class="headerlink" href="#1-輸入你實際找到的晶片角落" title="Permanent link">&para;</a></h2>
-<p>在動遮罩之前，<strong>夾具中的晶片位置 (Chip Position in the E-beam Holder)</strong>
-必須符合晶片今天在夾具裡的實際位置，而不是套用固定的預設值。假設你在
-載台位置 (105.000, 115.000) mm 下找到晶片的左下角：</p>
-<ol>
-<li>把這組數字輸入 <strong>左下 (BL) (Bottom Left (BL))</strong> 的 x/y 欄位。</li>
-</ol>
-<p>接著找到右上對準標記，位於晶片右上角附近，在這片遮罩上的設計座標是
-(1900, 1900) µm，並讀出其載台位置為 (107.000, 117.000) mm：</p>
-<ol>
-<li>把這組數字輸入 <strong>右上 (TR) (Top Right (TR))</strong> 的 x/y 欄位。</li>
-</ol>
+<p>這組輸入用來把圖案置中到你的元件上。<strong>夾具中的晶片位置 (Chip Position in the
+E-beam Holder)</strong> 必須符合晶片實際放在夾具裡的位置。假設你在載台位置
+(104.000, 114.400) mm 下找到晶片的左下角，把這組數字輸入 <strong>左下 (BL)
+(Bottom Left (BL))</strong> 的 x/y 欄位。</p>
+<p>接著找出你元件的右上角並讀出它的載台位置，本例為 (116.000, 126.400) mm，
+把這組數字輸入 <strong>右上 (TR) (Top Right (TR))</strong> 的 x/y 欄位。</p>
 <p><img alt="BL 與 TR 角落欄位已輸入；TL 與 BR 已自動算出並禁用" src="../../../assets/ebl/first_corners.png" /></p>
 <p><strong>左上 (TL)</strong> 與 <strong>右下 (BR)</strong> 呈灰色禁用，由系統自動算出，搭配 <strong>形狀
 (Shape) = 矩形 (Rectangular)</strong> 與 <strong>可編輯對角 (Editable diagonal) = BL /
-TR</strong>（皆為預設值），另一組對角會自動推算。不要去動它們。</p>
+TR</strong>，另一組對角會自動推算。</p>
 <h2 id="2-載入遮罩並選圖層">2. 載入遮罩並選圖層<a class="headerlink" href="#2-載入遮罩並選圖層" title="Permanent link">&para;</a></h2>
-<ol>
-<li>上傳 <code>first_exposure.gds</code>，然後把 <strong>要曝光的圖層 (Layer to expose)</strong>
-   設為 <code>L1/D2</code>（6 個多邊形），也就是射極指狀電極，這是這片遮罩上間距最
-   細的特徵，也是最需要注意劑量的部分。</li>
-</ol>
+<p>上傳你的 <code>.gds</code> 檔案，然後設定 <strong>要曝光的圖層 (Layer to expose)</strong>。</p>
 <p><img alt="GDS 遮罩區塊：已載入 first_exposure.gds，選取圖層 L1/D2" src="../../../assets/ebl/first_layer.png" /></p>
-<p>這片遮罩把基極焊墊、射極指狀電極、集極焊墊分別放在不同的 datatype 上
-（<code>L1/D1</code>、<code>L1/D2</code>、<code>L1/D3</code>）。每個都要獨立曝光一次。本頁只走一遍其中一個；
-其他兩個用相同的角落與 Cel Origin 重複即可。</p>
 <h2 id="3-網格幾何參數維持自動">3. 網格幾何參數維持自動<a class="headerlink" href="#3-網格幾何參數維持自動" title="Permanent link">&para;</a></h2>
-<ol>
-<li>在 <strong>曝光流程 (Workflow)</strong> 底下選 <strong>首次曝光 (First Exposure)</strong>。
-   <strong>job1 中的 Cel 原點 (mm) (Cel Origin (mm) in job1)</strong>、<strong>job1 中的網格
-   數量 (Grid Count in job1)</strong>（Nx、Ny）與 <strong>job3 中的位移 (mm) (Shift
-   (mm) in job3)</strong> 全部由遮罩的邊界框與你在步驟一設定的晶片角落自動算出，
-   三個都不要動。</li>
-</ol>
+<p>在 <strong>曝光流程 (Workflow)</strong> 底下選 <strong>首次曝光 (First Exposure)</strong>。<strong>job1 中的
+Cel 原點 (mm) (Cel Origin (mm) in job1)</strong>、<strong>job1 中的網格數量 (Grid Count
+in job1)</strong>（Nx、Ny）與 <strong>job3 中的位移 (mm) (Shift (mm) in job3)</strong> 全部由
+遮罩的邊界框與你在步驟一設定的晶片角落自動算出。</p>
 <p><img alt="遮罩圖層尺寸說明文字與三張自動算出的卡片" src="../../../assets/ebl/first_inputs.png" /></p>
-<p>卡片上方的說明文字寫出了完整的運算過程：這個遮罩圖層是 0.505 × 0.310
-mm，在預設 Cel Origin (9.700, 9.700) 下需要 4×2 個 0.600 mm 的區塊才能
-完全覆蓋。改變圖層、晶片角落，或在 <strong>左側電腦設定 (Left Computer Setup)</strong>
-裡改變晶片尺寸，這三張卡片都會重新計算，這就是為什麼它們設計成自動而不是
-手動輸入。</p>
+<p>應用程式會使用 0.600 mm 的區塊，配預設 Cel 原點 (9.700, 9.700) 來完全覆蓋。
+改變圖層、晶片角落，或在 <strong>左側電腦設定 (Left Computer Setup)</strong> 裡改變
+晶片尺寸，這三張卡片都會自動重新計算。</p>
 <h2 id="4-檢查圖">4. 檢查圖<a class="headerlink" href="#4-檢查圖" title="Permanent link">&para;</a></h2>
 <p><img alt="晶片（藍色）、4×2 網格（橘色）與跨兩個區塊的遮罩" src="../../../assets/ebl/first_plot.png" /></p>
-<p>晶片矩形現在反映步驟一的角落，網格置中於其上，射極遮罩（在這個比例下幾乎
-看不見，六條寬 4, 5 µm 的細線）落在八個區塊中的兩個裡。</p>
+<p>晶片矩形現在反映步驟一的角落，網格置中於其上。你可以視需要修改。</p>
 <h2 id="5-設定劑量並讀出時間">5. 設定劑量並讀出時間<a class="headerlink" href="#5-設定劑量並讀出時間" title="Permanent link">&para;</a></h2>
-<ol>
-<li>在 <strong>曝光時間計算 (Time Calculator)</strong> 底下，讓 <strong>劑量時間 (μs / dot)
-   (Dose time (μs / dot))</strong> 與 <strong>載台移動時間 (s / grid) (Stage movement
-   time (s / grid))</strong> 維持預設值（2.000、15.00），然後按 <strong>計算時間
-   (Calculate time)</strong>。</li>
-</ol>
-<p><img alt="按下計算前的曝光時間計算輸入" src="../../../assets/ebl/first_time_in.png" /></p>
+<p>在 <strong>曝光時間計算 (Time Calculator)</strong> 底下，輸入你的 <strong>劑量時間 (μs / dot)
+(Dose time (μs / dot))</strong> 與 <strong>載台移動時間 (s / grid) (Stage movement time
+(s / grid))</strong>，然後按 <strong>計算時間 (Calculate time)</strong>。</p>
+<!-- ![按下計算前的曝光時間計算輸入](../assets/ebl/first_time_in.png) -->
+
 <p><img alt="按下計算後的明細與預估時間" src="../../../assets/ebl/first_result.png" /></p>
-<p>8 個區塊裡只有 2 個含有射極幾何圖案（<strong>有效網格數 (Active grids): 2 /
-8</strong>）；其餘的會被跳過，所以曝光與載台移動時間只計入真正有圖案的區塊。
-<strong>預估時間 (Estimated Time)</strong> 就是要寫上工作單的數字，見<a href="../job-sheet/">工作編號表</a>
-依序看本頁與<a href="../dose-test/">劑量時間測試</a>的每個數字各自落在 JEOL 系統的
-哪個欄位。</p>
+<p><strong>有效網格數 (Active grids)</strong> 只顯示有曝光圖案的網格；其餘的會被跳過，所以
+曝光與載台移動時間只計入真正有圖案的區塊。<strong>預估時間 (Estimated Time)</strong>
+反映曝光完成所需的時間。</p>
+<p>見<a href="../job-sheet/">工作編號表</a>依序看本頁與<a href="../dose-test/">劑量時間測試</a>的
+每個數字各自落在 JEOL 系統的哪個欄位。</p>
 
 
 

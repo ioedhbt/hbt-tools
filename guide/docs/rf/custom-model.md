@@ -6,15 +6,11 @@ of the four built-in models. Open **SSM Simulation & Fitting**, click the
 
 ## What it does
 
-Every branch you draw, R, L, C, in any series/parallel combination, reduces
-to a 2-terminal network between two named nodes, plus one intrinsic π or T
-controlled-source stamp at the core. The solver (`custom_model/core.py`)
-stamps every branch into a nodal admittance matrix, Kron-reduces the
-internal nodes away, and converts the resulting 2×2 Y to S, the same
-netlist→Y→S path a SPICE-style AC solver uses, vectorised over frequency.
-
-A live SVG schematic redraws above the controls after every edit, so you can
-see the topology you're building before you simulate anything.
+Every branch you draw, R, L, C, in any series/parallel combination, becomes
+a 2-terminal network between two named nodes, plus one intrinsic π or T
+controlled-source core. A live SVG schematic redraws above the controls
+after every edit, so you can see the topology you're building before you
+simulate anything.
 
 The builder reveals five sections **inside → outward**, one at a time:
 device + intrinsic core, extrinsic caps, delay/port extras, access R + lead
@@ -26,11 +22,9 @@ revealed, ready to edit anywhere.
 ## Worked example: Cheng's T + an emitter delay branch
 
 Start from Cheng's T topology and add a resistor and capacitor in parallel
-between the intrinsic emitter and the access Re/Le, the same kind of
-R_delay∥C_delay branch the built-in Kun-Yang HEMT model uses on its source
-leg.
+between the intrinsic emitter and the access Re/Le.
 
-1. Under **📂 Modify an existing model**, pick **Cheng, T (current-source T
+Under **📂 Modify an existing model**, pick **Cheng, T (current-source T
    HBT)** from **Start from a built-in model** and click **Load**.
 
 ![Modify an existing model: built-in topology dropdown and Load button](../assets/simfit/custom_build_modify.png)
@@ -40,25 +34,24 @@ the three pad caps:
 
 ![Live schematic of the loaded Cheng T preset](../assets/simfit/custom_schematic_chengt.png)
 
-2. Scroll to **3 · Delay / port extras** and click the **E delay** chip,    the common (emitter) delay branch, empty by default.
+Scroll to **3 · Delay / port extras** and click the **E delay** chip,    the common (emitter) delay branch, empty by default.
 
 ![Section 3, E delay chip selected, "No components yet"](../assets/simfit/custom_emitter_empty.png)
 
-3. Click **➕ Add series step**, then **➕ R (parallel)** and **➕ C
+Click **➕ Add series step**, then **➕ R (parallel)** and **➕ C
    (parallel)** inside that step, both land in the same parallel group, so
    they sit in parallel with each other and in series with the rest of the
    emitter leg.
-4. Rename the two `name` fields to `r_delay_e` and `c_delay_e`.
+Rename the two `name` fields to `r_delay_e` and `c_delay_e`.
 
 The schematic now shows the new branch between the intrinsic emitter (the
 `Ie` current-source tap) and `Re`/`Le`:
 
 ![Schematic with r_delay_e parallel c_delay_e inserted above Re/Le](../assets/simfit/custom_emitter_added.png)
 
-`r_delay_e` and `c_delay_e` roll off the emitter's high-frequency response, `c_delay_e` shorts out `r_delay_e` above its corner frequency, adding a pole
-to the emitter access path independent of the intrinsic Cbe/Rbe junction.
-This is the same trick the Kun-Yang HEMT model uses to fit a source
-resistance that looks frequency-dependent.
+`r_delay_e` and `c_delay_e` roll off the emitter's high-frequency
+response: `c_delay_e` shorts out `r_delay_e` above its corner frequency,
+adding a pole to the emitter access path.
 
 ## Saving, reusing and fitting
 
@@ -82,9 +75,8 @@ same layout as every built-in model:
 ![Smith chart and fT/fmax for the modified model](../assets/simfit/custom_sim_result.png)
 
 Upload a measured `.s2p` in **📂 Fit to a measured device** (top of the page,
-same control as the built-in models) to overlay it and fit, the residual
+same control as the built-in models) to overlay it and fit; the residual
 readout, [visual tuning and auto tuning](tuning.md) all work identically on
-a custom model, backed by the same generic netlist solver instead of an
-analytic formula.
+a custom model.
 
 Next: [visual & auto tuning](tuning.md) · [chart controls](charts.md).

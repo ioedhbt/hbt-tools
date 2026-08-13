@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1303,10 +1331,7 @@
 model)</strong>。</p>
 <h2 id="功能說明">功能說明<a class="headerlink" href="#功能說明" title="Permanent link">&para;</a></h2>
 <p>每一段你畫出的支路，R、L、C，不論任何串並聯組合，都會化簡為兩個具名節點
-之間的雙埠網路，再加上核心處一個本質 π 或 T 受控源。求解器
-（<code>custom_model/core.py</code>）將每個支路填入節點導納矩陣，以 Kron 消去法去除
-內部節點，再把得到的 2×2 Y 矩陣轉換為 S 參數，這與 SPICE 類 AC
-求解器所走的 netlist→Y→S 路徑相同，並針對頻率向量化運算。</p>
+之間的雙埠網路，再加上核心處一個本質 π 或 T 受控源。</p>
 <p>每次編輯後，控制項上方都會即時重繪一張 SVG 示意圖，讓你在模擬前就能看到
 正在搭建的拓樸。</p>
 <p>建構器由<strong>內而外</strong>依序揭露五個區段，一次一段：元件與本質核心、外質電容、
@@ -1317,35 +1342,26 @@ Xu T、Kun-Yang HEMT）或先前儲存的 <code>.json</code>，該情況下<stro
 全部展開，隨處可編輯。</p>
 <h2 id="實作範例chengs-t-加上一段射極延遲支路">實作範例：Cheng's T 加上一段射極延遲支路<a class="headerlink" href="#實作範例chengs-t-加上一段射極延遲支路" title="Permanent link">&para;</a></h2>
 <p>從 Cheng's T 拓樸開始，在本質射極與接觸網路的 Re/Le 之間加入一個並聯的
-電阻與電容，這與內建的 Kun-Yang HEMT 模型在其源極腿上使用的
-R_delay∥C_delay 支路屬於同一種手法。</p>
-<ol>
-<li>在 <strong>📂 修改既有模型（內建或 .json）</strong> 下，從<strong>從內建模型開始
+電阻與電容。</p>
+<p>在 <strong>📂 修改既有模型（內建或 .json）</strong> 下，從<strong>從內建模型開始
    (Start from a built-in model)</strong> 選擇 <strong>Cheng, T (current-source T
-   HBT)</strong>，點選<strong>載入 (Load)</strong>。</li>
-</ol>
+   HBT)</strong>，點選<strong>載入 (Load)</strong>。</p>
 <p><img alt="修改既有模型：內建拓樸下拉選單與載入按鈕" src="../../../assets/simfit/custom_build_modify.png" /></p>
 <p>載入預設模型會一次展開所有區段並重繪示意圖：α·Ie 受控源背後的 Cbex、
 Cbe∥Rbe、Cbc∥Rbc、Cbcx、接觸網路，以及三個焊墊電容：</p>
 <p><img alt="已載入 Cheng T 預設模型的即時示意圖" src="../../../assets/simfit/custom_schematic_chengt.png" /></p>
-<ol>
-<li>捲動到 <strong>3 · 延遲 / 埠附加元件 (3 · Delay / port extras)</strong>，點選
-   <strong>E delay</strong> 晶片，即共用（射極）延遲支路，預設為空。</li>
-</ol>
+<p>捲動到 <strong>3 · 延遲 / 埠附加元件 (3 · Delay / port extras)</strong>，點選
+   <strong>E delay</strong> 晶片，即共用（射極）延遲支路，預設為空。</p>
 <p><img alt="第 3 節，已選取 E delay 晶片，「No components yet」" src="../../../assets/simfit/custom_emitter_empty.png" /></p>
-<ol>
-<li>點選<strong>➕ 新增串聯段 (➕ Add series step)</strong>，再於該段內點選
+<p>點選<strong>➕ 新增串聯段 (➕ Add series step)</strong>，再於該段內點選
    <strong>➕ R（並聯） (➕ R (parallel))</strong> 與 <strong>➕ C（並聯） (➕ C (parallel))</strong>，
-   兩者會落在同一個並聯群組中，彼此並聯，並與射極腿其餘部分串聯。</li>
-<li>將兩個 <strong>name（名稱）</strong> 欄位改名為 <code>r_delay_e</code> 與 <code>c_delay_e</code>。</li>
-</ol>
+   兩者會落在同一個並聯群組中，彼此並聯，並與射極腿其餘部分串聯。
+將兩個 <strong>name（名稱）</strong> 欄位改名為 <code>r_delay_e</code> 與 <code>c_delay_e</code>。</p>
 <p>示意圖現在會顯示這條新支路，位於本質射極（<code>Ie</code> 電流源接點）與
 <code>Re</code>/<code>Le</code> 之間：</p>
 <p><img alt="示意圖顯示 r_delay_e 並聯 c_delay_e 插入於 Re/Le 之上" src="../../../assets/simfit/custom_emitter_added.png" /></p>
-<p><code>r_delay_e</code> 與 <code>c_delay_e</code> 會滾降射極的高頻響應，<code>c_delay_e</code> 在其轉角
-頻率以上會將 <code>r_delay_e</code> 短路，為射極接觸路徑加入一個獨立於本質
-Cbe/Rbe 接面的極點。這與 Kun-Yang HEMT 模型用來擬合看似頻率相依的源極
-電阻，是同一種手法。</p>
+<p><code>r_delay_e</code> 與 <code>c_delay_e</code> 會滾降射極的高頻響應：<code>c_delay_e</code> 在其轉角
+頻率以上會將 <code>r_delay_e</code> 短路，為射極接觸路徑加入一個極點。</p>
 <h2 id="儲存重複使用與擬合">儲存、重複使用與擬合<a class="headerlink" href="#儲存重複使用與擬合" title="Permanent link">&para;</a></h2>
 <p>建構器底部有 <strong>💾 儲存 / 使用模型 (💾 Save / use model)</strong>：</p>
 <ul>
@@ -1365,8 +1381,7 @@ Cbe/Rbe 接面的極點。這與 Kun-Yang HEMT 模型用來擬合看似頻率相
 <p><img alt="修改後模型的 Smith 圖與 fT/fmax" src="../../../assets/simfit/custom_sim_result.png" /></p>
 <p>在<strong>📂 擬合至量測元件（選用） (📂 Fit to a measured device)</strong>（頁面頂端，
 與內建模型共用同一個控制項）上傳量測 <code>.s2p</code>，即可疊圖並進行擬合；
-殘差顯示、<a href="../tuning/">視覺化調諧與自動調諧</a>在自訂模型上運作方式完全相同，
-只是背後由通用的網表求解器取代解析公式。</p>
+殘差顯示、<a href="../tuning/">視覺化調諧與自動調諧</a>在自訂模型上運作方式完全相同。</p>
 <p>下一步：<a href="../tuning/">視覺化與自動調諧</a> · <a href="../charts/">圖表控制</a>。</p>
 
 

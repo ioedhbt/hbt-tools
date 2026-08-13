@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1301,14 +1329,11 @@
 of the four built-in models. Open <strong>SSM Simulation &amp; Fitting</strong>, click the
 <strong>🧩 Custom model</strong> chip, then choose <strong>Build model</strong>.</p>
 <h2 id="what-it-does">What it does<a class="headerlink" href="#what-it-does" title="Permanent link">&para;</a></h2>
-<p>Every branch you draw, R, L, C, in any series/parallel combination, reduces
-to a 2-terminal network between two named nodes, plus one intrinsic π or T
-controlled-source stamp at the core. The solver (<code>custom_model/core.py</code>)
-stamps every branch into a nodal admittance matrix, Kron-reduces the
-internal nodes away, and converts the resulting 2×2 Y to S, the same
-netlist→Y→S path a SPICE-style AC solver uses, vectorised over frequency.</p>
-<p>A live SVG schematic redraws above the controls after every edit, so you can
-see the topology you're building before you simulate anything.</p>
+<p>Every branch you draw, R, L, C, in any series/parallel combination, becomes
+a 2-terminal network between two named nodes, plus one intrinsic π or T
+controlled-source core. A live SVG schematic redraws above the controls
+after every edit, so you can see the topology you're building before you
+simulate anything.</p>
 <p>The builder reveals five sections <strong>inside → outward</strong>, one at a time:
 device + intrinsic core, extrinsic caps, delay/port extras, access R + lead
 L, parasitic pad caps. Confirm a section to reveal the next, or open <strong>📂
@@ -1317,35 +1342,26 @@ Kun-Yang HEMT) or a previously-saved <code>.json</code> with <strong>every</stro
 revealed, ready to edit anywhere.</p>
 <h2 id="worked-example-chengs-t--an-emitter-delay-branch">Worked example: Cheng's T + an emitter delay branch<a class="headerlink" href="#worked-example-chengs-t--an-emitter-delay-branch" title="Permanent link">&para;</a></h2>
 <p>Start from Cheng's T topology and add a resistor and capacitor in parallel
-between the intrinsic emitter and the access Re/Le, the same kind of
-R_delay∥C_delay branch the built-in Kun-Yang HEMT model uses on its source
-leg.</p>
-<ol>
-<li>Under <strong>📂 Modify an existing model</strong>, pick <strong>Cheng, T (current-source T
-   HBT)</strong> from <strong>Start from a built-in model</strong> and click <strong>Load</strong>.</li>
-</ol>
+between the intrinsic emitter and the access Re/Le.</p>
+<p>Under <strong>📂 Modify an existing model</strong>, pick <strong>Cheng, T (current-source T
+   HBT)</strong> from <strong>Start from a built-in model</strong> and click <strong>Load</strong>.</p>
 <p><img alt="Modify an existing model: built-in topology dropdown and Load button" src="../../assets/simfit/custom_build_modify.png" /></p>
 <p>Loading a preset reveals every section at once and redraws the schematic, Cbex, Cbe∥Rbe, Cbc∥Rbc behind the α·Ie source, Cbcx, the access network, and
 the three pad caps:</p>
 <p><img alt="Live schematic of the loaded Cheng T preset" src="../../assets/simfit/custom_schematic_chengt.png" /></p>
-<ol>
-<li>Scroll to <strong>3 · Delay / port extras</strong> and click the <strong>E delay</strong> chip,    the common (emitter) delay branch, empty by default.</li>
-</ol>
+<p>Scroll to <strong>3 · Delay / port extras</strong> and click the <strong>E delay</strong> chip,    the common (emitter) delay branch, empty by default.</p>
 <p><img alt="Section 3, E delay chip selected, &quot;No components yet&quot;" src="../../assets/simfit/custom_emitter_empty.png" /></p>
-<ol>
-<li>Click <strong>➕ Add series step</strong>, then <strong>➕ R (parallel)</strong> and <strong>➕ C
+<p>Click <strong>➕ Add series step</strong>, then <strong>➕ R (parallel)</strong> and <strong>➕ C
    (parallel)</strong> inside that step, both land in the same parallel group, so
    they sit in parallel with each other and in series with the rest of the
-   emitter leg.</li>
-<li>Rename the two <code>name</code> fields to <code>r_delay_e</code> and <code>c_delay_e</code>.</li>
-</ol>
+   emitter leg.
+Rename the two <code>name</code> fields to <code>r_delay_e</code> and <code>c_delay_e</code>.</p>
 <p>The schematic now shows the new branch between the intrinsic emitter (the
 <code>Ie</code> current-source tap) and <code>Re</code>/<code>Le</code>:</p>
 <p><img alt="Schematic with r_delay_e parallel c_delay_e inserted above Re/Le" src="../../assets/simfit/custom_emitter_added.png" /></p>
-<p><code>r_delay_e</code> and <code>c_delay_e</code> roll off the emitter's high-frequency response, <code>c_delay_e</code> shorts out <code>r_delay_e</code> above its corner frequency, adding a pole
-to the emitter access path independent of the intrinsic Cbe/Rbe junction.
-This is the same trick the Kun-Yang HEMT model uses to fit a source
-resistance that looks frequency-dependent.</p>
+<p><code>r_delay_e</code> and <code>c_delay_e</code> roll off the emitter's high-frequency
+response: <code>c_delay_e</code> shorts out <code>r_delay_e</code> above its corner frequency,
+adding a pole to the emitter access path.</p>
 <h2 id="saving-reusing-and-fitting">Saving, reusing and fitting<a class="headerlink" href="#saving-reusing-and-fitting" title="Permanent link">&para;</a></h2>
 <p>At the bottom of the builder, <strong>💾 Save / use model</strong>:</p>
 <ul>
@@ -1363,10 +1379,9 @@ under <strong>Port / delay extras</strong>:</p>
 same layout as every built-in model:</p>
 <p><img alt="Smith chart and fT/fmax for the modified model" src="../../assets/simfit/custom_sim_result.png" /></p>
 <p>Upload a measured <code>.s2p</code> in <strong>📂 Fit to a measured device</strong> (top of the page,
-same control as the built-in models) to overlay it and fit, the residual
+same control as the built-in models) to overlay it and fit; the residual
 readout, <a href="../tuning/">visual tuning and auto tuning</a> all work identically on
-a custom model, backed by the same generic netlist solver instead of an
-analytic formula.</p>
+a custom model.</p>
 <p>Next: <a href="../tuning/">visual &amp; auto tuning</a> · <a href="../charts/">chart controls</a>.</p>
 
 

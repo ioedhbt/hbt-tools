@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1341,70 +1369,33 @@
 <p>依賴前面步驟數值的步驟，會在標題下方註明（例如「Depend on: Cex, Cbc,
 Rbi」），因此當後面某個步驟看起來不對時，應回去檢查它所依賴的值，而不是
 與眼前的數字硬碰硬。</p>
-<p>部分步驟會在右側加入掃描工具。<strong>Cbex sweep：minimise std(Cbcx)</strong> 會在
+<p>部分步驟會在右側加入掃描工具：<strong>Cbex sweep：minimise std(Cbcx)</strong> 會在
 Min/Step/Max 範圍內搜尋能讓 Cbcx 最平坦的 Cbex。設定範圍、點選
 <strong>Calculate</strong>，即可自動填入數值框。</p>
 <p><img alt="步驟 3 Cbcx 萃取" src="../../../assets/ssm/intrinsic_cbcx.png" /></p>
 <h2 id="cbc使用中位數">Cbc：使用中位數<a class="headerlink" href="#cbc使用中位數" title="Permanent link">&para;</a></h2>
 <p>Cbc 預設為低頻值。<strong>點選 <code>median</code> 晶片改用中位數。</strong></p>
 <p><img alt="Cbc 數值框，圈出 median 晶片，說明文字「Click this button to use the median」" src="../../../assets/ssm/intrinsic_cbc_median.png" /></p>
-<p>低頻估計值取自量測雜訊最大的區段。以此元件為例，低頻值為 484.3 fF，
-中位數為 481 fF，高頻值為 578.9 fF。中位數會忽略頻段兩端的振鈴現象，
-在整個偏壓掃描中是較為穩定可重複的選擇。在此設定好之後再繼續；後面每個
-依賴 Cbc 的步驟都會沿用數值框中的內容。</p>
+<p>低頻估計值取自量測雜訊最大的區段。中位數會忽略頻段兩端的振鈴現象，在整個
+偏壓掃描中是較為穩定可重複的選擇。在此設定好之後再繼續；後面每個依賴 Cbc
+的步驟都會沿用數值框中的內容。</p>
 <h2 id="應該得到的結果">應該得到的結果<a class="headerlink" href="#應該得到的結果" title="Permanent link">&para;</a></h2>
 <p>在使用<a href="../ssm-access-r/">接觸電阻步驟</a>得到的 Re、Rb、Rc，並將 Cbc 設為
-中位數之後，T 模型得出：</p>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>數值</th>
-<th></th>
-<th>數值</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Cbex</td>
-<td>51.2774 fF</td>
-<td>Rbc</td>
-<td>58781.6491 Ω</td>
-</tr>
-<tr>
-<td>Cbcx</td>
-<td>146.7393 fF</td>
-<td>Cbc</td>
-<td>484.2610 fF</td>
-</tr>
-<tr>
-<td>Rbi</td>
-<td>1103.1865 Ω</td>
-<td>alpha0</td>
-<td>0.9901</td>
-</tr>
-<tr>
-<td>Rbe</td>
-<td>138.8055 Ω</td>
-<td>tauB</td>
-<td>10.7654 ps</td>
-</tr>
-<tr>
-<td>Cbe</td>
-<td>121.1760 fF</td>
-<td>tauC</td>
-<td>−6.7695 ps</td>
-</tr>
-</tbody>
-</table>
-<p>τC 是負值，而真實的集極不會如此。這是把單一解析萃取拆分成兩項所產生的
-假象，也是為什麼<a href="../ssm-transit-time/">渡越時間擬合</a>才是 τB 與 τC 更好的
-來源。出貨模型前，請用該處的值取代這兩個參數。</p>
+中位數之後，T 模型給出：</p>
+<ul>
+<li>Cbex、Cbcx</li>
+<li>Rbi、Rbe、Cbe</li>
+<li>Rbc、Cbc</li>
+<li>alpha0</li>
+<li>tauB、tauC</li>
+</ul>
+<p>若 τC 是負值，真實的集極不會如此：這是單一解析萃取的假象，也是為什麼
+<a href="../ssm-transit-time/">渡越時間擬合</a>才是 τB 與 τC 更好的來源。出貨模型前，
+請用該處的值取代這兩個參數。</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
-<p><code>cold = 230.2 fF</code> 晶片會改用冷態量測值填入數值框。那是零偏壓下的
-接面電容，而非有偏壓時的值，因此應將其視為健全性檢查，而非可直接
-採用的數值。</p>
+<p><code>cold = …</code> 晶片會改用冷態量測值填入數值框。那是零偏壓下的接面電容，
+而非有偏壓時的值，因此應將其視為健全性檢查，而非可直接採用的數值。</p>
 </div>
 <hr />
 <p>下一步：<a href="../ssm-transit-time/">渡越時間</a>。</p>

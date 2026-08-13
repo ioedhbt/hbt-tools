@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -662,10 +690,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#use-i_e--i_c--i_b" class="md-nav__link">
+  <a href="#use-i_c-from-measurement" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Use I_E = I_C + I_B
+        Use I_C from measurement
       
     </span>
   </a>
@@ -1286,10 +1314,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#use-i_e--i_c--i_b" class="md-nav__link">
+  <a href="#use-i_c-from-measurement" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Use I_E = I_C + I_B
+        Use I_C from measurement
       
     </span>
   </a>
@@ -1379,140 +1407,44 @@
 slope. It needs several bias points, so load the whole sweep before you start.</p>
 <p>Open <strong>📊 Interactive Parameter Extraction</strong>, then
 <strong>Cje / τB+τC / τCC / τE from 1/(2πf_T) vs 1/I_C fit</strong>.</p>
-<p>The relation being fitted is</p>
-<p>$$\frac{1}{2\pi f_T} = \tau_B + \tau_C + \frac{\eta kT}{qI_C}C_{JE}
-  + \left(R_C + R_{EE} + \frac{\eta kT}{qI_C}\right)C_{BC}$$</p>
-<p>so the intercept is τ_B + τ_C and the slope carries C_JE.</p>
-<h2 id="use-i_e--i_c--i_b">Use I_E = I_C + I_B<a class="headerlink" href="#use-i_e--i_c--i_b" title="Permanent link">&para;</a></h2>
-<p>The column is labelled <strong>IC (mA)</strong> and Cheng's formulation uses the collector
-current. Type the <strong>emitter</strong> current into it instead: I_E = I_C + I_B.</p>
+<p>The fit plots τ_total against 1/I_C: the intercept is τ_B + τ_C and the
+slope carries C_JE.</p>
+<h2 id="use-i_c-from-measurement">Use I_C from measurement<a class="headerlink" href="#use-i_c-from-measurement" title="Permanent link">&para;</a></h2>
+<p>Type the collector current I_C (mA) into the column.</p>
 <p><img alt="Transit-time table with fT and tau_total per file, and the IC (mA) column boxed" src="../../assets/ssm/transit_ic_table.png" /></p>
-<ol>
-<li>Overwrite each row's <strong>IC (mA)</strong> box with I_C + I_B for that bias point.</li>
-</ol>
-<p>For the demo device:</p>
-<table>
-<thead>
-<tr>
-<th>File</th>
-<th>I_C</th>
-<th>I_B</th>
-<th>type in</th>
-<th>f_T</th>
-<th>τ_total</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ib80u</code></td>
-<td>1.600 mA</td>
-<td>80 µA</td>
-<td><strong>1.680</strong></td>
-<td>1.607 GHz</td>
-<td>99.03 ps</td>
-</tr>
-<tr>
-<td><code>ib120u</code></td>
-<td>2.928 mA</td>
-<td>120 µA</td>
-<td><strong>3.048</strong></td>
-<td>1.869 GHz</td>
-<td>85.17 ps</td>
-</tr>
-<tr>
-<td><code>ib160u</code></td>
-<td>4.418 mA</td>
-<td>160 µA</td>
-<td><strong>4.578</strong></td>
-<td>2.074 GHz</td>
-<td>76.74 ps</td>
-</tr>
-<tr>
-<td><code>ib200u</code></td>
-<td>6.075 mA</td>
-<td>200 µA</td>
-<td><strong>6.275</strong></td>
-<td>2.268 GHz</td>
-<td>70.17 ps</td>
-</tr>
-<tr>
-<td><code>ib240u</code></td>
-<td>7.859 mA</td>
-<td>240 µA</td>
-<td><strong>8.099</strong></td>
-<td>2.330 GHz</td>
-<td>68.31 ps</td>
-</tr>
-<tr>
-<td><code>ib280u</code></td>
-<td>8.018 mA</td>
-<td>280 µA</td>
-<td><strong>8.298</strong></td>
-<td>2.455 GHz</td>
-<td>64.84 ps</td>
-</tr>
-</tbody>
-</table>
-<p>Untick any file you do not want in the fit.</p>
 <h2 id="read-the-fit">Read the fit<a class="headerlink" href="#read-the-fit" title="Permanent link">&para;</a></h2>
-<p><img alt="tau_total versus 1/I_C with the fitted line, slope 69.05 ps mA and intercept 59.59 ps" src="../../assets/ssm/transit_tau_fit.png" /></p>
+<p><img alt="tau_total versus 1/I_C with the fitted line" src="../../assets/ssm/transit_tau_fit.png" /></p>
 <ul>
-<li><strong>Intercept</strong>: 59.5923 ps, the part of the measured delay that does not
-  shrink with current.</li>
-<li><strong>Slope</strong>: 69.05 ps·mA, from which C_JE follows.</li>
+<li><strong>Intercept</strong>: the part of the measured delay that does not shrink with
+  current.</li>
+<li><strong>Slope</strong>: from which C_JE follows.</li>
 </ul>
 <p>The intercept is not yet τ_B + τ_C. The collector-charging term
-(R_C + R_EE + r_E)·C_BC still has to come off, which is what the inputs below
-the plot are for.</p>
+(R_C + R_EE + r_E)·C_BC still has to come off, which is what the inputs
+below the plot are for.</p>
 <h2 id="feed-it-the-real-access-resistances">Feed it the real access resistances<a class="headerlink" href="#feed-it-the-real-access-resistances" title="Permanent link">&para;</a></h2>
 <p><img alt="Inputs row with Re-REE, Rc and Cbc boxed, and the resulting slope, intercept, Cje and tauB+tauC" src="../../assets/ssm/transit_inputs_outputs.png" /></p>
 <p><strong>Inputs (defaults from this file's extraction)</strong> starts at
 Re — REE = <code>0.0000</code>, Rc = <code>0.0000</code>. Those defaults are wrong unless the
 <a href="../ssm-access-r/">access-resistance step</a> has already run. Type in the three
 boxed values:</p>
-<table>
-<thead>
-<tr>
-<th>Box</th>
-<th>Value</th>
-<th>From</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Re — REE (Ω)</strong></td>
-<td>64.3966</td>
-<td>Z-parameter fit</td>
-</tr>
-<tr>
-<td><strong>Rc (Ω)</strong></td>
-<td>19.0178</td>
-<td>Cold-HBT</td>
-</tr>
-<tr>
-<td><strong>Cbc total (fF)</strong></td>
-<td>484.2610</td>
-<td>T-model extraction</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><strong>Re — REE (Ω)</strong>, from the Z-parameter fit</li>
+<li><strong>Rc (Ω)</strong>, from Cold-HBT</li>
+<li><strong>Cbc total (fF)</strong>, from the T-model extraction</li>
+</ul>
 <p>Leave η at 1.000 and T at 300.0 unless you have a Gummel fit that says
 otherwise.</p>
-<p>The answer moves a long way when you do: <strong>τ_B + τ_C drops from 59.59 ps to
-19.1980 ps.</strong> Everything left in the intercept was collector charging.</p>
+<p>The answer moves a long way when you do: everything left in the intercept
+was collector charging.</p>
 <h3 id="splitting-τ_b-and-τ_c">Splitting τ_B and τ_C<a class="headerlink" href="#splitting-τ_b-and-τ_c" title="Permanent link">&para;</a></h3>
 <p>The <strong>Split τ_B / τ_C</strong> row divides the total using an assumed average
 collector velocity. With the InP defaults, W_C = 120 nm and
-v_c = 4.000e+7 cm/s:</p>
-<ul>
-<li><strong>τ_C = 0.1500 ps</strong></li>
-<li><strong>τ_B = 19.0480 ps</strong></li>
-</ul>
+v_c = 4.000e+7 cm/s, the row gives you τ_C and τ_B.</p>
 <p><strong>Use these two in place of Cheng's τB and τC.</strong> The analytic extraction on
-the <a href="../ssm-intrinsic/">intrinsic page</a> returns τB = 10.7654 ps and
-τC = −6.7695 ps for this device, and a negative collector transit time is not
-a physical answer. The transit-time fit uses six bias points and the measured
-f_T, so it is the number to trust.</p>
+the <a href="../ssm-intrinsic/">intrinsic page</a> can return a negative τC, and a
+negative collector transit time is not physical. The transit-time fit uses
+the whole bias sweep and the measured f_T, so it is the number to trust.</p>
 <p>The per-file table underneath shows where each file lands once the corrected
 inputs are in:</p>
 <p><img alt="Per-file derived delays table with IC, rE, tauCC, tauE and measured tau_total per file" src="../../assets/ssm/transit_perfile.png" /></p>
@@ -1520,14 +1452,10 @@ inputs are in:</p>
 the model fit on their own, so type them into the fine-tune panel if you want
 them in the shipped model.</p>
 <h2 id="which-current-to-use">Which current to use<a class="headerlink" href="#which-current-to-use" title="Permanent link">&para;</a></h2>
-<p>Cheng's default is I_C, and the page is built around it. Using I_E instead
-shifts every point left by I_B/(I_C·I_E), which mostly steepens the low-current
-end of the line.</p>
-<p>Use I_E. The delay being fitted is the total emitter-to-collector transit,
-and at the low-current end of an InP HBT sweep I_B is a few percent of I_C, which is enough to bend the very
-points that set the intercept. Cheng's I_C form is
-fine when β is large and you only care about the slope; it is the weaker
-choice when you want τ_B + τ_C.</p>
+<p>The page follows Cheng's default of I_C, but use I_E. The delay being
+fitted is the total emitter-to-collector transit, and at the low-current
+end of an InP HBT sweep I_B is a few percent of I_C — enough to bend the
+very points that set the intercept.</p>
 <p>Whichever you pick, use it for every row. A table with I_C in some rows and
 I_E in others fits a line through two different quantities.</p>
 <h2 id="τ_total-across-files">τ_total across files<a class="headerlink" href="#τ_total-across-files" title="Permanent link">&para;</a></h2>

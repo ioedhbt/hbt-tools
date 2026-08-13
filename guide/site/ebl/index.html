@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1071,10 +1099,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-upload-a-mask" class="md-nav__link">
+  <a href="#2-left-computer-setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Upload a mask
+        2. Left Computer Setup
       
     </span>
   </a>
@@ -1082,10 +1110,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-pick-the-cell-and-layer" class="md-nav__link">
+  <a href="#3-upload-a-mask" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Pick the cell and layer
+        3. Upload a mask
       
     </span>
   </a>
@@ -1108,6 +1136,17 @@
     <span class="md-ellipsis">
       
         Three ways to use this page
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-instruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Instruction
       
     </span>
   </a>
@@ -1280,10 +1319,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-upload-a-mask" class="md-nav__link">
+  <a href="#2-left-computer-setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Upload a mask
+        2. Left Computer Setup
       
     </span>
   </a>
@@ -1291,10 +1330,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-pick-the-cell-and-layer" class="md-nav__link">
+  <a href="#3-upload-a-mask" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Pick the cell and layer
+        3. Upload a mask
       
     </span>
   </a>
@@ -1317,6 +1356,17 @@
     <span class="md-ellipsis">
       
         Three ways to use this page
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-instruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Instruction
       
     </span>
   </a>
@@ -1347,73 +1397,47 @@ three workflow pages that follow (<a href="dose-test/">dose test</a>,
 <a href="first-exposure/">first exposure</a>, <a href="second-exposure/">second exposure</a>)
 each build on what's here.</p>
 <h2 id="1-open-the-calculator">1. Open the calculator<a class="headerlink" href="#1-open-the-calculator" title="Permanent link">&para;</a></h2>
-<p>The EBL Calculator lives in the portal sidebar, under <strong>Process</strong>. It also
-runs on its own, outside the portal: <code>python launch_ebl_calculator.py</code> builds
-a local virtual environment next to itself, installs the packages the page
-needs, and launches it directly at <code>tools/ebeam/calculator.py</code>. Standalone
-mode has no password gate and no other tools in the sidebar, just this page.</p>
+<p>In most cases, the <a href="https://hbt-tools.streamlit.app/">streamlit online web app</a> is sufficient to process the mask files. If your mask file is larger than 350 MB, run the app locally:</p>
+<ol>
+<li>
+<p>Install python on your computer. On Windows, tick "add to PATH" during install.</p>
+</li>
+<li>
+<p>Go to the <a href="https://github.com/ioedhbt/ebeam">e-beam tools</a> or <a href="https://github.com/ioedhbt/hbt-tools">HBT tools</a> Github repo, click the green "&lt;&gt; Code" button, then "download zip". Extract the zip to a folder.</p>
+</li>
+<li>
+<p>Open a terminal or command prompt at the folder, and run <code>python launch_ebl_calculator.py</code> or <code>python3 launch_ebl_calculator.py</code>. It installs what the page needs and launches the app in a browser.</p>
+</li>
+</ol>
 <p><img alt="EBL Calculator page header, standalone launch — no portal chrome, no password gate" src="../assets/ebl/index_header.png" /></p>
-<p>Standalone mode also raises the upload cap. The portal caps uploads at 350 MB
-(sized for the deployed container); <code>launch_ebl_calculator.py</code> sizes the cap
-from the workstation's own RAM instead, up to 4 GB.</p>
-<h2 id="2-upload-a-mask">2. Upload a mask<a class="headerlink" href="#2-upload-a-mask" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Drop a <code>.gds</code> file on <strong>Upload .gds file</strong>, under <strong>GDS Mask</strong>.</li>
-</ol>
-<p><img alt="Upload widget and RAM budget line" src="../assets/ebl/index_upload.png" /></p>
-<p>The line under the uploader, <strong>Memory available for one mask</strong>, is not a
-fixed number. It's read from free RAM at that moment, so the same file can
-load on an idle machine and get refused an hour later on a busy one. Above
-that budget, the app does one of two things, never a crash:</p>
-<ul>
-<li><strong>Too big to hold, small enough to measure</strong>: the mask is streamed instead
-, read back in ~4 MB blocks, keeping only reductions (bounding boxes,
-  coverage), so you still get the overview and an exact time estimate, with
-  a warning that says so.</li>
-<li><strong>Too big for either</strong>: a plain error message names the problem (corrupt
-  file, or a budget too small even for streaming).</li>
-</ul>
-<p>The demo masks used across these pages are a few KB each, so this line will
-always read a boring <strong>0 MB stored as 0 MB</strong>, the ratio and the presence of
-the line are what to check, not the magnitude.</p>
-<h2 id="3-pick-the-cell-and-layer">3. Pick the cell and layer<a class="headerlink" href="#3-pick-the-cell-and-layer" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Once a file parses, <strong>Top Cell</strong> and <strong>Layer to expose</strong> fill in. Pick the
-   top-level cell, then the <code>(layer, datatype)</code> pair you want to look at or
-   expose next.</li>
-</ol>
+<h2 id="2-left-computer-setup">2. Left Computer Setup<a class="headerlink" href="#2-left-computer-setup" title="Permanent link">&para;</a></h2>
+<p>Set the chip origin — where the grids will be positioned (default 10.0, 10.0). You can use other numbers, but not 0, 0; that puts the grid at the far left of the screen, where you cannot find it.</p>
+<p>Then set the <strong>Chip Size</strong> and <strong>Dotmap</strong>. Chip size is how big each grid will be; dot map is how many dots (pixels) will be drawn on each grid. So the exposure resolution is chip size divided by dot map.</p>
+<p><img alt="Left computer setup" src="../assets/ebl/index_left_computer.png" /></p>
+<h2 id="3-upload-a-mask">3. Upload a mask<a class="headerlink" href="#3-upload-a-mask" title="Permanent link">&para;</a></h2>
+<p>Drop a <code>.gds</code> file on <strong>Upload .gds file</strong>, under <strong>GDS Mask</strong>. Once a file parses, <strong>Top Cell</strong> and <strong>Layer to expose</strong> fill in. Pick the top-level cell, then the <code>(layer, datatype)</code> pair you want to look at or expose next.</p>
 <p><img alt="Loaded mask: cell/layer selectors and the parsed-size line" src="../assets/ebl/index_loaded.png" /></p>
-<p>Only one <code>(layer, datatype)</code> pair is shown at a time. If your mask splits a
-job across several datatypes (marks on one, pads on another, fine features on
-a third, as the demo masks in this guide do), you pick one at a time.</p>
 <h2 id="4-read-the-viewer">4. Read the viewer<a class="headerlink" href="#4-read-the-viewer" title="Permanent link">&para;</a></h2>
-<ol>
-<li>The plot below the selectors draws the selected layer. Small layers (under
-   50,000 polygons) draw every polygon exactly, as here, six base pads from
-   the demo first-exposure mask:</li>
-</ol>
+<p>The plot below the selectors draws the selected layer. Small layers (under 50,000 polygons) draw every polygon:</p>
 <p><img alt="GDS viewer: six base-pad polygons drawn exactly" src="../assets/ebl/index_viewer.png" /></p>
-<p>Past 50,000 polygons the page stops drawing every shape (the browser would
-stall) and switches to a low-resolution coverage raster instead, with a
-checkbox to force full detail anyway. Drag a box on a dense layer's overview
-to re-read just that region at full detail, useful for checking one device
-in a mask with thousands.</p>
+<p>Past 50,000 polygons the viewer shows a low-resolution overview instead of
+individual shapes. Drag a box on it to re-draw that region at full detail —
+useful for checking one device in a mask with thousands.</p>
+<p><img alt="The pattern is too large to view" src="../assets/ebl/index_large.png" />
+<img alt="The pattern inside the box is shown" src="../assets/ebl/index_large2.png" /></p>
 <h2 id="three-ways-to-use-this-page">Three ways to use this page<a class="headerlink" href="#three-ways-to-use-this-page" title="Permanent link">&para;</a></h2>
 <p>Once a mask is loaded, the <strong>Workflow</strong> section at the bottom picks what the
 rest of the page does with it:</p>
 <p><img alt="Mode selector: Dose Time Testing, First Exposure, Second Alignment" src="../assets/ebl/index_mode.png" /></p>
-<p><strong>Dose Time Testing</strong> replicates one mask across a grid of stage positions,
-ramping the dose from tile to tile, so you can pick a working dose off the
-developed result before committing a real device to it, see
+<p><strong>Dose Time Testing</strong> exposes a mask pattern several times, ramping the dose from tile to tile, so you can pick a working dose off the developed result before committing a real device. See
 <a href="dose-test/">dose test</a>.</p>
-<p><strong>First Exposure</strong> tiles the write field with same-size grids and centers
-them on the chip, with no marks involved, the first pattern written on a
-bare chip. See <a href="first-exposure/">first exposure</a>.</p>
-<p><strong>Second Alignment</strong> registers a new layer to marks already on the chip from
-a prior exposure, so the new pattern lands where it needs to relative to
-what's already there. See <a href="second-exposure/">second exposure</a>.</p>
+<p><strong>First Exposure</strong> exposes a mask file to a device without any mark alignment. You need to test the dose beforehand. See <a href="first-exposure/">first exposure</a>.</p>
+<p><strong>Second Alignment</strong> exposes a mask file to a device with an existing mark for alignment. You need to test the dose beforehand. See <a href="second-exposure/">second exposure</a>.</p>
 <p>For the numbers to type into the JEOL system for all three, in order, see the
 <a href="job-sheet/">job number sheet</a>.</p>
+<h2 id="setup-instruction">Setup Instruction<a class="headerlink" href="#setup-instruction" title="Permanent link">&para;</a></h2>
+<p>Tip: Open <strong>Setup Instruction</strong> in <strong>Left Computer Setup</strong> section. It summarizes your steps and the numbers required in the left-side computer.</p>
+<p><img alt="Setup instruction summarizes your steps and the numbers required in the left-side computer" src="../assets/ebl/setup_instruction.png" /></p>
 
 
 

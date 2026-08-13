@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1363,43 +1391,37 @@
 
 
 <h1 id="模型萃取設定">模型萃取：設定<a class="headerlink" href="#模型萃取設定" title="Permanent link">&para;</a></h1>
-<p>載入元件並選擇小訊號模型拓樸。本頁示範如何使用原始（未去嵌入）示範檔案，
-從空白上傳走到完成去嵌入的元件，逐步操作 SSM 萃取頁。</p>
+<p>載入元件並選擇小訊號模型拓樸。本頁示範如何使用你自己的原始（未去嵌入）
+檔案，從空白上傳走到完成去嵌入的元件，逐步操作 SSM 萃取頁。</p>
 <h2 id="1-上傳原始元件檔案">1. 上傳原始元件檔案<a class="headerlink" href="#1-上傳原始元件檔案" title="Permanent link">&para;</a></h2>
 <p>從側邊欄開啟<strong>剝離法小訊號模型萃取 (Small Signal Model Extraction by
 Peeling)</strong>。</p>
-<ol>
-<li>在<strong>① 上傳偏壓檔 (① Upload bias files)</strong> 下上傳一個或多個原始偏壓
-   <code>.s2p</code> 檔案。可使用示範檔案中的
-   <code>raw/vce3.5_ib200u.s2p</code>，此檔案仍保留焊墊與引線。</li>
-</ol>
+<p>在<strong>① 上傳偏壓檔 (① Upload bias files)</strong> 下上傳一個或多個原始偏壓
+   <code>.s2p</code> 檔案。使用仍保留焊墊與引線的原始偏壓檔。</p>
 <p><img alt="上傳 DUT 檔案" src="../../../assets/ssm/setup_upload_main.png" /></p>
-<p>一次可放入多個偏壓檔案，後續步驟（Z 參數接觸電阻、τ_total 擬合）需要
+<p>一次可放入多個偏壓檔案；後續步驟（Z 參數接觸電阻、τ_total 擬合）需要
 一個以上的點才能擬合出一條線。</p>
 <h2 id="2-上傳-open-與-short">2. 上傳 Open 與 Short<a class="headerlink" href="#2-上傳-open-與-short" title="Permanent link">&para;</a></h2>
 <p>Open 與 Short dummy 檔案位於側邊欄，而非主要上傳區。</p>
-<ol>
-<li>在側邊欄開啟<strong>啟用元件 dummy 去嵌入 (Enable device-dummy de-embedding)</strong>。</li>
-</ol>
+<p>在側邊欄開啟<strong>啟用元件 dummy 去嵌入 (Enable device-dummy de-embedding)</strong>。</p>
 <p><img alt="開啟側邊欄開關" src="../../../assets/ssm/setup_sidebar_toggle.png" /></p>
 <p>畫面會出現兩個檔案欄位：<strong>元件 Open (Dev Open)</strong> 與<strong>元件 Short
-(Dev Short)</strong>。將 <code>open.s2p</code> 拖入第一個，<code>short.s2p</code> 拖入第二個。</p>
+(Dev Short)</strong>。將你的 Open 檔案拖入第一個，Short 檔案拖入第二個。</p>
 <p><img alt="側邊欄中已載入的 Open 與 Short" src="../../../assets/ssm/setup_sidebar_files.png" /></p>
 <p>出現綠色的<strong>✅ Pad 去嵌入已啟用。(Pad de-embedding active.)</strong> 訊息，
 確認兩個檔案都已成功解析。</p>
 <h2 id="3-執行萃取">3. 執行萃取<a class="headerlink" href="#3-執行萃取" title="Permanent link">&para;</a></h2>
-<ol>
-<li>在<strong>② 選擇元件與模型 (② Select device &amp; model)</strong> 下選擇使用中的檔案
+<p>在<strong>② 選擇元件與模型 (② Select device &amp; model)</strong> 下選擇使用中的檔案
    （只有在載入超過一個 DUT 檔案時才需要），然後點選<strong>▶ 執行小訊號模型
-   萃取 (▶ Run SSM Extraction)</strong>。</li>
-</ol>
+   萃取 (▶ Run SSM Extraction)</strong>。</p>
 <p><img alt="點選執行" src="../../../assets/ssm/setup_ready_to_run.png" /></p>
 <h2 id="4-檢查焊墊電容">4. 檢查焊墊電容<a class="headerlink" href="#4-檢查焊墊電容" title="Permanent link">&para;</a></h2>
 <p>萃取頁會開啟於<strong>1：焊墊電容與串聯電感 (1 - Pad Capacitance &amp; Series
 Inductance)</strong>，位於<strong>📌 Open/Short Dummy 去嵌入 (📌 Open &amp; Short Dummy
 De-embedding)</strong> 展開區內。Open dummy 給出三個焊墊並聯電容：</p>
 <p><img alt="Open dummy 電容表" src="../../../assets/ssm/setup_open_caps.png" /></p>
-<p>表格應給出 Cpbe、Cpce 和 Cpbc 的值。如有必要，移動頻率範圍滑桿，使其找到掃描結果前 50% 的中位數，此時 Open 虛擬訊號最乾淨。</p>
+<p>表格應給出 Cpbe、Cpce 和 Cpbc 的值。如有必要，將頻率範圍滑桿移到 Open
+dummy 最乾淨的區段。</p>
 <h2 id="5-檢查引線電感">5. 檢查引線電感<a class="headerlink" href="#5-檢查引線電感" title="Permanent link">&para;</a></h2>
 <p>在同一個展開區內往下捲動至 Short dummy 區塊：</p>
 <p><img alt="Short dummy 電感表" src="../../../assets/ssm/setup_short_leads.png" /></p>
@@ -1414,8 +1436,7 @@ Extraction)</strong>，開啟 <strong>✏️ 選擇串聯電阻來源 (✏️ Ch
 <strong>Custom</strong>，預設為 0 Ω，若已知數值可直接在右側的 Rb/Rc/Re 欄位輸入。
 一旦執行了 Cold-HBT、Z-parameter 或 open-collector 方法（下一頁），這裡
 會出現額外的選項，各自標示其萃取值，選中的那一個就是往下傳遞給所有模型
-的值。<strong>Short（步驟 1b）刻意未提供此選項</strong>，應用程式將 Short 方法視為
-四種接觸電阻萃取方法中最不可靠的一種，因此預設不會被選中。</p>
+的值。</p>
 <p>焊墊電容（Cpbe/Cpce/Cpbc）與引線電感（Lb/Lc/Le）在此面板中不可編輯；
 它們永遠依循步驟 1 的 Open/Short 萃取結果（或你在「Override Open
 Capacitances」/「Override Short Lead Values」展開區內調整過的值）。</p>

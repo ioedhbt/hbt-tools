@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1343,49 +1371,38 @@
 <h1 id="hp4155a-快速繪圖">HP4155A 快速繪圖<a class="headerlink" href="#hp4155a-快速繪圖" title="Permanent link">&para;</a></h1>
 <p>直接由 HP/Agilent 4155A 文字匯出檔畫出互動式 SMU 圖，不需先轉檔。側邊欄
 <strong>直流量測 (DC Measurement) → HP4155A 快速繪圖 (HP4155A Quick Plot)</strong>。</p>
-<p><code>guide/_data/dc/hp4155a/</code> 裡的兩個範例檔不是真正的 4155A 匯出檔，而是本指南
-精選的 Gummel 與 Family B1500A CSV，經數值轉換為 4155A 欄位格式（往返驗證
-見該資料夾的 <code>VERIFY.md</code>）。用它們可以看到整個操作流程，其底層的 I、V 資料
-與 <a href="../b1500a/">B1500A 檢視器</a>頁面上記載的是同一批元件。</p>
+<p><code>guide/_data/dc/hp4155a/</code> 裡的兩個範例檔可讓你在沒有真實 4155A 匯出檔的情況
+下試用整個操作流程。</p>
 <h2 id="檔案格式">檔案格式<a class="headerlink" href="#檔案格式" title="Permanent link">&para;</a></h2>
 <p>從儀器以 <strong>List Display → Save ASCII</strong> 匯出，通道名稱維持儀器預設值。工具
 預期的格式是：</p>
 <ul>
-<li>純文字表格，以 tab 或逗號分隔，<strong>先是標頭列，前面沒有其他內容</strong>，第 0
-  列會直接當成欄位名稱讀入。</li>
+<li>純文字表格，以 tab 或逗號分隔，<strong>先是標頭列，前面沒有其他內容</strong>。</li>
 <li>欄位名稱須恰好為 <code>V1</code>、<code>I1</code>、<code>V2</code>、<code>I2</code>、<code>V3</code>、<code>I3</code>、<code>V4</code>、<code>I4</code>（可以只
   用其中一部分，不需要接滿全部四組 SMU）。</li>
 <li>數字採用儀器的科學記號格式，例如 <code>1.23456E-02</code>。</li>
 </ul>
 <h2 id="步驟">步驟<a class="headerlink" href="#步驟" title="Permanent link">&para;</a></h2>
-<ol>
-<li><strong>① SMU 指定（永久保存）(SMU Assignment)</strong>：為四組 V/I 欄位配對分別
-   指定它驅動的元件端點：Collector、Base、Emitter、PD 或 None。這個設定會
-   保留到之後的檔案與頁面重新整理。</li>
-</ol>
+<p><strong>① SMU 指定（永久保存）(SMU Assignment)</strong>：為四組 V/I 欄位配對分別
+指定它驅動的元件端點：Collector、Base、Emitter、PD 或 None。這個設定會
+保留到之後的檔案與頁面重新整理。</p>
 <p><img alt="SMU 角色指定" src="../../../assets/dc/hp_smu.png" /></p>
-<ol>
-<li><strong>② 資料檔案 (Data File)</strong>：上傳匯出檔。沒有檔案類型限制，任何能被解析
-   成分隔表格的檔案都可以。</li>
-</ol>
+<p><strong>② 資料檔案 (Data File)</strong>：上傳匯出檔。沒有檔案類型限制，任何能被解析
+成分隔表格的檔案都可以。</p>
 <p><img alt="已上傳檔案" src="../../../assets/dc/hp_upload.png" /></p>
-<ol>
-<li><strong>③ 繪圖設定 (Plot Settings) → 資料類型 (Data type)</strong>：Diode、Gummel、
-   Family 或 Family L-Ic-Vc，接著按 <strong>📊 顯示 (Show)</strong>。Family L-Ic-Vc
-   需要指定 PD 角色（它會透過響應率欄位把該通道的電流轉成光功率）；一般
-   Family 只需要 Collector 與 Base。</li>
-</ol>
+<p><strong>③ 繪圖設定 (Plot Settings) → 資料類型 (Data type)</strong>：Diode、Gummel、
+Family 或 Family L-Ic-Vc，接著按 <strong>📊 顯示 (Show)</strong>。Family L-Ic-Vc
+需要指定 PD 角色（它會透過響應率欄位把該通道的電流轉成光功率）；一般
+Family 只需要 Collector 與 Base。</p>
 <h2 id="讀取結果">讀取結果<a class="headerlink" href="#讀取結果" title="Permanent link">&para;</a></h2>
 <p>Gummel 圖在共用的對數軸上畫出 Ic 與 Ib，並在線性右軸畫 β，與 B1500A
 檢視器的 Gummel 圖版面相同：</p>
 <p><img alt="Gummel：Ic, Ib, β" src="../../../assets/dc/hp_gummel_plot.png" /></p>
-<p>Family 圖每個 Ib 步階畫一條 Ic 對 Vc 曲線（本範例的 SMU 角色只有 Collector
-與 Base，沒有接 PD，因此匯出檔用的是 <strong>Family Ic-Vc</strong>，不是 <strong>Family
-L-Ic-Vc</strong>）：</p>
+<p>Family 圖每個 Ib 步階畫一條 Ic 對 Vc 曲線：</p>
 <p><img alt="Family Ic-Vc" src="../../../assets/dc/hp_family_plot.png" /></p>
 <h2 id="匯出">匯出<a class="headerlink" href="#匯出" title="Permanent link">&para;</a></h2>
 <p>每張圖下方都有一個 <strong>📥 下載 Excel (Download Excel)</strong> 按鈕與一個 <strong>複製
-(copy)</strong> 按鈕並排。按這個按鈕即可把資料複製到剪貼簿，方便貼到 Origin。</p>
+(copy)</strong> 按鈕並排。按複製即可把資料放到剪貼簿，方便貼到 Origin。</p>
 <p><img alt="下載／複製按鈕列" src="../../../assets/dc/hp_export.png" /></p>
 <h2 id="其他控制項">其他控制項<a class="headerlink" href="#其他控制項" title="Permanent link">&para;</a></h2>
 <p><img alt="繪圖設定：座標軸與格線控制項" src="../../../assets/dc/hp_settings.png" /></p>

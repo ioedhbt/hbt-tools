@@ -10,10 +10,6 @@ Bulk-upload devices, de-embed, and read off fT/fmax in one pass.
 
 ![Upload dropzone and Clear uploads button](../assets/rf/upload_area.png)
 
-Each file is cached on its content hash plus the current de-embedding and
-chart-window settings, so re-running the page (a slider drag, a checkbox
-toggle) does not re-parse files that haven't changed.
-
 ## The four tabs
 
 ![The Overlay, Individual, Summary and Batch De-embed tabs](../assets/rf/tabs_bar.png)
@@ -27,10 +23,10 @@ toggle) does not re-parse files that haven't changed.
 4. **Batch De-embed**, Open/Short de-embedding applied to every uploaded
    file against one calibration pair. Covered on its own page.
 
-The Overlay tab's two charts stack vertically, Bode (|h21|², Mason U,
-MAG/MSG vs frequency) above, Plateau (`f × gain`, the GBP form of the same
-data) below. Every uploaded file gets its own set of traces on both, so
-sweeps of many bias points overlay directly:
+The Overlay tab stacks two charts: Bode (|h21|², Mason U, MAG/MSG vs
+frequency) above, Plateau (`f × gain`, the same data in GBP form) below.
+Every uploaded file gets its own set of traces on both, so a sweep of many
+bias points overlays directly:
 
 ![Overlay tab: Bode Plot Overlay chart](../assets/rf/overlay_bode.png)
 
@@ -45,13 +41,12 @@ Each metric card shows a value and the method that produced it.
 The app tries, in order:
 
 1. **Crossing** (`0dB Cross`), a genuine 0 dB crossing: the gain trace
-   stayed above 0 dB for at least 10 consecutive points before dropping
-   through it. This is the value shown whenever it exists.
-2. **Extrapolation** (`Extrap & Plat.`), no crossing was found inside the
-   swept band, but the median gain is still positive, so the last few points
-   are fit log-linearly and projected forward to their 0 dB crossing.
+   stays above 0 dB for 10 or more consecutive points before dropping
+   through. Shown whenever it exists.
+2. **Extrapolation** (`Extrap & Plat.`), no crossing in the swept band: the
+   last few points are fit log-linearly and projected forward to 0 dB.
 3. **Plateau**, reported alongside the extrapolated value as a sanity
-   check: `f × |gain|` evaluated pointwise, which should sit close to the
+   check: `f × |gain|` pointwise, which should sit close to the
    extrapolated fT/fmax for a well-behaved device.
 
 `No Gain` / `No Data` means the trace never clears 0 dB in the swept band, normal for an unbiased or cold device (see the card above: `2.123 GHz`,
@@ -60,7 +55,7 @@ method `0dB Cross`).
 ## Sorting and jumping to a device
 
 Rank devices by fT or fmax in the Summary tab, then open the one you want
-directly in Individual, no re-selecting from a dropdown.
+directly in Individual.
 
 1. Click the **fT Cross** (or any) column header to sort by it. Click again
    to reverse the order.
@@ -105,5 +100,5 @@ From the Individual tab, send the active device on without re-uploading it.
    device loaded for fitting.
 
 If a 3-step or batch de-embed already ran on this file, a **S-parameters to
-send** choice appears first, de-embedded (pads/leads removed, fit the
+send** choice appears first: de-embedded (pads/leads removed, fit the
 intrinsic device only) or raw (fit the parasitics too).

@@ -9,14 +9,14 @@
       
       
       
-        <link rel="prev" href="../multi-process/">
+        <link rel="prev" href="../portal/">
       
       
-        <link rel="next" href="../tlm/">
+        <link rel="next" href="../../rf/at-a-glance/">
       
       
         
-          <link rel="alternate" href="../../../dc/b1500a/" hreflang="en">
+          <link rel="alternate" href="../../../basics/local-installation/" hreflang="en">
         
           <link rel="alternate" href="./" hreflang="zh-TW">
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>B1500A viewer - HBT Tools Guide</title>
+        <title>Local installation - HBT Tools Guide</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#b1500a-excel-檢視器" class="md-skip">
+        <a href="#本機安裝" class="md-skip">
           跳轉到
         </a>
       
@@ -116,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              B1500A viewer
+              Local installation
             
           </span>
         </div>
@@ -163,7 +163,7 @@
       <ul class="md-select__list">
         
           <li class="md-select__item">
-            <a href="../../../dc/b1500a/" hreflang="en" class="md-select__link">
+            <a href="../../../basics/local-installation/" hreflang="en" class="md-select__link">
               English
             </a>
           </li>
@@ -290,8 +290,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -302,11 +304,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -327,7 +329,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -345,7 +347,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../basics/portal/" class="md-nav__link">
+      <a href="../portal/" class="md-nav__link">
         
   
   
@@ -370,10 +372,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../basics/local-installation/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -389,6 +418,70 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目錄">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目錄
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-安裝-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 安裝 Python
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-下載程式碼" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 下載程式碼
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-啟動" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 啟動
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-選用nvidia-gpu-加速" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 選用：NVIDIA GPU 加速
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -800,8 +893,6 @@
       
   
   
-    
-  
   
   
     
@@ -814,11 +905,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -839,7 +930,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -857,7 +948,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../multi-process/" class="md-nav__link">
+      <a href="../../dc/multi-process/" class="md-nav__link">
         
   
   
@@ -882,37 +973,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    B1500A viewer
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../dc/b1500a/" class="md-nav__link">
         
   
   
@@ -928,98 +992,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目錄">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目錄
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#進入頁面" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        進入頁面
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#曲線類型" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        曲線類型
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="曲線類型">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#bc--be-二極體" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        BC / BE 二極體
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gummel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Gummel
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ic-vc-族群" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Ic-Vc 族群
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#其他控制項" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        其他控制項
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1032,7 +1004,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tlm/" class="md-nav__link">
+      <a href="../../dc/tlm/" class="md-nav__link">
         
   
   
@@ -1060,7 +1032,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../hp4155a/" class="md-nav__link">
+      <a href="../../dc/hp4155a/" class="md-nav__link">
         
   
   
@@ -1314,10 +1286,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#進入頁面" class="md-nav__link">
+  <a href="#1-安裝-python" class="md-nav__link">
     <span class="md-ellipsis">
       
-        進入頁面
+        1. 安裝 Python
       
     </span>
   </a>
@@ -1325,60 +1297,32 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#曲線類型" class="md-nav__link">
+  <a href="#2-下載程式碼" class="md-nav__link">
     <span class="md-ellipsis">
       
-        曲線類型
+        2. 下載程式碼
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="曲線類型">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#bc--be-二極體" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        BC / BE 二極體
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#gummel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Gummel
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#ic-vc-族群" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Ic-Vc 族群
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#其他控制項" class="md-nav__link">
+  <a href="#3-啟動" class="md-nav__link">
     <span class="md-ellipsis">
       
-        其他控制項
+        3. 啟動
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-選用nvidia-gpu-加速" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 選用：NVIDIA GPU 加速
       
     </span>
   </a>
@@ -1402,86 +1346,30 @@
 
 
 
-<h1 id="b1500a-excel-檢視器">B1500A Excel 檢視器<a class="headerlink" href="#b1500a-excel-檢視器" title="Permanent link">&para;</a></h1>
-<p>繪製 B1500A 曲線並從中萃取 DC 參數。側邊欄 <strong>直流量測 (DC Measurement) →
-DC 分析 (DC Analysis)</strong>，頂端頁面選擇器設為 <strong>B1500A Excel 檢視器 (B1500A
-Excel Viewer)</strong>（另一個選項是 <a href="../tlm/">TLM 分析</a>）。</p>
-<p>檢視器只接受 <code>.xlsx</code>。取得檔案最快的方式是從
-<a href="../multi-process/">量測資料批次處理</a>交接過來；上傳自己的 <code>.xlsx</code> 做法完全
-相同。</p>
-<h2 id="進入頁面">進入頁面<a class="headerlink" href="#進入頁面" title="Permanent link">&para;</a></h2>
-<p>交接完成後，頁面會顯示提示訊息，且收到的檔案已列在下方的選擇器中。先選
-   要檢視哪個上傳／接收的檔案，再選裡面的工作表（如果不只一個），最後選曲線
-   類型。</p>
-<p><img alt="已從批次處理接收，檔案與資料類型選擇器" src="../../../assets/dc/b_handoff.png" /></p>
-<p>資料類型會依檔名自動判斷（BE/BC 為 <code>Diode</code>、<code>Gummel</code>、<code>Family</code>），但仍是一
-個普通的下拉選單，猜錯時可自行更改。</p>
-<h2 id="曲線類型">曲線類型<a class="headerlink" href="#曲線類型" title="Permanent link">&para;</a></h2>
-<h3 id="bc--be-二極體">BC / BE 二極體<a class="headerlink" href="#bc--be-二極體" title="Permanent link">&para;</a></h3>
-<p>以對數軸繪製 <code>|I|</code> 對掃描電壓的關係。<strong>η 窗口 (η window)</strong>，可輸入兩個數字
-或在圖上拖曳選取，用來設定理想因子擬合所使用的電壓範圍。</p>
-<p><img alt="BC 二極體萃取參數" src="../../../assets/dc/b_bc_params.png" />
-<img alt="BC 二極體 I-V" src="../../../assets/dc/b_bc_plot.png" /></p>
-<ul>
-<li><strong>理想因子 η (Ideality factor, η)</strong>：η 窗口內 <code>I</code> 對 <code>V</code> 的半對數擬合。
-  η ≈ 1 表示以擴散為主，η → 2 表示以復合為主。</li>
-<li><strong>飽和電流 Is (Saturation current, Is)</strong>：同一個擬合的 y 截距。</li>
-<li><strong>膝點 / 開啟電壓 (Knee / turn-on voltage)</strong>：將順向陡升區線性外插回
-  <code>I = 0</code> 所得的電壓。</li>
-<li><strong>BC/BE 電阻 (BC/BE resistance)</strong>：η 窗口兩端之間的弦電阻
-  ΔV/ΔI（依檔名出現的是 "bc" 還是 "be" 而標示）。</li>
-<li><strong>順向電流 @ V (Forward current @ V)</strong> / <strong>洩漏電流 @ V (Leakage current
-  @ V)</strong>：兩個讀值電壓是數值指標上方各自獨立的輸入欄位，可任意移動來讀取
-  曲線上的任何位置。</li>
-<li><strong>整流比 (Rectification ratio)</strong>：<code>+|V|</code> 處的順向電流除以 <code>-|V|</code> 處的
-  逆向電流，使用掃描兩端點量值中較小的一個。</li>
-</ul>
-<p><img alt="BE 二極體萃取參數" src="../../../assets/dc/b_be_params.png" />
-<img alt="BE 二極體 I-V" src="../../../assets/dc/b_be_plot.png" /></p>
-<h3 id="gummel">Gummel<a class="headerlink" href="#gummel" title="Permanent link">&para;</a></h3>
-<p><img alt="Gummel 理想因子" src="../../../assets/dc/b_gummel_eta.png" />
-<img alt="Gummel 電流增益" src="../../../assets/dc/b_gummel_beta.png" />
-<img alt="Gummel 圖：Ic, Ib, β" src="../../../assets/dc/b_gummel_plot.png" /></p>
-<p>以共用的對數軸繪製 Ic 與 Ib 對 Vb 的關係，並在第二條線性軸上畫出
-β = Ic/Ib。與二極體頁面相同的 η 窗口控制項，分別套用在 Ic 與 Ib 上：</p>
-<ul>
-<li><strong>集極理想因子 η(Ic) / 基極理想因子 η(Ib) (Collector / base ideality,
-  η(Ic) / η(Ib))</strong>：與二極體頁面相同的半對數擬合方法，Ic 與 Ib 各自擬合一次。</li>
-<li><strong>最大增益 β(max) (Maximum gain, β(max))</strong>：整個掃描範圍中 Ic/Ib 的峰值，
-  以及發生峰值時對應的 Vb 與 Ic。</li>
-</ul>
-<h3 id="ic-vc-族群">Ic-Vc 族群<a class="headerlink" href="#ic-vc-族群" title="Permanent link">&para;</a></h3>
-<p><img alt="Family 輸出區參數" src="../../../assets/dc/b_family_outreg.png" />
-<img alt="Family I-V" src="../../../assets/dc/b_family_plot.png" /></p>
-<p>每個 Ib 步階畫一條 Ic 對 Vc 曲線。控制項與讀值：</p>
-<ul>
-<li><strong>Rsat 窗口 (Rsat window)</strong>：一個 Vc 範圍（拖曳選取或輸入數字），只在
-  <em>Ib 最高</em>的那條曲線上做擬合。</li>
-<li><strong>飽和（輸出）電阻 (Saturation (output) resistance)</strong>：該窗口內 Ic 對 Vc
-  線性擬合的 <code>1/斜率</code>。</li>
-<li><strong>厄利電壓 |VA| (Early voltage, |VA|)</strong>：同一個擬合的 x 截距的絕對值。</li>
-<li><strong>膝點電壓 (Knee voltage)</strong>：Ic 首次達到其飽和值 90%（取掃描最上方 20%
-  的 Ic 平均值）時對應的 Vc。</li>
-</ul>
-<p>滑鼠移到某條曲線上，會以提示框顯示該曲線自己的 DC 增益 β 與偏移電壓（Ic
-零交叉點），下方兩個區塊則彙總圖上每一條曲線：</p>
-<p><img alt="偏移電壓" src="../../../assets/dc/b_family_offset.png" />
-<img alt="轉導" src="../../../assets/dc/b_family_gm.png" /></p>
-<ul>
-<li><strong>平均偏移電壓 (Average offset voltage)</strong>：實際有零交叉的曲線的 Ic 零
-  交叉點平均值。</li>
-<li><strong>最大轉導 gm(max) (Peak transconductance, gm(max))</strong>：<code>gm = Ic/Vt</code>
-  （Vt = 你設定的溫度下的 kT/q），在每條曲線的飽和 Ic 處計算；展開
-  <strong>各曲線 gm 表 (Per-curve gm table)</strong> 可看到每個步階的數字。</li>
-</ul>
-<h2 id="其他控制項">其他控制項<a class="headerlink" href="#其他控制項" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>在任一張圖上拖曳選取</strong>會設定與上方數字輸入相同的窗口（η 窗口、Rsat
-  窗口），兩者互相連動。</li>
-<li>上傳的檔案會在切換到 TLM 分析再切回來後保留，使用「先前上傳」提示旁的
-  <strong>清除 (Clear)</strong> 按鈕可移除它們，或用 <strong>🗑️ 清除接收的資料 (Clear received
-  data)</strong> 移除交接資料。</li>
-</ul>
+<h1 id="本機安裝">本機安裝<a class="headerlink" href="#本機安裝" title="Permanent link">&para;</a></h1>
+<p>多數情況下，<a href="https://hbt-tools.streamlit.app/">streamlit 線上網頁應用程式</a> 已足夠。需要處理大型光罩檔的更多 RAM、GPU 加速或取消上傳上限時，再於本機安裝。</p>
+<h2 id="1-安裝-python">1. 安裝 Python<a class="headerlink" href="#1-安裝-python" title="Permanent link">&para;</a></h2>
+<p>從 <a href="https://www.python.org/downloads/">python.org</a> 安裝 <strong>Python 3.9+</strong>。在 Windows 上，安裝時請勾選 <strong>「Add python.exe to PATH」</strong>。</p>
+<h2 id="2-下載程式碼">2. 下載程式碼<a class="headerlink" href="#2-下載程式碼" title="Permanent link">&para;</a></h2>
+<ol>
+<li>前往 <a href="https://github.com/ioedhbt/hbt-tools">HBT tools</a> Github 儲存庫。</li>
+<li>點擊綠色的 <strong>「&lt;&gt; Code」</strong> 按鈕，再點擊 <strong>Download ZIP</strong>。</li>
+<li>將 zip 解壓縮到一個資料夾。</li>
+</ol>
+<h2 id="3-啟動">3. 啟動<a class="headerlink" href="#3-啟動" title="Permanent link">&para;</a></h2>
+<p>在專案資料夾中開啟終端機並執行：</p>
+<div class="highlight"><pre><span></span><code>python3<span class="w"> </span>LAUNCH_Tool.py
+</code></pre></div>
+<p>在 Windows 上，直接雙擊 <code>LAUNCH_Tool.py</code> 亦可。首次執行需數分鐘進行設定，然後在瀏覽器中開啟應用程式。本機啟動無需密碼驗證。</p>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>電子束計算機可獨立執行（不經入口網站）：在 Windows 上雙擊
+<code>launch_ebl_calculator.py</code>，或在 macOS/Linux 執行
+<code>python3 launch_ebl_calculator.py</code>。</p>
+</div>
+<h2 id="4-選用nvidia-gpu-加速">4. 選用：NVIDIA GPU 加速<a class="headerlink" href="#4-選用nvidia-gpu-加速" title="Permanent link">&para;</a></h2>
+<p>SSM 調諧掃描在 NVIDIA GPU 上會快上許多。請從 NVIDIA 官方頁面安裝 <strong>CUDA 12 或 13</strong>：
+<a href="https://developer.nvidia.com/cuda-downloads">https://developer.nvidia.com/cuda-downloads</a>。然後再次執行啟動程式——它會偵測 CUDA 並自動安裝對應的 GPU 套件。沒有 GPU？所有功能仍可在 CPU 上運作。</p>
 
 
 

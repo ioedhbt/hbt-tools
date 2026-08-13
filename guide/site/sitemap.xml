@@ -2,322 +2,336 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
     <url>
         <loc>None./</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="None"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/"/>
     </url>
     <url>
+        <loc>Nonebasics/local-installation/</loc>
+        <lastmod>2026-08-13</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="en" href="Nonebasics/local-installation/"/>
+        <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/basics/local-installation/"/>
+    </url>
+    <url>
         <loc>Nonebasics/portal/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonebasics/portal/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/basics/portal/"/>
     </url>
     <url>
         <loc>Nonedc/b1500a/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonedc/b1500a/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/dc/b1500a/"/>
     </url>
     <url>
         <loc>Nonedc/hp4155a/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonedc/hp4155a/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/dc/hp4155a/"/>
     </url>
     <url>
         <loc>Nonedc/multi-process/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonedc/multi-process/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/dc/multi-process/"/>
     </url>
     <url>
         <loc>Nonedc/tlm/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonedc/tlm/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/dc/tlm/"/>
     </url>
     <url>
         <loc>Noneebl/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/"/>
     </url>
     <url>
         <loc>Noneebl/dose-test/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/dose-test/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/dose-test/"/>
     </url>
     <url>
         <loc>Noneebl/first-exposure/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/first-exposure/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/first-exposure/"/>
     </url>
     <url>
         <loc>Noneebl/job-sheet/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/job-sheet/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/job-sheet/"/>
     </url>
     <url>
         <loc>Noneebl/second-exposure/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/second-exposure/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/second-exposure/"/>
     </url>
     <url>
         <loc>Nonerf/at-a-glance/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/at-a-glance/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/at-a-glance/"/>
     </url>
     <url>
         <loc>Nonerf/batch-deembed/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/batch-deembed/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/batch-deembed/"/>
     </url>
     <url>
         <loc>Nonerf/charts/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/charts/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/charts/"/>
     </url>
     <url>
         <loc>Nonerf/custom-model/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/custom-model/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/custom-model/"/>
     </url>
     <url>
         <loc>Nonerf/deembedding/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/deembedding/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/deembedding/"/>
     </url>
     <url>
         <loc>Nonerf/sim-fit/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/sim-fit/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/sim-fit/"/>
     </url>
     <url>
         <loc>Nonerf/ssm-access-r/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-access-r/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-access-r/"/>
     </url>
     <url>
         <loc>Nonerf/ssm-finetune/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-finetune/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-finetune/"/>
     </url>
     <url>
         <loc>Nonerf/ssm-intrinsic/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-intrinsic/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-intrinsic/"/>
     </url>
     <url>
         <loc>Nonerf/ssm-setup/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-setup/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-setup/"/>
     </url>
     <url>
         <loc>Nonerf/ssm-transit-time/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-transit-time/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-transit-time/"/>
     </url>
     <url>
         <loc>Nonerf/tuning/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/tuning/"/>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/tuning/"/>
     </url>
     <url>
         <loc>Nonezh-TW/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/"/>
         <xhtml:link rel="alternate" hreflang="en" href="None"/>
     </url>
     <url>
+        <loc>Nonezh-TW/basics/local-installation/</loc>
+        <lastmod>2026-08-13</lastmod>
+        <changefreq>daily</changefreq>
+        <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/basics/local-installation/"/>
+        <xhtml:link rel="alternate" hreflang="en" href="Nonebasics/local-installation/"/>
+    </url>
+    <url>
         <loc>Nonezh-TW/basics/portal/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/basics/portal/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonebasics/portal/"/>
     </url>
     <url>
         <loc>Nonezh-TW/dc/b1500a/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/dc/b1500a/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonedc/b1500a/"/>
     </url>
     <url>
         <loc>Nonezh-TW/dc/hp4155a/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/dc/hp4155a/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonedc/hp4155a/"/>
     </url>
     <url>
         <loc>Nonezh-TW/dc/multi-process/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/dc/multi-process/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonedc/multi-process/"/>
     </url>
     <url>
         <loc>Nonezh-TW/dc/tlm/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/dc/tlm/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonedc/tlm/"/>
     </url>
     <url>
         <loc>Nonezh-TW/ebl/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/"/>
     </url>
     <url>
         <loc>Nonezh-TW/ebl/dose-test/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/dose-test/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/dose-test/"/>
     </url>
     <url>
         <loc>Nonezh-TW/ebl/first-exposure/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/first-exposure/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/first-exposure/"/>
     </url>
     <url>
         <loc>Nonezh-TW/ebl/job-sheet/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/job-sheet/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/job-sheet/"/>
     </url>
     <url>
         <loc>Nonezh-TW/ebl/second-exposure/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/ebl/second-exposure/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Noneebl/second-exposure/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/at-a-glance/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/at-a-glance/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/at-a-glance/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/batch-deembed/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/batch-deembed/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/batch-deembed/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/charts/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/charts/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/charts/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/custom-model/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/custom-model/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/custom-model/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/deembedding/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/deembedding/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/deembedding/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/sim-fit/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/sim-fit/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/sim-fit/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/ssm-access-r/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-access-r/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-access-r/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/ssm-finetune/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-finetune/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-finetune/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/ssm-intrinsic/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-intrinsic/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-intrinsic/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/ssm-setup/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-setup/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-setup/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/ssm-transit-time/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/ssm-transit-time/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/ssm-transit-time/"/>
     </url>
     <url>
         <loc>Nonezh-TW/rf/tuning/</loc>
-        <lastmod>2026-08-05</lastmod>
+        <lastmod>2026-08-13</lastmod>
         <changefreq>daily</changefreq>
         <xhtml:link rel="alternate" hreflang="zh-TW" href="Nonezh-TW/rf/tuning/"/>
         <xhtml:link rel="alternate" hreflang="en" href="Nonerf/tuning/"/>

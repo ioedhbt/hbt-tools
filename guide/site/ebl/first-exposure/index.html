@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1138,10 +1166,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-leave-the-grid-geometry-on-auto" class="md-nav__link">
+  <a href="#3-grid-geometry-setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Leave the grid geometry on auto
+        3. Grid geometry setup
       
     </span>
   </a>
@@ -1164,6 +1192,17 @@
     <span class="md-ellipsis">
       
         5. Set the dose and read the time
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-instruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Instruction
       
     </span>
   </a>
@@ -1291,10 +1330,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-leave-the-grid-geometry-on-auto" class="md-nav__link">
+  <a href="#3-grid-geometry-setup" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Leave the grid geometry on auto
+        3. Grid geometry setup
       
     </span>
   </a>
@@ -1323,6 +1362,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#setup-instruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Instruction
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1341,75 +1391,35 @@
 
 
 <h1 id="first-exposure">First exposure<a class="headerlink" href="#first-exposure" title="Permanent link">&para;</a></h1>
-<p>Write the first pattern onto a bare chip: no marks, no registration to
-anything already there, the write field is just tiled with chip-size grids
-and centered on the chip. This page walks the <strong>First Exposure</strong> mode with
-<code>first_exposure.gds</code> (six devices, base pads / emitter fingers / collector
-pads each on their own datatype, plus four alignment marks reserved for the
-<a href="../second-exposure/">second exposure</a> that follows this one).</p>
-<p>Read <a href="../">EBL calculator basics</a> first if this is your first time on
-this page. <strong>Every field below keeps its default value except the two
-positions you're told to type</strong>, everything else is either auto-computed
-from the mask or left alone on purpose; each screenshot says which.</p>
+<p>Write the first pattern onto a bare chip: no marks, no registration to anything already there, the write field is just tiled with chip-size grids and centered on the chip. This page walks the <strong>First Exposure</strong> mode with <code>first_exposure.gds</code> (with patterns in the center, plus four alignment marks reserved for the <a href="../second-exposure/">second exposure</a> that follows this one).</p>
+<p>Read <a href="../">EBL calculator basics</a> first if this is your first time on this page.</p>
 <h2 id="1-set-the-chip-corners-you-actually-found">1. Set the chip corners you actually found<a class="headerlink" href="#1-set-the-chip-corners-you-actually-found" title="Permanent link">&para;</a></h2>
-<p>Before touching the mask, <strong>Chip Position in the E-beam Holder</strong> needs to
-match where the chip really sits in the holder today, not the boilerplate
-default. Say, for example, you found the chip's bottom-left corner at stage
-position (105.000, 115.000) mm under the beam:</p>
-<ol>
-<li>Type that into the <strong>Bottom Left (BL)</strong> x/y fields.</li>
-</ol>
-<p>Then you locate the top-right alignment mark, near the chip's top-right
-corner, at design coordinates (1900, 1900) µm on this mask, and read its
-stage position as (107.000, 117.000) mm:</p>
-<ol>
-<li>Type that into the <strong>Top Right (TR)</strong> x/y fields.</li>
-</ol>
+<p>This input centers the pattern on your device. <strong>Chip Position in the E-beam Holder</strong> must match where the device really sits in the holder. Say you found the chip's bottom-left corner at stage position (104.000, 114.400) mm under the beam. Type that into the <strong>Bottom Left (BL)</strong> x/y fields.</p>
+<p>Then locate the top-right corner of your device and read its stage position — (116.000, 126.400) mm in this example. Type that into the <strong>Top Right (TR)</strong> x/y fields.</p>
 <p><img alt="BL and TR corner fields typed; TL and BR computed and disabled" src="../../assets/ebl/first_corners.png" /></p>
 <p><strong>Top Left (TL)</strong> and <strong>Bottom Right (BR)</strong> are grayed out and computed for
-you, with <strong>Shape = Rectangular</strong> and <strong>Editable diagonal = BL / TR</strong> (both
-defaults), the other diagonal is derived automatically. Don't touch them.</p>
+you, with <strong>Shape = Rectangular</strong> and <strong>Editable diagonal = BL / TR</strong>, the other diagonal is derived automatically. </p>
 <h2 id="2-load-the-mask-and-pick-a-layer">2. Load the mask and pick a layer<a class="headerlink" href="#2-load-the-mask-and-pick-a-layer" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Upload <code>first_exposure.gds</code>, then set <strong>Layer to expose</strong> to <code>L1/D2</code> (6
-   polys), the emitter fingers, the finest-pitch feature on this mask and
-   the one dose matters most for.</li>
-</ol>
+<p>Upload your <code>.gds</code> file, then set your <strong>Layer to expose</strong>.</p>
 <p><img alt="GDS Mask section: first_exposure.gds loaded, layer L1/D2 selected" src="../../assets/ebl/first_layer.png" /></p>
-<p>This mask keeps base pads, emitter fingers and collector pads on separate
-datatypes (<code>L1/D1</code>, <code>L1/D2</code>, <code>L1/D3</code>). Each gets exposed as its own pass. This walkthrough covers one; repeat for the others with the same corners and
-Cel Origin.</p>
-<h2 id="3-leave-the-grid-geometry-on-auto">3. Leave the grid geometry on auto<a class="headerlink" href="#3-leave-the-grid-geometry-on-auto" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Pick <strong>First Exposure</strong> under <strong>Workflow</strong>. <strong>Cel Origin (mm) in job1</strong>,
-   <strong>Grid Count in job1</strong> (Nx, Ny) and <strong>Shift (mm) in job3</strong> are all
-   computed for you from the mask's bounding box and the chip corners you
-   set in step 1, leave all three alone.</li>
-</ol>
+<h2 id="3-grid-geometry-setup">3. Grid geometry setup<a class="headerlink" href="#3-grid-geometry-setup" title="Permanent link">&para;</a></h2>
+<p>Pick <strong>First Exposure</strong> under <strong>Workflow</strong>. The app automatically computes <strong>Cel Origin (mm) in job1</strong>, <strong>Grid Count in job1</strong> (Nx, Ny) and <strong>Shift (mm) in job3</strong> from the mask's bounding box and the chip corners set in step 1.</p>
 <p><img alt="Mask layer size caption and the three auto-computed cards" src="../../assets/ebl/first_inputs.png" /></p>
-<p>The caption above the cards spells out the arithmetic: this mask layer is
-0.505 × 0.310 mm, which needs a 4×2 grid of 0.600 mm tiles at the default
-Cel Origin (9.700, 9.700) to fully cover it. Change the layer, the chip
-corners, or the chip size in <strong>Left Computer Setup</strong>, and these three cards
-recompute, that's why they're left on auto instead of typed by hand.</p>
+<p>The app uses 0.600 mm grids at the default Cel Origin (9.700, 9.700) to cover it. Change the layer, the chip corners, or the chip size in <strong>Left Computer Setup</strong>, and the three cards recompute automatically.</p>
 <h2 id="4-check-the-plot">4. Check the plot<a class="headerlink" href="#4-check-the-plot" title="Permanent link">&para;</a></h2>
 <p><img alt="Chip (blue), 4×2 grid (orange) and mask over two tiles" src="../../assets/ebl/first_plot.png" /></p>
-<p>The chip rectangle now reflects the corners from step 1, the grid is
-centered on it, and the emitter mask (barely visible at this scale, six
-4, 5 µm-wide slivers) lands across two of the eight tiles.</p>
+<p>The chip rectangle now reflects the corners from step 1, the grid is centered on it. You can modify as required.</p>
 <h2 id="5-set-the-dose-and-read-the-time">5. Set the dose and read the time<a class="headerlink" href="#5-set-the-dose-and-read-the-time" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Under <strong>Time Calculator</strong>, leave <strong>Dose time (μs / dot)</strong> and <strong>Stage
-   movement time (s / grid)</strong> at their defaults (2.000, 15.00) and click
-   <strong>Calculate time</strong>.</li>
-</ol>
-<p><img alt="Time Calculator inputs before Calculate" src="../../assets/ebl/first_time_in.png" /></p>
+<p>Under <strong>Time Calculator</strong>, type in your <strong>Dose time (μs / dot)</strong> and <strong>Stage movement time (s / grid)</strong> and click <strong>Calculate time</strong>.</p>
+<!-- ![Time Calculator inputs before Calculate](../assets/ebl/first_time_in.png) -->
+
 <p><img alt="Breakdown and Estimated Time after Calculate" src="../../assets/ebl/first_result.png" /></p>
-<p>Only 2 of the 8 tiles hold any emitter geometry (<strong>Active grids: 2 / 8</strong>); the rest are skipped, so exposure and stage-movement time only count the
-tiles that actually have pattern in them. <strong>Estimated Time</strong> is what goes on
-the job sheet, see the <a href="../job-sheet/">job number sheet</a> for where every
-number from this page and <a href="../dose-test/">dose test</a> lands in the JEOL
+<p><strong>Active grids</strong> show only the grids with exposure patterns; the rest are skipped, so exposure and stage-movement time only count the tiles that actually have pattern in them. <strong>Estimated Time</strong> reflects how long the exposure will need to finish.</p>
+<p>See the <a href="../job-sheet/">job number sheet</a> for where every number from this page and <a href="../dose-test/">dose test</a> lands in the JEOL
 system, in order.</p>
+<h2 id="setup-instruction">Setup Instruction<a class="headerlink" href="#setup-instruction" title="Permanent link">&para;</a></h2>
+<p>Tip: Open <strong>Setup Instruction</strong> in <strong>Left Computer Setup</strong> section. It summarizes your steps and the numbers required in the left-side computer.</p>
+<p><img alt="Setup instruction summarizes your steps and the numbers required in the left-side computer" src="../assets/ebl/setup_instruction.png" /></p>
 
 
 

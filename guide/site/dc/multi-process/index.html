@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1326,53 +1354,44 @@ and can hand the result straight to DC Analysis without a re-upload. Sidebar
 switches to four other modes (see <a href="#other-batch-modes">Other batch modes</a>
 below).</p>
 <h2 id="upload">Upload<a class="headerlink" href="#upload" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Drop your B1500A CSV exports on the uploader. Multiple files at once,    350 MB per file, CSV only.</li>
-</ol>
+<p>Drop your B1500A CSV exports on the uploader. Multiple files at once,
+   350 MB per file, CSV only.</p>
 <p><img alt="Upload area" src="../../assets/dc/mp_upload.png" /></p>
 <p>The tool reads each filename's first two letters to pick a measurement
-type: <code>BC</code> → BC diode, <code>BE</code> → BE diode, <code>Fa</code> → Ic-Vc family, <code>Gu</code> → Gummel,
-<code>Tl</code> → TLM. Anything else lands in <strong>Other</strong> and is skipped further down, name your export files accordingly, or rename them before uploading.</p>
+   type: <code>BC</code> → BC diode, <code>BE</code> → BE diode, <code>Fa</code> → Ic-Vc family, <code>Gu</code> →
+   Gummel, <code>Tl</code> → TLM. Anything else is grouped under <strong>Other</strong> and
+   skipped, so name your exports accordingly, or rename them before
+   uploading.</p>
 <h2 id="result">Result<a class="headerlink" href="#result" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Every recognized file is converted immediately, no button to press. Two
+<p>Every recognized file is converted immediately, no button to press. Two
    ZIP downloads appear: one workbook per input file, and one workbook per
-   measurement type (all matching files as separate sheets in a single
-   <code>.xlsx</code>).</li>
-</ol>
+   measurement type (all matching files as separate sheets in one <code>.xlsx</code>).</p>
 <p><img alt="Batch result — five files uploaded, one skipped" src="../../assets/dc/mp_result.png" /></p>
 <p>Grouped-by-type filenames: <code>IcVc_Family.xlsx</code>, <code>BE_Diode.xlsx</code>,
-   <code>BC_Diode.xlsx</code>, <code>Gummel.xlsx</code>, <code>TLM.xlsx</code>, <code>Other.xlsx</code>. A file the tool
-   couldn't classify (prefix not <code>BC</code>/<code>BE</code>/<code>Fa</code>/<code>Gu</code>/<code>Tl</code>) still shows up
-   here, grouped under <strong>Other</strong>, in the run above, the batch included a
-   <code>TEST Family […] - Copy.csv</code> that didn't match any prefix and was
-   counted as skipped rather than mis-filed as a Family curve.</p>
+   <code>BC_Diode.xlsx</code>, <code>Gummel.xlsx</code>, <code>TLM.xlsx</code>, <code>Other.xlsx</code>.</p>
 <h2 id="hand-off-to-dc-analysis">Hand off to DC Analysis<a class="headerlink" href="#hand-off-to-dc-analysis" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Click <strong>Analyze Data in DC Analysis</strong> to send the Family/Gummel/BE/BC
+<p>Click <strong>Analyze Data in DC Analysis</strong> to send the Family/Gummel/BE/BC
    workbooks straight to the B1500A Viewer, no download, no re-upload.
-   TLM and Other files are left out of the hand-off; the caption under the
-   button says how many were skipped.</li>
-</ol>
+   TLM and Other files are left out; the caption under the button says how
+   many were skipped.</p>
 <p><img alt="Hand-off button" src="../../assets/dc/mp_handoff.png" /></p>
 <p>The B1500A Viewer opens with a "Received N file(s) from Multi-Process"
-   banner and the received workbooks already listed in its file picker,    see <a href="../b1500a/">B1500A Excel Viewer</a>.</p>
+   banner and the received workbooks already listed in its file picker, see
+   <a href="../b1500a/">B1500A Excel Viewer</a>.</p>
 <h2 id="other-batch-modes">Other batch modes<a class="headerlink" href="#other-batch-modes" title="Permanent link">&para;</a></h2>
 <p>The sidebar radio at the top of the page switches to four more tools that
 share this page:</p>
 <ul>
 <li><strong>B1500A Column Selection &amp; Batch</strong>: upload one sample CSV, pick (or
-  build) a column template, save it, then apply that exact template to a
-  batch of other CSVs. Use this when your columns don't match one of the
-  five built-in presets.</li>
+  build) a column template, save it, then apply that template to a batch of
+  other CSVs. Use this when your columns don't match one of the five
+  built-in presets.</li>
 <li><strong>TLM Resistance Avg</strong>: upload a <code>TLM batch output.xlsx</code> (the grouped
   download above, when the batch included <code>Tl…</code>-prefixed files), name the
   resistance column (default <code>Rsa</code>), and get the per-sheet average back as
   a table and a download.</li>
-<li><strong>E5270B citi File Tool</strong>: accepts <code>.citi</code>, <code>.txt</code>, and plain <code>.csv</code>.
-  This is the CITI-format path: it parses <code>VAR</code>/<code>DATA</code> block headers (one
-  <code>VAR</code> block → diode, two → family) or a plain three-column
-  Vb/Ib/Ic text dump, and sorts results into BE/BC/Gummel/Family same as
+<li><strong>E5270B citi File Tool</strong>: accepts <code>.citi</code>, <code>.txt</code>, and plain <code>.csv</code>
+  CITI-format exports, and sorts results into BE/BC/Gummel/Family same as
   the CSV tool.</li>
 <li><strong>HP4155A Data Processing Tool</strong>: batch version of the SMU role
   assignment in <a href="../hp4155a/">HP4155A Quick Plot</a>: assign V/I column pairs

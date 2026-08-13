@@ -9,7 +9,7 @@
       
       
       
-        <link rel="prev" href="../../basics/portal/">
+        <link rel="prev" href="../../basics/local-installation/">
       
       
         <link rel="next" href="../deembedding/">
@@ -353,6 +353,34 @@
     
   
     The portal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
   
 
     
@@ -1371,9 +1399,6 @@
 <li>Click <strong>Clear uploads</strong> to drop every uploaded file and start over.</li>
 </ol>
 <p><img alt="Upload dropzone and Clear uploads button" src="../../assets/rf/upload_area.png" /></p>
-<p>Each file is cached on its content hash plus the current de-embedding and
-chart-window settings, so re-running the page (a slider drag, a checkbox
-toggle) does not re-parse files that haven't changed.</p>
 <h2 id="the-four-tabs">The four tabs<a class="headerlink" href="#the-four-tabs" title="Permanent link">&para;</a></h2>
 <p><img alt="The Overlay, Individual, Summary and Batch De-embed tabs" src="../../assets/rf/tabs_bar.png" /></p>
 <ol>
@@ -1386,10 +1411,10 @@ toggle) does not re-parse files that haven't changed.</p>
 <li><strong>Batch De-embed</strong>, Open/Short de-embedding applied to every uploaded
    file against one calibration pair. Covered on its own page.</li>
 </ol>
-<p>The Overlay tab's two charts stack vertically, Bode (|h21|², Mason U,
-MAG/MSG vs frequency) above, Plateau (<code>f × gain</code>, the GBP form of the same
-data) below. Every uploaded file gets its own set of traces on both, so
-sweeps of many bias points overlay directly:</p>
+<p>The Overlay tab stacks two charts: Bode (|h21|², Mason U, MAG/MSG vs
+frequency) above, Plateau (<code>f × gain</code>, the same data in GBP form) below.
+Every uploaded file gets its own set of traces on both, so a sweep of many
+bias points overlays directly:</p>
 <p><img alt="Overlay tab: Bode Plot Overlay chart" src="../../assets/rf/overlay_bode.png" /></p>
 <p><img alt="Overlay tab: Plateau Plot Overlay chart" src="../../assets/rf/overlay_plateau.png" /></p>
 <h2 id="ftfmax-extraction">fT/fmax extraction<a class="headerlink" href="#ftfmax-extraction" title="Permanent link">&para;</a></h2>
@@ -1398,20 +1423,19 @@ sweeps of many bias points overlay directly:</p>
 <p>The app tries, in order:</p>
 <ol>
 <li><strong>Crossing</strong> (<code>0dB Cross</code>), a genuine 0 dB crossing: the gain trace
-   stayed above 0 dB for at least 10 consecutive points before dropping
-   through it. This is the value shown whenever it exists.</li>
-<li><strong>Extrapolation</strong> (<code>Extrap &amp; Plat.</code>), no crossing was found inside the
-   swept band, but the median gain is still positive, so the last few points
-   are fit log-linearly and projected forward to their 0 dB crossing.</li>
+   stays above 0 dB for 10 or more consecutive points before dropping
+   through. Shown whenever it exists.</li>
+<li><strong>Extrapolation</strong> (<code>Extrap &amp; Plat.</code>), no crossing in the swept band: the
+   last few points are fit log-linearly and projected forward to 0 dB.</li>
 <li><strong>Plateau</strong>, reported alongside the extrapolated value as a sanity
-   check: <code>f × |gain|</code> evaluated pointwise, which should sit close to the
+   check: <code>f × |gain|</code> pointwise, which should sit close to the
    extrapolated fT/fmax for a well-behaved device.</li>
 </ol>
 <p><code>No Gain</code> / <code>No Data</code> means the trace never clears 0 dB in the swept band, normal for an unbiased or cold device (see the card above: <code>2.123 GHz</code>,
 method <code>0dB Cross</code>).</p>
 <h2 id="sorting-and-jumping-to-a-device">Sorting and jumping to a device<a class="headerlink" href="#sorting-and-jumping-to-a-device" title="Permanent link">&para;</a></h2>
 <p>Rank devices by fT or fmax in the Summary tab, then open the one you want
-directly in Individual, no re-selecting from a dropdown.</p>
+directly in Individual.</p>
 <ol>
 <li>
 <p>Click the <strong>fT Cross</strong> (or any) column header to sort by it. Click again
@@ -1452,7 +1476,7 @@ directly in Individual, no re-selecting from a dropdown.</p>
    device loaded for fitting.</li>
 </ol>
 <p>If a 3-step or batch de-embed already ran on this file, a <strong>S-parameters to
-send</strong> choice appears first, de-embedded (pads/leads removed, fit the
+send</strong> choice appears first: de-embedded (pads/leads removed, fit the
 intrinsic device only) or raw (fit the parasitics too).</p>
 
 

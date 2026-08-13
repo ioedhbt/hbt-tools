@@ -9,7 +9,7 @@
       
       
       
-        <link rel="prev" href="../../basics/portal/">
+        <link rel="prev" href="../../basics/local-installation/">
       
       
         <link rel="next" href="../deembedding/">
@@ -353,6 +353,34 @@
     
   
     The portal
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
   
 
     
@@ -1371,8 +1399,6 @@
 <li>點選<strong>清除上傳 (Clear uploads)</strong> 移除所有已上傳的檔案，重新開始。</li>
 </ol>
 <p><img alt="上傳拖放區與清除上傳按鈕" src="../../../assets/rf/upload_area.png" /></p>
-<p>每個檔案會依內容雜湊值，加上目前的去嵌入與圖表視窗設定進行快取，所以重新
-執行頁面（拖動滑桿、切換勾選框）時，未變更的檔案不會重新解析。</p>
 <h2 id="四個分頁">四個分頁<a class="headerlink" href="#四個分頁" title="Permanent link">&para;</a></h2>
 <p><img alt="疊圖、單一檔案、摘要與批次去嵌入分頁" src="../../../assets/rf/tabs_bar.png" /></p>
 <ol>
@@ -1386,8 +1412,8 @@
    Open/Short 去嵌入。另有專頁說明。</li>
 </ol>
 <p>疊圖分頁的兩張圖表垂直排列，上方為 Bode（|h21|²、Mason U、MAG/MSG 對頻率），
-下方為 Plateau（<code>f × 增益</code>，即同一資料的 GBP 形式）。每個已上傳檔案在兩張
-圖上都各自有一組曲線，因此多個偏壓點的掃描可以直接疊圖比較：</p>
+下方為 Plateau（<code>f × 增益</code>，同一資料的 GBP 形式）。每個已上傳檔案在兩張
+圖上各自有一組曲線，因此多個偏壓點的掃描可以直接疊圖比較：</p>
 <p><img alt="疊圖分頁：Bode 圖疊圖" src="../../../assets/rf/overlay_bode.png" /></p>
 <p><img alt="疊圖分頁：Plateau 圖疊圖" src="../../../assets/rf/overlay_plateau.png" /></p>
 <h2 id="ftfmax-萃取">fT/fmax 萃取<a class="headerlink" href="#ftfmax-萃取" title="Permanent link">&para;</a></h2>
@@ -1396,9 +1422,9 @@
 <p>應用程式依序嘗試：</p>
 <ol>
 <li><strong>交越 (0dB Cross)</strong>：真正的 0 dB 交越，即增益曲線在跌破 0 dB 之前，
-   至少連續 10 個點維持在 0 dB 以上。只要存在這種交越，就會顯示此數值。</li>
-<li><strong>外插 (Extrap &amp; Plat.)</strong>：在掃描頻段內找不到交越，但中位增益仍為正值，
-   於是對最後幾個點做對數線性擬合，並外插到其 0 dB 交越點。</li>
+   至少連續 10 個點維持在 0 dB 以上。只要存在就會顯示此數值。</li>
+<li><strong>外插 (Extrap &amp; Plat.)</strong>：掃描頻段內找不到交越時，對最後幾個點做
+   對數線性擬合，並外插到其 0 dB 交越點。</li>
 <li><strong>平台 (Plateau)</strong>：與外插值並列顯示，作為健全性檢查：逐點計算
    <code>f × |增益|</code>，對正常運作的元件而言應接近外插所得的 fT/fmax。</li>
 </ol>
@@ -1406,8 +1432,7 @@
 0 dB，這對未偏壓或冷態元件而言是正常現象（見上方卡片：<code>2.123 GHz</code>，方法為
 <code>0dB 交越</code>）。</p>
 <h2 id="排序與跳至元件">排序與跳至元件<a class="headerlink" href="#排序與跳至元件" title="Permanent link">&para;</a></h2>
-<p>在摘要分頁依 fT 或 fmax 為元件排名，再直接在單一檔案分頁開啟想看的那個，
-不必從下拉選單重新選取。</p>
+<p>在摘要分頁依 fT 或 fmax 為元件排名，再直接在單一檔案分頁開啟想看的那個。</p>
 <ol>
 <li>
 <p>點選 <strong>fT Cross</strong>（或任一）欄標題依該欄排序，再次點選則反轉排序方向。</p>
@@ -1445,7 +1470,7 @@
    RF 模擬器以進行擬合。</li>
 </ol>
 <p>若此檔案已執行過三步驟或批次去嵌入，會先出現<strong>傳送的 S 參數 (S-parameters
-to send)</strong> 選項，可選擇去嵌入後（已移除焊墊/引線，只擬合本質元件）或原始
+to send)</strong> 選項：去嵌入後（已移除焊墊/引線，只擬合本質元件）或原始
 （連寄生效應一併擬合）。</p>
 
 

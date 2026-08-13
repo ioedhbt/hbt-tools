@@ -364,6 +364,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1295,442 +1323,71 @@
 
 
 <h1 id="job-number-sheet">Job number sheet<a class="headerlink" href="#job-number-sheet" title="Permanent link">&para;</a></h1>
-<p>Every number from <a href="../dose-test/">dose test</a>, <a href="../first-exposure/">first exposure</a>
+<p>Every field you need from <a href="../dose-test/">dose test</a>, <a href="../first-exposure/">first exposure</a>
 and <a href="../second-exposure/">second exposure</a>, organised the way the JEOL ELS-7000
 software asks for them: <strong>Job 1</strong>, then <strong>Job 2</strong>, then <strong>Job 3</strong>. Pick the
-section for the exposure you're running, each is self-contained. <strong>Default</strong>
-means leave the calculator's stock value; <strong>measured</strong> means you supply it
-from what you find at the machine; <strong>computed</strong> means the calculator worked
-it out, read it off, don't type it in by hand anywhere but the JEOL field
-named.</p>
+section for the exposure you're running, each is self-contained.</p>
 <h2 id="dose-test">Dose test<a class="headerlink" href="#dose-test" title="Permanent link">&para;</a></h2>
-<p>Source: <a href="../dose-test/">dose-test.md</a>, <code>dose_test.gds</code>, layer <code>L1/D1</code>.</p>
+<p>Run a dose test before exposing a real device. It draws the same pattern at several exposure times so you can pick the best one: enough to expose the pattern within tolerance, while keeping the yield acceptable.</p>
 <p><strong>Job 1</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Origin x (mm)</td>
-<td>10.000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Chip Origin y (mm)</td>
-<td>10.000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Cel Origin x (mm)</td>
-<td>8.610</td>
-<td>measured, positioned so the mask lands inside the write-field tile</td>
-</tr>
-<tr>
-<td>Cel Origin y (mm)</td>
-<td>9.710</td>
-<td>measured, same</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Chip origin x, y (mm)</code>: where the grid starts, NOT where the device is in the holder.</li>
+<li><code>Cel origin x, y (mm)</code>: where the <code>.cel</code> file is positioned.</li>
+</ul>
 <p><strong>Job 2</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Size (μm)</td>
-<td>600</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Dotmap</td>
-<td>60000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Resolution (read-only)</td>
-<td>10 nm</td>
-<td>computed</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Chip size (μm)</code>: The length of the sides of a grid, typically 600 μm. Test patterns usually fit in one grid; the grids are multiplied in job3.</li>
+<li><code>Dotmap</code>: How many "pixels" will be drawn.</li>
+</ul>
+<p>Resolution = Chip Size / Dotmap. Example: Chip size = 600 μm, Dotmap = 60000. Resolution = 10 nm.</p>
 <p><strong>Job 3</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Increment dx (mm)</td>
-<td>0.600</td>
-<td>default (= chip size)</td>
-</tr>
-<tr>
-<td>Increment dy (mm)</td>
-<td>0.600</td>
-<td>default (= chip size)</td>
-</tr>
-<tr>
-<td>Grid Count Nx</td>
-<td>5</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Grid Count Ny</td>
-<td>5</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Initial Shift x (mm)</td>
-<td>98.800</td>
-<td>computed</td>
-</tr>
-<tr>
-<td>Initial Shift y (mm)</td>
-<td>109.200</td>
-<td>computed</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Dose / stage timing</strong> (not a numbered JEOL job field, but set on the writer before running)</p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Initial dose (μs / dot)</td>
-<td>2.000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Incremental dose (μs / grid)</td>
-<td>0.200</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Stage movement time (s / grid)</td>
-<td>15.00</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Estimated Time</td>
-<td>00:35:35.000</td>
-<td>computed, planning only</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Increment dx, dy (mm)</code>: The distance between each grid, typically <code>0.6,0.6</code> mm</li>
+<li><code>Grid Count Nx, Ny</code>: The number of grids in the x and y direction. Using <code>5,5</code> will create a 5 by 5 grid.</li>
+<li><code>Initial Shift x, y (mm)</code>: The position shift, based on the position of your chips.</li>
+<li><code>Initial dose</code>: The smallest dose (dwell time) you want to test. For example, 5 µs.</li>
+<li><code>Dose increment</code>: The dose increment between grids. If there are 5 grids, initial dose is 5 µs, and dose increment is 0.2 µs, the EBL will expose at 5 µs, 5.2 µs, 5.4 µs, 5.6 µs, and 5.8 µs.</li>
+</ul>
+<p><code>modx, mody</code> are <code>0,0</code>, <code>focus shift</code> is <code>0</code>.</p>
 <h2 id="first-exposure">First exposure<a class="headerlink" href="#first-exposure" title="Permanent link">&para;</a></h2>
-<p>Source: <a href="../first-exposure/">first-exposure.md</a>, <code>first_exposure.gds</code>, layer
-<code>L1/D2</code> (repeat for <code>L1/D1</code> and <code>L1/D3</code> with the same corners and Cel Origin).</p>
+<p>First exposure is a regular exposure without alignment. Make sure you have the desired dose time. Once you input the corners (or position) you found in SEM mode, the app automatically centers the mask pattern on your device.</p>
 <p><strong>Job 1</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Origin x (mm)</td>
-<td>10.000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Chip Origin y (mm)</td>
-<td>10.000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Bottom Left (BL) corner x (mm)</td>
-<td>105.000</td>
-<td>measured, chip corner found under the beam</td>
-</tr>
-<tr>
-<td>Bottom Left (BL) corner y (mm)</td>
-<td>115.000</td>
-<td>measured</td>
-</tr>
-<tr>
-<td>Top Right (TR) corner x (mm)</td>
-<td>107.000</td>
-<td>measured, alignment mark found under the beam</td>
-</tr>
-<tr>
-<td>Top Right (TR) corner y (mm)</td>
-<td>117.000</td>
-<td>measured</td>
-</tr>
-<tr>
-<td>Cel Origin x (mm)</td>
-<td>9.700</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Cel Origin y (mm)</td>
-<td>9.700</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Grid Count Nx</td>
-<td>4</td>
-<td>computed, auto-fit to the mask layer</td>
-</tr>
-<tr>
-<td>Grid Count Ny</td>
-<td>2</td>
-<td>computed, auto-fit to the mask layer</td>
-</tr>
-</tbody>
-</table>
-<p>Top Left and Bottom Right corners are not typed anywhere, they're computed
-from BL and TR and shown disabled on the Chip Position plot.</p>
+<ul>
+<li><code>Chip origin x, y (mm)</code>: Where the grid starts, NOT where the device is in the holder.</li>
+<li><code>Cel origin x, y (mm)</code>: Where the <code>.cel</code> file is positioned.</li>
+<li><code>Grid Count Nx, Ny</code>: How many grids are required for all the patterns in your mask to fit.</li>
+</ul>
 <p><strong>Job 2</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Size (μm)</td>
-<td>600</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Dotmap</td>
-<td>60000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Resolution (read-only)</td>
-<td>10 nm</td>
-<td>computed</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Chip size (μm)</code>: The length of the sides of a grid, typically 600 μm.</li>
+<li><code>Dotmap</code>: How many "pixels" will be drawn.</li>
+</ul>
+<p>Resolution = Chip Size / Dotmap. Example: Chip size = 600 μm, Dotmap = 60000. Resolution = 10 nm.</p>
 <p><strong>Job 3</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Shift x (mm)</td>
-<td>95.100</td>
-<td>computed, centers the grid on the chip</td>
-</tr>
-<tr>
-<td>Shift y (mm)</td>
-<td>105.700</td>
-<td>computed</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Dose / stage timing</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Dose time (μs / dot)</td>
-<td>2.000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Stage movement time (s / grid)</td>
-<td>15.00</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Estimated Time</td>
-<td>00:00:35.400</td>
-<td>computed, planning only</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Shift x, y</code> (mm): How much positional shift is required, to merge the positions from the setup in <code>job1</code> to the actual device position as detected by the SEM.</li>
+</ul>
 <h2 id="second-exposure">Second exposure<a class="headerlink" href="#second-exposure" title="Permanent link">&para;</a></h2>
 <p>Source: <a href="../second-exposure/">second-exposure.md</a>, <code>second_exposure.gds</code>,
 layer <code>L2/D1</code> (repeat for <code>L2/D2</code> with the same corners, marks and Cel
 Origin).</p>
 <p><strong>Job 1</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Origin x (mm)</td>
-<td>10.000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Chip Origin y (mm)</td>
-<td>10.000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Bottom Left (BL) / Top Right (TR) corners</td>
-<td>same as first exposure</td>
-<td>measured, same physical chip, hasn't moved</td>
-</tr>
-<tr>
-<td>Cel Origin x (mm)</td>
-<td>9.700</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Cel Origin y (mm)</td>
-<td>9.700</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Grid Count Nx</td>
-<td>4</td>
-<td>computed, auto-fit to the mask layer</td>
-</tr>
-<tr>
-<td>Grid Count Ny</td>
-<td>4</td>
-<td><strong>fixed by hand</strong>, auto-fit gave 2, too short to reach the marks; bumped to 4</td>
-</tr>
-<tr>
-<td>Reg-2 Mark, Mark 1 (M1) x (mm)</td>
-<td>9.8000</td>
-<td>computed, mark design position + Cel Origin</td>
-</tr>
-<tr>
-<td>Reg-2 Mark, Mark 1 (M1) y (mm)</td>
-<td>9.8000</td>
-<td>computed</td>
-</tr>
-<tr>
-<td>Reg-2 Mark, Mark 2 (M2) x (mm)</td>
-<td>11.6000</td>
-<td>computed</td>
-</tr>
-<tr>
-<td>Reg-2 Mark, Mark 2 (M2) y (mm)</td>
-<td>11.6000</td>
-<td>computed</td>
-</tr>
-</tbody>
-</table>
-<p>The Reg-2 Mark values depend on the mark position you measured under the
-SEM (Target x/y in the calculator's Existing Pattern step), recompute them
-there if you're registering to a different chip.</p>
+<ul>
+<li><code>Chip origin x, y (mm)</code>: Where the grid starts, NOT where the device is in the holder.</li>
+<li><code>Cel origin x, y (mm)</code>: Where the <code>.cel</code> file is positioned.</li>
+<li><code>Grid Count Nx, Ny</code>: How many grids are required for all the patterns in your mask to fit.</li>
+<li><code>Reg-2 Mark, Mark 1 (M1) and Mark 2 (M2) x, y (mm)</code>: The mark positions in your original .gds file, added by <code>Cel origin x, y (mm)</code> value.</li>
+</ul>
 <p><strong>Job 2</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Chip Size (μm)</td>
-<td>600</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Dotmap</td>
-<td>60000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Resolution (read-only)</td>
-<td>10 nm</td>
-<td>computed</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Chip size (μm)</code>: The length of the sides of a grid, typically 600 μm.</li>
+<li><code>Dotmap</code>: How many "pixels" will be drawn.</li>
+</ul>
+<p>Resolution = Chip Size / Dotmap. Example: Chip size = 600 μm, Dotmap = 60000. Resolution = 10 nm.</p>
 <p><strong>Job 3</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Shift x (mm)</td>
-<td>0.0010</td>
-<td>computed</td>
-</tr>
-<tr>
-<td>Shift y (mm)</td>
-<td>−0.0005</td>
-<td>computed</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Dose / stage timing</strong></p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Value</th>
-<th>Source</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Dose time (μs / dot)</td>
-<td>2.000</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Stage movement time (s / grid)</td>
-<td>15.00</td>
-<td>default</td>
-</tr>
-<tr>
-<td>Estimated Time</td>
-<td>00:03:48.000</td>
-<td>computed, <strong>excludes</strong> the 1, 2 h typically needed to find the alignment marks</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><code>Shift x, y</code> (mm): How much positional shift is required, to merge the positions from the setup in <code>job1</code> to the actual device position as detected by the SEM.</li>
+</ul>
 
 
 

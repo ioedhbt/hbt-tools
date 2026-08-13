@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1397,18 +1425,14 @@ Intrinsic Model)</strong> 與<strong>5：檢視 (5 - Review)</strong> 之中。<
 <p>直接輸入任一數值，模型曲線會立即重繪。此處的焊墊參數為灰階不可編輯狀態，
 它們會自動與萃取前的覆寫值同步，若要更動請回到<a href="../ssm-setup/">設定</a>頁，
 而不是在這裡與它們拉扯。</p>
-<p>渡越時間就是在這裡修正。Cheng 的解析萃取對此元件給出 τB = 10.7654 ps、
-τC = −6.7695 ps；請改用<a href="../ssm-transit-time/">渡越時間擬合</a>得到的
-τB = 19.0480 ps 與 τC = 0.1500 ps 覆寫它們，該擬合是跨六個偏壓點量測
-而來，而非由單一萃取拆分。</p>
-<p>微調後的值會儲存到擬合快取，下次以同一模型開啟同一個元件時會自動帶回。</p>
+<p>渡越時間就是在這裡修正。Cheng 的解析萃取可能給出負的 τC，並不物理；請
+改用<a href="../ssm-transit-time/">渡越時間擬合</a>得到的 τB 與 τC 覆寫它們，該擬合
+是跨整組偏壓掃描量測而來，而非由單一萃取拆分。</p>
 <h2 id="殘差與顯示比例">殘差與顯示比例<a class="headerlink" href="#殘差與顯示比例" title="Permanent link">&para;</a></h2>
 <p><img alt="S display scale 列，每個 S 參數各有一個倍率，下方為總殘差及各參數的細項" src="../../../assets/ssm/finetune_scale_residual.png" /></p>
 <p><strong>S display scale</strong> 會在繪圖前對每條曲線乘上倍率，用來把 S12 拉到與
 S21 相近、方便閱讀的大小。這只影響顯示，<strong>不會</strong>改變殘差。</p>
-<p><strong>Total residual</strong> 是整個頻段上的擬合誤差，並附上各 S 參數的細項。以此
-元件為例：總計 8.66%，其中 S11 4.63%、S12 12.30%、S21 10.12%、
-S22 7.58%。</p>
+<p><strong>Total residual</strong> 是整個頻段上的擬合誤差，並附上各 S 參數的細項。</p>
 <p>經驗法則：</p>
 <ul>
 <li>總殘差在約 5% 以下算是良好的解析萃取。</li>
@@ -1423,7 +1447,7 @@ S22 7.58%。</p>
 模型在頻段中哪裡偏離量測，增益圖則顯示這個偏差對 f_T 與 f_max 造成多少
 影響。</p>
 <p>第 5 節中的 <strong>📊 Smith Chart (Matplotlib)</strong> 會以出版品質的圖表呈現相同
-資料，不含 Plotly 工具列。</p>
+資料。</p>
 <h2 id="匯出">匯出<a class="headerlink" href="#匯出" title="Permanent link">&para;</a></h2>
 <p><img alt="匯出列：Smith 圖下方的 xlsx、modeled S2P 與複製，增益圖下方的 xlsx 與複製" src="../../../assets/ssm/review_residual.png" /></p>
 <ul>
@@ -1447,7 +1471,7 @@ S22 7.58%。</p>
 <li><strong>📋 完整參數彙總 (📋 Complete Parameter Summary)</strong> 將每個萃取與微調後
    的值列於同一張表，可在此直接複製。</li>
 <li><strong>💾 擬合快取（跨工作階段保存微調數值） (💾 Fit cache)</strong> 顯示此元件與
-   此模型目前已持久化儲存的內容。</li>
+   此模型目前已儲存的內容。</li>
 <li><strong>→ 將 Cheng's T 送至模擬與擬合 (→ Send Cheng's T to Simulation &amp;
    Fitting)</strong> 會把元件、拓樸與目前每個參數值一併傳送過去，讓你可以繼續
    調整，不必重新上傳任何東西。</li>

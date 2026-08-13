@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1342,64 +1370,40 @@
 
 <h1 id="劑量時間測試">劑量時間測試<a class="headerlink" href="#劑量時間測試" title="Permanent link">&para;</a></h1>
 <p>在同一顆晶片上以一系列劑量曝光同一個圖案，再從 SEM 下讀出顯影後的線寬，藉此
-在真正對元件下手前挑出可用的劑量。本頁走一遍 <strong>劑量時間測試 (Dose Time
-Testing)</strong> 模式，使用範例檔 <code>dose_test.gds</code>，一個 5×5 的測試區塊陣列，
-間距 40 μm，每個區塊內有一個 8×8 μm 焊墊與三條線（寬度 0.5、1.0、2.0 μm）。</p>
+在真正對元件下手前挑出可用的劑量。</p>
 <p>如果你還沒開過這個頁面，請先讀<a href="../">電子束微影計算機基礎</a>；本頁是從
 已載入遮罩之後接著講。</p>
 <h2 id="1-載入遮罩並選圖層">1. 載入遮罩並選圖層<a class="headerlink" href="#1-載入遮罩並選圖層" title="Permanent link">&para;</a></h2>
-<ol>
-<li>上傳 <code>dose_test.gds</code>，然後把 <strong>要曝光的圖層 (Layer to expose)</strong> 設為
-   <code>L1/D1</code>（25 個多邊形），也就是區塊焊墊。</li>
-</ol>
+<p>上傳 <code>.gds</code> 檔案，然後設定 <strong>要曝光的圖層 (Layer to expose)</strong>。</p>
 <p><img alt="GDS 遮罩區塊：已載入 dose_test.gds，選取圖層 L1/D1" src="../../../assets/ebl/dose_layer.png" /></p>
-<p>這個範例檔把焊墊（datatype 1）與線（datatype 2）分別放在不同的
-datatype 上，所以一次只能曝光一種。以下走一遍焊墊的流程；線的做法完全
-相同，只要改選 <code>L1/D2</code>。</p>
 <h2 id="2-把圖案定位在寫入場中">2. 把圖案定位在寫入場中<a class="headerlink" href="#2-把圖案定位在寫入場中" title="Permanent link">&para;</a></h2>
-<ol>
-<li>在 <strong>曝光流程 (Workflow)</strong> 底下選 <strong>劑量時間測試 (Dose Time Testing)</strong>。
-   在這裡輸入 <strong>job1 中的 Cel 原點 (mm) (Cel Origin (mm) in job1)</strong> 的 x
-   與 y。這是遮罩 GDS 座標 <code>(0,0)</code> 對應到的實際載台位置。</li>
-</ol>
+<p>在 <strong>曝光流程 (Workflow)</strong> 底下選 <strong>劑量時間測試 (Dose Time Testing)</strong>。
+在這裡輸入 <strong>job1 中的 Cel 原點 (mm) (Cel Origin (mm) in job1)</strong> 的 x 與 y。
+這是遮罩 GDS 座標 <code>(0,0)</code> 對應到的實際載台位置。</p>
 <p><img alt="Cel Origin x/y 欄位，輸入為 8.610 / 9.710" src="../../../assets/ebl/dose_cel.png" /></p>
-<p>此檔案中的區塊陣列位於 GDS 座標 x = 1300, 1480 μm、y = 200, 380 μm
-（離檔案自身原點很遠；它與<a href="../second-exposure/">二次曝光</a>所用對準標記共用
-同一個座標系統）。若把 Cel Origin 留在自動算出的預設值，陣列就會完全落在
-單一寫入場區塊之外，永遠不會被曝光。上面這組數值（8.610、9.710）把陣列
-移到區塊置中的位置，這就是你自己的遮罩該遵循的做法：先從 GDS 遮罩檢視器
-讀出圖案的邊界框，再據此設定 Cel Origin，讓它落在區塊之內。</p>
+<p>Cel 原點通常是 (9.7, 9.7)，因此圖案位置會被平移 (9.7, 9.7)。</p>
 <h2 id="3-網格幾何參數維持預設值">3. 網格幾何參數維持預設值<a class="headerlink" href="#3-網格幾何參數維持預設值" title="Permanent link">&para;</a></h2>
-<ol>
-<li><strong>job3 中的增量 (mm) (Increment (mm) in job3)</strong>（dx、dy）與 <strong>job3 中的
-   網格數量 (Grid Count in job3)</strong>（Nx、Ny）不需要更改，dx/dy 會自動跟隨
-   晶片尺寸讓區塊緊密相接，而預設的 5×5 數量正好對應這個範例的劑量階數。
-   <strong>job3 中的初始位移 (mm) (Initial Shift (mm) in job3)</strong> 會自動算出以將
-   陣列置中於晶片上；同樣不要更動。</li>
-</ol>
+<p><strong>job3 中的增量 (mm) (Increment (mm) in job3)</strong>（dx、dy）與 <strong>job3 中的
+網格數量 (Grid Count in job3)</strong>（Nx、Ny）不需要更改，dx/dy 會自動跟隨晶片
+尺寸讓區塊緊密相接，而預設的 5×5 數量正好對應這個範例的劑量階數。<strong>job3
+中的初始位移 (mm) (Initial Shift (mm) in job3)</strong> 會自動算出以將陣列置中於
+晶片上。</p>
 <p><img alt="單一網格 (Single Grid) 與晶片位置與網格 (Chip Position with Grids) 圖，兩者圖案皆置中" src="../../../assets/ebl/dose_grids.png" /></p>
 <p>左圖是在你剛設定的 Cel Origin 上的單一區塊，沒有複製，先在這裡確認遮罩落在
 橘色框內。右圖是自動置中位移後，整個晶片上的完整 5×5 陣列。</p>
 <h2 id="4-設定劑量遞增">4. 設定劑量遞增<a class="headerlink" href="#4-設定劑量遞增" title="Permanent link">&para;</a></h2>
-<ol>
-<li>在 <strong>曝光時間計算 (Time Calculator)</strong> 底下，讓 <strong>初始劑量 (μs / dot)
-   (Initial dose (μs / dot))</strong>、<strong>增量劑量 (μs / grid) (Incremental dose
-   (μs / grid))</strong> 與 <strong>載台移動時間 (s / grid) (Stage movement time (s /
-   grid))</strong> 維持預設值（2.000、0.200、15.00），然後按 <strong>計算時間
-   (Calculate time)</strong>。</li>
-</ol>
+<p>在 <strong>曝光時間計算 (Time Calculator)</strong> 底下，輸入你的 <strong>初始劑量 (μs / dot)
+(Initial dose (μs / dot))</strong>、<strong>增量劑量 (μs / grid) (Incremental dose (μs /
+grid))</strong> 與 <strong>載台移動時間 (s / grid) (Stage movement time (s / grid))</strong>，
+然後按 <strong>計算時間 (Calculate time)</strong>。</p>
 <p><img alt="按下計算前的曝光時間計算劑量遞增輸入" src="../../../assets/ebl/dose_time_in.png" /></p>
-<p>25 個區塊各自有自己的劑量：第 <em>k</em> 個區塊（依網格迭代順序，x 為外層、y 為
-內層）得到 <code>2.000 + k × 0.200</code> μs/dot。第 0 個區塊劑量最低，第 24 個最高，
-這正是劑量測試需要的遞增。</p>
+<p>每個區塊各自有自己的劑量。左下角區塊劑量最短（初始劑量），右上角區塊最長。</p>
 <h2 id="5-讀出每個劑量階的曝光時間">5. 讀出每個劑量階的曝光時間<a class="headerlink" href="#5-讀出每個劑量階的曝光時間" title="Permanent link">&para;</a></h2>
 <p><img alt="明細：劑量遞增範圍與預估時間" src="../../../assets/ebl/dose_result.png" /></p>
 <p>要看的是 <strong>劑量遞增 (Dose ramp)</strong> 這一行：<code>2.000 μs + 0.200 μs/grid → 有效範圍
-2.000, 6.800 μs</code>，也就是 25 個區塊依迭代順序實際用到的最低與最高單區塊劑量。<strong>已填入解析度方格數 (Filled resolution boxes)</strong>
-（此處為 400,000,000）只是全部 25 個區塊在 10 nm 像素下的原始格數，數字大
-是因為解析度精細，不是需要處理的問題。底部的 <strong>預估時間 (Estimated Time)</strong>
-（<code>00:35:35.000</code>）就是要寫上工作單的數字，見<a href="../job-sheet/">工作編號表</a>看這些
-數字各自對應到 JEOL 系統中的哪個欄位。</p>
+2.000, 6.800 μs</code>，也就是 25 個區塊依迭代順序實際用到的最低與最高單區塊劑量。
+底部的 <strong>預估時間 (Estimated Time)</strong>（<code>00:35:35.000</code>）顯示曝光所需時間。
+見<a href="../job-sheet/">工作編號表</a>看這些數字各自對應到 JEOL 系統中的哪個欄位。</p>
 
 
 

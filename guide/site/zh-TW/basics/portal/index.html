@@ -12,7 +12,7 @@
         <link rel="prev" href="../../">
       
       
-        <link rel="next" href="../../rf/at-a-glance/">
+        <link rel="next" href="../local-installation/">
       
       
         
@@ -465,6 +465,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1367,18 +1395,12 @@
 </li>
 </ol>
 <h2 id="語言切換">語言切換<a class="headerlink" href="#語言切換" title="Permanent link">&para;</a></h2>
-<ol>
-<li>
 <p>點選右上角的 <strong>English</strong> / <strong>中文</strong> 切換整個入口網站。側邊欄標籤、頁面標題與內文都會一併切換。</p>
-<p><img alt="每頁右上角的 RAM 徽章與語言切換" src="../../../assets/basics/top_right_controls.png" /></p>
-</li>
-</ol>
+<div class="highlight"><pre><span></span><code>![每頁右上角的 RAM 徽章與語言切換](../assets/basics/top_right_controls.png)
+</code></pre></div>
 <h2 id="ram-徽章">RAM 徽章<a class="headerlink" href="#ram-徽章" title="Permanent link">&para;</a></h2>
-<p>語言切換左側的長條（上圖標示 1）顯示伺服器端 RAM 使用量：<code>已用 / 上限 GB</code>，每 10 秒更新一次。超過容器記憶體上限的 60% 會轉為琥珀色，超過 85% 轉為紅色。</p>
-<p>這與上傳有關：應用程式將單一上傳檔案上限設為 350 MB
-（<code>.streamlit/config.toml</code> 的 <code>maxUploadSize</code>），這是即使最壞情況下的 GDS
-光罩結構仍能保持在容器可用記憶體餘裕內的最大檔案大小。超過此上限的檔案會收到訊息並被拒絕，而不會導致當機；電子束微影計算機另外會依當下實際可用的
-RAM 動態調整自身的解析預算，因此同一個檔案在容器閒置時可被接受，在容器忙碌時則可能被拒絕。</p>
+<p>語言切換左側的長條（上圖標示 1）顯示伺服器端 RAM 使用量：<code>已用 / 上限 GB</code>，每 10 秒更新一次。超過 60% 會轉為琥珀色，超過 85% 轉為紅色。</p>
+<p>單一上傳檔案上限為 350 MB；超過上限的檔案會收到訊息並被拒絕。電子束微影計算機載入檔案時也會檢查當下實際可用的 RAM，因此同一個檔案在應用程式閒置時可被接受，在忙碌時則可能被拒絕。</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p>透過 <code>LAUNCH_Tool.py</code> 在本機執行時，上傳上限會改為依你工作站 RAM

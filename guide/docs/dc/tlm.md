@@ -1,14 +1,8 @@
 # TLM analysis
 
-Transfer Length Method fit, contact and sheet resistance from resistance
+Transfer Length Method fit: contact and sheet resistance from resistance
 measured at four fixed contact spacings. Same page as the B1500A viewer,
 page selector at the top set to **TLM Analysis**.
-
-**No TLM sweep ships with this repo's demo data.** Neither the four curated
-files in `guide/_data/dc/` nor the raw `dc_data/` export folder contain a
-`Tl…`-prefixed measurement, every screenshot on this page is the tool's
-blank default state, not a real device. Numbers below are formulas from the
-code, not a worked example.
 
 ## Data this tool wants
 
@@ -25,7 +19,7 @@ width and up to four resistance readings by hand:
 If you batch-converted a TLM sweep through
 [Measurement Data Multi-Process](multi-process.md#other-batch-modes)
 first, its **TLM Resistance Avg** mode reads a `TLM batch output.xlsx` and
-averages the resistance column per sheet, those per-spacing averages are
+averages the resistance column per sheet; those per-spacing averages are
 what you'd type into the four fields here.
 
 ## The fit
@@ -41,5 +35,5 @@ R = slope·spacing + intercept through them and reports:
 - **Goodness, R²**: squared correlation coefficient of the four points
   against the fit.
 
-A plot of measured points plus the fitted line (spacing 0, 40 µm) appears
-below the metrics once the fit runs.
+A plot of the measured points plus the fitted line (spacing 0, 40 µm)
+appears below the metrics once the fit runs.

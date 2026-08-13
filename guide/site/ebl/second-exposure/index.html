@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1166,10 +1194,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-enter-the-mark-position-found-on-the-chip" class="md-nav__link">
+  <a href="#3-enter-the-mark-position-found-on-the-device-under-sem" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Enter the mark position found on the chip
+        3. Enter the mark position found on the device under SEM
       
     </span>
   </a>
@@ -1203,6 +1231,17 @@
     <span class="md-ellipsis">
       
         6. Set the dose and read the time
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#setup-instruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Instruction
       
     </span>
   </a>
@@ -1302,10 +1341,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-enter-the-mark-position-found-on-the-chip" class="md-nav__link">
+  <a href="#3-enter-the-mark-position-found-on-the-device-under-sem" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Enter the mark position found on the chip
+        3. Enter the mark position found on the device under SEM
       
     </span>
   </a>
@@ -1345,6 +1384,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#setup-instruction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setup Instruction
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1363,98 +1413,39 @@
 
 
 <h1 id="second-exposure">Second exposure<a class="headerlink" href="#second-exposure" title="Permanent link">&para;</a></h1>
-<p>Register a new layer to marks already written on the chip in a prior
-exposure, so it lands where it needs to relative to what's already there.
-This page walks the <strong>Second Alignment</strong> mode with <code>second_exposure.gds</code>, layer 1 in this file is the <em>same</em> four alignment marks at the <em>same</em>
-coordinates as <a href="../first-exposure/">first exposure</a>'s <code>first_exposure.gds</code>;
-layer 2 (interconnect bridges and airbridge posts) is the pattern actually
-being written this time.</p>
-<p>Read <a href="../">EBL calculator basics</a> first if this is your first time on
-this page. <strong>Every field below keeps its default value except the positions
-you're told to type</strong>, everything else is auto-computed or left alone;
-each screenshot says which.</p>
+<p>Expose a new layer to a device with marks already written on the chip in a prior exposure, so it lands where it needs to relative to what's already there.</p>
+<p>Read <a href="../">EBL calculator basics</a> first if this is your first time on this page.</p>
 <h2 id="1-load-the-mask-and-pick-the-pattern-layer">1. Load the mask and pick the pattern layer<a class="headerlink" href="#1-load-the-mask-and-pick-the-pattern-layer" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Upload <code>second_exposure.gds</code>, then set <strong>Layer to expose</strong> to <code>L2/D1</code> (6
-   polys), the interconnect bridges. (The airbridge posts on <code>L2/D2</code> are a
-   separate pass, same corners and marks.)</li>
-</ol>
+<p>Upload your <code>.gds</code> file, then set a <strong>Layer to expose</strong>.</p>
 <p><img alt="GDS Mask section: second_exposure.gds loaded, layer L2/D1 selected" src="../../assets/ebl/second_layer.png" /></p>
 <h2 id="2-set-the-mark-design-positions">2. Set the mark design positions<a class="headerlink" href="#2-set-the-mark-design-positions" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Pick <strong>Second Alignment</strong> under <strong>Workflow</strong>, then <strong>Custom</strong> under
-   <strong>Cross-position preset</strong>. This mask's marks don't match the built-in
-   <code>HBT_RF_v3</code> preset. Leave <strong>Input unit</strong> at <strong>mm</strong>.</li>
-</ol>
-<p>The four marks in this file sit at (0.100, 0.100), (1.900, 0.100), (0.100,
-1.900) and (1.900, 1.900) mm, chip-relative, the bottom-left and top-right
-ones are the two you'll register on:</p>
-<ol>
-<li>Type <strong>0.100</strong> / <strong>0.100</strong> into <strong>Mark M1 (mm)</strong> x/y, the bottom-left
-   mark's design position.</li>
-<li>Type <strong>1.900</strong> / <strong>1.900</strong> into <strong>Mark M2 (mm)</strong> x/y, the top-right
-   mark's design position.</li>
-</ol>
+<p>Pick <strong>Second Alignment</strong> under <strong>Workflow</strong>, then <strong>Custom</strong> under <strong>Cross-position preset</strong>, and type in the mark positions for your mask. Prefer two marks placed diagonally from each other rather than vertically or horizontally.</p>
 <p><img alt="Cross-position preset = Custom, Mark M1 and M2 typed" src="../../assets/ebl/second_custom.png" /></p>
-<p>These two numbers are where the marks sit in the mask design. The next step
-is where you tell the tool where they actually landed on the physical chip.</p>
-<h2 id="3-enter-the-mark-position-found-on-the-chip">3. Enter the mark position found on the chip<a class="headerlink" href="#3-enter-the-mark-position-found-on-the-chip" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Under <strong>Existing Pattern on Chip</strong>, set <strong>Existing pattern layer</strong> to
-   <code>L1/D0</code> (4 polys), the marks layer, read from the <em>same</em> uploaded file
-   (its layer 1 is identical to <code>first_exposure.gds</code>'s). Leave <strong>Move:</strong> at
-   its default, <strong>M1</strong>.</li>
-</ol>
-<p>Say you put the chip under the SEM, found the M1 mark, and read its stage
-position as (9.8010, 9.7995) mm:</p>
-<ol>
-<li>Type <strong>9.8010</strong> into <strong>Target x</strong> and <strong>9.7995</strong> into <strong>Target y</strong>.</li>
-</ol>
+<p>These numbers are where the marks sit in the mask design — check your <code>.gds</code> file in KLayout or ADS and type them in. Next you tell the tool where they actually landed on the physical chip.</p>
+<h2 id="3-enter-the-mark-position-found-on-the-device-under-sem">3. Enter the mark position found on the device under SEM<a class="headerlink" href="#3-enter-the-mark-position-found-on-the-device-under-sem" title="Permanent link">&para;</a></h2>
+<p>Under <strong>Existing Pattern on Chip</strong>, set <strong>Existing pattern layer</strong> to your first-exposure pattern.</p>
+<p>Say you find the M1 mark under the SEM at stage position (100.0, 115.0) mm. Type both numbers into <strong>Target x and y</strong>. This moves M1 from its mask position to the real stage position, and M2 follows automatically. Hover over the plot to check the positions.</p>
 <p><img alt="Existing pattern layer = marks, Target x/y typed to the found position" src="../../assets/ebl/second_existing.png" /></p>
-<p>The tool computes the shift between where M1 sits in the design (0.100,
-0.100) and where you just said it actually is (9.8010, 9.7995), that shift
-carries every mark, and the whole existing pattern, into the same physical
-frame the new layer needs to land in.</p>
 <h2 id="4-fix-the-grid-so-both-marks-are-inside-it">4. Fix the grid so both marks are inside it<a class="headerlink" href="#4-fix-the-grid-so-both-marks-are-inside-it" title="Permanent link">&para;</a></h2>
-<p><strong>Grid Count in job1</strong> (Nx, Ny) auto-fits to the <em>pattern's</em> bounding box,
-not to where the marks are, so it can come up short of reaching them:</p>
+<p><strong>Grid Count in job1</strong> (Nx, Ny) dictates how many grids are created in x and y direction. If pattern is found outside of the selected grid size, the app will give a warning:</p>
 <p><img alt="Second Alignment Pattern: 4x2 auto-fit grid, M2 outside it, red warning" src="../../assets/ebl/second_sap_warn.png" /></p>
-<p>The red banner, <strong>selected alignment mark outside of exposure grids</strong>, means exactly that: M2 sits outside the 4×2 grid the tool sized off the
-bridges alone. Fix it by hand:</p>
-<ol>
-<li>Increase <strong>Ny</strong> from 2 to <strong>4</strong>.</li>
-</ol>
+<p>In this case, fix it by hand: increase <strong>Ny</strong> from 2 to <strong>4</strong>.</p>
 <p><img alt="Ny bumped to 4: banner gone, both marks inside the grid, registration mark position panel" src="../../assets/ebl/second_sap_fixed.png" /></p>
-<p><strong>Cel Origin (mm) in job1</strong> stays at its default (9.700, 9.700), leave it.
-The <strong>Registration mark position in job1</strong> panel below now shows both marks
+<p>The <strong>Registration mark position in job1</strong> panel below now shows both marks
 in job1 stage coordinates: Mark 1 (M1) at (9.8000, 9.8000), Mark 2 (M2) at
-(11.6000, 11.6000), mark design position plus Cel Origin, read-only.</p>
+(11.6000, 11.6000). This is mark design position plus Cel Origin.</p>
 <h2 id="5-read-the-overlayed-result">5. Read the Overlayed result<a class="headerlink" href="#5-read-the-overlayed-result" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Scroll to <strong>Overlayed</strong>. <strong>Mark 1</strong> and <strong>Mark 2</strong> default to <code>M1</code> /
-   <code>M2</code>, leave them. <strong>Shift x (mm)</strong> / <strong>Shift y (mm)</strong> are computed for
-   you.</li>
-</ol>
+<p>Scroll to <strong>Overlayed</strong>. <strong>Mark 1</strong> and <strong>Mark 2</strong> default to <code>M1</code> / <code>M2</code>. <strong>Shift x (mm)</strong> / <strong>Shift y (mm)</strong> are computed for you. Make sure they are overlayed correctly.</p>
 <p><img alt="Overlayed: Mark 1/2 pickers, auto Shift x/y for job3, final plot" src="../../assets/ebl/second_overlay.png" /></p>
-<p><strong>Shift x/y</strong> (0.0010, −0.0005 mm here) is the number that goes on the job
-sheet for job3, it's what carries the <em>whole</em> second-exposure grid array
-onto the position the marks were actually found at. It's small in this
-walkthrough because the Target position in step 3 was close to
-design + Cel Origin; on a real chip with more drift it will be larger.</p>
+<p><strong>Shift x/y</strong> is the number that goes on the job sheet for job3.</p>
 <h2 id="6-set-the-dose-and-read-the-time">6. Set the dose and read the time<a class="headerlink" href="#6-set-the-dose-and-read-the-time" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Under <strong>Time Calculator</strong>, leave <strong>Dose time (μs / dot)</strong> and <strong>Stage
-   movement time (s / grid)</strong> at their defaults (2.000, 15.00) and click
-   <strong>Calculate time</strong>.</li>
-</ol>
+<p>Under <strong>Time Calculator</strong>, type in the <strong>Dose time (μs / dot)</strong> and <strong>Stage movement time (s / grid)</strong> (typically 10~15 s) and click <strong>Calculate time</strong>.</p>
 <p><img alt="Breakdown and Estimated Time after Calculate" src="../../assets/ebl/second_result.png" /></p>
-<p><strong>Active grids: 4 / 4</strong> here, every tile in the fixed 4×4 grid holds either
-pattern or a mark. The caption under <strong>Estimated Time</strong> is worth reading
-literally: finding the alignment marks under the SEM typically adds another
-1, 2 hours on top of this number, and that time isn't in the estimate. See
-the <a href="../job-sheet/">job number sheet</a> for where every number from this page,
-<a href="../first-exposure/">first exposure</a> and <a href="../dose-test/">dose test</a> lands in
-the JEOL system, in order.</p>
+<p>The app will estimate the required time for exposure. For second alignment, finding/registering the alignment marks under the SEM typically <strong>adds another 1~2 hours</strong>  on top of this time estimate.</p>
+<p>See the <a href="../job-sheet/">job number sheet</a> for the summary of numbers used in the setup.</p>
+<h2 id="setup-instruction">Setup Instruction<a class="headerlink" href="#setup-instruction" title="Permanent link">&para;</a></h2>
+<p>Tip: Open <strong>Setup Instruction</strong> in <strong>Left Computer Setup</strong> section. It summarizes your steps and the numbers required in the left-side computer.</p>
+<p><img alt="Setup instruction summarizes your steps and the numbers required in the left-side computer" src="../assets/ebl/setup_instruction.png" /></p>
 
 
 

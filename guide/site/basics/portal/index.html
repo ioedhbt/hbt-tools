@@ -12,7 +12,7 @@
         <link rel="prev" href="../..">
       
       
-        <link rel="next" href="../../rf/at-a-glance/">
+        <link rel="next" href="../local-installation/">
       
       
         
@@ -465,6 +465,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1369,23 +1397,17 @@ content more room, or reopen it from the hamburger control that replaces it.</p>
 </li>
 </ol>
 <h2 id="language-toggle">Language toggle<a class="headerlink" href="#language-toggle" title="Permanent link">&para;</a></h2>
-<ol>
-<li>
 <p>Click <strong>English</strong> / <strong>中文</strong> top-right to switch the whole portal. Sidebar labels, page titles and body text all follow.</p>
-<p><img alt="RAM badge and language toggle, top right of every page" src="../../assets/basics/top_right_controls.png" /></p>
-</li>
-</ol>
+<div class="highlight"><pre><span></span><code>![RAM badge and language toggle, top right of every page](../assets/basics/top_right_controls.png)
+</code></pre></div>
 <h2 id="ram-badge">RAM badge<a class="headerlink" href="#ram-badge" title="Permanent link">&para;</a></h2>
 <p>The bar left of the language toggle (marker 1 above) shows server-side RAM
 usage: <code>used / limit GB</code>, refreshed every 10 seconds. It turns amber past 60%
-and red past 85% of the container's memory limit.</p>
-<p>This matters for uploads: the app caps any single upload at 350 MB
-(<code>.streamlit/config.toml</code>, <code>maxUploadSize</code>), the largest size at which even
-the worst-case GDS mask structure stays inside the container's usable memory
-headroom. A file over that cap is refused with a message, not a crash; the
-EBL calculator additionally sizes its own parsing budget off whatever RAM is
-actually free at that moment, so the same file can be accepted when the
-container is idle and refused when it is busy.</p>
+and red past 85%.</p>
+<p>Uploads are capped at 350 MB per file; larger files are refused with a
+message. The EBL calculator also checks the RAM that is actually free when it
+loads a file, so the same file can be accepted when the app is idle and
+refused when it is busy.</p>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
 <p>Running the app locally via <code>LAUNCH_Tool.py</code> raises the upload cap to a

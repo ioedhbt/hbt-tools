@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1324,11 +1352,9 @@
 <p>在萃取頁開啟<strong>🍊 存取電阻萃取 (🍊 Access Resistance Extraction)</strong>。</p>
 <div class="admonition warning">
 <p class="admonition-title">順序很重要</p>
-<p>先執行 <strong>Z-parameter 方法求 Re</strong>，再執行 Cold-HBT 求 Rb 與 Rc。Gao
-§5.5.2 在計算 A、B、C、D 之前，會先從 Z_cor 中移除 Re，因此冷態萃取
-把 Re 當作<em>輸入值</em>。若先開啟 Cold-HBT，其 <strong>Re (Ω)</strong> 欄位會顯示
-<code>0.0000</code>，在你毫無察覺的情況下，用完全沒有射極電阻擬合出 Rb 與 Rc。
-以此元件為例，這正是 Rb = 29.29 Ω 與 Rb = 46.75 Ω 的差別所在。</p>
+<p>先執行 <strong>Z-parameter 方法求 Re</strong>，再執行 Cold-HBT 求 Rb 與 Rc。冷態
+萃取把 Re 當作<em>輸入值</em>。若先開啟 Cold-HBT，其 <strong>Re (Ω)</strong> 欄位會顯示
+<code>0.0000</code>，在你毫無察覺的情況下，用完全沒有射極電阻擬合出 Rb 與 Rc。</p>
 </div>
 <h2 id="步驟-1z-parameter-方法求-re">步驟 1：Z-parameter 方法求 Re<a class="headerlink" href="#步驟-1z-parameter-方法求-re" title="Permanent link">&para;</a></h2>
 <p>Re 取自 Re(Z₁₂) 對 1/I_E 在整個偏壓掃描上的截距。開始前先載入多個偏壓
@@ -1338,100 +1364,41 @@
 <p>表格列出每個已載入的檔案。勾選要納入的檔案，並輸入各自的射極電流。
    使用 <strong>I_E = I_C + I_B</strong>，而非 I_C。</p>
 <p><img alt="Z-parameter 偏壓表，每個檔案有核取方塊、IE (mA) 輸入欄與 Re(Z12) 讀值" src="../../../assets/ssm/accessr_zparam_widget.png" /></p>
-<p>以示範元件為例：</p>
-<table>
-<thead>
-<tr>
-<th>檔案</th>
-<th>I_C</th>
-<th>I_B</th>
-<th>I_E = I_C + I_B</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ib80u</code></td>
-<td>1.600 mA</td>
-<td>80 µA</td>
-<td><strong>1.680 mA</strong></td>
-</tr>
-<tr>
-<td><code>ib120u</code></td>
-<td>2.928 mA</td>
-<td>120 µA</td>
-<td><strong>3.048 mA</strong></td>
-</tr>
-<tr>
-<td><code>ib160u</code></td>
-<td>4.418 mA</td>
-<td>160 µA</td>
-<td><strong>4.578 mA</strong></td>
-</tr>
-<tr>
-<td><code>ib200u</code></td>
-<td>6.075 mA</td>
-<td>200 µA</td>
-<td><strong>6.275 mA</strong></td>
-</tr>
-<tr>
-<td><code>ib240u</code></td>
-<td>7.859 mA</td>
-<td>240 µA</td>
-<td><strong>8.099 mA</strong></td>
-</tr>
-<tr>
-<td><code>ib280u</code></td>
-<td>8.018 mA</td>
-<td>280 µA</td>
-<td><strong>8.298 mA</strong></td>
-</tr>
-</tbody>
-</table>
-<p>冷態點（I_C = 77.68 µA，I_B = 0）不屬於此擬合；它會提供下方步驟 2 的
-Cold-HBT 萃取使用。</p>
+<p>冷態點（I_B = 0）不屬於此擬合；它會提供下方步驟 2 的 Cold-HBT 萃取
+使用。</p>
 </li>
 <li>
 <p>從截距讀出 <strong>Re</strong>。</p>
 <p><img alt="Re(Z12) 對 1/IE 圖，含擬合線與標出的 Re 截距" src="../../../assets/ssm/accessr_zparam_fit.png" /></p>
-<p><strong>Re = 64.3966 Ω</strong>，最低電流檔案報出的 Rbe = 311.84 Ω。將這個數字帶
-入步驟 2。</p>
+<p>將 Re 帶入步驟 2。</p>
 </li>
 </ol>
 <div class="admonition tip">
 <p class="admonition-title">Tip</p>
-<p>兩個電流最高的點幾乎重疊在一起（8.099 與 8.298 mA），因此兩者合起來
-對擬合的約束力並不比單一個點更強。若截距看起來不穩定，將偏壓掃描
-拉開一些。</p>
+<p>幾乎重疊的偏壓點合起來對擬合的約束力並不比單一個點更強。若截距看起來
+不穩定，將偏壓掃描拉開一些。</p>
 </div>
 <h2 id="步驟-2cold-hbt-求-rb-與-rc">步驟 2：Cold-HBT 求 Rb 與 Rc<a class="headerlink" href="#步驟-2cold-hbt-求-rb-與-rc" title="Permanent link">&para;</a></h2>
-<p>「冷態」量測是指元件未施加偏壓時的量測。兩個接面都關閉時，Z₁₁ 與 Z₂₂
-簡化為接觸網路加上接面電容，一旦知道 Re，Rb 與 Rc 便可解出。</p>
+<p>「冷態」量測是指元件未施加偏壓時的量測。兩個接面都關閉時，一旦知道
+Re，Rb 與 Rc 便可解出。</p>
 <ol>
 <li>
 <p>將 <strong>Cold-HBT 來源 (Cold-HBT source)</strong> 設為<strong>📂 從已載入檔案 (📂 From
-   loaded files)</strong>，並從下拉選單選擇 <code>deemb_preext_cold</code>。若該檔案不在
+   loaded files)</strong>，並從下拉選單選擇你的冷態（無偏壓）量測。若該檔案不在
    已載入的 DUT 中，可在此直接上傳。</p>
-<p><img alt="Cold-HBT 來源選擇器設為「從已載入檔案」，並選取 deemb_preext_cold" src="../../../assets/ssm/accessr_cold_source.png" /></p>
+<p><img alt="Cold-HBT 來源選擇器設為「從已載入檔案」，並選取冷態量測" src="../../../assets/ssm/accessr_cold_source.png" /></p>
 </li>
 <li>
 <p>檢查 Cold-HBT 下方的 <strong>Re (Ω)</strong> 欄位。它應該已經帶有步驟 1 得到的
-   64.3966 Ω。若顯示 <code>0.0000</code>，代表 Z-parameter 擬合尚未執行：回頭先
-   完成它。</p>
+   Re。若顯示 <code>0.0000</code>，代表 Z-parameter 擬合尚未執行：回頭先完成它。</p>
 </li>
 <li>
 <p>開啟<strong>📊 互動式參數萃取 (📊 Interactive Parameter Extraction)</strong>。步驟
-   2 萃取 <strong>Cex</strong>；Rb 與 Rc 都相依於它，Cbc 與 Rbi 亦然。</p>
-<p><img alt="步驟 2 Cex 萃取：方程式、頻率範圍滑桿、平台圖與數值框" src="../../../assets/ssm/accessr_cold_cex.png" /></p>
+   2 萃取 Cex、Cbc 與 Rbi；Rb 與 Rc 都相依於它們。若你修改某個數值，
+   下面的每一步都會沿用修改後的值。</p>
 </li>
 <li>
-<p><strong>點選 <code>median</code> 晶片改用中位數</strong>，57.87 fF。</p>
-<p><img alt="Cex 數值框，圈出 median 晶片，讀值 57.87 fF" src="../../../assets/ssm/accessr_cold_cex_median.png" /></p>
-<p>預設值（188.7 fF）是低頻值，平均值（101.4 fF）同樣受到雜訊影響而
-搖擺不定。逐頻率的陣列一旦越過低頻端就趨於平坦，因此中位數才是可信
-的數字。下面的每一步都會沿用這個值。</p>
-</li>
-<li>
-<p>步驟 5 現在給出 <strong>Rb = 46.751 Ω</strong> 與 <strong>Rc = 19.018 Ω</strong>。</p>
+<p>步驟 5 現在給出 <strong>Rb</strong> 與 <strong>Rc</strong>。</p>
 <p><img alt="步驟 5 Rb 與 Rc 面板，含頻率範圍滑桿、平台圖、數值框與統計晶片" src="../../../assets/ssm/accessr_cold_rbrc.png" /></p>
 <ol>
 <li><strong>頻率範圍</strong>：將其收窄至曲線平坦的頻段。</li>
@@ -1439,51 +1406,21 @@ Cold-HBT 萃取使用。</p>
 <li>數值框，直接輸入即可覆寫。</li>
 <li>下方的晶片可由統計值填入數值框，點選即可套用。</li>
 </ol>
-<p>兩條曲線在約 2 GHz 以上都會收斂到各自的虛線，且兩者的中位數
-（51.88 Ω 與 20.13 Ω）都接近預設值。這種一致性正是萃取結果健全的
-訊號。當平均值與中位數差異懸殊時，把頻率範圍拖到平坦的區段，再由
-該處取值。</p>
+<p>兩條曲線都應在平坦的頻段上收斂到各自的虛線。當平均值與中位數差異
+懸殊時，把頻率範圍拖到平坦的區段，再由該處取值。</p>
 </li>
 </ol>
 <h2 id="應該得到的結果">應該得到的結果<a class="headerlink" href="#應該得到的結果" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th></th>
-<th>數值</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Rb (=Rpb)</td>
-<td>46.7508 Ω</td>
-</tr>
-<tr>
-<td>Rc (=Rpc)</td>
-<td>19.0178 Ω</td>
-</tr>
-<tr>
-<td>Re (=Rpe)</td>
-<td>64.3966 Ω</td>
-</tr>
-<tr>
-<td>Rbi（冷態）</td>
-<td>158637.0901 Ω</td>
-</tr>
-<tr>
-<td>Cbe（冷態）</td>
-<td>119.9716 fF</td>
-</tr>
-<tr>
-<td>Cbc（冷態）</td>
-<td>1458.7848 fF</td>
-</tr>
-<tr>
-<td>Cex</td>
-<td>57.8714 fF</td>
-</tr>
-</tbody>
-</table>
+<p>完成兩個步驟後，你應該得到：</p>
+<ul>
+<li>Rb (= Rpb)</li>
+<li>Rc (= Rpc)</li>
+<li>Re (= Rpe)</li>
+<li>Rbi（冷態）</li>
+<li>Cbe（冷態）</li>
+<li>Cbc（冷態）</li>
+<li>Cex</li>
+</ul>
 <h2 id="open-collector">Open-collector<a class="headerlink" href="#open-collector" title="Permanent link">&para;</a></h2>
 <p>第三種方法在集極開路的狀態下驅動基極-射極接面。當你有這項量測、又沒有
 可用的冷態掃描時使用它；它是 Cold-HBT 步驟的替代方案，而非額外附加項目。</p>

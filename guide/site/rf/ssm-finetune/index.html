@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1399,36 +1427,32 @@ below is in <strong>4 — Intrinsic Model</strong> and <strong>5 — Review</str
 are greyed out here; they auto-sync from the pre-extraction override, so
 change them back in <a href="../ssm-setup/">setup</a> rather than fighting them here.</p>
 <p>This is where the transit times get corrected. Cheng's analytic extraction
-gives τB = 10.7654 ps and τC = −6.7695 ps for this device; overwrite them with
-τB = 19.0480 ps and τC = 0.1500 ps from the
-<a href="../ssm-transit-time/">transit-time fit</a>, which is measured across six bias
-points rather than split out of one.</p>
-<p>Fine-tuned values are saved to the fit cache and come back the next time you
-open the same device with the same model.</p>
+can give a negative τC, which is not physical; overwrite τB and τC with the
+values from the <a href="../ssm-transit-time/">transit-time fit</a>, which is measured
+across the whole bias sweep rather than split out of one point.</p>
 <h2 id="residual-and-display-scale">Residual and display scale<a class="headerlink" href="#residual-and-display-scale" title="Permanent link">&para;</a></h2>
 <p><img alt="S display scale row with a multiplier per S-parameter, and the total residual with its per-parameter breakdown underneath" src="../../assets/ssm/finetune_scale_residual.png" /></p>
-<p><strong>S display scale</strong> multiplies each trace before plotting, a way to pull S12
-up to a readable size next to S21. It is display only and does <strong>not</strong> change
+<p><strong>S display scale</strong> multiplies each trace before plotting, a way to pull
+S12 up to a readable size next to S21. Display only; it does <strong>not</strong> change
 the residual.</p>
-<p><strong>Total residual</strong> is the fit error over the whole band, with a breakdown per
-S-parameter. For this device: 8.66% total, from S11 4.63%, S12 12.30%,
-S21 10.12%, S22 7.58%.</p>
+<p><strong>Total residual</strong> is the fit error over the whole band, with a breakdown
+per S-parameter.</p>
 <p>Rules of thumb:</p>
 <ul>
 <li>Under ~5% total is a good analytic extraction.</li>
 <li>S12 is almost always the worst of the four; it is the smallest signal and
-  the most affected by any leftover pad capacitance.</li>
-<li>One parameter far above the others points at a specific element, not at the
-  model. S22 high means the collector side (Rc, Cbc); S11 high means the base
-  side.</li>
+  the most affected by leftover pad capacitance.</li>
+<li>One parameter far above the others points at a specific element, not at
+  the model. S22 high means the collector side (Rc, Cbc); S11 high means
+  the base side.</li>
 </ul>
 <h2 id="smith-and-bode">Smith and Bode<a class="headerlink" href="#smith-and-bode" title="Permanent link">&para;</a></h2>
 <p><img alt="Smith chart with measured and modelled S11, S12, S21, S22, next to the fT/fmax gain plot" src="../../assets/ssm/finetune_smith_bode.png" /></p>
-<p>Measured traces are solid with markers, modelled traces are dashed. Read them
-together: the Smith chart shows where in the band the model departs, the gain
-plot shows what that costs you in f_T and f_max.</p>
+<p>Measured traces are solid with markers, modelled traces are dashed. Read
+them together: the Smith chart shows where in the band the model departs,
+the gain plot shows what that costs you in f_T and f_max.</p>
 <p><strong>📊 Smith Chart (Matplotlib)</strong> in Section 5 renders the same data as a
-publication figure, without the Plotly toolbar.</p>
+publication-quality figure.</p>
 <h2 id="export">Export<a class="headerlink" href="#export" title="Permanent link">&para;</a></h2>
 <p><img alt="Export row: xlsx, modeled S2P and copy under the Smith chart, xlsx and copy under the gain plot" src="../../assets/ssm/review_residual.png" /></p>
 <ul>
@@ -1446,15 +1470,15 @@ from the fitted model rather than measured off the curve:</p>
 <li><strong>τ_total</strong> = 1/(2πf_T), the total emitter-to-collector delay. Compare it
   against the intercept from the <a href="../ssm-transit-time/">transit-time fit</a>. If
   they disagree badly, one of the two is being driven by a bad element.</li>
-<li><strong>f_max</strong>, from the fitted model. The extrapolated value on the gain plot is
-  the measured counterpart; they should agree within a few percent.</li>
+<li><strong>f_max</strong>, from the fitted model. The extrapolated value on the gain plot
+  is the measured counterpart; they should agree within a few percent.</li>
 </ul>
 <h2 id="hand-the-model-on">Hand the model on<a class="headerlink" href="#hand-the-model-on" title="Permanent link">&para;</a></h2>
 <p><img alt="Section 5 Review with Complete Parameter Summary, Fit cache, and the Send Cheng's T to Simulation &amp; Fitting button" src="../../assets/ssm/review_handoff.png" /></p>
 <ol>
 <li><strong>📋 Complete Parameter Summary</strong> lists every extracted and fine-tuned
    value in one table. Copy it out here.</li>
-<li><strong>💾 Fit cache</strong> shows what has been persisted for this device and model.</li>
+<li><strong>💾 Fit cache</strong> shows what has been saved for this device and model.</li>
 <li><strong>→ Send Cheng's T to Simulation &amp; Fitting</strong> carries the device, the
    topology and every current parameter value across, so you can keep tuning
    without re-uploading anything.</li>

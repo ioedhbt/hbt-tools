@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1323,10 +1351,9 @@
 uploaded DUT file at once, instead of one file at a time.</p>
 <h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
 <p>Use the <strong>Batch De-embed</strong> tab whenever you have more than one bias point
-against a single Open/Short calibration pair, the common case for a
-device sweep (several <code>Ib</code> or <code>Vce</code> points, one probe pad layout). It runs
-the same modeled extraction described on the
-<a href="../deembedding/">Open/short de-embedding</a> page, once, and applies it to
+against a single Open/Short calibration pair, the common case for a device
+sweep (several <code>Ib</code> or <code>Vce</code> points, one probe pad layout). It runs the
+<a href="../deembedding/">Open/short de-embedding</a> extraction once and applies it to
 every file in the main uploader in one pass.</p>
 <h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
 <p>Same as the 3-step page: turn on <strong>② Device Dummy (Open-Short)</strong> in the
@@ -1341,29 +1368,17 @@ The Cpbe/Cpce/Cpbc/Lb/Lc/Le override fields and the Modeled/Measured source
 choice apply to every file identically; there is one calibration, not one
 per device.</p>
 <h2 id="output-zip">Output ZIP<a class="headerlink" href="#output-zip" title="Permanent link">&para;</a></h2>
-<ol>
-<li>
 <p>Click <strong>📥 Download de-embedded measurement files</strong>.</p>
 <p><img alt="Download de-embedded measurement files button" src="../../assets/rf/batch_zip_download.png" /></p>
-</li>
-</ol>
-<p>The ZIP contains one <code>.s2p</code> per uploaded file, named <code>&lt;original stem&gt;_deemb.s2p</code>
-(<code>deemb_preext_vce3.5_ib280u.s2p</code> → <code>deemb_preext_vce3.5_ib280u_deemb.s2p</code>).
-Each file's header carries the parasitic values that were subtracted from
-it, Cpbe, Cpce, Cpbc in fF, Lb, Lc, Le in pH, Rb, Rc, Re in Ω, so the
-de-embedding a given file went through stays traceable from the file alone.</p>
 <h2 id="handing-devices-onward">Handing devices onward<a class="headerlink" href="#handing-devices-onward" title="Permanent link">&para;</a></h2>
 <p>The same container offers a handoff to the SSM pages, but batched: pick one
 <strong>Primary device</strong> from a dropdown, then</p>
 <ul>
 <li><strong>→ SSM Extraction</strong> sends the primary device <em>and</em> every other
-  de-embedded file as extras, Extraction's Z-parameter, Cold-HBT and
-  τ_total methods can use them.</li>
+  de-embedded file as extras, which Extraction's Z-parameter, Cold-HBT and
+  τ_total methods can use.</li>
 <li><strong>→ Simulation &amp; Fitting</strong> sends only the primary device.</li>
 </ul>
-<p>This is the same container shown de-embedded on the
-<a href="../deembedding/#before--after-on-the-device">single-device walkthrough</a>,
-just backed by every uploaded file instead of one.</p>
 
 
 

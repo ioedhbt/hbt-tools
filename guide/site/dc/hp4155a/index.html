@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1343,51 +1371,41 @@
 <h1 id="hp4155a-quick-plot">HP4155A quick plot<a class="headerlink" href="#hp4155a-quick-plot" title="Permanent link">&para;</a></h1>
 <p>Interactive SMU plots straight from an HP/Agilent 4155A text export, no
 conversion step first. Sidebar <strong>DC Measurement → HP4155A Quick Plot</strong>.</p>
-<p>The two demo files in <code>guide/_data/dc/hp4155a/</code> aren't real 4155A exports, they're the guide's curated Gummel and Family B1500A CSVs, numerically
-converted into 4155A column layout (see that folder's <code>VERIFY.md</code> for the
-round-trip check). Use them to see the workflow; the underlying I, V data
-is the same devices documented on the <a href="../b1500a/">B1500A viewer</a> page.</p>
+<p>The two demo files in <code>guide/_data/dc/hp4155a/</code> let you try the workflow
+without a real 4155A export.</p>
 <h2 id="file-format">File format<a class="headerlink" href="#file-format" title="Permanent link">&para;</a></h2>
 <p>Export from the instrument with <strong>List Display → Save ASCII</strong>, channel
 names left at their instrument defaults. The tool expects:</p>
 <ul>
 <li>A plain text table, tab- or comma-delimited, <strong>header row first, no
-  preamble</strong>, row 0 is read straight as the column names.</li>
+  preamble</strong>.</li>
 <li>Column names exactly <code>V1</code>, <code>I1</code>, <code>V2</code>, <code>I2</code>, <code>V3</code>, <code>I3</code>, <code>V4</code>, <code>I4</code> (any
   subset, you don't need all four SMUs wired).</li>
 <li>Numbers in the instrument's scientific-notation style, e.g.
   <code>1.23456E-02</code>.</li>
 </ul>
 <h2 id="steps">Steps<a class="headerlink" href="#steps" title="Permanent link">&para;</a></h2>
-<ol>
-<li><strong>SMU Assignment</strong>, for each of the four V/I column pairs, pick which
-   device terminal it drove: Collector, Base, Emitter, PD, or None. This
-   choice persists across files and page reloads.</li>
-</ol>
+<p><strong>SMU Assignment</strong>: for each of the four V/I column pairs, pick which
+device terminal it drove: Collector, Base, Emitter, PD, or None. This
+choice persists across files and page reloads.</p>
 <p><img alt="SMU role assignment" src="../../assets/dc/hp_smu.png" /></p>
-<ol>
-<li><strong>Data File</strong>, upload the export. No file-type restriction, so
-   anything that parses as a delimited table works.</li>
-</ol>
+<p><strong>Data File</strong>: upload the export. No file-type restriction; anything
+that parses as a delimited table works.</p>
 <p><img alt="File uploaded" src="../../assets/dc/hp_upload.png" /></p>
-<ol>
-<li><strong>Plot Settings → Data type</strong>, Diode, Gummel, Family, or Family
-   L-Ic-Vc, then <strong>Show</strong>. Family L-Ic-Vc needs a PD role assigned (it
-   converts that channel's current to optical power via the responsivity
-   field); plain Family only needs Collector and Base.</li>
-</ol>
+<p><strong>Plot Settings → Data type</strong>: Diode, Gummel, Family, or Family
+L-Ic-Vc, then <strong>Show</strong>. Family L-Ic-Vc needs a PD role assigned (it
+converts that channel's current to optical power via the responsivity
+field); plain Family only needs Collector and Base.</p>
 <h2 id="reading-the-result">Reading the result<a class="headerlink" href="#reading-the-result" title="Permanent link">&para;</a></h2>
 <p>Gummel plots Ic and Ib on a shared log axis plus β on a linear right axis,
 same layout as the B1500A viewer's Gummel plot:</p>
 <p><img alt="Gummel — Ic, Ib, β" src="../../assets/dc/hp_gummel_plot.png" /></p>
-<p>Family plots one Ic-vs-Vc curve per Ib step (SMU roles: Collector and Base
-only, no PD wired in this demo, so the export uses <strong>Family Ic-Vc</strong>, not
-<strong>Family L-Ic-Vc</strong>):</p>
+<p>Family plots one Ic-vs-Vc curve per Ib step:</p>
 <p><img alt="Family Ic-Vc" src="../../assets/dc/hp_family_plot.png" /></p>
 <h2 id="export">Export<a class="headerlink" href="#export" title="Permanent link">&para;</a></h2>
 <p>Below every plot: a <strong>Download Excel</strong> button and a <strong>copy</strong> button side
-by side. Click this button to copy the data to your clipboard for easy
-pasting in Origin.</p>
+by side. Click copy to put the data on your clipboard for pasting in
+Origin.</p>
 <p><img alt="Download / copy row" src="../../assets/dc/hp_export.png" /></p>
 <h2 id="other-controls">Other controls<a class="headerlink" href="#other-controls" title="Permanent link">&para;</a></h2>
 <p><img alt="Plot Settings — axis and grid controls" src="../../assets/dc/hp_settings.png" /></p>
@@ -1400,7 +1418,8 @@ pasting in Origin.</p>
   data falls in; the axis label updates to match.</li>
 <li>SMU role assignment (step 1) is shared with the batch <strong>HP4155A Data
   Processing Tool</strong> inside
-  <a href="../multi-process/#other-batch-modes">Measurement Data Multi-Process</a>,   same four dropdowns, same role names, different page.</li>
+  <a href="../multi-process/#other-batch-modes">Measurement Data Multi-Process</a>,
+  same four dropdowns, same role names, different page.</li>
 </ul>
 
 

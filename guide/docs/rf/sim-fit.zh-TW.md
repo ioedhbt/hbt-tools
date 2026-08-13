@@ -5,7 +5,7 @@
 
 ## 1. 選擇模型
 
-1. 在**模型 (Model)** 中點選一個選項。
+在**模型 (Model)** 中點選一個選項。
 
 ![模型選擇：Cheng's T、Cheng's π、Xu T、Kun-Yang HEMT、自訂模型、開路與短路焊墊](../assets/simfit/model_bar.png)
 
@@ -14,7 +14,7 @@
 - **Cheng's π**：Cheng (2022) hybrid-π HBT 模型，焊墊/接觸網路與 T 拓樸
   相同，本質核心不同。
 - **Xu T**：Xu (2014) T 拓樸 HBT。沒有外質 Cbex；一個並聯 Rbcx 橫跨在
-  Cbcx 兩端（預設 285 kΩ，Rbcx 從不由量測資料萃取，只能手動調整）。
+  Cbcx 兩端（預設 285 kΩ，從不由量測資料萃取，只能手動調整）。
 - **Kun-Yang HEMT**：π 拓樸 HEMT，僅供正向模擬（不提供剝離萃取）。在源極
   側加入 R_delay∥C_delay 支路，並以自訂基板焊墊網路取代 HBT 的
   Cpbe/Cpce/Cpbc。
@@ -38,26 +38,29 @@ fT/fmax 的 Bode 圖。模型輸入上方的 `Start Frequency`、`Data Points`
 
 ## 3. 擬合量測元件
 
-1. 開啟 **📂 擬合至量測元件（選用） (📂 Fit to a measured device
+開啟 **📂 擬合至量測元件（選用） (📂 Fit to a measured device
    (optional))**，拖入 `.s2p` 或 `.csv` 檔案。
 
 ![上傳後的擬合展開區：元件標籤、.s2p 下載、清除按鈕、檔案上傳器](../assets/simfit/fit_uploaded.png)
 
 頻率軸現在會逐點跟隨上傳的檔案，手動的 `Start/Final Frequency` 輸入欄會
-消失。傳送**去嵌入後**的元件（不含 Cpxx/Lx）只擬合本質元件；傳送**原始**
-元件則連寄生效應一併擬合。從 RF 一覽的單一檔案分頁點選
+消失。
+
+傳送**去嵌入後**的元件（不含 Cpxx/Lx）只擬合本質元件；傳送**原始**
+元件則連寄生效應一併擬合。
+
+從 RF 一覽的單一檔案分頁點選
 `→ 模擬與擬合 (→ Simulation & Fitting)`，也是以同樣方式傳送元件，
 見下方的[交接內容](#6-什麼會隨交接一起帶過來)。
 
-2. 頁面會切換為擬合模式：一個 **Fine-tune** 展開區，每個模型參數各有
+頁面會切換為擬合模式：一個 **Fine-tune** 展開區，每個模型參數各有
    一個數值輸入欄，接著是殘差與圖表。
 
 ![擬合檢視：殘差列（Total/S11/S12/S21/S22）與 Smith + fT/fmax 疊圖，量測對模型](../assets/simfit/fit_result.png)
 
-**Total residual** 是量測與模型 S 參數之間的均方根相對誤差，取四個埠的
-平均值；S11/S12/S21/S22 各自列出細項，避免某一埠（此處 S22 為 160%，
-四者中最差）擬合不佳卻被偏低的總值掩蓋。用[視覺化或自動調諧](tuning.md)
-將其最小化。
+**Total residual** 是量測與模型 S 參數之間的均方根相對誤差，
+S11/S12/S21/S22 各自列出細項，避免某一埠（此處 S22 為 160%，四者中最差）
+擬合不佳卻被偏低的總值掩蓋。用[視覺化或自動調諧](tuning.md)將其最小化。
 
 ## 4. fT/fmax、τ_total 與 fmax
 
@@ -76,8 +79,8 @@ fT/fmax 的 Bode 圖。模型輸入上方的 `Start Frequency`、`Data Points`
 ## 5. 擬合快取
 
 **Fine-tune** 中的每一次編輯，不論是手動輸入的值還是[調諧](tuning.md)
-提交的結果，都會自動存入以（元件、模型）為鍵的磁碟快取。重新開啟同一個
-元件並選用同一個模型時，會自動取回快取內容，並顯示在標題列：
+提交的結果，都會自動依（元件、模型）儲存到磁碟快取。重新開啟同一個元件並
+選用同一個模型時，會自動取回快取內容，並顯示在標題列：
 
 ![Fitting 標籤列含快取晶片：元件名稱、「cache from 10:11」、模型名稱](../assets/simfit/fit_cache_chip.png)
 
@@ -95,8 +98,8 @@ fT/fmax 的 Bode 圖。模型輸入上方的 `Start Frequency`、`Data Points`
   Fine-tune 的每個欄位都會以該萃取結果為初始值，而不是上傳檔案時的自動
   猜測預設值。
 
-新的交接也會清除任何*先前*交接留下的殘餘初始值，因此切換元件時，不會
-在你剛切換過去的模型上留下不相關的舊值。
+新的交接也會清除任何*先前*交接留下的殘餘初始值，因此切換元件時不會留下
+不相關的舊值。
 
 下一步：[建立自訂拓樸](custom-model.md) · [調諧](tuning.md) ·
 [圖表控制](charts.md)。

@@ -34,7 +34,7 @@ content more room, or reopen it from the hamburger control that replaces it.
 
 ## Language toggle
 
-1. Click **English** / **中文** top-right to switch the whole portal. Sidebar labels, page titles and body text all follow.
+Click **English** / **中文** top-right to switch the whole portal. Sidebar labels, page titles and body text all follow.
 
     ![RAM badge and language toggle, top right of every page](../assets/basics/top_right_controls.png)
 
@@ -42,15 +42,12 @@ content more room, or reopen it from the hamburger control that replaces it.
 
 The bar left of the language toggle (marker 1 above) shows server-side RAM
 usage: `used / limit GB`, refreshed every 10 seconds. It turns amber past 60%
-and red past 85% of the container's memory limit.
+and red past 85%.
 
-This matters for uploads: the app caps any single upload at 350 MB
-(`.streamlit/config.toml`, `maxUploadSize`), the largest size at which even
-the worst-case GDS mask structure stays inside the container's usable memory
-headroom. A file over that cap is refused with a message, not a crash; the
-EBL calculator additionally sizes its own parsing budget off whatever RAM is
-actually free at that moment, so the same file can be accepted when the
-container is idle and refused when it is busy.
+Uploads are capped at 350 MB per file; larger files are refused with a
+message. The EBL calculator also checks the RAM that is actually free when it
+loads a file, so the same file can be accepted when the app is idle and
+refused when it is busy.
 
 !!! tip
     Running the app locally via `LAUNCH_Tool.py` raises the upload cap to a

@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1379,86 +1407,15 @@
 點，因此開始前請先載入整組掃描資料。</p>
 <p>開啟 <strong>📊 Interactive Parameter Extraction</strong>，然後選擇
 <strong>Cje / τB+τC / τCC / τE from 1/(2πf_T) vs 1/I_C fit</strong>。</p>
-<p>所擬合的關係式為</p>
-<p>$$\frac{1}{2\pi f_T} = \tau_B + \tau_C + \frac{\eta kT}{qI_C}C_{JE}
-  + \left(R_C + R_{EE} + \frac{\eta kT}{qI_C}\right)C_{BC}$$</p>
-<p>因此截距為 τ_B + τ_C，斜率則帶有 C_JE。</p>
+<p>擬合圖將 τ_total 對 1/I_C 作圖：截距為 τ_B + τ_C，斜率則帶有 C_JE。</p>
 <h2 id="使用-i_e--i_c--i_b">使用 I_E = I_C + I_B<a class="headerlink" href="#使用-i_e--i_c--i_b" title="Permanent link">&para;</a></h2>
-<p>該欄標示為 <strong>IC (mA)</strong>，且 Cheng 的公式使用集極電流。請改為輸入<strong>射極</strong>
-電流：I_E = I_C + I_B。</p>
+<p>在列中輸入集電極電流 I_C (mA)。</p>
 <p><img alt="渡越時間表，每個檔案列出 fT 與 tau_total，IC (mA) 欄以方框標出" src="../../../assets/ssm/transit_ic_table.png" /></p>
-<ol>
-<li>將每一列的 <strong>IC (mA)</strong> 欄改寫為該偏壓點的 I_C + I_B。</li>
-</ol>
-<p>以示範元件為例：</p>
-<table>
-<thead>
-<tr>
-<th>檔案</th>
-<th>I_C</th>
-<th>I_B</th>
-<th>輸入值</th>
-<th>f_T</th>
-<th>τ_total</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ib80u</code></td>
-<td>1.600 mA</td>
-<td>80 µA</td>
-<td><strong>1.680</strong></td>
-<td>1.607 GHz</td>
-<td>99.03 ps</td>
-</tr>
-<tr>
-<td><code>ib120u</code></td>
-<td>2.928 mA</td>
-<td>120 µA</td>
-<td><strong>3.048</strong></td>
-<td>1.869 GHz</td>
-<td>85.17 ps</td>
-</tr>
-<tr>
-<td><code>ib160u</code></td>
-<td>4.418 mA</td>
-<td>160 µA</td>
-<td><strong>4.578</strong></td>
-<td>2.074 GHz</td>
-<td>76.74 ps</td>
-</tr>
-<tr>
-<td><code>ib200u</code></td>
-<td>6.075 mA</td>
-<td>200 µA</td>
-<td><strong>6.275</strong></td>
-<td>2.268 GHz</td>
-<td>70.17 ps</td>
-</tr>
-<tr>
-<td><code>ib240u</code></td>
-<td>7.859 mA</td>
-<td>240 µA</td>
-<td><strong>8.099</strong></td>
-<td>2.330 GHz</td>
-<td>68.31 ps</td>
-</tr>
-<tr>
-<td><code>ib280u</code></td>
-<td>8.018 mA</td>
-<td>280 µA</td>
-<td><strong>8.298</strong></td>
-<td>2.455 GHz</td>
-<td>64.84 ps</td>
-</tr>
-</tbody>
-</table>
-<p>取消勾選任何不想納入擬合的檔案。</p>
 <h2 id="判讀擬合結果">判讀擬合結果<a class="headerlink" href="#判讀擬合結果" title="Permanent link">&para;</a></h2>
-<p><img alt="tau_total 對 1/I_C 圖，含擬合線，斜率 69.05 ps mA，截距 59.59 ps" src="../../../assets/ssm/transit_tau_fit.png" /></p>
+<p><img alt="tau_total 對 1/I_C 圖，含擬合線" src="../../../assets/ssm/transit_tau_fit.png" /></p>
 <ul>
-<li><strong>截距</strong>：59.5923 ps，是量測延遲中不隨電流縮小的部分。</li>
-<li><strong>斜率</strong>：69.05 ps·mA，由此可求出 C_JE。</li>
+<li><strong>截距</strong>：量測延遲中不隨電流縮小的部分。</li>
+<li><strong>斜率</strong>：由此可求出 C_JE。</li>
 </ul>
 <p>這個截距還不是 τ_B + τ_C。集極充電項 (R_C + R_EE + r_E)·C_BC 仍須扣除，
 這正是下方輸入欄的用途。</p>
@@ -1468,57 +1425,27 @@
 extraction))</strong> 一開始為 Re — REE = <code>0.0000</code>，Rc = <code>0.0000</code>。除非
 <a href="../ssm-access-r/">接觸電阻步驟</a>已經執行過，否則這些預設值都是錯的。請
 輸入方框標出的三個數值：</p>
-<table>
-<thead>
-<tr>
-<th>欄位</th>
-<th>數值</th>
-<th>來源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Re — REE (Ω)</strong></td>
-<td>64.3966</td>
-<td>Z-parameter 擬合</td>
-</tr>
-<tr>
-<td><strong>Rc (Ω)</strong></td>
-<td>19.0178</td>
-<td>Cold-HBT</td>
-</tr>
-<tr>
-<td><strong>Cbc total (fF)</strong></td>
-<td>484.2610</td>
-<td>T 模型萃取</td>
-</tr>
-</tbody>
-</table>
+<ul>
+<li><strong>Re — REE (Ω)</strong>：來自 Z-parameter 擬合</li>
+<li><strong>Rc (Ω)</strong>：來自 Cold-HBT</li>
+<li><strong>Cbc total (fF)</strong>：來自 T 模型萃取</li>
+</ul>
 <p>除非你有 Gummel 擬合另有指示，否則將 η 保留在 1.000，T 保留在 300.0。</p>
-<p>代入之後答案會有很大的變化：<strong>τ_B + τ_C 從 59.59 ps 降到
-19.1980 ps。</strong> 截距中剩下的部分全部都是集極充電。</p>
+<p>代入之後答案會有很大的變化：截距中剩下的部分全部都是集極充電。</p>
 <h3 id="拆分-τ_b-與-τ_c">拆分 τ_B 與 τ_C<a class="headerlink" href="#拆分-τ_b-與-τ_c" title="Permanent link">&para;</a></h3>
 <p><strong>Split τ_B / τ_C</strong> 這一列會用假設的平均集極速度拆分總和。以 InP 預設值
-W_C = 120 nm 與 v_c = 4.000e+7 cm/s 計算：</p>
-<ul>
-<li><strong>τ_C = 0.1500 ps</strong></li>
-<li><strong>τ_B = 19.0480 ps</strong></li>
-</ul>
+W_C = 120 nm 與 v_c = 4.000e+7 cm/s 計算，這一列會給你 τ_C 與 τ_B。</p>
 <p><strong>用這兩個值取代 Cheng 的 τB 與 τC。</strong><a href="../ssm-intrinsic/">本質模型頁</a>上的
-解析萃取，對此元件給出 τB = 10.7654 ps、τC = −6.7695 ps，而負的集極
-渡越時間並非物理上合理的答案。渡越時間擬合使用六個偏壓點與量測到的
-f_T，因此是可信的數字。</p>
+解析萃取可能給出負的 τC，而負的集極渡越時間並不物理。渡越時間擬合使用
+整組偏壓掃描與量測到的 f_T，因此是可信的數字。</p>
 <p>下方逐檔案表格顯示，代入修正後的輸入值後，每個檔案落在哪個位置：</p>
 <p><img alt="逐檔案推導延遲表，列出每個檔案的 IC、rE、tauCC、tauE 與量測 tau_total" src="../../../assets/ssm/transit_perfile.png" /></p>
 <p>這些萃取值僅供參考讀值。它們<strong>不會</strong>自動回饋到模型擬合中，若要讓它們
 進入最終出貨的模型，需手動輸入到微調面板。</p>
 <h2 id="該用哪一種電流">該用哪一種電流<a class="headerlink" href="#該用哪一種電流" title="Permanent link">&para;</a></h2>
-<p>Cheng 的預設是 I_C，本頁也是依此建構。改用 I_E 會使每個點依
-I_B/(I_C·I_E) 向左偏移，主要讓曲線低電流端變陡。</p>
-<p>請使用 I_E。所擬合的延遲是射極到集極的總渡越時間，而在 InP HBT 掃描的
-低電流端，I_B 佔 I_C 的百分之幾，足以彎曲決定截距的那些點。當 β 很大且
-只關心斜率時，Cheng 的 I_C 形式沒有問題；但當你要的是 τ_B + τ_C 時，
-它就是較弱的選擇。</p>
+<p>本頁依循 Cheng 的預設使用 I_C，但請改用 I_E。所擬合的延遲是射極到集極的
+總渡越時間，而在 InP HBT 掃描的低電流端，I_B 佔 I_C 的百分之幾——足以
+彎曲決定截距的那些點。</p>
 <p>不論選哪一種，每一列都要一致使用。若部分列用 I_C、部分列用 I_E，等於是
 對兩種不同的量擬合同一條線。</p>
 <h2 id="跨檔案的-τ_total">跨檔案的 τ_total<a class="headerlink" href="#跨檔案的-τ_total" title="Permanent link">&para;</a></h2>

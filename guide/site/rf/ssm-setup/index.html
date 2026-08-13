@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1365,39 +1393,33 @@
 <h1 id="model-extraction-setup">Model extraction: setup<a class="headerlink" href="#model-extraction-setup" title="Permanent link">&para;</a></h1>
 <p>Load a device and choose a small-signal model topology. This page walks
 through the SSM Extraction page from an empty upload to a de-embedded device,
-using the raw (non-de-embedded) demo files.</p>
+using your own raw (non-de-embedded) files.</p>
 <h2 id="1-upload-the-raw-device-file">1. Upload the raw device file<a class="headerlink" href="#1-upload-the-raw-device-file" title="Permanent link">&para;</a></h2>
 <p>Open <strong>Small Signal Model Extraction by Peeling</strong> from the sidebar.</p>
-<ol>
-<li>Upload one or more raw bias <code>.s2p</code> files under <strong>① Upload bias files</strong>.
-   Use <code>raw/vce3.5_ib200u.s2p</code> from the demo set. This file
-   still has the pads and leads on.</li>
-</ol>
+<p>Upload one or more raw bias <code>.s2p</code> files under <strong>① Upload bias files</strong>.
+   Use a raw bias file that still has the pads and leads on.</p>
 <p><img alt="Upload the DUT file" src="../../assets/ssm/setup_upload_main.png" /></p>
-<p>Multiple bias files can go in at once, later steps (Z-parameter access
+<p>Multiple bias files can go in at once; later steps (Z-parameter access
 resistance, τ_total fit) need more than one to fit a line.</p>
 <h2 id="2-upload-open-and-short">2. Upload Open and Short<a class="headerlink" href="#2-upload-open-and-short" title="Permanent link">&para;</a></h2>
 <p>The Open and Short dummies live in the sidebar, not the main upload area.</p>
-<ol>
-<li>Toggle <strong>Enable device-dummy de-embedding</strong> in the sidebar.</li>
-</ol>
+<p>Toggle <strong>Enable device-dummy de-embedding</strong> in the sidebar.</p>
 <p><img alt="Toggle the sidebar" src="../../assets/ssm/setup_sidebar_toggle.png" /></p>
-<p>Two file slots appear: <strong>Dev Open</strong> and <strong>Dev Short</strong>. Drop <code>open.s2p</code> into
-the first and <code>short.s2p</code> into the second.</p>
+<p>Two file slots appear: <strong>Dev Open</strong> and <strong>Dev Short</strong>. Drop your Open file
+into the first and your Short file into the second.</p>
 <p><img alt="Open and Short loaded in the sidebar" src="../../assets/ssm/setup_sidebar_files.png" /></p>
 <p>A green <strong>Pad de-embedding active</strong> line confirms both files parsed.</p>
 <h2 id="3-run-the-extraction">3. Run the extraction<a class="headerlink" href="#3-run-the-extraction" title="Permanent link">&para;</a></h2>
-<ol>
-<li>Pick the active file under <strong>② Select device &amp; model</strong> (only matters once
-   more than one DUT file is loaded), then click <strong>▶ Run SSM Extraction</strong>.</li>
-</ol>
+<p>Pick the active file under <strong>② Select device &amp; model</strong> (only matters once
+   more than one DUT file is loaded), then click <strong>▶ Run SSM Extraction</strong>.</p>
 <p><img alt="Click Run" src="../../assets/ssm/setup_ready_to_run.png" /></p>
 <h2 id="4-check-the-pad-capacitances">4. Check the pad capacitances<a class="headerlink" href="#4-check-the-pad-capacitances" title="Permanent link">&para;</a></h2>
 <p>Extraction opens on <strong>1 — Pad Capacitance &amp; Series Inductance</strong>, inside the
 <strong>📌 Open &amp; Short Dummy De-embedding</strong> expander. The Open dummy gives the
 three pad shunt capacitances:</p>
 <p><img alt="Open dummy capacitance table" src="../../assets/ssm/setup_open_caps.png" /></p>
-<p>The table should give Cpbe, Cpce, Cpbc. If required, move the frequency  slider where it finds the median of the top 50% of the sweep, where the Open dummy is cleanest.</p>
+<p>The table should give Cpbe, Cpce, Cpbc. If needed, move the frequency
+slider to the range where the Open dummy is cleanest.</p>
 <h2 id="5-check-the-lead-inductances">5. Check the lead inductances<a class="headerlink" href="#5-check-the-lead-inductances" title="Permanent link">&para;</a></h2>
 <p>Scroll down inside the same expander to the Short dummy block:</p>
 <p><img alt="Short dummy inductance table" src="../../assets/ssm/setup_short_leads.png" /></p>
@@ -1408,18 +1430,15 @@ series resistance</strong>. This panel decides which value of Rb, Rc, and Re
 actually reaches the model, not the Short dummy above.</p>
 <p><img alt="Choose series resistance panel" src="../../assets/ssm/setup_preoverride.png" /></p>
 <p>Each of Rb, Rc, Re has its own source radio. Right after Step 1, the only
-option is <strong>Custom</strong>, defaulted to 0 Ω, type a value directly into the
-Rb/Rc/Re boxes on the right if you already know it. Once you run the
-Cold-HBT, Z-parameter, or open-collector methods (next page), those show up
-as extra radio choices here, each labelled with its extracted value, and
-whichever one is selected is the value that feeds every model downstream.
-<strong>Short (Step 1b) is deliberately not offered</strong>, the app treats the Short
-method as the least reliable of the four for access resistance, so it never
-wins by default.</p>
+option is <strong>Custom</strong>, defaulted to 0 Ω; type a value into the Rb/Rc/Re boxes
+on the right if you already know it. Once you run the Cold-HBT, Z-parameter,
+or open-collector methods (next page), they show up as extra radio choices
+labelled with their extracted value, and the selected one feeds every model
+downstream.</p>
 <p>Pad capacitances (Cpbe/Cpce/Cpbc) and lead inductances (Lb/Lc/Le) are not
 editable in this panel; they always follow Step 1's Open/Short extraction
 (or its "Override Open Capacitances" / "Override Short Lead Values"
-expanders, if you nudged them there).</p>
+expanders, if you changed them there).</p>
 <p>Next: <a href="../ssm-access-r/">access resistance</a>.</p>
 
 

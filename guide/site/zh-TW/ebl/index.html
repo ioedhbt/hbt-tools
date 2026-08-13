@@ -366,6 +366,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../basics/local-installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1071,10 +1099,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-上傳遮罩" class="md-nav__link">
+  <a href="#2-左側電腦設定" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. 上傳遮罩
+        2. 左側電腦設定
       
     </span>
   </a>
@@ -1082,10 +1110,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-選擇元件與圖層" class="md-nav__link">
+  <a href="#3-上傳遮罩" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. 選擇元件與圖層
+        3. 上傳遮罩
       
     </span>
   </a>
@@ -1108,6 +1136,17 @@
     <span class="md-ellipsis">
       
         三種使用本頁的方式
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#設定說明" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        設定說明
       
     </span>
   </a>
@@ -1280,10 +1319,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-上傳遮罩" class="md-nav__link">
+  <a href="#2-左側電腦設定" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. 上傳遮罩
+        2. 左側電腦設定
       
     </span>
   </a>
@@ -1291,10 +1330,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-選擇元件與圖層" class="md-nav__link">
+  <a href="#3-上傳遮罩" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. 選擇元件與圖層
+        3. 上傳遮罩
       
     </span>
   </a>
@@ -1317,6 +1356,17 @@
     <span class="md-ellipsis">
       
         三種使用本頁的方式
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#設定說明" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        設定說明
       
     </span>
   </a>
@@ -1346,66 +1396,59 @@
 <a href="first-exposure/">首次曝光</a>、<a href="second-exposure/">二次曝光</a>）都是在本頁
 的基礎上進行。</p>
 <h2 id="1-開啟計算機">1. 開啟計算機<a class="headerlink" href="#1-開啟計算機" title="Permanent link">&para;</a></h2>
-<p><strong>電子束微影計算機 (EBL Calculator)</strong> 位於平台側邊欄的 <strong>製程
-(Process)</strong> 底下。它也可以獨立執行，不需要平台：<code>python
-launch_ebl_calculator.py</code> 會在自己旁邊建立一個本機虛擬環境，安裝頁面所需的
-套件，並直接啟動 <code>tools/ebeam/calculator.py</code>。獨立模式沒有密碼關卡，側邊欄
-也沒有其他工具，只有這一頁。</p>
+<p>大部分情況下，<a href="https://ebeaml.streamlit.app/">Streamlit 線上網頁</a>應用程式就足以處理遮罩檔案。如果你的遮罩檔案大於 350 MB，請改在本機執行應用程式：</p>
+<ol>
+<li>
+<p>在電腦上安裝 python。Windows 上安裝時要勾選「add to PATH」。</p>
+</li>
+<li>
+<p>前往<a href="https://github.com/ioedhbt/ebeam">電子束工具 GitHub 儲存庫</a>。點選綠色
+   「&lt;&gt; Code」按鈕，再點「download zip」。把 zip 解壓縮到一個資料夾。</p>
+</li>
+<li>
+<p>在該資料夾開啟終端機或命令提示字元，執行
+   <code>python launch_ebl_calculator.py</code> 或 <code>python3 launch_ebl_calculator.py</code>。
+   它會安裝頁面所需的套件，並透過瀏覽器啟動應用程式。</p>
+</li>
+</ol>
 <p><img alt="電子束微影計算機頁首，獨立啟動，沒有平台外框，沒有密碼關卡" src="../../assets/ebl/index_header.png" /></p>
-<p>獨立模式也會提高上傳上限。平台的上傳上限是 350 MB（依部署容器大小設定）；
-<code>launch_ebl_calculator.py</code> 則改以工作站自身的 RAM 來決定上限，最高可到
-4 GB。</p>
-<h2 id="2-上傳遮罩">2. 上傳遮罩<a class="headerlink" href="#2-上傳遮罩" title="Permanent link">&para;</a></h2>
-<ol>
-<li>在 <strong>GDS 遮罩 (GDS Mask)</strong> 底下的 <strong>上傳 .gds 檔案 (Upload .gds file)</strong>
-   放入一個 <code>.gds</code> 檔。</li>
-</ol>
-<p><img alt="上傳元件與 RAM 預算行" src="../../assets/ebl/index_upload.png" /></p>
-<p>上傳區下方那一行，<strong>單一遮罩可用記憶體 (Memory available for one mask)</strong>，
-不是固定數字。它是當下讀取的可用 RAM，所以同一個檔案在閒置機器上能載入，
-一小時後在忙碌的機器上可能就會被拒絕。超出這個預算時，程式會做以下兩種
-處理之一，絕不會當機：</p>
-<ul>
-<li><strong>太大無法整個載入、但足以量測</strong>：改成以串流方式讀取，以約 4 MB 為單位
-  讀回，只保留精簡後的資訊（邊界框、覆蓋率），因此你仍能看到概覽並得到精確
-  的時間估計，並附上說明此狀況的警告訊息。</li>
-<li><strong>兩種都太大</strong>：會出現一則明確指出問題的錯誤訊息（檔案損毀，或連串流都
-  不夠的過小預算）。</li>
-</ul>
-<p>本指南各頁使用的範例遮罩檔都只有幾 KB，所以這一行永遠會顯示無聊的
-<strong>0 MB 壓縮為 0 MB</strong>，需要檢查的是比例與這一行是否存在，而不是數字本身。</p>
-<h2 id="3-選擇元件與圖層">3. 選擇元件與圖層<a class="headerlink" href="#3-選擇元件與圖層" title="Permanent link">&para;</a></h2>
-<ol>
-<li>檔案解析成功後，<strong>頂層元件 (Top Cell)</strong> 與 <strong>要曝光的圖層 (Layer to
-   expose)</strong> 會自動填入。先選頂層元件，再選你想檢視或接下來要曝光的
-   <code>(layer, datatype)</code> 配對。</li>
-</ol>
+<h2 id="2-左側電腦設定">2. 左側電腦設定<a class="headerlink" href="#2-左側電腦設定" title="Permanent link">&para;</a></h2>
+<p>設定晶片原點，也就是網格要對齊的位置（預設為 10.0, 10.0）。你可以用其他
+數字，但不要用 0, 0；那會讓網格貼到畫面最左邊，你將找不到它。</p>
+<p>接著設定 <strong>晶片尺寸 (Chip Size)</strong> 與 <strong>點陣圖 (Dotmap)</strong>。晶片尺寸是每個
+網格有多大，點陣圖是每個網格要畫幾個點（像素）。因此曝光的解析度就是
+晶片尺寸除以點陣圖。</p>
+<p><img alt="左側電腦設定" src="../assets/ebl/index_left_computer.png" /></p>
+<h2 id="3-上傳遮罩">3. 上傳遮罩<a class="headerlink" href="#3-上傳遮罩" title="Permanent link">&para;</a></h2>
+<p>在 <strong>GDS 遮罩 (GDS Mask)</strong> 底下的 <strong>上傳 .gds 檔案 (Upload .gds file)</strong> 放入
+一個 <code>.gds</code> 檔。檔案解析成功後，<strong>頂層元件 (Top Cell)</strong> 與 <strong>要曝光的圖層
+(Layer to expose)</strong> 會自動填入。先選頂層元件，再選你想檢視或接下來要曝光
+的 <code>(layer, datatype)</code> 配對。</p>
 <p><img alt="已載入遮罩：元件／圖層選擇器與解析後的尺寸行" src="../../assets/ebl/index_loaded.png" /></p>
-<p>一次只會顯示一組 <code>(layer, datatype)</code>。如果你的遮罩把一個工作拆到好幾個
-datatype 上（例如對準標記在一個、焊墊在另一個、精細特徵在第三個，就像本
-指南使用的範例遮罩一樣），就得一次選一個。</p>
 <h2 id="4-閱讀檢視器">4. 閱讀檢視器<a class="headerlink" href="#4-閱讀檢視器" title="Permanent link">&para;</a></h2>
-<ol>
-<li>選擇器下方的圖會畫出所選圖層。小型圖層（少於 50,000 個多邊形）會精確
-   畫出每一個多邊形，如下圖，來自範例首次曝光遮罩的六個基極焊墊：</li>
-</ol>
+<p>選擇器下方的圖會畫出所選圖層。小型圖層（少於 50,000 個多邊形）會逐一畫出
+每一個多邊形：</p>
 <p><img alt="GDS 檢視器：精確繪出六個基極焊墊多邊形" src="../../assets/ebl/index_viewer.png" /></p>
-<p>超過 50,000 個多邊形後，頁面就不會逐一畫出每個形狀（瀏覽器會卡住），而是
-改用低解析度的覆蓋率光柵圖，並附上一個可強制顯示完整細節的核取方塊。在密集
-圖層的概覽圖上拖曳框選，可以只重新以完整細節讀取該區域，適合在有上千個元件
-的遮罩中檢查單一元件。</p>
+<p>超過 50,000 個多邊形後，檢視器改為顯示低解析度概覽圖。在上面拖曳框選，
+即可重新以完整細節繪出該區域，適合在有上千個元件的遮罩中檢查單一元件。</p>
+<p><img alt="圖案太大無法檢視" src="../assets/ebl/index_large.png" />
+<img alt="顯示框內的圖案" src="../assets/ebl/index_large2.png" /></p>
 <h2 id="三種使用本頁的方式">三種使用本頁的方式<a class="headerlink" href="#三種使用本頁的方式" title="Permanent link">&para;</a></h2>
 <p>遮罩載入後，頁面最下方的 <strong>曝光流程 (Workflow)</strong> 區塊決定頁面接下來要用它
 做什麼：</p>
 <p><img alt="模式選擇器：劑量時間測試、首次曝光、二次對準" src="../../assets/ebl/index_mode.png" /></p>
-<p><strong>劑量時間測試 (Dose Time Testing)</strong> 會把同一個遮罩複製到一格一格的載台
-位置上，逐格遞增劑量，讓你能在真正對元件下手之前，從顯影結果中挑出可用的
-劑量，見<a href="dose-test/">劑量時間測試</a>。</p>
-<p><strong>首次曝光 (First Exposure)</strong> 用同尺寸網格鋪滿寫入場並置中於晶片上，不涉及
-任何標記，是寫在裸晶片上的第一個圖案。見<a href="first-exposure/">首次曝光</a>。</p>
-<p><strong>二次對準 (Second Alignment)</strong> 會把新圖層對準到晶片上先前曝光留下的標記，
-讓新圖案相對於既有圖案落在正確的位置。見<a href="second-exposure/">二次曝光</a>。</p>
+<p><strong>劑量時間測試 (Dose Time Testing)</strong> 會以逐格遞增的劑量多次曝光同一個遮罩
+圖案，讓你能在真正對元件下手之前，從顯影結果中挑出可用的劑量。見
+<a href="dose-test/">劑量時間測試</a>。</p>
+<p><strong>首次曝光 (First Exposure)</strong> 將遮罩檔案曝光到元件上，不進行任何標記對準。
+你必須事先測試劑量。見<a href="first-exposure/">首次曝光</a>。</p>
+<p><strong>二次對準 (Second Alignment)</strong> 將遮罩檔案曝光到已有對準標記的元件上，
+利用既有標記對準。你必須事先測試劑量。見<a href="second-exposure/">二次曝光</a>。</p>
 <p>要知道三種模式依序在 JEOL 系統中該輸入哪些數字，見<a href="job-sheet/">工作編號表</a>。</p>
+<h2 id="設定說明">設定說明<a class="headerlink" href="#設定說明" title="Permanent link">&para;</a></h2>
+<p>小提示：開啟 <strong>左側電腦設定 (Left Computer Setup)</strong> 區塊中的 <strong>設定說明
+(Setup Instruction)</strong>。它會彙整你的步驟與左側電腦所需的數字。</p>
+<p><img alt="設定說明彙整你的步驟與左側電腦所需的數字" src="../assets/ebl/setup_instruction.png" /></p>
 
 
 
