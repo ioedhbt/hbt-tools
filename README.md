@@ -4,6 +4,12 @@ A Streamlit web app for HBT (Heterojunction Bipolar Transistor) lab
 work: DC curve analysis, RF characterization, small-signal model (SSM)
 extraction & fitting, and e-beam lithography process planning.
 
+This app is deployed in [hbt-tools.streamlit.app](https://hbt-tools.streamlit.app/).
+
+## Docs
+
+For the guide on how to use this app, also check the docs at [ioedhbt.github.io/hbt-tools](https://ioedhbt.github.io/hbt-tools/).
+
 ---
 
 ## Quick Start
